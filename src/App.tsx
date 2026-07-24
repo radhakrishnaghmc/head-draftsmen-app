@@ -258,13 +258,13 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
   // see applyWorksSchemaWithMapping) since a source sheet very often uses
   // different column names (e.g. "Estimate Amount" instead of the app's
   // "Amount of estimate") that an exact-name match would otherwise drop.
+  // A sheet with only a header row (no works filled in yet) still updates
+  // the database's columns to match — it isn't rejected just for having no
+  // rows yet, since the point of importing it is often exactly to set up
+  // the right columns before adding works.
   async function importFromGoogleLink(url: string): Promise<{ added: number }> {
     const imported = await api.importFromLink(url)
     const rows = imported.rows.filter((row) => Object.values(row).some((v) => (v ?? '').trim() !== ''))
-
-    if (rows.length === 0) {
-      throw new Error('No usable rows found at that link.')
-    }
 
     let embeddings: { labelVectors: number[][]; columnVectors: number[][] } | undefined
     try {

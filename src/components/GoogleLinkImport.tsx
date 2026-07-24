@@ -24,7 +24,11 @@ export default function GoogleLinkImport({ onImport }: Props) {
     setDone(null)
     try {
       const { added } = await onImport(trimmed)
-      setDone(`Replaced the works database with ${added} row${added === 1 ? '' : 's'} from the link.`)
+      setDone(
+        added > 0
+          ? `Replaced the works database with ${added} row${added === 1 ? '' : 's'} from the link.`
+          : "Updated the works database's columns from the link — it had no rows yet, so add some or refresh once they're filled in."
+      )
       setUrl('')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))

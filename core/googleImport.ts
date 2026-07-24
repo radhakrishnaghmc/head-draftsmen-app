@@ -86,7 +86,10 @@ export async function importTableFromGoogleLink(link: string): Promise<ExcelTabl
       'Could not read spreadsheet data from that link. Make sure it points to a Google Sheet or Excel file shared as "Anyone with the link can view".'
     )
   }
-  if (table.headers.length === 0 || table.rows.length === 0) {
+  // A sheet with just a header row (no works filled in yet) is still useful
+  // — the caller can adopt its columns — so only reject a link with no
+  // readable headers at all, not one with zero data rows.
+  if (table.headers.length === 0) {
     throw new Error(
       'No data found at that link. Make sure it points to a Google Sheet or Excel file shared as "Anyone with the link can view".'
     )
