@@ -2,16 +2,30 @@ import { useRef, useState } from 'react'
 import { api } from '../ipc'
 import { guessHeaderRow } from '@core/sheet'
 import { extractEstimateItemsWithAi } from '../aiEstimateColumns'
+import { extractWorkName } from '@core/estimateExtract'
+import { extractEstimateAmountLakhs } from '@core/deviation'
+import { findWorksRowByName, metaFromWorksRow } from '@core/scheduleA'
+import { applyEcvFromBoq } from '@core/worksAmounts'
+import { buildBoqFromEstimate, computeEcvFromItems, boqToScheduleA } from '../boqTransform'
 import { IconFolder, IconImage, IconTrash, IconDownload, IconWarn } from './Icons'
 import ExcelInline from './ExcelInline'
 import type { ExcelTable } from '@core/types'
 import type { EstimateWorkItem } from '@core/estimateExtract'
+import type { DeviationItem } from '../../electron/ipc-contract'
 
 interface Photo {
   id: string
   name: string
   dataUrl: string
 }
+
+interface Props {
+  /** The Works List database — tables[0], by the app's own convention — used for ECV write-back and Circle/Agency lookups. */
+  tables: ExcelTable[]
+  onChange: (table: ExcelTable) => void
+}
+
+type ActionKey = 'excel' | 'boq' | 'scheduleA' | 'deviation'
 
 function nextId(): string {
   return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -49,6 +63,18 @@ function itemsToTable(items: EstimateWorkItem[]): ExcelTable {
   return { id: `photo-estimate-${Date.now()}`, name: 'Estimate from photos', path: '', headers, rows }
 }
 
+/** Reverses itemsToTable — reads back whatever the user has (possibly) edited in the review grid. */
+function tableToItems(table: ExcelTable): EstimateWorkItem[] {
+  return table.rows
+    .filter((r) => (r['Description'] ?? '').trim() && (r['Quantity'] ?? '').trim())
+    .map((r) => ({
+      description: r['Description'] ?? '',
+      quantity: r['Quantity'] ?? '',
+      rate: r['Rate'] ?? '',
+      unit: r['Unit'] ?? ''
+    }))
+}
+
 /**
  * Upload photos of a paper estimate (in page order — drag to reorder) and
  * convert them into an editable spreadsheet: each photo is read with local
@@ -58,8 +84,13 @@ function itemsToTable(items: EstimateWorkItem[]): ExcelTable {
  * Excel estimates. OCR on a real photographed page is inherently
  * imperfect — the result is always shown for review/editing before export,
  * never saved directly.
+ *
+ * Once reviewed, the same items feed straight into the app's existing
+ * BOQ / Schedule A / Deviation Statement generators — the photos are just
+ * an alternative way to get an estimate's items into the app, not a
+ * separate feature with its own output logic.
  */
-export default function UploadPhotosTab() {
+export default function UploadPhotosTab({ tables, onChange }: Props) {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
@@ -69,8 +100,19 @@ export default function UploadPhotosTab() {
   const [convertError, setConvertError] = useState<string | null>(null)
   const [resultTable, setResultTable] = useState<ExcelTable | null>(null)
   const [aiAssisted, setAiAssisted] = useState<string[]>([])
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState<string | null>(null)
+  // The raw OCR'd grid + detected work name/header row, kept alongside the
+  // editable preview so BOQ/Schedule A/Deviation generation (below) can
+  // reuse them exactly like the Excel-upload versions of these features do.
+  const [ocrGrid, setOcrGrid] = useState<string[][] | null>(null)
+  const [headerRowIndex, setHeaderRowIndex] = useState(0)
+  const [workName, setWorkName] = useState<string | undefined>()
+  const [agencyName, setAgencyName] = useState('')
+
+  const [actionBusy, setActionBusy] = useState<ActionKey | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [actionSaved, setActionSaved] = useState<string | null>(null)
+
+  const worksTable = tables[0] ?? null
 
   async function handleFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return
@@ -120,7 +162,8 @@ export default function UploadPhotosTab() {
     setConverting(true)
     setConvertError(null)
     setResultTable(null)
-    setSaved(null)
+    setActionError(null)
+    setActionSaved(null)
     try {
       const sheet = await api.ocrEstimatePhotos(photos.map((p) => p.dataUrl))
       const headerRow = guessHeaderRow(sheet.grid)
@@ -132,6 +175,9 @@ export default function UploadPhotosTab() {
       }
       setAiAssisted(assisted)
       setResultTable(itemsToTable(items))
+      setOcrGrid(sheet.grid)
+      setHeaderRowIndex(headerRow)
+      setWorkName(extractWorkName(sheet.grid, headerRow))
     } catch (e) {
       setConvertError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -141,16 +187,130 @@ export default function UploadPhotosTab() {
 
   async function download() {
     if (!resultTable) return
-    setSaving(true)
-    setSaved(null)
+    setActionBusy('excel')
+    setActionError(null)
+    setActionSaved(null)
     try {
       const base = photos[0] ? stripExt(photos[0].name) : 'Estimate'
       const path = await api.exportTable(resultTable, `${base} Estimate`)
-      if (path) setSaved(path)
+      if (path) setActionSaved(path)
     } catch (e) {
-      setConvertError(e instanceof Error ? e.message : String(e))
+      setActionError(e instanceof Error ? e.message : String(e))
     } finally {
-      setSaving(false)
+      setActionBusy(null)
+    }
+  }
+
+  // Matches a work name against the Works List by exact name first, falling
+  // back to the local embedding model when that fails (an estimate's
+  // title-block wording very often differs slightly from the Works List's
+  // own entry) — shared by the BOQ/Schedule A/Deviation actions below.
+  async function matchWorksRow(name: string, table: ExcelTable) {
+    const exact = findWorksRowByName(table, name)
+    if (exact) return exact
+    const nameHeader = table.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
+    if (!nameHeader) return undefined
+    try {
+      const rowNames = table.rows.map((r) => r[nameHeader] ?? '')
+      const vectors = await api.embedTexts([name, ...rowNames])
+      return findWorksRowByName(table, name, { workNameVector: vectors[0], rowNameVectors: vectors.slice(1) })
+    } catch {
+      return undefined
+    }
+  }
+
+  async function downloadBoq() {
+    if (!resultTable) return
+    setActionBusy('boq')
+    setActionError(null)
+    setActionSaved(null)
+    try {
+      const items = tableToItems(resultTable)
+      const boq = buildBoqFromEstimate(items)
+      const base = photos[0] ? stripExt(photos[0].name) : 'Estimate'
+      const path = await api.exportBoq(boq, `${base} BOQ`, workName)
+      if (path) setActionSaved(path)
+
+      if (workName && worksTable) {
+        const ecvRupees = computeEcvFromItems(items)
+        let result = applyEcvFromBoq(worksTable, workName, ecvRupees)
+        if (!result.matched) {
+          const nameHeader = worksTable.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
+          if (nameHeader) {
+            try {
+              const rowNames = worksTable.rows.map((r) => r[nameHeader] ?? '')
+              const vectors = await api.embedTexts([workName, ...rowNames])
+              result = applyEcvFromBoq(worksTable, workName, ecvRupees, {
+                workNameVector: vectors[0],
+                rowNameVectors: vectors.slice(1)
+              })
+            } catch {
+              // Embeddings unavailable — leave the Works List untouched.
+            }
+          }
+        }
+        if (result.matched) onChange(result.table)
+      }
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setActionBusy(null)
+    }
+  }
+
+  async function downloadScheduleA() {
+    if (!resultTable) return
+    setActionBusy('scheduleA')
+    setActionError(null)
+    setActionSaved(null)
+    try {
+      const items = tableToItems(resultTable)
+      // The app's own BOQ column names already match Schedule A's expected
+      // patterns exactly, so no embedding fallback is needed for this step.
+      const scheduleARows = boqToScheduleA(buildBoqFromEstimate(items))
+
+      const meta = workName && worksTable ? metaFromWorksRow((await matchWorksRow(workName, worksTable))?.row ?? {}) : undefined
+      const base = photos[0] ? stripExt(photos[0].name) : 'Estimate'
+      const path = await api.exportScheduleA(scheduleARows, `${base} Schedule A`, meta)
+      if (path) setActionSaved(path)
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setActionBusy(null)
+    }
+  }
+
+  async function generateDeviation() {
+    if (!resultTable) return
+    if (!agencyName.trim()) {
+      setActionError("Enter the agency's name before generating the Deviation Statement.")
+      return
+    }
+    setActionBusy('deviation')
+    setActionError(null)
+    setActionSaved(null)
+    try {
+      const items = tableToItems(resultTable)
+      const deviationItems: DeviationItem[] = items.map((it) => ({
+        description: it.description,
+        unit: it.unit,
+        quantity: it.quantity,
+        rate: it.rate
+      }))
+      const estimateAmountLakhs = extractEstimateAmountLakhs(ocrGrid ?? [], headerRowIndex, items)
+      const circle = workName && worksTable ? (await matchWorksRow(workName, worksTable))?.row['Circle'] : undefined
+
+      const base = photos[0] ? stripExt(photos[0].name) : 'Estimate'
+      const path = await api.exportDeviation(
+        deviationItems,
+        { circle, nameOfWork: workName, agencyName: agencyName.trim(), estimateAmountLakhs },
+        `${base} Deviation`
+      )
+      if (path) setActionSaved(path)
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setActionBusy(null)
     }
   }
 
@@ -228,17 +388,44 @@ export default function UploadPhotosTab() {
         <>
           <div className="notice ok" style={{ marginTop: 14 }}>
             Read {resultTable.rows.length} row{resultTable.rows.length === 1 ? '' : 's'} from {photos.length} photo
-            {photos.length === 1 ? '' : 's'} — OCR is never perfect, please check the rows below before downloading.
+            {photos.length === 1 ? '' : 's'} — OCR is never perfect, please check the rows below before generating
+            anything.
             {aiAssisted.length > 0 &&
               ` ${aiAssisted.join(', ')} column${aiAssisted.length === 1 ? '' : 's'} matched by AI — please double-check.`}
           </div>
           <ExcelInline table={resultTable} onChange={setResultTable} />
-          <div className="boq-actions" style={{ marginTop: 14 }}>
-            <button className="primary" onClick={download} disabled={saving}>
-              <IconDownload /> {saving ? 'Saving…' : 'Download Excel'}
+
+          {actionError && (
+            <div className="notice error" style={{ marginTop: 14 }}>
+              <IconWarn />
+              {actionError}
+            </div>
+          )}
+
+          <div className="boq-actions" style={{ marginTop: 14, flexWrap: 'wrap' }}>
+            <button className="primary" onClick={download} disabled={actionBusy !== null}>
+              <IconDownload /> {actionBusy === 'excel' ? 'Saving…' : 'Download Excel'}
             </button>
-            {saved && <span className="hint">Saved to {saved}</span>}
+            <button className="primary" onClick={downloadBoq} disabled={actionBusy !== null}>
+              <IconDownload /> {actionBusy === 'boq' ? 'Saving…' : 'Download BOQ'}
+            </button>
+            <button className="primary" onClick={downloadScheduleA} disabled={actionBusy !== null}>
+              <IconDownload /> {actionBusy === 'scheduleA' ? 'Saving…' : 'Download Schedule A'}
+            </button>
           </div>
+          <div className="boq-actions" style={{ marginTop: 8 }}>
+            <input
+              className="editor-name"
+              style={{ maxWidth: 220 }}
+              placeholder="Name of the Agency"
+              value={agencyName}
+              onChange={(e) => setAgencyName(e.target.value)}
+            />
+            <button className="primary" onClick={generateDeviation} disabled={actionBusy !== null}>
+              <IconDownload /> {actionBusy === 'deviation' ? 'Saving…' : 'Generate Deviation Statement'}
+            </button>
+          </div>
+          {actionSaved && <p className="hint">Saved to {actionSaved}</p>}
         </>
       )}
     </div>

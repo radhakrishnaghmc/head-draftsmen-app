@@ -670,7 +670,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
                 <p>Upload site photos and drag to arrange them in the order they should appear.</p>
               </div>
             </div>
-            <UploadPhotosTab />
+            <UploadPhotosTab tables={tables} onChange={updateTable} />
           </section>
         )}
 
