@@ -9,7 +9,7 @@ import { buildBoqFromEstimate, computeEcvFromItems } from '../boqTransform'
 import { IconFolder, IconDownload, IconWarn, IconCheck, IconTrash, IconTable } from './Icons'
 import type { ExcelTable } from '@core/types'
 
-type EcvStatus = 'matched' | 'not-found' | 'no-works-list' | 'no-name' | null
+type EcvStatus = 'matched' | 'matched-ai' | 'not-found' | 'no-works-list' | 'no-name' | null
 
 interface Entry {
   id: string
@@ -85,10 +85,28 @@ export default function EstimateToBoqTab({ tables, onChange }: Props) {
           if (!worksTable) {
             ecvStatus = 'no-works-list'
           } else {
-            const result = applyEcvFromBoq(worksTable, workName, ecvRupees)
+            let result = applyEcvFromBoq(worksTable, workName, ecvRupees)
+            // Exact match failed — an estimate's title-block work name often
+            // differs slightly in wording from the Works List's own entry,
+            // so give the local embedding model one more chance.
+            if (!result.matched) {
+              const nameHeader = worksTable.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
+              if (nameHeader) {
+                try {
+                  const rowNames = worksTable.rows.map((r) => r[nameHeader] ?? '')
+                  const vectors = await api.embedTexts([workName, ...rowNames])
+                  result = applyEcvFromBoq(worksTable, workName, ecvRupees, {
+                    workNameVector: vectors[0],
+                    rowNameVectors: vectors.slice(1)
+                  })
+                } catch {
+                  // Embeddings unavailable — leave as not-found, same as before.
+                }
+              }
+            }
             if (result.matched) {
               worksTable = result.table
-              ecvStatus = 'matched'
+              ecvStatus = result.matchedViaAi ? 'matched-ai' : 'matched'
             } else {
               ecvStatus = 'not-found'
             }
@@ -190,6 +208,8 @@ export default function EstimateToBoqTab({ tables, onChange }: Props) {
     switch (e.ecvStatus) {
       case 'matched':
         return `ECV ${formatRupees(e.ecvRupees)} saved to Works List for "${e.workName}"`
+      case 'matched-ai':
+        return `ECV ${formatRupees(e.ecvRupees)} saved to Works List for "${e.workName}" (matched via AI, not an exact name — please verify)`
       case 'not-found':
         return `No matching "${e.workName}" row found in the Works List — ECV not saved`
       case 'no-works-list':

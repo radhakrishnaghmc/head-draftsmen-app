@@ -93,6 +93,9 @@ export default function ScheduleATab({ tables }: Props) {
   // having to separately hunt down and pick its Win Code.
   const [detectedName, setDetectedName] = useState<string | null>(null)
   const [autoRow, setAutoRow] = useState<Record<string, string> | null>(null)
+  // True when autoRow only matched via semantic similarity (embeddings),
+  // not an exact "Name of the work" match — worth a "please verify" note.
+  const [autoRowMatchedViaAi, setAutoRowMatchedViaAi] = useState(false)
   // Column labels only resolved via semantic matching, not a plain header match.
   const [aiAssisted, setAiAssisted] = useState<string[]>([])
 
@@ -129,11 +132,37 @@ export default function ScheduleATab({ tables }: Props) {
       }
       const detected = extractWorkNameFromBoq(t)
       setDetectedName(detected ?? null)
-      setAutoRow(detected && worksTable ? findWorksRowByName(worksTable, detected) ?? null : null)
+      if (detected && worksTable) {
+        let match = findWorksRowByName(worksTable, detected)
+        // Fast exact match failed — a BOQ's title-block work name often
+        // differs slightly in wording from the Works List's own entry, so
+        // give the local embedding model one more chance before giving up.
+        if (!match) {
+          const nameHeader = worksTable.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
+          if (nameHeader) {
+            try {
+              const rowNames = worksTable.rows.map((r) => r[nameHeader] ?? '')
+              const vectors = await api.embedTexts([detected, ...rowNames])
+              match = findWorksRowByName(worksTable, detected, {
+                workNameVector: vectors[0],
+                rowNameVectors: vectors.slice(1)
+              })
+            } catch {
+              // Embeddings unavailable — leave unmatched, same as before.
+            }
+          }
+        }
+        setAutoRow(match?.row ?? null)
+        setAutoRowMatchedViaAi(match?.matchedViaAi ?? false)
+      } else {
+        setAutoRow(null)
+        setAutoRowMatchedViaAi(false)
+      }
     } catch (e) {
       setOutput(null)
       setDetectedName(null)
       setAutoRow(null)
+      setAutoRowMatchedViaAi(false)
       const hint = mismatchHint(t.headers, 'boq')
       setError((e instanceof Error ? e.message : String(e)) + (hint ? ` ${hint}` : ''))
     }
@@ -141,9 +170,11 @@ export default function ScheduleATab({ tables }: Props) {
 
   function autoDetectNote(): string | null {
     if (!detectedName) return null
-    return autoRow
-      ? `Detected "Name of Work" in the BOQ — "${detectedName}". Estimate/ECV/Contract Amount, Contractor and Tender Percentage auto-filled from the Works List.`
-      : `Detected "Name of Work" in the BOQ — "${detectedName}" — but no matching row was found in the Works List.`
+    if (!autoRow) {
+      return `Detected "Name of Work" in the BOQ — "${detectedName}" — but no matching row was found in the Works List.`
+    }
+    const base = `Detected "Name of Work" in the BOQ — "${detectedName}". Estimate/ECV/Contract Amount, Contractor and Tender Percentage auto-filled from the Works List.`
+    return autoRowMatchedViaAi ? `${base} Matched via AI, not an exact name — please verify.` : base
   }
 
   async function download() {

@@ -1,6 +1,11 @@
 import * as XLSX from 'xlsx'
 import type { ExcelTable } from './types'
 import { computeWorkAmounts, indianDigitGroups } from './worksAmounts'
+import { rankByEmbedding } from './embeddingMatch'
+
+// A match below this score is treated as "no real match" — same threshold
+// used for placeholder/column matching elsewhere (core/columnMatch.ts).
+const EMBEDDING_THRESHOLD = 0.5
 
 export interface ScheduleAItem {
   itemNo: string
@@ -49,22 +54,45 @@ export function metaFromWorksRow(row: Record<string, string>): ScheduleAMeta {
   }
 }
 
+export interface WorksRowMatch {
+  row: Record<string, string>
+  /** True when the match came from semantic similarity (embeddings) rather than an exact name match — worth a "please verify" flag, same as column-matching elsewhere. */
+  matchedViaAi: boolean
+}
+
 /**
  * Find the Works List row whose "Name of the work" matches (case- and
  * whitespace-insensitive) `workName` — used to auto-fill Schedule-A meta from
  * a work name detected in an uploaded BOQ, instead of requiring a manually
  * picked Win Code.
+ *
+ * A BOQ's title-block work name can differ slightly in wording from the
+ * Works List's own entry (abbreviations, punctuation, rephrasing) — when the
+ * exact match fails and `embeddings` are supplied (workName + every
+ * candidate row name, both embedded by the caller), the closest semantic
+ * match above the threshold is used instead.
  */
 export function findWorksRowByName(
   worksTable: ExcelTable,
-  workName: string
-): Record<string, string> | undefined {
+  workName: string,
+  embeddings?: { workNameVector: number[]; rowNameVectors: number[][] }
+): WorksRowMatch | undefined {
   const nameHeader = worksTable.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
   if (!nameHeader) return undefined
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
   const target = norm(workName)
   if (!target) return undefined
-  return worksTable.rows.find((r) => norm(r[nameHeader] ?? '') === target)
+
+  const idx = worksTable.rows.findIndex((r) => norm(r[nameHeader] ?? '') === target)
+  if (idx !== -1) return { row: worksTable.rows[idx], matchedViaAi: false }
+
+  if (embeddings) {
+    const [best] = rankByEmbedding(embeddings.workNameVector, embeddings.rowNameVectors)
+    if (best && best.score >= EMBEDDING_THRESHOLD) {
+      return { row: worksTable.rows[best.index], matchedViaAi: true }
+    }
+  }
+  return undefined
 }
 
 /** Pull the mapped Schedule-A item rows back out of the preview table built by boqToScheduleA. */

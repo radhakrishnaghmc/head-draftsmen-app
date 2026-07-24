@@ -317,9 +317,37 @@ describe('Schedule A meta from the Works List', () => {
 
   it('findWorksRowByName matches case- and whitespace-insensitively', async () => {
     const { findWorksRowByName } = await import('../core/scheduleA')
-    expect(findWorksRowByName(worksTable, '  road   FROM a to b '))
-      .toBe(worksTable.rows[0])
+    const match = findWorksRowByName(worksTable, '  road   FROM a to b ')
+    expect(match?.row).toBe(worksTable.rows[0])
+    expect(match?.matchedViaAi).toBe(false)
     expect(findWorksRowByName(worksTable, 'Some unrelated work')).toBeUndefined()
+  })
+
+  it('findWorksRowByName falls back to the closest embedding match when the exact name differs', async () => {
+    const { findWorksRowByName } = await import('../core/scheduleA')
+    // "Road from A to B" (row 0) vs a differently-worded query — no exact
+    // match, so this only resolves via the supplied embeddings.
+    const match = findWorksRowByName(worksTable, 'Road works between A and B, Ph-1', {
+      workNameVector: [1, 0],
+      rowNameVectors: [
+        [0.99, 0.01], // row 0 — closest
+        [0, 1] // row 1 — unrelated
+      ]
+    })
+    expect(match?.row).toBe(worksTable.rows[0])
+    expect(match?.matchedViaAi).toBe(true)
+  })
+
+  it('findWorksRowByName ignores an embedding match below the threshold', async () => {
+    const { findWorksRowByName } = await import('../core/scheduleA')
+    const match = findWorksRowByName(worksTable, 'Completely unrelated text', {
+      workNameVector: [1, 0],
+      rowNameVectors: [
+        [0.1, 0.99],
+        [0.2, 0.98]
+      ]
+    })
+    expect(match).toBeUndefined()
   })
 
   it('metaFromWorksRow treats "Name of the Agency" as "Name of the Contractor", and Indian-formats the amounts', async () => {

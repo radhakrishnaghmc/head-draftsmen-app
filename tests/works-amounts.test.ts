@@ -135,4 +135,29 @@ describe('applyEcvFromBoq', () => {
     expect(result.matched).toBe(false)
     expect(result.table).toBe(table)
   })
+
+  it('falls back to the closest embedding match when the exact name differs, flagging matchedViaAi', () => {
+    const result = applyEcvFromBoq(table, 'Road works between A and B, Ph-1', 2500000, {
+      workNameVector: [1, 0],
+      rowNameVectors: [
+        [0.99, 0.01], // row 0 ("Road from A to B") — closest
+        [0, 1] // row 1 ("Bridge over river") — unrelated
+      ]
+    })
+    expect(result.matched).toBe(true)
+    expect(result.matchedViaAi).toBe(true)
+    expect(result.table.rows[0]['Estimate Amount ECV']).toBe('25')
+  })
+
+  it('does not use an embedding match below the threshold', () => {
+    const result = applyEcvFromBoq(table, 'Completely unrelated text', 2500000, {
+      workNameVector: [1, 0],
+      rowNameVectors: [
+        [0.1, 0.99],
+        [0.2, 0.98]
+      ]
+    })
+    expect(result.matched).toBe(false)
+    expect(result.matchedViaAi).toBeUndefined()
+  })
 })

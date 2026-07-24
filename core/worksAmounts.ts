@@ -3,6 +3,11 @@
 // fills one of these placeholders (the Bid Document generator, and any
 // user-authored {{Placeholder}} template filled from a Works List row).
 import type { ExcelTable } from './types'
+import { rankByEmbedding } from './embeddingMatch'
+
+// A match below this score is treated as "no real match" — same threshold
+// used for placeholder/column matching elsewhere (core/columnMatch.ts).
+const EMBEDDING_THRESHOLD = 0.5
 
 /** "1" or ".30" (Lakhs) -> 100000 or 30000 (rupees). Estimate/ECV figures on the Works List are always entered in Lakhs. */
 export function lakhsToRupees(lakhs: string): number {
@@ -106,8 +111,10 @@ export function rupeesToLakhsString(rupees: number): string {
 
 export interface EcvMatchResult {
   table: ExcelTable
-  /** Whether a Works List row's "Name of the work" matched (case/whitespace-insensitive). */
+  /** Whether a Works List row's "Name of the work" matched (exactly, or via embeddings — see matchedViaAi). */
   matched: boolean
+  /** True when the match came from semantic similarity (embeddings) rather than an exact name match — worth a "please verify" flag, same as column-matching elsewhere. */
+  matchedViaAi?: boolean
 }
 
 /**
@@ -118,14 +125,33 @@ export interface EcvMatchResult {
  * column's own convention. Returns the table unchanged (`matched: false`) if
  * there's no "Name of the work" column, no name to match, or no row matches —
  * callers should treat that as "nothing to update", not an error.
+ *
+ * An estimate's title-block work name very often differs slightly in wording
+ * from the Works List's own entry (abbreviations, punctuation, rephrasing) —
+ * when the exact match fails and `embeddings` are supplied (the same
+ * work-name text and every candidate row name, both embedded by the caller),
+ * the closest semantic match above the threshold is used instead.
  */
-export function applyEcvFromBoq(table: ExcelTable, workName: string, ecvRupees: number): EcvMatchResult {
+export function applyEcvFromBoq(
+  table: ExcelTable,
+  workName: string,
+  ecvRupees: number,
+  embeddings?: { workNameVector: number[]; rowNameVectors: number[][] }
+): EcvMatchResult {
   const nameHeader = table.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
   const target = norm(workName)
   if (!nameHeader || !target) return { table, matched: false }
 
-  const idx = table.rows.findIndex((r) => norm(r[nameHeader] ?? '') === target)
+  let idx = table.rows.findIndex((r) => norm(r[nameHeader] ?? '') === target)
+  let matchedViaAi = false
+  if (idx === -1 && embeddings) {
+    const [best] = rankByEmbedding(embeddings.workNameVector, embeddings.rowNameVectors)
+    if (best && best.score >= EMBEDDING_THRESHOLD) {
+      idx = best.index
+      matchedViaAi = true
+    }
+  }
   if (idx === -1) return { table, matched: false }
 
   const emd1 = Math.round(ecvRupees * 0.01)
@@ -140,5 +166,5 @@ export function applyEcvFromBoq(table: ExcelTable, workName: string, ecvRupees: 
           'EMD 1.5%': rupeesToLakhsString(emd1_5)
         }
   )
-  return { table: { ...table, rows }, matched: true }
+  return { table: { ...table, rows }, matched: true, matchedViaAi }
 }

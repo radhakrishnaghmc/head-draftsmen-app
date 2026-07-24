@@ -81,7 +81,7 @@ export default function GetDeviationTab({ tables }: Props) {
         }))
         const workName = extractWorkName(g.grid, headerRow)
         const estimateAmountLakhs = extractEstimateAmountLakhs(g.grid, headerRow, estimateItems)
-        const circle = workName && worksTable ? findWorksRowByName(worksTable, workName)?.['Circle'] : undefined
+        const circle = workName && worksTable ? findWorksRowByName(worksTable, workName)?.row['Circle'] : undefined
 
         added.push({
           id: nextId(),
