@@ -22,9 +22,9 @@ extraResources:
   - from: resources/models/all-MiniLM-L6-v2
     to: models/all-MiniLM-L6-v2
 publish:
-  provider: generic
-  url: https://head-draftsmen-app.web.app/
-  channel: latest
+  provider: github
+  owner: radhakrishnaghmc
+  repo: head-draftsmen-app
 mac:
   target:
     - dmg
