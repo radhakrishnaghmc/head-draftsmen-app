@@ -158,17 +158,23 @@ export async function endSession(): Promise<void> {
 
 async function pullRemoteState(id: string): Promise<PersistedState | null> {
   try {
-    const tablesSnap = await getDoc(doc(db!, 'users', id, 'meta', 'tables'))
-    const miscSnap = await getDoc(doc(db!, 'users', id, 'meta', 'misc'))
+    // These 3 reads are independent of one another — fetched in parallel
+    // instead of one-after-another so login/sync only pays for the slowest
+    // of the 3 round trips, not the sum of all 3.
+    const [tablesSnap, miscSnap, docsSnap] = await Promise.all([
+      getDoc(doc(db!, 'users', id, 'meta', 'tables')),
+      getDoc(doc(db!, 'users', id, 'meta', 'misc')),
+      // A Firestore collection has no inherent array order — getDocs()
+      // returns documents in Firestore's own arbitrary order (roughly by
+      // document ID), not the order the user last arranged them in. Each
+      // write tags its document with an explicit `order` index (see
+      // pushState) so the user's own ordering (e.g. dragging tiles on Issue
+      // Document) survives a push/pull round trip instead of silently
+      // resetting.
+      getDocs(collection(db!, 'users', id, 'documents'))
+    ])
     if (!tablesSnap.exists() && !miscSnap.exists()) return null
 
-    // A Firestore collection has no inherent array order — getDocs() returns
-    // documents in Firestore's own arbitrary order (roughly by document ID),
-    // not the order the user last arranged them in. Each write tags its
-    // document with an explicit `order` index (see pushState) so the user's
-    // own ordering (e.g. dragging tiles on Issue Document) survives a
-    // push/pull round trip instead of silently resetting.
-    const docsSnap = await getDocs(collection(db!, 'users', id, 'documents'))
     const createdDocuments: CreatedDocument[] = docsSnap.docs
       .map((d) => d.data() as CreatedDocument & { order?: number })
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))

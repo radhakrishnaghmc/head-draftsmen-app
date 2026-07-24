@@ -33,10 +33,37 @@ interface Request {
   cachePath: string
 }
 
+// Real phone photos of paper documents are usually under-sharpened, unevenly
+// lit, and small relative to the page's text size — all of which measurably
+// hurt Tesseract's accuracy. Grayscale + contrast normalization + sharpening
+// + upscaling (sharp is already bundled transitively via
+// @huggingface/transformers, so this adds no new native dependency to
+// package) consistently cleans up the recognized text without needing any
+// perspective/deskew correction. Best-effort: if preprocessing itself fails
+// for any reason, fall back to the original image rather than losing the OCR
+// attempt entirely.
+async function preprocess(imageBuffer: Buffer): Promise<Buffer> {
+  try {
+    const sharp = (await import('sharp')).default
+    const meta = await sharp(imageBuffer).metadata()
+    const width = meta.width ?? 0
+    return await sharp(imageBuffer)
+      .rotate()
+      .grayscale()
+      .normalize()
+      .sharpen()
+      .resize(width && width < 2400 ? { width: 2400 } : undefined)
+      .toBuffer()
+  } catch {
+    return imageBuffer
+  }
+}
+
 parentPort?.on('message', async (msg: Request) => {
   try {
     const worker = await getWorker(msg.langPath, msg.cachePath)
-    const result = await worker.recognize(msg.imageBuffer, {}, { blocks: true })
+    const image = await preprocess(msg.imageBuffer)
+    const result = await worker.recognize(image, {}, { blocks: true })
     const words: OcrWord[] = []
     for (const block of result.data.blocks ?? []) {
       for (const para of block.paragraphs ?? []) {
