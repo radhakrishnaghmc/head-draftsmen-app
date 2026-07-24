@@ -11,7 +11,8 @@ import {
   IconCalendar,
   IconDownload,
   IconChecklist,
-  IconRefresh
+  IconRefresh,
+  IconImage
 } from './Icons'
 
 export type TabKey =
@@ -23,6 +24,7 @@ export type TabKey =
   | 'scheduleA'
   | 'deviation'
   | 'techSanction'
+  | 'photoEstimate'
   | 'search'
   | 'todo'
 
@@ -128,6 +130,12 @@ export default function Sidebar(props: Props) {
       key: 'techSanction',
       label: 'Give Technical Sanction',
       icon: <IconCheck />
+    },
+    {
+      key: 'photoEstimate',
+      label: 'Upload Photos to Get Estimate',
+      icon: <IconImage />,
+      tone: 'rose'
     }
   ]
 

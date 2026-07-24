@@ -25,6 +25,7 @@ import GetDeviationTab from './components/GetDeviationTab'
 import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
 import CreateDocumentTab from './components/CreateDocumentTab'
 import PrintDocumentTab from './components/PrintDocumentTab'
+import UploadPhotosTab from './components/UploadPhotosTab'
 import TodoList from './components/TodoList'
 import TenderReminders from './components/TenderReminders'
 import {
@@ -36,7 +37,8 @@ import {
   IconPlus,
   IconChecklist,
   IconRefresh,
-  IconCheck
+  IconCheck,
+  IconImage
 } from './components/Icons'
 import type {
   ExcelTable,
@@ -654,6 +656,21 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
               </div>
             </div>
             <GiveTechnicalSanctionTab />
+          </section>
+        )}
+
+        {tab === 'photoEstimate' && (
+          <section className="page">
+            <div className="page-head">
+              <div className="page-ic rose">
+                <IconImage />
+              </div>
+              <div className="page-head-text">
+                <h1>Upload Photos to Get Estimate</h1>
+                <p>Upload site photos and drag to arrange them in the order they should appear.</p>
+              </div>
+            </div>
+            <UploadPhotosTab />
           </section>
         )}
 
