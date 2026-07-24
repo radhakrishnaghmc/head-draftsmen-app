@@ -57,6 +57,11 @@ const api: DocuGenApi = {
     return () => ipcRenderer.removeListener(IPC.updateDownloaded, listener)
   },
   restartToUpdate: () => ipcRenderer.send(IPC.restartToUpdate),
+  onUpdateInstallError: (callback) => {
+    const listener = (_e: unknown, message: string) => callback(message)
+    ipcRenderer.on(IPC.updateInstallError, listener)
+    return () => ipcRenderer.removeListener(IPC.updateInstallError, listener)
+  },
   checkForUpdates: () => ipcRenderer.invoke(IPC.checkForUpdates)
 }
 

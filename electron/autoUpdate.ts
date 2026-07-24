@@ -38,9 +38,25 @@ export function initAutoUpdate(getWindow: () => BrowserWindow | null): void {
   setInterval(check, RECHECK_INTERVAL_MS)
 }
 
-/** Applies a downloaded update and restarts — call only after update-downloaded has fired. */
-export function restartToUpdate(): void {
+/**
+ * Applies a downloaded update and restarts — call only after
+ * update-downloaded has fired. If install fails right away (e.g. macOS
+ * Squirrel.Mac refusing an unsigned app's code signature — a real,
+ * currently-unresolved limitation on macOS specifically, not a network
+ * hiccup) the app never quits and nothing else would tell the user why
+ * — `onError` reports that one failure so the UI isn't just silent.
+ */
+export function restartToUpdate(onError: (message: string) => void): void {
+  const onErr = (e: Error) => {
+    autoUpdater.removeListener('error', onErr)
+    onError(e.message || 'The update could not be installed automatically.')
+  }
+  autoUpdater.once('error', onErr)
   autoUpdater.quitAndInstall()
+  // If the app hasn't quit and no error fired within a few seconds, stop
+  // waiting so a later, unrelated background-check error doesn't get
+  // mistakenly attributed to this restart attempt.
+  setTimeout(() => autoUpdater.removeListener('error', onErr), 10_000)
 }
 
 /**

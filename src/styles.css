@@ -142,6 +142,12 @@ body::before {
 .update-banner button {
   flex: none;
 }
+.update-banner.error svg {
+  color: var(--danger);
+}
+.update-banner.error {
+  border-color: var(--danger);
+}
 .profile-badge {
   width: 38px;
   height: 38px;

@@ -49,6 +49,7 @@ export const IPC = {
   remoteStateUpdate: 'state:remoteUpdate',
   updateDownloaded: 'update:downloaded',
   restartToUpdate: 'update:restart',
+  updateInstallError: 'update:installError',
   checkForUpdates: 'update:check'
 } as const
 
@@ -106,6 +107,8 @@ export interface DocuGenApi {
   onUpdateDownloaded(callback: () => void): () => void
   /** Quits and installs the already-downloaded update, then relaunches. */
   restartToUpdate(): void
+  /** Fires if restartToUpdate's install attempt fails right away (e.g. an unsigned build on macOS) instead of the app just silently not restarting. Returns an unsubscribe function. */
+  onUpdateInstallError(callback: (message: string) => void): () => void
   /** Checks for an update on demand (the small update icon in the sidebar) and reports the outcome, rather than checking silently. */
   checkForUpdates(): Promise<ManualCheckResult>
 }
