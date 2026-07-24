@@ -2348,6 +2348,65 @@ button.danger:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.ocr-grid-preview {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  margin: 12px 0;
+}
+.ocr-grid-preview table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.ocr-grid-preview td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  color: var(--text);
+}
+.ocr-grid-preview td.row-num {
+  color: var(--muted);
+  font-weight: 600;
+  text-align: right;
+  position: sticky;
+  left: 0;
+  background: var(--surface-2);
+}
+.ocr-grid-preview tr {
+  cursor: pointer;
+}
+.ocr-grid-preview tr:hover td {
+  background: var(--indigo-50);
+}
+.ocr-grid-preview tr.selected td {
+  background: var(--indigo-100);
+}
+.manual-col-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+.manual-col-pickers label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.manual-col-pickers select {
+  height: 36px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 13.5px;
+  max-width: 220px;
+}
 .doc-tile-edit-btn {
   position: absolute;
   top: 14px;

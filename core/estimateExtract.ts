@@ -99,10 +99,23 @@ export function estimateColumnsMatchedViaEmbedding(
   }
 }
 
+export interface ResolvedEstimateColumns {
+  snoCol: number
+  descCol: number
+  qtyCol: number
+  rateCol: number
+  unitCol: number
+}
+
 /**
- * Parse a "detailed abstract estimate" sheet into its real work items. Each
- * item spans a block of rows: a lead row carrying the S.No and, in the very
- * next cell, the description (often a merged cell with no header of its
+ * The actual block-extraction algorithm, shared by both the automatic path
+ * (extractEstimateItems, which resolves column indices from the header row's
+ * own text) and the manual-override path (extractEstimateItemsWithColumns,
+ * for when OCR has garbled the header row too badly to resolve automatically
+ * and a person points at the columns instead).
+ *
+ * Each item spans a block of rows: a lead row carrying the S.No and, in the
+ * very next cell, the description (often a merged cell with no header of its
  * own — so the description column is always positional, not name-matched),
  * one or more measurement rows, and a summary row carrying the final
  * Qty/Rate/Unit (searched for from the end of the block, since some items
@@ -110,35 +123,12 @@ export function estimateColumnsMatchedViaEmbedding(
  * rows (Labour cess, GST, TPQC, etc.) have an S.No and description but never
  * a Rate/Unit, so they resolve to nothing and are skipped automatically —
  * no special-casing needed.
- *
- * Column headers are matched by regex first (fast, no model needed); when
- * `embeddings` is supplied and a header doesn't match any pattern, the
- * closest-matching header by semantic similarity is used instead — see
- * core/columnMatch.ts.
  */
-export function extractEstimateItems(
+function extractEstimateItemsFromColumns(
   grid: string[][],
   headerRowIndex: number,
-  embeddings?: ColumnEmbeddings
+  { snoCol, descCol, qtyCol, rateCol, unitCol }: ResolvedEstimateColumns
 ): EstimateWorkItem[] {
-  const header = (grid[headerRowIndex] ?? []).map(norm)
-  let snoCol: number, qtyCol: number, rateCol: number, unitCol: number
-  try {
-    const resolved = resolveColumns(header, ESTIMATE_COLUMN_SPECS, embeddings)
-    snoCol = resolved.indexByLabel['Serial Number']
-    qtyCol = resolved.indexByLabel['Quantity']
-    rateCol = resolved.indexByLabel['Rate']
-    unitCol = resolved.indexByLabel['Unit']
-  } catch {
-    throw new Error('Could not find S.No / Qty / Rate / Unit columns in the estimate.')
-  }
-  // Description isn't reliably labelled (and is often a merged cell with no
-  // header of its own) — it's always the cell right after the serial number.
-  const descCol = snoCol + 1
-  if (descCol >= header.length) {
-    throw new Error('Could not find a description column next to the S.No column in the estimate.')
-  }
-
   const items: EstimateWorkItem[] = []
   let block: { row: string[]; gridRow: number }[] = []
 
@@ -197,4 +187,55 @@ export function extractEstimateItems(
   resolveBlock()
 
   return items
+}
+
+/**
+ * Parse a "detailed abstract estimate" sheet into its real work items,
+ * resolving the S.No/Qty/Rate/Unit columns from the header row's own text.
+ *
+ * Column headers are matched by regex first (fast, no model needed); when
+ * `embeddings` is supplied and a header doesn't match any pattern, the
+ * closest-matching header by semantic similarity is used instead — see
+ * core/columnMatch.ts.
+ */
+export function extractEstimateItems(
+  grid: string[][],
+  headerRowIndex: number,
+  embeddings?: ColumnEmbeddings
+): EstimateWorkItem[] {
+  const header = (grid[headerRowIndex] ?? []).map(norm)
+  let snoCol: number, qtyCol: number, rateCol: number, unitCol: number
+  try {
+    const resolved = resolveColumns(header, ESTIMATE_COLUMN_SPECS, embeddings)
+    snoCol = resolved.indexByLabel['Serial Number']
+    qtyCol = resolved.indexByLabel['Quantity']
+    rateCol = resolved.indexByLabel['Rate']
+    unitCol = resolved.indexByLabel['Unit']
+  } catch {
+    throw new Error('Could not find S.No / Qty / Rate / Unit columns in the estimate.')
+  }
+  // Description isn't reliably labelled (and is often a merged cell with no
+  // header of its own) — it's always the cell right after the serial number.
+  const descCol = snoCol + 1
+  if (descCol >= header.length) {
+    throw new Error('Could not find a description column next to the S.No column in the estimate.')
+  }
+  return extractEstimateItemsFromColumns(grid, headerRowIndex, { snoCol, descCol, qtyCol, rateCol, unitCol })
+}
+
+/**
+ * Same block-extraction algorithm as extractEstimateItems, but with the
+ * column indices pointed at directly instead of resolved from header text —
+ * the fallback for a photographed estimate whose header row OCR'd too
+ * poorly (garbled by a skewed photo, small dense header font, etc.) for
+ * automatic resolution to work at all. Used when a person manually reviews
+ * the raw OCR grid and marks which row is the header and which column is
+ * which.
+ */
+export function extractEstimateItemsWithColumns(
+  grid: string[][],
+  headerRowIndex: number,
+  columns: ResolvedEstimateColumns
+): EstimateWorkItem[] {
+  return extractEstimateItemsFromColumns(grid, headerRowIndex, columns)
 }

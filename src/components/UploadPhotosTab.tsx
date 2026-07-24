@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { api } from '../ipc'
 import { guessHeaderRow } from '@core/sheet'
 import { extractEstimateItemsWithAi } from '../aiEstimateColumns'
-import { extractWorkName } from '@core/estimateExtract'
+import { extractWorkName, extractEstimateItemsWithColumns } from '@core/estimateExtract'
 import { extractEstimateAmountLakhs } from '@core/deviation'
 import { findWorksRowByName, metaFromWorksRow } from '@core/scheduleA'
 import { applyEcvFromBoq } from '@core/worksAmounts'
@@ -26,6 +26,24 @@ interface Props {
 }
 
 type ActionKey = 'excel' | 'boq' | 'scheduleA' | 'deviation'
+
+type ManualRole = 'sno' | 'desc' | 'qty' | 'rate' | 'unit'
+
+const MANUAL_ROLE_LABELS: Record<ManualRole, string> = {
+  sno: 'S.No column',
+  desc: 'Description column',
+  qty: 'Quantity column',
+  rate: 'Rate column',
+  unit: 'Unit column'
+}
+
+const EMPTY_MANUAL_COLS: Record<ManualRole, number | null> = {
+  sno: null,
+  desc: null,
+  qty: null,
+  rate: null,
+  unit: null
+}
 
 function nextId(): string {
   return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -108,6 +126,14 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
   const [workName, setWorkName] = useState<string | undefined>()
   const [agencyName, setAgencyName] = useState('')
 
+  // Manual fallback for when OCR garbles the header row too badly for
+  // automatic column detection — shown alongside convertError so a bad photo
+  // isn't a dead end. manualHeaderRow is seeded with the app's own best
+  // guess (still overridable by clicking any other row in the preview).
+  const [manualHeaderRow, setManualHeaderRow] = useState<number | null>(null)
+  const [manualCols, setManualCols] = useState(EMPTY_MANUAL_COLS)
+  const [manualError, setManualError] = useState<string | null>(null)
+
   const [actionBusy, setActionBusy] = useState<ActionKey | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
@@ -164,24 +190,65 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
     setResultTable(null)
     setActionError(null)
     setActionSaved(null)
+    setOcrGrid(null)
+    setManualHeaderRow(null)
+    setManualCols(EMPTY_MANUAL_COLS)
+    setManualError(null)
     try {
       const sheet = await api.ocrEstimatePhotos(photos.map((p) => p.dataUrl))
+      // Stored right away (before the extraction attempt below) so the
+      // manual-mapping fallback has the raw grid to work with even when
+      // automatic column detection fails outright.
+      setOcrGrid(sheet.grid)
       const headerRow = guessHeaderRow(sheet.grid)
+      setManualHeaderRow(headerRow)
+
       const { items, aiAssisted: assisted } = await extractEstimateItemsWithAi(sheet.grid, headerRow)
       if (items.length === 0) {
         throw new Error(
-          'No work items with a quantity, rate, and unit were recognized in these photos. Clearer, well-lit, straight-on photos read better — you can also fix up rows manually below once something is recognized.'
+          'No work items with a quantity, rate, and unit were recognized in these photos. Clearer, well-lit, straight-on photos read better — or point at the right columns yourself below.'
         )
       }
       setAiAssisted(assisted)
       setResultTable(itemsToTable(items))
-      setOcrGrid(sheet.grid)
       setHeaderRowIndex(headerRow)
       setWorkName(extractWorkName(sheet.grid, headerRow))
     } catch (e) {
       setConvertError(e instanceof Error ? e.message : String(e))
     } finally {
       setConverting(false)
+    }
+  }
+
+  function extractWithManualColumns() {
+    if (!ocrGrid || manualHeaderRow === null) return
+    const { sno, desc, qty, rate, unit } = manualCols
+    if (sno === null || desc === null || qty === null || rate === null || unit === null) {
+      setManualError('Pick all 5 columns before extracting.')
+      return
+    }
+    setManualError(null)
+    try {
+      const items = extractEstimateItemsWithColumns(ocrGrid, manualHeaderRow, {
+        snoCol: sno,
+        descCol: desc,
+        qtyCol: qty,
+        rateCol: rate,
+        unitCol: unit
+      })
+      if (items.length === 0) {
+        setManualError(
+          'No work items were found with those columns — double-check the header row and column choices.'
+        )
+        return
+      }
+      setAiAssisted([])
+      setResultTable(itemsToTable(items))
+      setHeaderRowIndex(manualHeaderRow)
+      setWorkName(extractWorkName(ocrGrid, manualHeaderRow))
+      setConvertError(null)
+    } catch (e) {
+      setManualError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -381,6 +448,78 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
         <div className="notice error">
           <IconWarn />
           {convertError}
+        </div>
+      )}
+
+      {convertError && ocrGrid && (
+        <div style={{ marginTop: 14 }}>
+          <p className="hint">
+            Click the row below that holds the S.No / Description / Qty / Rate / Unit headers, then tell the
+            app which column is which.
+          </p>
+          <div className="ocr-grid-preview">
+            <table>
+              <tbody>
+                {ocrGrid.map((row, i) => (
+                  <tr
+                    key={i}
+                    className={manualHeaderRow === i ? 'selected' : ''}
+                    onClick={() => {
+                      setManualHeaderRow(i)
+                      setManualCols(EMPTY_MANUAL_COLS)
+                      setManualError(null)
+                    }}
+                  >
+                    <td className="row-num">{i}</td>
+                    {row.map((cell, j) => (
+                      <td key={j}>{cell}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {manualHeaderRow !== null && (
+            <div className="manual-col-pickers">
+              {(Object.keys(MANUAL_ROLE_LABELS) as ManualRole[]).map((role) => {
+                const headerRowCells = ocrGrid[manualHeaderRow] ?? []
+                const colCount = Math.max(1, ...ocrGrid.map((r) => r.length))
+                return (
+                  <label key={role}>
+                    {MANUAL_ROLE_LABELS[role]}
+                    <select
+                      value={manualCols[role] ?? ''}
+                      onChange={(e) =>
+                        setManualCols((prev) => ({
+                          ...prev,
+                          [role]: e.target.value === '' ? null : Number(e.target.value)
+                        }))
+                      }
+                    >
+                      <option value="">Select column…</option>
+                      {Array.from({ length: colCount }, (_, j) => j).map((j) => (
+                        <option key={j} value={j}>
+                          Column {j + 1}
+                          {headerRowCells[j] ? `: "${headerRowCells[j]}"` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )
+              })}
+              <button className="primary" onClick={extractWithManualColumns}>
+                Extract with these columns
+              </button>
+            </div>
+          )}
+
+          {manualError && (
+            <div className="notice error" style={{ marginTop: 10 }}>
+              <IconWarn />
+              {manualError}
+            </div>
+          )}
         </div>
       )}
 
