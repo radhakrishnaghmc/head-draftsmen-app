@@ -280,7 +280,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
     }
     const mapping = matchPlaceholdersToColumns(WORKS_COLUMNS, imported.headers, embeddings)
 
-    const normalized = applyWorksSchemaWithMapping(rows, mapping, {
+    const normalized = applyWorksSchemaWithMapping(imported.headers, rows, mapping, {
       id: `works-${Date.now()}`,
       name: 'Works database',
       path: ''

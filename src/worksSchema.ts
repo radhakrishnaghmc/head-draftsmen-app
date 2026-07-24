@@ -51,17 +51,21 @@ export function createWorksTable(): ExcelTable {
 }
 
 /**
- * Force a table onto the standard works schema: replace its columns with the
- * standard set, keeping any cell values whose column name still exists and
- * dropping the rest. Guarantees at least one (blank) row.
+ * Force a table onto the standard works schema: guarantee every standard
+ * column exists, while keeping any *extra* columns already on the table
+ * (e.g. ones added by a previous import via applyWorksSchemaWithMapping) —
+ * only ever adding to the schema, never silently dropping columns the user
+ * already has. Guarantees at least one (blank) row.
  */
 export function applyWorksSchema(table: ExcelTable): ExcelTable {
+  const extraHeaders = table.headers.filter((h) => !WORKS_COLUMNS.includes(h))
+  const headers = [...WORKS_COLUMNS, ...extraHeaders]
   const rows = (table.rows.length > 0 ? table.rows : [{}]).map((row) => {
     const next: Record<string, string> = {}
-    for (const h of WORKS_COLUMNS) next[h] = row[h] ?? ''
+    for (const h of headers) next[h] = row[h] ?? ''
     return next
   })
-  return { ...table, path: '', headers: [...WORKS_COLUMNS], rows }
+  return { ...table, path: '', headers, rows }
 }
 
 /**
@@ -72,20 +76,33 @@ export function applyWorksSchema(table: ExcelTable): ExcelTable {
  * (e.g. "Estimate Amount" instead of "Amount of estimate") lands in the
  * right place instead of being silently dropped. Falls back to an exact
  * name match for any column the mapping didn't resolve.
+ *
+ * Any imported column the mapping didn't claim for a standard column (e.g.
+ * "Eoffice", "Download start time" — real fields the app doesn't already
+ * track) is kept too, appended after the standard columns under its own
+ * original name, rather than discarded.
  */
 export function applyWorksSchemaWithMapping(
+  importedHeaders: string[],
   importedRows: Record<string, string>[],
   mapping: PlaceholderMatch[],
   meta: { id: string; name: string; path: string }
 ): ExcelTable {
   const columnFor = new Map(mapping.map((m) => [m.label, m.column]))
+  const claimed = new Set(mapping.map((m) => m.column).filter((c): c is string => c !== null))
+  const extraHeaders = importedHeaders.filter((h) => !claimed.has(h))
+  const headers = [...WORKS_COLUMNS, ...extraHeaders]
+
   const rows = (importedRows.length > 0 ? importedRows : [{}]).map((row) => {
     const next: Record<string, string> = {}
     for (const h of WORKS_COLUMNS) {
       const matchedCol = columnFor.get(h)
       next[h] = (matchedCol ? row[matchedCol] : undefined) ?? row[h] ?? ''
     }
+    for (const h of extraHeaders) {
+      next[h] = row[h] ?? ''
+    }
     return next
   })
-  return { ...meta, headers: [...WORKS_COLUMNS], rows }
+  return { ...meta, headers, rows }
 }
