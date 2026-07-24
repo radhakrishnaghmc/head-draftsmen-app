@@ -1,0 +1,39 @@
+appId: com.headdraftsmen.app
+productName: Head Draftsmen App
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+extraResources:
+  - from: resources/seed-state.json
+    to: seed-state.json
+  - from: resources/schedule-a-template.xlsx
+    to: schedule-a-template.xlsx
+  - from: resources/tender-notice-template.docx
+    to: tender-notice-template.docx
+  - from: resources/bid-document-template.docx
+    to: bid-document-template.docx
+  - from: resources/boq-template.xlsx
+    to: boq-template.xlsx
+  - from: resources/deviation-template.xlsx
+    to: deviation-template.xlsx
+  - from: resources/models/all-MiniLM-L6-v2
+    to: models/all-MiniLM-L6-v2
+publish:
+  provider: generic
+  url: https://head-draftsmen-app.web.app/
+  channel: latest
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.productivity
+win:
+  target:
+    - nsis
+linux:
+  target:
+    - AppImage
+  category: Office

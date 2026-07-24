@@ -1,0 +1,44 @@
+{
+  "name": "head-draftsmen-app",
+  "version": "0.1.0",
+  "description": "Head Draftsmen App — desktop mail-merge app: fill .docx templates from Excel data.",
+  "main": "out/main/index.js",
+  "author": "Head Draftsmen App",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "package": "electron-vite build && electron-builder",
+    "package:dir": "electron-vite build && electron-builder --dir",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "docx-preview": "^0.4.0",
+    "electron-updater": "^6.8.9",
+    "exceljs": "^4.4.0",
+    "firebase": "^12.16.0",
+    "html-to-docx": "^1.8.0",
+    "libreoffice-convert": "^1.6.0",
+    "pizzip": "^3.1.7",
+    "word-extractor": "^1.0.4",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
+  }
+}

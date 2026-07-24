@@ -1,0 +1,75 @@
+import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'fs'
+import { resolve } from 'path'
+import * as ExcelJS from 'exceljs'
+import { buildScheduleARows, metaFromWorksRow, type ScheduleAItem } from '../core/scheduleA'
+import { fillScheduleATemplate } from '../core/scheduleATemplate'
+
+const TEMPLATE_PATH = resolve(__dirname, '../resources/schedule-a-template.xlsx')
+
+const items: ScheduleAItem[] = [
+  { itemNo: '1', quantity: '10', description: 'Earth work', rate: '100', units: 'Cum', amount: '1000' }
+]
+
+describe('buildScheduleARows', () => {
+  it('shows the meta amounts Indian-formatted with a "/-" suffix, not the raw Lakhs figure', () => {
+    const meta = metaFromWorksRow({
+      'Name of the work': 'Road from A to B',
+      'Amount of estimate': '45',
+      'Estimate Amount ECV': '42',
+      'Tender Percentage': '18',
+      'Name of the Agency': 'ABC Constructions'
+    })
+    const rows = buildScheduleARows(items, meta)
+    const estimateRow = rows.find((r) => r[0] === 'Estimate Amount: Rs.')
+    const ecvRow = rows.find((r) => r[0] === 'ECV Amount: Rs.')
+    const contractRow = rows.find((r) => r[0] === 'Contract Amount: Rs.')
+    expect(estimateRow?.[2]).toBe('45,00,000/-')
+    expect(ecvRow?.[2]).toBe('42,00,000/-')
+    expect(contractRow?.[2]).toBe('34,44,000/-') // 42,00,000 * (1 - 0.18)
+  })
+
+  it('falls back to the item total, Indian-formatted, when there is no Works List match', () => {
+    const rows = buildScheduleARows(items) // no meta at all
+    const estimateRow = rows.find((r) => r[0] === 'Estimate Amount: Rs.')
+    expect(estimateRow?.[2]).toBe('1,000/-')
+  })
+
+  it('leaves Contract Amount blank when Tender Percentage is not on the Works List row', () => {
+    const meta = metaFromWorksRow({
+      'Name of the work': 'Road from A to B',
+      'Amount of estimate': '45',
+      'Estimate Amount ECV': '42'
+    })
+    const rows = buildScheduleARows(items, meta)
+    const contractRow = rows.find((r) => r[0] === 'Contract Amount: Rs.')
+    expect(contractRow?.[2]).toBe('')
+  })
+})
+
+describe('fillScheduleATemplate', () => {
+  it('writes the Indian-formatted estimate/ECV/contract amounts into the template, not the raw Lakhs figure', async () => {
+    const buffer = readFileSync(TEMPLATE_PATH)
+    const meta = metaFromWorksRow({
+      'Name of the work': 'Road from A to B',
+      'Amount of estimate': '45',
+      'Estimate Amount ECV': '42',
+      'Tender Percentage': '18',
+      'Name of the Agency': 'ABC Constructions'
+    })
+    const out = await fillScheduleATemplate(buffer, items, meta)
+
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(out as unknown as ArrayBuffer)
+    const ws = workbook.worksheets[0]
+
+    const values: string[] = []
+    for (let r = 1; r <= 20; r++) values.push(String(ws.getCell(r, 3).value ?? ''))
+    expect(values).toContain('45,00,000/-')
+    expect(values).toContain('42,00,000/-')
+    expect(values).toContain('34,44,000/-')
+    // The raw Lakhs figures must not appear as bare numbers anywhere in that column.
+    expect(values).not.toContain('45')
+    expect(values).not.toContain('42')
+  }, 30000)
+})
