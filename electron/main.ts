@@ -238,11 +238,7 @@ function registerHandlers(): void {
   })
 
   ipcMain.on(IPC.restartToUpdate, () => {
-    restartToUpdate((message) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(IPC.updateInstallError, message)
-      }
-    })
+    restartToUpdate()
   })
 
   ipcMain.handle(IPC.checkForUpdates, async (): Promise<ManualCheckResult> => {

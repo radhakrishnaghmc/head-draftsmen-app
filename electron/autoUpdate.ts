@@ -16,8 +16,19 @@ export function initAutoUpdate(getWindow: () => BrowserWindow | null): void {
   if (!app.isPackaged) return
 
   autoUpdater.autoDownload = true
+  // Once a download completes, the app is sitting in "waiting to install"
+  // limbo — any autoUpdater error from that point on (whether triggered by
+  // the user clicking Restart Now, or by Squirrel.Mac automatically
+  // re-attempting/re-validating the cached update on the next launch,
+  // which happens with no user action at all) is almost certainly that
+  // install itself failing, not a routine background-check hiccup, so it's
+  // worth surfacing. Before a download has completed, a check/download
+  // error (offline, host unreachable) stays silent — that's routine and
+  // shouldn't alarm the user every time the network blips.
+  let downloaded = false
 
   const notifyDownloaded = () => {
+    downloaded = true
     const win = getWindow()
     if (win && !win.isDestroyed()) {
       win.webContents.send(IPC.updateDownloaded)
@@ -39,9 +50,13 @@ export function initAutoUpdate(getWindow: () => BrowserWindow | null): void {
   autoUpdater.on('update-downloaded', notifyDownloaded)
   autoUpdater.on('download-progress', notifyProgress)
   autoUpdater.on('error', (e) => {
-    // Non-fatal: the app keeps running on the current version if a check or
-    // download fails (offline, host unreachable, etc.) — never block startup.
     console.error('autoUpdater error', e)
+    if (downloaded) {
+      const win = getWindow()
+      if (win && !win.isDestroyed()) {
+        win.webContents.send(IPC.updateInstallError, e.message || 'The update could not be installed automatically.')
+      }
+    }
   })
 
   const check = () => {
@@ -51,25 +66,9 @@ export function initAutoUpdate(getWindow: () => BrowserWindow | null): void {
   setInterval(check, RECHECK_INTERVAL_MS)
 }
 
-/**
- * Applies a downloaded update and restarts — call only after
- * update-downloaded has fired. If install fails right away (e.g. macOS
- * Squirrel.Mac refusing an unsigned app's code signature — a real,
- * currently-unresolved limitation on macOS specifically, not a network
- * hiccup) the app never quits and nothing else would tell the user why
- * — `onError` reports that one failure so the UI isn't just silent.
- */
-export function restartToUpdate(onError: (message: string) => void): void {
-  const onErr = (e: Error) => {
-    autoUpdater.removeListener('error', onErr)
-    onError(e.message || 'The update could not be installed automatically.')
-  }
-  autoUpdater.once('error', onErr)
+/** Applies a downloaded update and restarts — call only after update-downloaded has fired. */
+export function restartToUpdate(): void {
   autoUpdater.quitAndInstall()
-  // If the app hasn't quit and no error fired within a few seconds, stop
-  // waiting so a later, unrelated background-check error doesn't get
-  // mistakenly attributed to this restart attempt.
-  setTimeout(() => autoUpdater.removeListener('error', onErr), 10_000)
 }
 
 /**
