@@ -10,6 +10,7 @@ const api: DocuGenApi = {
   openPath: (target) => ipcRenderer.invoke(IPC.openPath, target),
   revealItem: (target) => ipcRenderer.invoke(IPC.revealItem, target),
   defaultDir: () => ipcRenderer.invoke(IPC.defaultDir),
+  getAppVersion: () => ipcRenderer.invoke(IPC.getAppVersion),
   fetchCalendar: (force?: boolean) => ipcRenderer.invoke(IPC.fetchCalendar, force),
   login: (loginId, password) => ipcRenderer.invoke(IPC.login, loginId, password),
   logout: () => ipcRenderer.invoke(IPC.logout),

@@ -22,6 +22,7 @@ export const IPC = {
   openPath: 'shell:openPath',
   revealItem: 'shell:revealItem',
   defaultDir: 'shell:defaultDir',
+  getAppVersion: 'app:getVersion',
   fetchCalendar: 'calendar:fetch',
   login: 'auth:login',
   logout: 'auth:logout',
@@ -57,6 +58,7 @@ export interface DocuGenApi {
   openPath(target: string): Promise<void>
   revealItem(target: string): Promise<void>
   defaultDir(): Promise<string>
+  getAppVersion(): Promise<string>
   fetchCalendar(force?: boolean): Promise<CalendarData>
   login(loginId: string, password: string): Promise<LoginResult>
   /** Releases this device's session slot so another device can sign in. */

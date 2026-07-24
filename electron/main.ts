@@ -143,6 +143,10 @@ function registerHandlers(): void {
     return app.getPath('downloads')
   })
 
+  ipcMain.handle(IPC.getAppVersion, async (): Promise<string> => {
+    return app.getVersion()
+  })
+
   // Scrape the Telangana Government 2026 holiday calendar page.
   ipcMain.handle(IPC.fetchCalendar, async (_e, force?: boolean) => {
     const cacheFile = path.join(app.getPath('userData'), 'calendar-cache.json')

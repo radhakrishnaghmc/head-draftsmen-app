@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../ipc'
-import { IconLogo, IconWarn } from './Icons'
+import { IconWarn } from './Icons'
+import appLogo from '../assets/app-logo.png'
 
 interface Props {
   onSuccess: (zone?: string, circle?: string, circleNumber?: string) => void
@@ -20,6 +21,11 @@ export default function LoginPage({ onSuccess }: Props) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [version, setVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.getAppVersion().then(setVersion)
+  }, [])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -48,7 +54,7 @@ export default function LoginPage({ onSuccess }: Props) {
   return (
     <div className="login-screen">
       <form className="login-card" onSubmit={submit}>
-        <IconLogo className="login-logo" />
+        <img src={appLogo} alt="" className="login-logo" />
         <h1>Head Draftsman</h1>
         <p className="hint">Sign in to continue.</p>
 
@@ -88,6 +94,10 @@ export default function LoginPage({ onSuccess }: Props) {
         <button className="primary login-submit" type="submit" disabled={busy}>
           {busy ? 'Signing in…' : 'Log In'}
         </button>
+
+        <p className="login-credits">
+          App developed by Radhakrishna, HD{version ? ` · v${version}` : ''}
+        </p>
       </form>
     </div>
   )

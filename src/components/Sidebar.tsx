@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+import { api } from '../ipc'
 import {
   IconTable,
   IconDoc,
@@ -45,6 +47,11 @@ interface Item {
 }
 
 export default function Sidebar(props: Props) {
+  const [version, setVersion] = useState<string | null>(null)
+  useEffect(() => {
+    api.getAppVersion().then(setVersion)
+  }, [])
+
   const items: Item[] = [
     {
       key: 'dashboard',
@@ -168,7 +175,9 @@ export default function Sidebar(props: Props) {
       </nav>
 
       <div className="side-foot">
-        <span className="side-credits">App developed by Radhakrishna, HD</span>
+        <span className="side-credits">
+          App developed by Radhakrishna, HD{version ? ` · v${version}` : ''}
+        </span>
       </div>
     </aside>
   )
