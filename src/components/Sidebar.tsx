@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { api } from '../ipc'
+import appLogo from '../assets/app-logo.png'
 import {
   IconTable,
   IconDoc,
   IconPrint,
-  IconLogo,
   IconWarn,
   IconCheck,
   IconSearch,
@@ -106,7 +106,7 @@ export default function Sidebar(props: Props) {
   return (
     <aside className="sidebar">
       <div className="side-brand">
-        <IconLogo className="logo" />
+        <img src={appLogo} alt="" className="logo" />
         <div>
           <h1>Head Draftsman</h1>
           {(props.zone || props.circle) && (

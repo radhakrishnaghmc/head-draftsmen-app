@@ -116,25 +116,6 @@ export const IconChevronRight = (p: P) => (
   </svg>
 )
 
-export const IconLogo = (p: P) => (
-  <svg width={28} height={28} viewBox="0 0 32 32" fill="none" {...p}>
-    <rect width="32" height="32" rx="8" fill="url(#dg)" />
-    <path
-      d="M10 8h7l5 5v11a1 1 0 0 1-1 1H10a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"
-      fill="#fff"
-      fillOpacity="0.95"
-    />
-    <path d="M17 8v5h5" stroke="#6366f1" strokeWidth="1.4" strokeLinejoin="round" />
-    <path d="M12 17h8M12 20h5" stroke="#6366f1" strokeWidth="1.4" strokeLinecap="round" />
-    <defs>
-      <linearGradient id="dg" x1="0" y1="0" x2="32" y2="32">
-        <stop stopColor="#6366f1" />
-        <stop offset="1" stopColor="#8b5cf6" />
-      </linearGradient>
-    </defs>
-  </svg>
-)
-
 export const IconDownload = (p: P) => (
   <svg {...base(p)}>
     <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />

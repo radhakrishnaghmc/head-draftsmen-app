@@ -245,6 +245,9 @@ code {
   padding: 6px 10px 18px;
 }
 .side-brand .logo {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
   filter: drop-shadow(0 4px 10px rgba(99, 102, 241, 0.35));
 }
 .side-brand h1 {
