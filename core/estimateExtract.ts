@@ -239,3 +239,65 @@ export function extractEstimateItemsWithColumns(
 ): EstimateWorkItem[] {
   return extractEstimateItemsFromColumns(grid, headerRowIndex, columns)
 }
+
+// Unit abbreviations used across the department's rate schedules (APSS/SS)
+// for measuring work items — the one reliable anchor for finding an item's
+// summary line directly in OCR'd text, since it's short, distinctive, and
+// (unlike column position) survives a table-line OCR engine returning whole
+// lines of text instead of per-word/per-cell boxes.
+const UNIT_TOKENS = ['Cum', 'Sqm', 'Rmt', 'Nos', 'Kg', 'MT', 'Ltr', 'Mtr', 'Sft', 'RM', 'Each']
+// No leading \b: OCR frequently glues the "Per" multiplier straight onto the
+// unit with no space (e.g. "2345.001Cum"), which would otherwise fail a
+// word-boundary check between the digit and the letter.
+const UNIT_RE = new RegExp(`(${UNIT_TOKENS.join('|')})\\b`, 'i')
+const NUMBER_RE = /\d[\d,]*\.\d{2}/g
+
+/**
+ * Parse a "detailed abstract estimate" directly from OCR'd *line* text (one
+ * string per detected line, in top-to-bottom reading order) — no column
+ * positions involved at all. This is the extraction path for a
+ * line-detecting OCR engine (see electron/ocr.ts): its detector already
+ * returns each printed line as one clean, correctly-spelled unit of text
+ * (unlike a per-word/per-character OCR engine, whose word boxes have to be
+ * re-assembled into rows and columns by position — the reconstruction that
+ * core/ocrTableReconstruct.ts does, and that this estimate's own dense,
+ * merged-description-cell layout defeats almost every time).
+ *
+ * Instead of hunting for a header row and mapping columns, this walks the
+ * lines looking for each item's *summary* line — recognized by a unit
+ * abbreviation (UNIT_TOKENS) plus at least 3 decimal numbers on the same
+ * line — and takes the last 3 as Qty/Rate/Amount, matching the printed
+ * "Qty | Rate | Per | Amount" column order. Every other line accumulates as
+ * that item's description; a summary line closes the block and starts the
+ * next one. Lines before the printed "Qty ... Rate ..." header (the title
+ * block, corporation letterhead, "Name of Work" line) are skipped so they
+ * never leak into the first item's description.
+ */
+export function extractEstimateItemsFromLines(lines: string[]): EstimateWorkItem[] {
+  const items: EstimateWorkItem[] = []
+  let description: string[] = []
+  let pastHeader = false
+
+  for (const raw of lines) {
+    const text = norm(raw)
+    if (!text) continue
+
+    if (!pastHeader) {
+      if (/\bqty\b/i.test(text) && /\brate\b/i.test(text)) pastHeader = true
+      continue
+    }
+
+    const unitMatch = UNIT_RE.exec(text)
+    const numbers = text.match(NUMBER_RE) ?? []
+    if (unitMatch && numbers.length >= 3 && description.join(' ').trim()) {
+      const [quantity, rate] = numbers.slice(-3)
+      items.push({ description: description.join(' ').trim(), quantity, rate, unit: unitMatch[1] })
+      description = []
+      continue
+    }
+
+    description.push(text)
+  }
+
+  return items
+}

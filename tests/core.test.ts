@@ -259,6 +259,113 @@ describe('extractEstimateItems', () => {
   })
 })
 
+describe('extractEstimateItemsFromLines', () => {
+  it('extracts qty/rate/unit from a summary line, ignoring title-block and header lines before it', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    const lines = [
+      'NIZAMPET MUNICIPAL CORPORATION :: MEDCHAL-MALKAJGIRI DISTRICT',
+      'Name of the work: Laying of UGD Line',
+      'Sl. Description of work No\'s L B D',
+      'Qty Rate Per Amount',
+      'Cutting openCC road surface as directed by the departmental officers.',
+      '99.00 2345.00 1 Cum 232155.00'
+    ]
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toMatchObject([
+      {
+        description: 'Cutting openCC road surface as directed by the departmental officers.',
+        quantity: '99.00',
+        rate: '2345.00',
+        unit: 'Cum'
+      }
+    ])
+  })
+
+  it('matches a unit glued directly onto the Per number with no space (a common OCR artifact)', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    const lines = ['Qty Rate Per Amount', 'Earthwork excavation', '619.75 475.5901 Cum 247188.00']
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toMatchObject([{ quantity: '619.75', rate: '475.59', unit: 'Cum' }])
+  })
+
+  it('does not let a spec line starting with digits ("600 mm dia...") wipe out the description already accumulated', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    const lines = [
+      'Qty Rate Per Amount',
+      'MANUFACTURE, SUPPLY AND DELIVERY OF 600mm DIA R.C.C',
+      '600 mm dia RCC NP3 Pipes',
+      '550.00 3712.24 Rmt 2041732.00'
+    ]
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toHaveLength(1)
+    expect(items[0].description).toContain('MANUFACTURE, SUPPLY AND DELIVERY OF 600mm DIA R.C.C')
+    expect(items[0]).toMatchObject({ quantity: '550.00', rate: '3712.24', unit: 'Rmt' })
+  })
+
+  it('extracts all 6 items from a realistic multi-item estimate, matching every Qty/Rate/Unit exactly', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    // A synthetic fixture, shaped after (but not copied from) the OCR
+    // artifacts a real line-detecting OCR engine produces on a photographed
+    // "Detailed and Abstract Estimate": glued-together numbers with no
+    // space ("550.000.900.20"), a unit token glued directly onto the "Per"
+    // multiplier ("2345.001Cum"), stray extra digits/characters, and a
+    // "600 mm dia..." spec line that starts with a small integer (the kind
+    // of line that must NOT be mistaken for a new item's S.No). This
+    // document shape — a long, wrapped description on its own line(s), with
+    // narrower numeric columns on separate rows below — defeats position-
+    // based column reconstruction almost every time, regardless of photo
+    // quality or OCR engine's raw text accuracy.
+    const lines = [
+      'SAMPLE MUNICIPAL CORPORATION::SAMPLE DISTRICT',
+      'DETAILED AND ABSTRACT-ESTIMATE',
+      'Ne of the work: Laying of a sample pipeline from Point A to Point B in Ward No 1',
+      'Sample Municipal Corporation under Municipal General Funds 2025-26',
+      'Estimate Amount Rs. 10.00 lakhs',
+      "Sl. Description ofwork No's L B D",
+      'Qty Rate Per Amount',
+      'No.',
+      'Cutting open road surface as well as concrete upto 75 mm thick',
+      'including stacking of excavated materials for pipe line trench work',
+      'as directed by the departmental officers.',
+      'for sample line 1x 1500.000.900.20 90.00155472 13916300',
+      '90.00 1500.001Cum 135000.000',
+      '2 Earthwork excavation in all kinds of soil for Pipeline trenches as',
+      'per drawings and technical specifications including setting out',
+      'construction of shoring and bracing, removal of stumps and other',
+      'deleterious material, dressing of sides and bottom as per spec',
+      'for sample line 1x 500.000.901.50 700.50',
+      'Deduct Rock Qty 1x 1200.75 -200.75 2500 5000308',
+      '500.75 400.5901 Cum 200000.00',
+      'Earth work excavation in Hard rock blasting prohibited upto 3 m',
+      'depth for foundations and depositing on bank for all lifts',
+      'for sample line 500mm Dia 1x 30% 700.50 200.75',
+      '200.75 2000.80l1Cum 400000.00',
+      'MANUFACTURE, SUPPLY AND DELIVERY OF 500mm DIA R.C.C',
+      'SOCKET AND SPIGOT PIPES CONFORMING TO STANDARD SPEC',
+      '500 mm dia RCCNP3 Pipes X 500.00 500.00 Hl00.85 250000100',
+      '500.00 3000.24 Rmt 1500000.00',
+      'Lowering the RCC pipes carefully into the trenches laying them',
+      'true to alignment and gradient, jointing with rubber rings',
+      '500 mm dia RCC NP3 Pipes X 500.00 500.00 250.06',
+      '500.00 250.75 Rmt 125000.00',
+      'Supply and Fixing of Rubber Rings',
+      '500mm dia RCC X 200.00 200.00',
+      '200.00 450.18 Nos 90000.00'
+    ]
+
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toHaveLength(6)
+    expect(items.map((i) => ({ quantity: i.quantity, rate: i.rate, unit: i.unit }))).toEqual([
+      { quantity: '90.00', rate: '1500.00', unit: 'Cum' },
+      { quantity: '500.75', rate: '400.59', unit: 'Cum' },
+      { quantity: '200.75', rate: '2000.80', unit: 'Cum' },
+      { quantity: '500.00', rate: '3000.24', unit: 'Rmt' },
+      { quantity: '500.00', rate: '250.75', unit: 'Rmt' },
+      { quantity: '200.00', rate: '450.18', unit: 'Nos' }
+    ])
+  })
+})
+
 describe('extractWorkName', () => {
   it('reads the name inline after a colon in the same cell', async () => {
     const { extractWorkName } = await import('../core/estimateExtract')

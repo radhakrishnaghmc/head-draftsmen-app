@@ -9,7 +9,6 @@ import { IPC } from './ipc-contract'
 import type { ManualCheckResult } from './ipc-contract'
 import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer } from '../core/excel'
 import { recognizeImage } from './ocr'
-import { reconstructGrid } from '../core/ocrTableReconstruct'
 import { applyTechnicalSanctionEdits } from '../core/technicalSanctionOutput'
 import type { CellEdit } from '../core/technicalSanction'
 import { embedTexts } from './embeddings'
@@ -139,8 +138,16 @@ function registerHandlers(): void {
     for (const dataUrl of dataUrls) {
       const base64 = dataUrl.split(',')[1] ?? ''
       const buffer = Buffer.from(base64, 'base64')
-      const words = await recognizeImage(buffer)
-      allRows.push(...reconstructGrid(words))
+      const lines = await recognizeImage(buffer)
+      // The OCR engine's detector already returns each printed line as one
+      // clean unit of text (unlike a per-word engine, whose word boxes
+      // would need reassembling into rows/columns by position) — sorting by
+      // vertical position within this one photo is all that's needed to put
+      // them back in reading order. One line per grid row, one cell per
+      // line: core/estimateExtract.ts's extractEstimateItemsFromLines reads
+      // the line text directly rather than resolving column positions.
+      const sorted = [...lines].sort((a, b) => a.top - b.top)
+      allRows.push(...sorted.map((l) => [l.text]))
     }
     return {
       id: `ocr-${Date.now()}`,
