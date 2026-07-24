@@ -14,6 +14,8 @@ import type { BidDocumentInput } from '../core/bidDocument'
 import type { LoginResult } from '../core/auth'
 import type { DeviationItem, DeviationMeta } from '../core/deviationTemplate'
 
+export type ManualCheckResult = 'update-available' | 'up-to-date' | 'error' | 'dev-mode'
+
 export const IPC = {
   pickExcels: 'dialog:pickExcels',
   pickExcelGrids: 'dialog:pickExcelGrids',
@@ -46,7 +48,8 @@ export const IPC = {
   saveState: 'state:save',
   remoteStateUpdate: 'state:remoteUpdate',
   updateDownloaded: 'update:downloaded',
-  restartToUpdate: 'update:restart'
+  restartToUpdate: 'update:restart',
+  checkForUpdates: 'update:check'
 } as const
 
 /** The typed API exposed to the renderer via contextBridge (window.docugen). */
@@ -103,6 +106,8 @@ export interface DocuGenApi {
   onUpdateDownloaded(callback: () => void): () => void
   /** Quits and installs the already-downloaded update, then relaunches. */
   restartToUpdate(): void
+  /** Checks for an update on demand (the small update icon in the sidebar) and reports the outcome, rather than checking silently. */
+  checkForUpdates(): Promise<ManualCheckResult>
 }
 
 export type { ExcelTable }

@@ -4,8 +4,9 @@ import * as path from 'path'
 import * as https from 'https'
 import * as os from 'os'
 import * as firebaseSync from './firebaseSync'
-import { initAutoUpdate, restartToUpdate } from './autoUpdate'
+import { initAutoUpdate, restartToUpdate, checkForUpdatesManually } from './autoUpdate'
 import { IPC } from './ipc-contract'
+import type { ManualCheckResult } from './ipc-contract'
 import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer } from '../core/excel'
 import { applyTechnicalSanctionEdits } from '../core/technicalSanctionOutput'
 import type { CellEdit } from '../core/technicalSanction'
@@ -238,6 +239,10 @@ function registerHandlers(): void {
 
   ipcMain.on(IPC.restartToUpdate, () => {
     restartToUpdate()
+  })
+
+  ipcMain.handle(IPC.checkForUpdates, async (): Promise<ManualCheckResult> => {
+    return checkForUpdatesManually()
   })
 
   ipcMain.handle(

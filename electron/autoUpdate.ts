@@ -8,6 +8,7 @@
 import { app, BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { IPC } from './ipc-contract'
+import type { ManualCheckResult } from './ipc-contract'
 
 const RECHECK_INTERVAL_MS = 4 * 60 * 60 * 1000 // 4 hours — covers long-running sessions
 
@@ -40,4 +41,33 @@ export function initAutoUpdate(getWindow: () => BrowserWindow | null): void {
 /** Applies a downloaded update and restarts — call only after update-downloaded has fired. */
 export function restartToUpdate(): void {
   autoUpdater.quitAndInstall()
+}
+
+/**
+ * Triggered by the small update icon in the sidebar — same underlying check
+ * as the automatic one, just with an immediate result so the UI can show
+ * "Up to date" / "Update found" instead of waiting silently.
+ */
+export function checkForUpdatesManually(): Promise<ManualCheckResult> {
+  if (!app.isPackaged) return Promise.resolve('dev-mode')
+
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (result: ManualCheckResult) => {
+      if (settled) return
+      settled = true
+      autoUpdater.removeListener('update-available', onAvailable)
+      autoUpdater.removeListener('update-not-available', onNotAvailable)
+      autoUpdater.removeListener('error', onError)
+      resolve(result)
+    }
+    const onAvailable = () => finish('update-available')
+    const onNotAvailable = () => finish('up-to-date')
+    const onError = () => finish('error')
+
+    autoUpdater.once('update-available', onAvailable)
+    autoUpdater.once('update-not-available', onNotAvailable)
+    autoUpdater.once('error', onError)
+    autoUpdater.checkForUpdates().catch(() => finish('error'))
+  })
 }

@@ -56,7 +56,8 @@ const api: DocuGenApi = {
     ipcRenderer.on(IPC.updateDownloaded, listener)
     return () => ipcRenderer.removeListener(IPC.updateDownloaded, listener)
   },
-  restartToUpdate: () => ipcRenderer.send(IPC.restartToUpdate)
+  restartToUpdate: () => ipcRenderer.send(IPC.restartToUpdate),
+  checkForUpdates: () => ipcRenderer.invoke(IPC.checkForUpdates)
 }
 
 contextBridge.exposeInMainWorld('docugen', api)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../ipc'
 import appLogo from '../assets/app-logo.png'
 import {
@@ -10,7 +10,8 @@ import {
   IconSearch,
   IconCalendar,
   IconDownload,
-  IconChecklist
+  IconChecklist,
+  IconRefresh
 } from './Icons'
 
 export type TabKey =
@@ -46,11 +47,38 @@ interface Item {
   tone?: 'green' | 'sky' | 'rose' | 'amber' | 'teal'
 }
 
+const UPDATE_STATUS_TEXT: Record<string, string> = {
+  'update-available': 'Update found — downloading…',
+  'up-to-date': "You're up to date",
+  error: "Couldn't check for updates",
+  'dev-mode': 'Not available in development'
+}
+
 export default function Sidebar(props: Props) {
   const [version, setVersion] = useState<string | null>(null)
   useEffect(() => {
     api.getAppVersion().then(setVersion)
   }, [])
+
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null)
+  const clearStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  async function checkForUpdates() {
+    if (checkingUpdate) return
+    setCheckingUpdate(true)
+    setUpdateStatus(null)
+    if (clearStatusTimer.current) clearTimeout(clearStatusTimer.current)
+    try {
+      const result = await api.checkForUpdates()
+      setUpdateStatus(UPDATE_STATUS_TEXT[result] ?? null)
+    } catch {
+      setUpdateStatus(UPDATE_STATUS_TEXT.error)
+    } finally {
+      setCheckingUpdate(false)
+      clearStatusTimer.current = setTimeout(() => setUpdateStatus(null), 4000)
+    }
+  }
 
   const items: Item[] = [
     {
@@ -175,9 +203,20 @@ export default function Sidebar(props: Props) {
       </nav>
 
       <div className="side-foot">
-        <span className="side-credits">
-          App developed by Radhakrishna, HD{version ? ` · v${version}` : ''}
-        </span>
+        <div className="side-foot-row">
+          <span className="side-credits">
+            App developed by Radhakrishna, HD{version ? ` · v${version}` : ''}
+          </span>
+          <button
+            className={`side-update-btn ${checkingUpdate ? 'spinning' : ''}`}
+            title="Check for updates"
+            onClick={checkForUpdates}
+            disabled={checkingUpdate}
+          >
+            <IconRefresh />
+          </button>
+        </div>
+        {updateStatus && <span className="side-update-status">{updateStatus}</span>}
       </div>
     </aside>
   )
