@@ -148,6 +148,33 @@ body::before {
 .update-banner.error {
   border-color: var(--danger);
 }
+.update-banner.downloading {
+  min-width: 320px;
+  align-items: flex-start;
+}
+.update-banner.downloading svg.spin {
+  margin-top: 2px;
+  animation: spin 1s linear infinite;
+}
+.update-progress-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.update-progress-track {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: rgba(99, 102, 241, 0.15);
+  overflow: hidden;
+}
+.update-progress-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--indigo-500), var(--violet-500));
+  transition: width 0.25s var(--ease);
+}
 .profile-badge {
   width: 38px;
   height: 38px;

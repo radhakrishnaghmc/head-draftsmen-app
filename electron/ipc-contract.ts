@@ -16,6 +16,13 @@ import type { DeviationItem, DeviationMeta } from '../core/deviationTemplate'
 
 export type ManualCheckResult = 'update-available' | 'up-to-date' | 'error' | 'dev-mode'
 
+export interface UpdateProgress {
+  percent: number
+  transferred: number
+  total: number
+  bytesPerSecond: number
+}
+
 export const IPC = {
   pickExcels: 'dialog:pickExcels',
   pickExcelGrids: 'dialog:pickExcelGrids',
@@ -48,6 +55,7 @@ export const IPC = {
   saveState: 'state:save',
   remoteStateUpdate: 'state:remoteUpdate',
   updateDownloaded: 'update:downloaded',
+  updateProgress: 'update:progress',
   restartToUpdate: 'update:restart',
   updateInstallError: 'update:installError',
   checkForUpdates: 'update:check'
@@ -105,6 +113,8 @@ export interface DocuGenApi {
   onRemoteStateUpdate(callback: (partial: Partial<PersistedState>) => void): () => void
   /** Fires once a new version has finished downloading in the background and is ready to install. Returns an unsubscribe function. */
   onUpdateDownloaded(callback: () => void): () => void
+  /** Fires repeatedly while a new version downloads in the background. Returns an unsubscribe function. */
+  onUpdateProgress(callback: (progress: UpdateProgress) => void): () => void
   /** Quits and installs the already-downloaded update, then relaunches. */
   restartToUpdate(): void
   /** Fires if restartToUpdate's install attempt fails right away (e.g. an unsigned build on macOS) instead of the app just silently not restarting. Returns an unsubscribe function. */

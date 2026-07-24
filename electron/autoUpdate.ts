@@ -8,7 +8,7 @@
 import { app, BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { IPC } from './ipc-contract'
-import type { ManualCheckResult } from './ipc-contract'
+import type { ManualCheckResult, UpdateProgress } from './ipc-contract'
 
 const RECHECK_INTERVAL_MS = 4 * 60 * 60 * 1000 // 4 hours — covers long-running sessions
 
@@ -24,7 +24,20 @@ export function initAutoUpdate(getWindow: () => BrowserWindow | null): void {
     }
   }
 
+  const notifyProgress = (progress: UpdateProgress) => {
+    const win = getWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC.updateProgress, {
+        percent: progress.percent,
+        transferred: progress.transferred,
+        total: progress.total,
+        bytesPerSecond: progress.bytesPerSecond
+      })
+    }
+  }
+
   autoUpdater.on('update-downloaded', notifyDownloaded)
+  autoUpdater.on('download-progress', notifyProgress)
   autoUpdater.on('error', (e) => {
     // Non-fatal: the app keeps running on the current version if a check or
     // download fails (offline, host unreachable, etc.) — never block startup.
