@@ -45,6 +45,10 @@ function createWindow(): void {
     minHeight: 640,
     title: 'Agreement Desk',
     backgroundColor: '#ffffff',
+    // A packaged build already has the icon embedded into the native app
+    // bundle/exe by electron-builder — this explicit path is only needed in
+    // dev, where build/icon.png wouldn't otherwise be picked up.
+    ...(!app.isPackaged ? { icon: path.join(__dirname, '../../build/icon.png') } : {}),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       sandbox: false,
