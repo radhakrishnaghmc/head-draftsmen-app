@@ -21,6 +21,8 @@ extraResources:
     to: deviation-template.xlsx
   - from: resources/models/all-MiniLM-L6-v2
     to: models/all-MiniLM-L6-v2
+  - from: resources/tessdata
+    to: tessdata
 publish:
   provider: github
   owner: radhakrishnaghmc

@@ -8,6 +8,8 @@ import { initAutoUpdate, restartToUpdate, checkForUpdatesManually } from './auto
 import { IPC } from './ipc-contract'
 import type { ManualCheckResult } from './ipc-contract'
 import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer } from '../core/excel'
+import { recognizeImage } from './ocr'
+import { reconstructGrid } from '../core/ocrTableReconstruct'
 import { applyTechnicalSanctionEdits } from '../core/technicalSanctionOutput'
 import type { CellEdit } from '../core/technicalSanction'
 import { embedTexts } from './embeddings'
@@ -130,6 +132,24 @@ function registerHandlers(): void {
     })
     if (result.canceled || result.filePaths.length === 0) return null
     return readAllSheetGrids(result.filePaths[0])
+  })
+
+  ipcMain.handle(IPC.ocrEstimatePhotos, async (_e, dataUrls: string[]): Promise<SheetGrid> => {
+    const allRows: string[][] = []
+    for (const dataUrl of dataUrls) {
+      const base64 = dataUrl.split(',')[1] ?? ''
+      const buffer = Buffer.from(base64, 'base64')
+      const words = await recognizeImage(buffer)
+      allRows.push(...reconstructGrid(words))
+    }
+    return {
+      id: `ocr-${Date.now()}`,
+      name: 'Photo estimate',
+      path: '',
+      sheetName: 'Photo estimate',
+      grid: allRows,
+      startRow: 0
+    }
   })
 
   ipcMain.handle(IPC.openPath, async (_e, target: string): Promise<void> => {

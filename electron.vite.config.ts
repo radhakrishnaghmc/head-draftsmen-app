@@ -9,7 +9,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'electron/main.ts'),
-          embeddingsWorker: resolve(__dirname, 'electron/embeddingsWorker.ts')
+          embeddingsWorker: resolve(__dirname, 'electron/embeddingsWorker.ts'),
+          ocrWorker: resolve(__dirname, 'electron/ocrWorker.ts')
         }
       }
     },

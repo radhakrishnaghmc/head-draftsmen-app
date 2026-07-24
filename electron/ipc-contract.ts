@@ -28,6 +28,7 @@ export const IPC = {
   pickExcelGrids: 'dialog:pickExcelGrids',
   pickEstimateGrid: 'dialog:pickEstimateGrid',
   pickDataSheet: 'dialog:pickDataSheet',
+  ocrEstimatePhotos: 'data:ocrEstimatePhotos',
   openPath: 'shell:openPath',
   revealItem: 'shell:revealItem',
   defaultDir: 'shell:defaultDir',
@@ -67,6 +68,8 @@ export interface DocuGenApi {
   pickExcelGrids(): Promise<SheetGrid[]>
   pickEstimateGrid(): Promise<SheetGrid | null>
   pickDataSheet(): Promise<SheetGrid[] | null>
+  /** Runs local OCR on photos of a paper estimate (in page order) and reconstructs one combined grid, best-effort — always review before exporting. */
+  ocrEstimatePhotos(dataUrls: string[]): Promise<SheetGrid>
   openPath(target: string): Promise<void>
   revealItem(target: string): Promise<void>
   defaultDir(): Promise<string>
