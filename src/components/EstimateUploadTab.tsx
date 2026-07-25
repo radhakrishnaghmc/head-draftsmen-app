@@ -274,48 +274,100 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
               {e.saved && <p className="estimate-hint">Saved to {e.saved}</p>}
 
               {e.items.length > 0 && (
-                <ul className="estimate-actions">
-                  <li className="estimate-action-row">
-                    <button className="primary" onClick={() => downloadBoq(e)} disabled={e.busyAction !== null}>
-                      <IconDownload /> {e.busyAction === 'boq' ? 'Saving…' : 'BOQ'}
-                    </button>
-                    <button
-                      className="primary"
-                      onClick={() => downloadScheduleA(e)}
-                      disabled={e.busyAction !== null}
-                    >
-                      <IconDownload /> {e.busyAction === 'scheduleA' ? 'Saving…' : 'Schedule A'}
-                    </button>
-                  </li>
-                  <li className="estimate-action-row">
-                    <input
-                      className="editor-name"
-                      placeholder="Name of the Agency"
-                      value={e.agencyName}
-                      onChange={(ev) => updateEntry(e.id, { agencyName: ev.target.value })}
-                    />
-                    <button className="primary" onClick={() => downloadDeviation(e)} disabled={e.busyAction !== null}>
-                      <IconDownload /> {e.busyAction === 'deviation' ? 'Saving…' : 'Deviation'}
-                    </button>
-                  </li>
-                  <li className="estimate-action-row">
-                    <input
-                      className="editor-name"
-                      placeholder="Department Name"
-                      value={e.departmentName}
-                      onChange={(ev) => updateEntry(e.id, { departmentName: ev.target.value })}
-                    />
-                    <input
-                      className="editor-name"
-                      placeholder="District"
-                      value={e.district}
-                      onChange={(ev) => updateEntry(e.id, { district: ev.target.value })}
-                    />
-                    <button className="primary" onClick={() => downloadMaterial(e)} disabled={e.busyAction !== null}>
-                      <IconDownload /> {e.busyAction === 'material' ? 'Saving…' : 'Material Quantity'}
-                    </button>
-                  </li>
-                </ul>
+                <div className="estimate-body">
+                  <div className="estimate-preview">
+                    <div className="estimate-preview-head">
+                      <span className="estimate-preview-title">Live preview</span>
+                      <span className="estimate-hint">
+                        {e.items.length} item{e.items.length === 1 ? '' : 's'} extracted from the estimate
+                      </span>
+                    </div>
+                    <div className="estimate-preview-scroll">
+                      <table className="estimate-preview-table">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>Description</th>
+                            <th>Unit</th>
+                            <th>Qty</th>
+                            <th>Rate</th>
+                            <th>Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {e.items.map((it, i) => (
+                            <tr key={i}>
+                              <td>{i + 1}</td>
+                              <td>{it.description}</td>
+                              <td>{it.unit}</td>
+                              <td>{it.quantity}</td>
+                              <td>{it.rate}</td>
+                              <td>{(Number(it.quantity) * Number(it.rate) || 0).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="estimate-details">
+                    <span className="estimate-preview-title">Details needed</span>
+                    <label className="estimate-details-field">
+                      Name of the Agency <span className="estimate-hint">— for Deviation Statement</span>
+                      <input
+                        className="editor-name"
+                        placeholder="Name of the Agency"
+                        value={e.agencyName}
+                        onChange={(ev) => updateEntry(e.id, { agencyName: ev.target.value })}
+                      />
+                    </label>
+                    <label className="estimate-details-field">
+                      Department Name <span className="estimate-hint">— for Material Quantity</span>
+                      <input
+                        className="editor-name"
+                        placeholder="Department Name"
+                        value={e.departmentName}
+                        onChange={(ev) => updateEntry(e.id, { departmentName: ev.target.value })}
+                      />
+                    </label>
+                    <label className="estimate-details-field">
+                      District <span className="estimate-hint">— for Material Quantity</span>
+                      <input
+                        className="editor-name"
+                        placeholder="District"
+                        value={e.district}
+                        onChange={(ev) => updateEntry(e.id, { district: ev.target.value })}
+                      />
+                    </label>
+
+                    <div className="estimate-details-actions">
+                      <button className="primary" onClick={() => downloadBoq(e)} disabled={e.busyAction !== null}>
+                        <IconDownload /> {e.busyAction === 'boq' ? 'Saving…' : 'BOQ'}
+                      </button>
+                      <button
+                        className="primary"
+                        onClick={() => downloadScheduleA(e)}
+                        disabled={e.busyAction !== null}
+                      >
+                        <IconDownload /> {e.busyAction === 'scheduleA' ? 'Saving…' : 'Schedule A'}
+                      </button>
+                      <button
+                        className="primary"
+                        onClick={() => downloadDeviation(e)}
+                        disabled={e.busyAction !== null}
+                      >
+                        <IconDownload /> {e.busyAction === 'deviation' ? 'Saving…' : 'Deviation'}
+                      </button>
+                      <button
+                        className="primary"
+                        onClick={() => downloadMaterial(e)}
+                        disabled={e.busyAction !== null}
+                      >
+                        <IconDownload /> {e.busyAction === 'material' ? 'Saving…' : 'Material Quantity'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               )}
             </li>
           ))}

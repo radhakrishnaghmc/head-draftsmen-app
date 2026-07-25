@@ -1096,26 +1096,103 @@ button.danger-ghost:hover:not(:disabled) {
   color: var(--muted);
   margin: 8px 0 0;
 }
-.estimate-actions {
-  list-style: none;
+/* Per-entry live preview (left) + "details needed" panel (right): the
+   preview shows every extracted line item exactly as it stands right now
+   (an "unfinished" spreadsheet, before it becomes any of the 4 documents),
+   and the panel beside it asks only for whatever's still blank and needed
+   to finish one of those documents (Agency/Department/District). */
+.estimate-body {
+  display: flex;
+  gap: 16px;
   margin: 12px 0 0;
   padding: 12px 0 0;
   border-top: 1px solid var(--border);
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.estimate-preview {
+  flex: 2 1 360px;
+  min-width: 280px;
+}
+.estimate-preview-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.estimate-preview-title {
+  font-size: 12.5px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.estimate-preview-scroll {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+.estimate-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.estimate-preview-table th,
+.estimate-preview-table td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.estimate-preview-table th {
+  position: sticky;
+  top: 0;
+  background: var(--indigo-50);
+  color: var(--muted);
+  font-weight: 650;
+  text-transform: uppercase;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+.estimate-preview-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.estimate-details {
+  flex: 1 1 220px;
+  min-width: 220px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
-.estimate-action-row {
+.estimate-details-field {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
 }
-.estimate-action-row .editor-name {
-  flex: 1 1 160px;
-  min-width: 140px;
+.estimate-details-field .estimate-hint {
+  font-weight: 500;
+  margin: 0;
+}
+.estimate-details-field .editor-name {
   border-color: var(--border);
   background: #fff;
+  min-width: 0;
+  width: 100%;
+}
+.estimate-details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .workspace-section {
