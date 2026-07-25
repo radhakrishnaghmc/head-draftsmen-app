@@ -178,7 +178,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
     const createdDocuments: CreatedDocument[] = docsSnap.docs
       .map((d) => d.data() as CreatedDocument & { order?: number })
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-      .map((v) => ({ id: v.id, name: v.name, html: v.html, createdDate: v.createdDate }))
+      .map((v) => ({ id: v.id, name: v.name, docx: v.docx, createdDate: v.createdDate }))
 
     const t = tablesSnap.exists() ? tablesSnap.data() : {}
     const m = miscSnap.exists() ? miscSnap.data() : {}
@@ -288,15 +288,26 @@ export async function pushState(state: PersistedState): Promise<void> {
     const orderedDocs = state.createdDocuments ?? []
     for (let i = 0; i < orderedDocs.length; i++) {
       const d = orderedDocs[i]
-      await setDoc(doc(db!, 'users', loginId, 'documents', d.id), {
-        id: d.id,
-        name: d.name,
-        html: d.html,
-        createdDate: d.createdDate,
-        order: i,
-        updatedAt: serverTimestamp(),
-        lastWriter: sessionId
-      })
+      try {
+        // Firestore caps a single document at 1 MiB — a base64 .docx is
+        // larger than the plain HTML this field used to hold, though real
+        // OOXML is typically more compact than Word's own verbose clipboard
+        // HTML to begin with. An unusually large pasted document (many
+        // pages, embedded images) could still approach that ceiling —
+        // caught per-document so one oversized document doesn't also block
+        // every other document (and the cleanup step below) from syncing.
+        await setDoc(doc(db!, 'users', loginId, 'documents', d.id), {
+          id: d.id,
+          name: d.name,
+          docx: d.docx,
+          createdDate: d.createdDate,
+          order: i,
+          updatedAt: serverTimestamp(),
+          lastWriter: sessionId
+        })
+      } catch (e) {
+        console.error(`pushState: failed to sync document "${d.name}"`, e)
+      }
     }
     if (active) {
       for (const oldId of active.knownDocIds) {

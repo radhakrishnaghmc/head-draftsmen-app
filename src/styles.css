@@ -1859,6 +1859,25 @@ button.danger:disabled {
   pointer-events: none;
 }
 
+/*
+ * .docx-editor-canvas: docx-preview renders real OOXML directly into this
+ * div (not an iframe) — it's made contentEditable afterwards so the only
+ * thing a user can change is plain text (adding {{Placeholder}} markers),
+ * never formatting, since there's no toolbar wired to it. docx-preview
+ * injects its own faithful page styling (gray canvas, white page, real
+ * margins) as part of what it renders, same as .docprev-body elsewhere.
+ */
+.docx-editor-canvas {
+  max-height: 70vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.doc-editor-wrap:focus-within .docx-editor-canvas {
+  border-color: var(--indigo-500);
+  box-shadow: 0 0 0 3px var(--indigo-100);
+}
+
 /* ---------- field picker dropdown ---------- */
 .picker {
   position: absolute;

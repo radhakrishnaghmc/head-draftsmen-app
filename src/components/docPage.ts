@@ -36,6 +36,24 @@ export function base64ToUint8(b64: string): Uint8Array {
   return bytes
 }
 
+/** Shared `renderAsync` options for a faithful, paginated render — used everywhere a real .docx (not the pre-OOXML HTML editor) is shown on screen. */
+export const DOCX_PREVIEW_OPTIONS = {
+  className: 'docx',
+  inWrapper: true,
+  ignoreWidth: false,
+  ignoreHeight: false,
+  ignoreFonts: false,
+  breakPages: true,
+  experimental: true,
+  trimXmlDeclaration: true,
+  useBase64URL: true,
+  renderHeaders: true,
+  renderFooters: true,
+  renderFootnotes: true,
+  renderEndnotes: true,
+  renderChanges: false
+}
+
 export function pageShellStyle(): string {
   return `
     html, body { margin: 0; }

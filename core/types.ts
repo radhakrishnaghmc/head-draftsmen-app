@@ -79,14 +79,16 @@ export interface TenderReminder {
 
 /**
  * A document created by pasting rich content (with {{Placeholder}} markers)
- * into the "Create New Document" blank space. `html` is the pasted content
- * exactly as it appeared (fonts, tables, spacing intact) — the source of
- * truth for every later "Create Document" run against a Works List row.
+ * into the "Create New Document" blank space. `docx` is a base64-encoded
+ * real .docx (OOXML) buffer — Word's own clipboard RTF converted losslessly
+ * via LibreOffice (see electron/main.ts's createDocumentFromClipboard) — the
+ * source of truth for every later "Create Document" run against a Works
+ * List row.
  */
 export interface CreatedDocument {
   id: string
   name: string
-  html: string
+  docx: string
   createdDate: string
 }
 

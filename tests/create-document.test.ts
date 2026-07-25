@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { findPlaceholders, matchPlaceholdersToColumns, fillDocumentHtml, bakeFixedPlaceholders } from '../core/createDocument'
-import type { PlaceholderMatch } from '../core/createDocument'
+import { findPlaceholders, matchPlaceholdersToColumns } from '../core/createDocument'
 
 describe('findPlaceholders', () => {
   it('finds a single placeholder', () => {
@@ -118,71 +117,3 @@ describe('matchPlaceholdersToColumns', () => {
   })
 })
 
-describe('fillDocumentHtml', () => {
-  it('replaces a resolved placeholder with the row value', () => {
-    const resolved: PlaceholderMatch[] = [{ label: 'Name of the work', column: 'Name of Work', score: 0.9 }]
-    const row = { 'Name of Work': 'Road repair, Ward 12' }
-    const html = fillDocumentHtml('<p>{{Name of the work}}</p>', resolved, row)
-    expect(html).toBe('<p>Road repair, Ward 12</p>')
-  })
-
-  it('blanks an unresolved placeholder rather than leaving the token in place', () => {
-    const resolved: PlaceholderMatch[] = [{ label: 'Mystery Field', column: null, score: 0 }]
-    const html = fillDocumentHtml('Value: {{Mystery Field}}.', resolved, {})
-    expect(html).toBe('Value: .')
-  })
-
-  it('replaces every occurrence of a repeated placeholder', () => {
-    const resolved: PlaceholderMatch[] = [{ label: 'Name of the work', column: 'Name of Work', score: 0.9 }]
-    const row = { 'Name of Work': 'Bridge work' }
-    const html = fillDocumentHtml('{{Name of the work}} ... {{Name of the work}}', resolved, row)
-    expect(html).toBe('Bridge work ... Bridge work')
-  })
-
-  it('HTML-escapes the substituted value', () => {
-    const resolved: PlaceholderMatch[] = [{ label: 'Agency', column: 'Agency', score: 0.9 }]
-    const row = { Agency: 'M/s A & B <Contractors>' }
-    const html = fillDocumentHtml('{{Agency}}', resolved, row)
-    expect(html).toBe('M/s A &amp; B &lt;Contractors&gt;')
-  })
-
-  it('collapses a placeholder split across several tags into a single plain replacement', () => {
-    const resolved: PlaceholderMatch[] = [{ label: 'Amount of Estimate', column: 'Amount of Estimate', score: 0.9 }]
-    const row = { 'Amount of Estimate': 'Rs. 8,00,000' }
-    const html =
-      '<p>{{Amount&nbsp;</span></b><b style="font-size: 12pt;"><span lang="EN-US">&nbsp;of&nbsp;</span></b><b style="font-size: 12pt;"><span lang="EN-US">Estimate}}</p>'
-    expect(fillDocumentHtml(html, resolved, row)).toBe('<p>Rs. 8,00,000</p>')
-  })
-
-  it('leaves the surrounding markup outside the placeholder span untouched', () => {
-    const resolved: PlaceholderMatch[] = [{ label: 'Name of the work', column: 'Name of Work', score: 0.9 }]
-    const row = { 'Name of Work': 'Road repair' }
-    const html = '<p class="MsoNormal" style="margin:0 0 8pt">{{Name of the work}}</p>'
-    expect(fillDocumentHtml(html, resolved, row)).toBe('<p class="MsoNormal" style="margin:0 0 8pt">Road repair</p>')
-  })
-})
-
-describe('bakeFixedPlaceholders', () => {
-  it('replaces only the given labels, matched case-insensitively', () => {
-    const html = '<p>{{Circle}} / {{circle}} / {{Zone}} / {{CNO}}</p>'
-    const out = bakeFixedPlaceholders(html, { zone: 'Cyberabad', circle: 'Gajularamaram Circle-57', cno: '57' })
-    expect(out).toBe('<p>Gajularamaram Circle-57 / Gajularamaram Circle-57 / Cyberabad / 57</p>')
-  })
-
-  it('leaves every other placeholder untouched for later per-row resolution', () => {
-    const html = '{{Circle}} — {{Name of the work}} — {{Estimate Amount}}'
-    const out = bakeFixedPlaceholders(html, { circle: 'Gajularamaram Circle-57' })
-    expect(out).toBe('Gajularamaram Circle-57 — {{Name of the work}} — {{Estimate Amount}}')
-  })
-
-  it('is idempotent — running it again after the label is gone changes nothing', () => {
-    const once = bakeFixedPlaceholders('{{Zone}}', { zone: 'Cyberabad' })
-    const twice = bakeFixedPlaceholders(once, { zone: 'Cyberabad' })
-    expect(twice).toBe('Cyberabad')
-  })
-
-  it('HTML-escapes the baked-in value', () => {
-    const out = bakeFixedPlaceholders('{{Circle}}', { circle: 'M/s A & B' })
-    expect(out).toBe('M/s A &amp; B')
-  })
-})

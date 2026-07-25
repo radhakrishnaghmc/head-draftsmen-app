@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as https from 'https'
@@ -18,6 +18,9 @@ import { fillScheduleATemplate } from '../core/scheduleATemplate'
 import { fillBoqTemplate, rowsToBoqData } from '../core/boqTemplate'
 import { fillDeviationTemplate } from '../core/deviationTemplate'
 import type { DeviationItem, DeviationMeta } from '../core/deviationTemplate'
+import { buildDetailedEstimateWorkbook } from '../core/estimateTemplate'
+import type { DetailedEstimateMeta } from '../core/estimateTemplate'
+import type { EstimateWorkItem } from '../core/estimateExtract'
 import { parseCalendarHtml } from '../core/calendar'
 import { importTableFromGoogleLink, importAllSheetsFromGoogleLink } from '../core/googleImport'
 import { validateLogin } from '../core/auth'
@@ -29,6 +32,15 @@ import type { BidDocumentInput } from '../core/bidDocument'
 import type { CalendarData } from '../core/calendar'
 import { convertHtmlToDocx } from '../core/htmlToDocx'
 import { convertDocxToPdf } from '../core/docxToPdf'
+import { convertRtfToDocx } from '../core/rtfToDocx'
+import {
+  listParagraphs,
+  applyParagraphEdits,
+  findPlaceholdersInDocx,
+  fillPlaceholdersInDocx,
+  bakeFixedPlaceholdersInDocx
+} from '../core/docx-edit'
+import type { PlaceholderMatch } from '../core/createDocument'
 import type {
   ExcelTable,
   TenderQuery,
@@ -386,6 +398,27 @@ function registerHandlers(): void {
   )
 
   ipcMain.handle(
+    IPC.exportDetailedEstimate,
+    async (
+      _e,
+      items: EstimateWorkItem[],
+      meta: DetailedEstimateMeta,
+      suggestedName: string
+    ): Promise<string | null> => {
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        title: 'Save Estimate',
+        defaultPath: `${suggestedName}.xlsx`,
+        filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
+      })
+      if (result.canceled || !result.filePath) return null
+
+      const buffer = await buildDetailedEstimateWorkbook(items, meta)
+      fs.writeFileSync(result.filePath, buffer)
+      return result.filePath
+    }
+  )
+
+  ipcMain.handle(
     IPC.searchTenders,
     async (_e, query: TenderQuery): Promise<TenderResult> => {
       const raw = await fetchTenders(query)
@@ -406,16 +439,63 @@ function registerHandlers(): void {
     return embedTexts(texts)
   })
 
+  ipcMain.handle(IPC.createDocumentFromClipboard, async (): Promise<string | null> => {
+    // RTF is Word's own, far richer clipboard format — readBuffer (not the
+    // string-returning readRTF) avoids corrupting any embedded image data
+    // via a string encoding round-trip.
+    const format = process.platform === 'darwin' ? 'public.rtf' : 'Rich Text Format'
+    if (!clipboard.has(format)) return null
+    const rtfBuffer = clipboard.readBuffer(format)
+    if (rtfBuffer.length === 0) return null
+    const docxBuffer = await convertRtfToDocx(rtfBuffer)
+    return docxBuffer.toString('base64')
+  })
+
+  ipcMain.handle(IPC.listDocumentParagraphs, async (_e, docxBase64: string): Promise<string[]> => {
+    return listParagraphs(Buffer.from(docxBase64, 'base64'))
+  })
+
+  ipcMain.handle(
+    IPC.saveDocumentEdits,
+    async (_e, docxBase64: string, edits: { index: number; text: string }[]): Promise<string> => {
+      const updated = applyParagraphEdits(
+        Buffer.from(docxBase64, 'base64'),
+        edits.map((e) => ({ index: e.index, newText: e.text }))
+      )
+      return updated.toString('base64')
+    }
+  )
+
+  ipcMain.handle(IPC.findPlaceholdersInDocument, async (_e, docxBase64: string): Promise<string[]> => {
+    return findPlaceholdersInDocx(Buffer.from(docxBase64, 'base64'))
+  })
+
+  ipcMain.handle(
+    IPC.fillPlaceholdersInDocument,
+    async (_e, docxBase64: string, resolved: PlaceholderMatch[], row: Record<string, string>): Promise<string> => {
+      const filled = fillPlaceholdersInDocx(Buffer.from(docxBase64, 'base64'), resolved, row)
+      return filled.toString('base64')
+    }
+  )
+
+  ipcMain.handle(
+    IPC.bakeFixedPlaceholdersInDocument,
+    async (_e, docxBase64: string, values: Record<string, string>): Promise<string> => {
+      const baked = bakeFixedPlaceholdersInDocx(Buffer.from(docxBase64, 'base64'), values)
+      return baked.toString('base64')
+    }
+  )
+
   ipcMain.handle(
     IPC.exportCreatedDocument,
     async (
       _e,
-      html: string,
+      docxBase64: string,
       suggestedName: string,
       formats: ('docx' | 'pdf')[]
     ): Promise<{ file: string; format: 'docx' | 'pdf' }[] | null> => {
       if (formats.length === 0) return null
-      const docxBuffer = await convertHtmlToDocx(html)
+      const docxBuffer = Buffer.from(docxBase64, 'base64')
       const written: { file: string; format: 'docx' | 'pdf' }[] = []
 
       if (formats.includes('docx')) {
@@ -449,9 +529,13 @@ function registerHandlers(): void {
 
   let printWindow: BrowserWindow | null = null
 
-  // Skip any in-app preview and go straight to the OS print dialog.
-  ipcMain.handle(IPC.printCreatedDocument, async (_e, html: string): Promise<void> => {
-    const body = /<html/i.test(html) ? html : `<!DOCTYPE html><html><body>${html}</body></html>`
+  // Skip any in-app preview and go straight to the OS print dialog. Fed
+  // docx-preview's own rendered HTML (captured by the renderer after it
+  // renders the filled .docx) rather than raw pasted content — this avoids
+  // needing LibreOffice for printing (only creating a document and PDF
+  // export need it).
+  ipcMain.handle(IPC.printCreatedDocument, async (_e, renderedHtml: string): Promise<void> => {
+    const body = /<html/i.test(renderedHtml) ? renderedHtml : `<!DOCTYPE html><html><body>${renderedHtml}</body></html>`
     const file = path.join(app.getPath('temp'), `docugen-print-${Date.now()}.html`)
     fs.writeFileSync(file, body, 'utf8')
 
@@ -672,20 +756,52 @@ function registerHandlers(): void {
     }
   )
 
+  // Pre-OOXML-refactor documents were saved with an `html` string instead of
+  // a real `docx` buffer — converted once here (via the same html-to-docx
+  // path exportCreatedDocument used to use) so an upgrading user's existing
+  // documents (and the bundled seed-state.json's own 8 examples) keep
+  // working rather than silently losing their content. Best-effort per
+  // document: one bad conversion doesn't take the rest down with it.
+  interface LegacyCreatedDocument {
+    id: string
+    name: string
+    html?: string
+    docx?: string
+    createdDate: string
+  }
+
+  async function migrateCreatedDocuments(state: PersistedState): Promise<PersistedState> {
+    const docs = (state.createdDocuments ?? []) as unknown as LegacyCreatedDocument[]
+    if (docs.every((d) => d.docx)) return state
+    const migrated = await Promise.all(
+      docs.map(async (d) => {
+        if (d.docx || !d.html) return d
+        try {
+          const docxBuffer = await convertHtmlToDocx(d.html)
+          return { id: d.id, name: d.name, docx: docxBuffer.toString('base64'), createdDate: d.createdDate }
+        } catch (e) {
+          console.error(`Failed to migrate document "${d.name}" from html to docx`, e)
+          return d
+        }
+      })
+    )
+    return { ...state, createdDocuments: migrated as unknown as PersistedState['createdDocuments'] }
+  }
+
   ipcMain.handle(IPC.loadState, async (): Promise<PersistedState | null> => {
+    let state: PersistedState | null = null
     try {
-      const raw = fs.readFileSync(stateFile(), 'utf8')
-      return JSON.parse(raw) as PersistedState
+      state = JSON.parse(fs.readFileSync(stateFile(), 'utf8')) as PersistedState
     } catch {
       // First run (no saved state): seed with the bundled works database + default documents.
       try {
         const seed = seedStateFile()
-        if (seed) return JSON.parse(fs.readFileSync(seed, 'utf8')) as PersistedState
+        if (seed) state = JSON.parse(fs.readFileSync(seed, 'utf8')) as PersistedState
       } catch {
         // fall through
       }
-      return null
     }
+    return state && (await migrateCreatedDocuments(state))
   })
 
   ipcMain.handle(IPC.saveState, async (_e, state: PersistedState): Promise<void> => {

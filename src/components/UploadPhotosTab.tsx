@@ -5,6 +5,7 @@ import { extractEstimateAmountLakhs } from '@core/deviation'
 import { findWorksRowByName, metaFromWorksRow } from '@core/scheduleA'
 import { applyEcvFromBoq } from '@core/worksAmounts'
 import { buildBoqFromEstimate, computeEcvFromItems, boqToScheduleA } from '../boqTransform'
+import { pdfPagesToDataUrls } from '../pdfToImages'
 import { IconFolder, IconImage, IconTrash, IconDownload, IconWarn } from './Icons'
 import ExcelInline from './ExcelInline'
 import type { ExcelTable } from '@core/types'
@@ -42,9 +43,16 @@ function stripExt(name: string): string {
   return name.replace(/\.[^./\\]+$/, '')
 }
 
-/** Sl No / Description / Unit / Quantity / Rate / Amount — a plain, editable review table, not the app's specialized BOQ/Schedule A template. */
+/**
+ * Sl No / Description / No's / L / B / D / Unit / Quantity / Rate / Amount —
+ * a plain, editable review table, not the app's specialized BOQ/Schedule A
+ * template. No's/L/B/D are included editable here (rather than only shown on
+ * the final workbook) because OCR can only reconstruct them when the source
+ * photo's dimension row happens to resolve unambiguously — this is the
+ * user's chance to fill in or correct them by eye before export.
+ */
 function itemsToTable(items: EstimateWorkItem[]): ExcelTable {
-  const headers = ['Sl No', 'Description', 'Unit', 'Quantity', 'Rate', 'Amount']
+  const headers = ['Sl No', 'Description', "No's", 'L', 'B', 'D', 'Unit', 'Quantity', 'Rate', 'Amount']
   const rows = items.map((it, i) => {
     const qty = Number(it.quantity.replace(/,/g, ''))
     const rate = Number(it.rate.replace(/,/g, ''))
@@ -52,6 +60,10 @@ function itemsToTable(items: EstimateWorkItem[]): ExcelTable {
     return {
       'Sl No': String(i + 1),
       Description: it.description,
+      "No's": it.nos ?? '',
+      L: it.l ?? '',
+      B: it.b ?? '',
+      D: it.d ?? '',
       Unit: it.unit,
       Quantity: it.quantity,
       Rate: it.rate,
@@ -69,14 +81,21 @@ function tableToItems(table: ExcelTable): EstimateWorkItem[] {
       description: r['Description'] ?? '',
       quantity: r['Quantity'] ?? '',
       rate: r['Rate'] ?? '',
-      unit: r['Unit'] ?? ''
+      unit: r['Unit'] ?? '',
+      nos: (r["No's"] ?? '').trim() || undefined,
+      l: (r['L'] ?? '').trim() || undefined,
+      b: (r['B'] ?? '').trim() || undefined,
+      d: (r['D'] ?? '').trim() || undefined
     }))
 }
 
 /**
- * Upload photos of a paper estimate (in page order — drag to reorder) and
- * convert them into an editable spreadsheet: each photo is read with local
- * OCR (PaddleOCR via @gutenye/ocr-node, fully offline — see electron/ocr.ts),
+ * Upload photos of a paper estimate, or a PDF of scanned pages (each PDF
+ * page is rendered to an image client-side via pdfjs-dist — see
+ * ../pdfToImages.ts — and dropped into the same photo list), in page order
+ * — drag to reorder — and convert them into an editable spreadsheet: each
+ * photo is read with local OCR (PaddleOCR via @gutenye/ocr-node, fully
+ * offline — see electron/ocr.ts),
  * whose line detector returns each printed line as one clean unit of text in
  * reading order (electron/main.ts's ocrEstimatePhotos). Those lines are
  * parsed directly by core/estimateExtract.ts's extractEstimateItemsFromLines
@@ -116,11 +135,26 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
 
   async function handleFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return
-    const files = Array.from(fileList).filter((f) => f.type.startsWith('image/'))
-    const added = await Promise.all(
-      files.map(async (file) => ({ id: nextId(), name: file.name, dataUrl: await readAsDataUrl(file) }))
-    )
-    setPhotos((prev) => [...prev, ...added])
+    const files = Array.from(fileList)
+    setConvertError(null)
+    try {
+      const added: Photo[] = []
+      for (const file of files) {
+        if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+          // A PDF here is a scanned/photographed multi-page estimate saved as
+          // one file — split it into one page-image per photo so it feeds
+          // the exact same per-photo OCR pipeline as a direct photo upload.
+          const pages = await pdfPagesToDataUrls(file)
+          const base = stripExt(file.name)
+          pages.forEach((dataUrl, i) => added.push({ id: nextId(), name: `${base} (page ${i + 1})`, dataUrl }))
+        } else if (file.type.startsWith('image/')) {
+          added.push({ id: nextId(), name: file.name, dataUrl: await readAsDataUrl(file) })
+        }
+      }
+      setPhotos((prev) => [...prev, ...added])
+    } catch (e) {
+      setConvertError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   function removePhoto(id: string) {
@@ -193,8 +227,14 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
     setActionError(null)
     setActionSaved(null)
     try {
+      const items = tableToItems(resultTable)
+      const match = workName && worksTable ? await matchWorksRow(workName, worksTable) : undefined
       const base = photos[0] ? stripExt(photos[0].name) : 'Estimate'
-      const path = await api.exportTable(resultTable, `${base} Estimate`)
+      const path = await api.exportDetailedEstimate(
+        items,
+        { zone: match?.row['Zone'], circle: match?.row['Circle'], workName },
+        `${base} Estimate`
+      )
       if (path) setActionSaved(path)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
@@ -322,12 +362,12 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
         <IconImage />
         <p>
           {photos.length === 0
-            ? 'Upload photos of a paper estimate to convert them into a spreadsheet.'
+            ? 'Upload photos of a paper estimate (or a PDF of scanned pages) to convert them into a spreadsheet.'
             : `${photos.length} photo${photos.length === 1 ? '' : 's'} added — drag to reorder into page order.`}
         </p>
         <div className="boq-actions">
           <button className="primary" onClick={() => fileInputRef.current?.click()}>
-            <IconFolder /> Upload Photos
+            <IconFolder /> Upload Photos or PDF
           </button>
           {photos.length > 0 && (
             <button className="primary" onClick={convertToEstimate} disabled={converting}>
@@ -337,7 +377,7 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,application/pdf"
             multiple
             style={{ display: 'none' }}
             onChange={(e) => {
@@ -419,7 +459,7 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
 
           <div className="boq-actions" style={{ marginTop: 14, flexWrap: 'wrap' }}>
             <button className="primary" onClick={download} disabled={actionBusy !== null}>
-              <IconDownload /> {actionBusy === 'excel' ? 'Saving…' : 'Download Excel'}
+              <IconDownload /> {actionBusy === 'excel' ? 'Saving…' : 'Download Estimate'}
             </button>
             <button className="primary" onClick={downloadBoq} disabled={actionBusy !== null}>
               <IconDownload /> {actionBusy === 'boq' ? 'Saving…' : 'Download BOQ'}

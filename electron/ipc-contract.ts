@@ -13,6 +13,9 @@ import type { CellEdit } from '../core/technicalSanction'
 import type { BidDocumentInput } from '../core/bidDocument'
 import type { LoginResult } from '../core/auth'
 import type { DeviationItem, DeviationMeta } from '../core/deviationTemplate'
+import type { PlaceholderMatch } from '../core/createDocument'
+import type { EstimateWorkItem } from '../core/estimateExtract'
+import type { DetailedEstimateMeta } from '../core/estimateTemplate'
 
 export type ManualCheckResult = 'update-available' | 'up-to-date' | 'error' | 'dev-mode'
 
@@ -43,6 +46,7 @@ export const IPC = {
   exportBoq: 'data:exportBoq',
   exportBoqBatch: 'data:exportBoqBatch',
   exportDeviation: 'data:exportDeviation',
+  exportDetailedEstimate: 'data:exportDetailedEstimate',
   generateTenderNotice: 'data:generateTenderNotice',
   previewTenderNotice: 'data:previewTenderNotice',
   generateBidDocument: 'data:generateBidDocument',
@@ -50,6 +54,12 @@ export const IPC = {
   generateTechnicalSanction: 'data:generateTechnicalSanction',
   searchTenders: 'tenders:search',
   embedTexts: 'ai:embedTexts',
+  createDocumentFromClipboard: 'doc:createDocumentFromClipboard',
+  listDocumentParagraphs: 'doc:listDocumentParagraphs',
+  saveDocumentEdits: 'doc:saveDocumentEdits',
+  findPlaceholdersInDocument: 'doc:findPlaceholdersInDocument',
+  fillPlaceholdersInDocument: 'doc:fillPlaceholdersInDocument',
+  bakeFixedPlaceholdersInDocument: 'doc:bakeFixedPlaceholdersInDocument',
   exportCreatedDocument: 'doc:exportCreatedDocument',
   printCreatedDocument: 'doc:printCreatedDocument',
   loadState: 'state:load',
@@ -88,6 +98,12 @@ export interface DocuGenApi {
     entries: { table: ExcelTable; suggestedName: string; workName?: string }[]
   ): Promise<string[] | null>
   exportDeviation(items: DeviationItem[], meta: DeviationMeta, suggestedName: string): Promise<string | null>
+  /** Builds and saves a full "Detailed and Abstract Estimate" workbook (letterhead, item table, standard surcharge cascade, signature block) from scratch — not a bare Sl No/Description/Qty/Rate/Amount table. */
+  exportDetailedEstimate(
+    items: EstimateWorkItem[],
+    meta: DetailedEstimateMeta,
+    suggestedName: string
+  ): Promise<string | null>
   generateTenderNotice(input: TenderNoticeInput, suggestedName?: string): Promise<string | null>
   previewTenderNotice(input: TenderNoticeInput): Promise<string>
   /** Save one filled Bid Document (one save dialog per call — call once per work). */
@@ -102,14 +118,30 @@ export interface DocuGenApi {
   ): Promise<string | null>
   searchTenders(query: TenderQuery): Promise<TenderResult>
   embedTexts(texts: string[]): Promise<number[][]>
+  /** Reads Word's own RTF clipboard flavor and converts it to a real .docx via a local LibreOffice install — base64-encoded, or null if the clipboard has no rich content. */
+  createDocumentFromClipboard(): Promise<string | null>
+  /** Plain text of every paragraph in a base64 .docx, in document order — used to diff a user's typed edits back against the original before saving. */
+  listDocumentParagraphs(docxBase64: string): Promise<string[]>
+  /** Rewrites only the paragraphs that actually changed, preserving every other run's formatting — returns the updated base64 .docx. */
+  saveDocumentEdits(docxBase64: string, edits: { index: number; text: string }[]): Promise<string>
+  /** Every distinct {{Label}} found in a base64 .docx's body paragraphs. */
+  findPlaceholdersInDocument(docxBase64: string): Promise<string[]>
+  /** Replaces every {{Label}} occurrence with its resolved row value (blank if unresolved) — returns the filled base64 .docx. */
+  fillPlaceholdersInDocument(
+    docxBase64: string,
+    resolved: PlaceholderMatch[],
+    row: Record<string, string>
+  ): Promise<string>
+  /** Bakes only the given labels (Zone/Circle/CNO) into a base64 .docx, leaving every other placeholder for later per-row resolution. */
+  bakeFixedPlaceholdersInDocument(docxBase64: string, values: Record<string, string>): Promise<string>
   /** Save the filled document as Word and/or PDF (one save dialog per chosen format). */
   exportCreatedDocument(
-    html: string,
+    docxBase64: string,
     suggestedName: string,
     formats: ('docx' | 'pdf')[]
   ): Promise<{ file: string; format: 'docx' | 'pdf' }[] | null>
-  /** Open the OS print dialog directly against the filled document. */
-  printCreatedDocument(html: string): Promise<void>
+  /** Open the OS print dialog directly against the already-rendered document HTML (docx-preview's own output, captured by the caller). */
+  printCreatedDocument(renderedHtml: string): Promise<void>
   loadState(): Promise<PersistedState | null>
   saveState(state: PersistedState): Promise<void>
   /** Fires when the other signed-in device changes the workspace, so this one can merge it in live. Returns an unsubscribe function. */
@@ -134,4 +166,7 @@ export type { TenderNoticeInput }
 export type { CellEdit }
 export type { BidDocumentInput }
 export type { LoginResult }
+export type { PlaceholderMatch }
 export type { DeviationItem, DeviationMeta }
+export type { EstimateWorkItem }
+export type { DetailedEstimateMeta }

@@ -175,3 +175,11 @@ export const IconLogout = (p: P) => (
     <path d="M21 12H9" />
   </svg>
 )
+
+export const IconClipboard = (p: P) => (
+  <svg {...base(p)}>
+    <rect x="8" y="2" width="8" height="4" rx="1" />
+    <path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2" />
+    <path d="M9 12h6M9 16h6" />
+  </svg>
+)

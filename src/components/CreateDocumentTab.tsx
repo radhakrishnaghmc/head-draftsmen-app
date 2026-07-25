@@ -1,28 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import type { MouseEvent as ReactMouseEvent } from 'react'
+import { renderAsync } from 'docx-preview'
+import { api } from '../ipc'
 import { findPlaceholders } from '@core/createDocument'
-import { cleanPastedHtml } from '@core/pasteClean'
+import { base64ToUint8, DOCX_PREVIEW_OPTIONS } from './docPage'
 import type { CreatedDocument } from '@core/types'
-import { IconDoc, IconPlus, IconEye } from './Icons'
-import { pageShellStyle, usePageScrollTracker, PAGE_WIDTH } from './docPage'
-
-// The base document written into the editable iframe. No stylesheet of
-// ours loaded beyond pageShellStyle (which only sets up the page-on-a-desk
-// look) — pasted content renders using the browser's own defaults plus
-// whatever styling it brought with it, so our app's CSS can't clobber a
-// pasted paragraph's margin/line-height/fonts the way it would if the same
-// markup sat inside a div on this page.
-const EDITOR_SHELL = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${pageShellStyle()}</style></head><body></body></html>`
-
-const FONT_FAMILIES = [
-  'Times New Roman',
-  'Arial',
-  'Calibri',
-  'Georgia',
-  'Verdana',
-  'Courier New'
-]
-const FONT_SIZES = ['8', '9', '10', '11', '12', '14', '16', '18', '20', '24', '28', '32']
+import { IconDoc, IconClipboard, IconPlus } from './Icons'
 
 interface Props {
   documents: CreatedDocument[]
@@ -41,173 +23,120 @@ function today(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+/**
+ * Paste a document straight from Word (its own RTF clipboard data,
+ * converted to a real .docx via a local LibreOffice install — see
+ * electron/main.ts's createDocumentFromClipboard) and add {{Placeholder}}
+ * markers wherever a value should be filled in later.
+ *
+ * The canvas below is docx-preview's own faithful render of that real .docx,
+ * made contentEditable afterwards — there's no formatting toolbar, since the
+ * whole point is that Word's own formatting survives untouched. Only plain
+ * text edits are possible (typing a placeholder, fixing a typo); Enter is
+ * blocked so the editor can't drift from the original's paragraph count,
+ * which the diff-based save below relies on to know what changed.
+ */
 export default function CreateDocumentTab({ documents, onChange, editingDoc, onDoneEditing }: Props) {
-  const frameRef = useRef<HTMLIFrameElement>(null)
-  // The editor's selection at the moment a toolbar control was last
-  // interacted with — see captureSelection/focusAndRestoreSelection below.
-  const savedRangeRef = useRef<Range | null>(null)
+  const editorRef = useRef<HTMLDivElement>(null)
   const [draftName, setDraftName] = useState('')
   const [detected, setDetected] = useState<string[]>([])
   const [savedNotice, setSavedNotice] = useState<string | null>(null)
   const [addError, setAddError] = useState<string | null>(null)
-  const [shellReady, setShellReady] = useState(false)
-  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
-  const [previewError, setPreviewError] = useState<string | null>(null)
-  const previewFrameRef = useRef<HTMLIFrameElement>(null)
+  const [pasteError, setPasteError] = useState<string | null>(null)
+  const [pasting, setPasting] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  // The pasted/loaded document's own base64 .docx, and its paragraphs' text
+  // as they were at that moment — the anchor every save diffs the live,
+  // possibly-edited canvas against to know which paragraphs actually changed.
+  const [docxBase64, setDocxBase64] = useState<string | null>(null)
+  const [originalParagraphs, setOriginalParagraphs] = useState<string[]>([])
+  const [pageCount, setPageCount] = useState(0)
 
-  // Only attach once the shell below has actually written the iframe's
-  // document — attaching earlier would observe/listen on the throwaway
-  // about:blank document that doc.write() then replaces.
-  const { current: currentPage, total: totalPages } = usePageScrollTracker(frameRef, shellReady)
-  const { current: previewPage, total: previewPages } = usePageScrollTracker(previewFrameRef, previewHtml)
-
-  function scanCanvas() {
-    const text = frameRef.current?.contentDocument?.body.innerText ?? ''
-    setDetected(findPlaceholders(text))
+  function scanPlaceholders() {
+    setDetected(findPlaceholders(editorRef.current?.innerText ?? ''))
   }
 
-  // Set up the editable surface once: a real, isolated HTML document (not a
-  // div on this page) with editing turned on. Pasting into it uses the
-  // browser's normal rich-paste handling, but the result renders with only
-  // the browser's own defaults — nothing here can override a pasted
-  // paragraph's font, size, spacing, or table borders.
-  useEffect(() => {
-    const frame = frameRef.current
-    const doc = frame?.contentDocument
-    if (!frame || !doc) return
-    doc.open()
-    doc.write(EDITOR_SHELL)
-    doc.close()
-    doc.designMode = 'on'
-    const onEdit = () => scanCanvas()
+  function blockNewParagraphs(e: KeyboardEvent) {
+    if (e.key === 'Enter') e.preventDefault()
+  }
 
-    // Intercept paste ourselves instead of letting the browser insert the
-    // clipboard HTML unfiltered — Word's clipboard fragment carries forced
-    // page breaks and runs of empty spacer paragraphs that, dropped into a
-    // continuous (non-paginated) document, show up as extra blank lines and
-    // content that visually lands on the "wrong" page.
-    const onPaste = (e: ClipboardEvent) => {
-      const html = e.clipboardData?.getData('text/html')
-      const text = e.clipboardData?.getData('text/plain')
-      e.preventDefault()
-      if (html) {
-        doc.execCommand('insertHTML', false, cleanPastedHtml(html))
-      } else if (text) {
-        doc.execCommand('insertText', false, text)
+  async function renderDocx(base64: string) {
+    const container = editorRef.current
+    if (!container) return
+    container.removeEventListener('input', scanPlaceholders)
+    container.removeEventListener('keydown', blockNewParagraphs)
+    container.innerHTML = ''
+    await renderAsync(base64ToUint8(base64), container, undefined, DOCX_PREVIEW_OPTIONS)
+    container.contentEditable = 'true'
+    container.addEventListener('input', scanPlaceholders)
+    container.addEventListener('keydown', blockNewParagraphs)
+    setPageCount(container.querySelectorAll('section.docx').length)
+    scanPlaceholders()
+  }
+
+  async function pasteFromWord() {
+    setPasteError(null)
+    setPasting(true)
+    try {
+      const base64 = await api.createDocumentFromClipboard()
+      if (!base64) {
+        setPasteError('Nothing to paste — copy some content in Word first, then try again.')
+        return
       }
-      onEdit()
+      const paragraphs = await api.listDocumentParagraphs(base64)
+      setDocxBase64(base64)
+      setOriginalParagraphs(paragraphs)
+      setDraftName((prev) => prev || '')
+      await renderDocx(base64)
+    } catch (e) {
+      setPasteError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setPasting(false)
     }
-
-    doc.body.addEventListener('input', onEdit)
-    doc.body.addEventListener('paste', onPaste)
-    setShellReady(true)
-    return () => {
-      doc.body.removeEventListener('input', onEdit)
-      doc.body.removeEventListener('paste', onPaste)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }
 
   // Load a document sent here from Issue Document for edits. Keyed on the
   // incoming doc's id (not the object itself) so this only re-fires when a
   // genuinely different document arrives, not on every parent re-render.
   useEffect(() => {
-    if (!shellReady || !editingDoc) return
-    const body = frameRef.current?.contentDocument?.body
-    if (!body) return
-    body.innerHTML = editingDoc.html
-    setDraftName(editingDoc.name)
-    setEditingId(editingDoc.id)
-    scanCanvas()
+    if (!editingDoc) return
+    let cancelled = false
+    void (async () => {
+      const paragraphs = await api.listDocumentParagraphs(editingDoc.docx)
+      if (cancelled) return
+      setDocxBase64(editingDoc.docx)
+      setOriginalParagraphs(paragraphs)
+      setDraftName(editingDoc.name)
+      setEditingId(editingDoc.id)
+      await renderDocx(editingDoc.docx)
+    })()
+    return () => {
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shellReady, editingDoc?.id])
+  }, [editingDoc?.id])
 
-  function cancelEdit() {
-    const body = frameRef.current?.contentDocument?.body
-    if (body) body.innerHTML = ''
+  function resetCanvas() {
+    if (editorRef.current) editorRef.current.innerHTML = ''
     setDraftName('')
     setDetected([])
+    setDocxBase64(null)
+    setOriginalParagraphs([])
+    setPageCount(0)
+  }
+
+  function cancelEdit() {
+    resetCanvas()
     setEditingId(null)
     onDoneEditing?.()
   }
 
-  // Grabs whatever's currently selected in the editor before a toolbar
-  // control (about to steal focus) runs its own default mousedown behavior —
-  // for a <select>, that default behavior is opening its native dropdown,
-  // which calling preventDefault() would block entirely (unlike a <button>,
-  // where preventDefault only stops the focus-steal, not the click itself).
-  // So selects can't use preserveSelection below; they capture the range
-  // here instead and focusAndRestoreSelection() puts it back once the user
-  // has actually picked a value.
-  function captureSelection() {
-    const sel = frameRef.current?.contentDocument?.getSelection()
-    if (sel && sel.rangeCount > 0) savedRangeRef.current = sel.getRangeAt(0).cloneRange()
-  }
-
-  // Re-focuses the iframe and restores the last-captured selection —
-  // execCommand needs the target document to actually be focused, and needs
-  // the selection to still be there, to have any effect. A no-op restore
-  // when nothing moved focus away (the <button> case, where
-  // preserveSelection already kept focus in the iframe).
-  function focusAndRestoreSelection() {
-    const doc = frameRef.current?.contentDocument
-    frameRef.current?.contentWindow?.focus()
-    doc?.body.focus()
-    const sel = doc?.getSelection()
-    if (sel && savedRangeRef.current) {
-      sel.removeAllRanges()
-      sel.addRange(savedRangeRef.current)
-    }
-  }
-
-  function exec(command: string, value?: string) {
-    focusAndRestoreSelection()
-    frameRef.current?.contentDocument?.execCommand(command, false, value)
-    scanCanvas()
-  }
-
-  // execCommand('fontSize') only supports the legacy HTML levels 1-7, not
-  // real point sizes — force a level-7 <font> wrapper around the selection,
-  // then rewrite it to the actual pt size requested.
-  function setFontSize(pt: string) {
-    focusAndRestoreSelection()
-    const doc = frameRef.current?.contentDocument
-    if (!doc) return
-    doc.execCommand('fontSize', false, '7')
-    doc.body.querySelectorAll('font[size="7"]').forEach((el) => {
-      el.removeAttribute('size')
-      ;(el as HTMLElement).style.fontSize = `${pt}pt`
-    })
-  }
-
-  // Prevents the toolbar button from stealing focus (and the selection)
-  // away from the iframe when clicked — execCommand needs that selection
-  // to still be there when it runs. Also captures the selection so it can
-  // be explicitly restored in exec() (see focusAndRestoreSelection) — a
-  // no-op here since focus never actually left, but keeps one code path.
-  function preserveSelection(e: ReactMouseEvent) {
-    e.preventDefault()
-    captureSelection()
-  }
-
-  function openPreview() {
-    setPreviewError(null)
-    const body = frameRef.current?.contentDocument?.body
-    if (!(body?.innerText ?? '').trim()) {
-      setPreviewError('Paste some document content first.')
-      return
-    }
-    setPreviewHtml(body?.innerHTML ?? '')
-  }
-
-  function addToDocument() {
+  async function addToDocument() {
     setAddError(null)
-    const body = frameRef.current?.contentDocument?.body
-    const html = body?.innerHTML ?? ''
-    const plainText = (body?.innerText ?? '').trim()
-    if (!plainText) {
-      setAddError('Paste some document content first.')
+    const container = editorRef.current
+    const plainText = (container?.innerText ?? '').trim()
+    if (!plainText || !docxBase64) {
+      setAddError('Paste a document from Word first.')
       return
     }
     if (!draftName.trim()) {
@@ -215,10 +144,26 @@ export default function CreateDocumentTab({ documents, onChange, editingDoc, onD
       return
     }
     const name = draftName.trim()
+
+    const currentParagraphs = Array.from(container!.querySelectorAll('article p')).map((p) => p.textContent ?? '')
+    const edits = currentParagraphs
+      .map((text, index) => ({ index, text }))
+      .filter(({ index, text }) => text !== (originalParagraphs[index] ?? ''))
+
+    let finalDocx = docxBase64
+    if (edits.length > 0) {
+      try {
+        finalDocx = await api.saveDocumentEdits(docxBase64, edits)
+      } catch (e) {
+        setAddError(e instanceof Error ? e.message : String(e))
+        return
+      }
+    }
+
     if (editingId) {
       // Updating an existing document (sent here from Issue Document) —
-      // keep its id/createdDate, only the name/html change.
-      onChange(documents.map((d) => (d.id === editingId ? { ...d, name, html } : d)))
+      // keep its id/createdDate, only the name/docx change.
+      onChange(documents.map((d) => (d.id === editingId ? { ...d, name, docx: finalDocx } : d)))
       setSavedNotice(`Updated "${name}". Find it on the Issue Document tab.`)
       setEditingId(null)
       onDoneEditing?.()
@@ -226,15 +171,14 @@ export default function CreateDocumentTab({ documents, onChange, editingDoc, onD
       const doc: CreatedDocument = {
         id: `doc_${Date.now().toString(36)}`,
         name,
-        html,
+        docx: finalDocx,
         createdDate: today()
       }
       onChange([...documents, doc])
       setSavedNotice(`Added "${doc.name}" to Document. Find it on the Issue Document tab.`)
     }
-    if (body) body.innerHTML = ''
-    setDraftName('')
-    setDetected([])
+
+    resetCanvas()
     setTimeout(() => setSavedNotice(null), 4000)
   }
 
@@ -247,7 +191,7 @@ export default function CreateDocumentTab({ documents, onChange, editingDoc, onD
         <div className="titles">
           <h2>Paste a new document</h2>
           <p className="sub">
-            Paste content from Word or anywhere else — formatting carries over. Add{' '}
+            Copy a document in Word, then click "Paste from Word" — formatting carries over exactly. Type{' '}
             <code>{'{{Placeholder}}'}</code> markers wherever a value should be filled in, e.g.{' '}
             <code>{'{{Name of the work}}'}</code>. When you're happy with it, name it and add it below.
           </p>
@@ -263,90 +207,17 @@ export default function CreateDocumentTab({ documents, onChange, editingDoc, onD
         </div>
       )}
 
-      <div className="editor-toolbar">
-        <button className="tb-btn" style={{ fontWeight: 700 }} onMouseDown={preserveSelection} onClick={() => exec('bold')}>
-          B
-        </button>
-        <button className="tb-btn" style={{ fontStyle: 'italic' }} onMouseDown={preserveSelection} onClick={() => exec('italic')}>
-          I
-        </button>
-        <button
-          className="tb-btn"
-          style={{ textDecoration: 'underline' }}
-          onMouseDown={preserveSelection}
-          onClick={() => exec('underline')}
-        >
-          U
-        </button>
-
-        <span className="tb-sep" />
-
-        <select className="tb-select" defaultValue="" onMouseDown={captureSelection} onChange={(e) => exec('fontName', e.target.value)}>
-          <option value="" disabled>
-            Font
-          </option>
-          {FONT_FAMILIES.map((f) => (
-            <option value={f} key={f} style={{ fontFamily: f }}>
-              {f}
-            </option>
-          ))}
-        </select>
-
-        <select className="tb-select" defaultValue="" onMouseDown={captureSelection} onChange={(e) => setFontSize(e.target.value)}>
-          <option value="" disabled>
-            Size
-          </option>
-          {FONT_SIZES.map((s) => (
-            <option value={s} key={s}>
-              {s} pt
-            </option>
-          ))}
-        </select>
-
-        <span className="tb-sep" />
-
-        <select
-          className="tb-select"
-          defaultValue=""
-          onMouseDown={captureSelection}
-          onChange={(e) => exec(e.target.value)}
-        >
-          <option value="" disabled>
-            Align
-          </option>
-          <option value="justifyLeft">Left</option>
-          <option value="justifyCenter">Center</option>
-          <option value="justifyRight">Right</option>
-          <option value="justifyFull">Justify</option>
-        </select>
-
-        <span className="tb-sep" />
-
-        <button className="tb-btn" onMouseDown={preserveSelection} onClick={() => exec('insertUnorderedList')}>
-          • List
-        </button>
-        <button className="tb-btn" onMouseDown={preserveSelection} onClick={() => exec('insertOrderedList')}>
-          1. List
-        </button>
-
-        <span className="tb-sep" />
-
-        <button className="tb-btn" onMouseDown={preserveSelection} onClick={() => exec('undo')}>
-          Undo
-        </button>
-        <button className="tb-btn" onMouseDown={preserveSelection} onClick={() => exec('redo')}>
-          Redo
+      <div className="boq-actions" style={{ padding: '0 4px 12px' }}>
+        <button className="primary" onClick={pasteFromWord} disabled={pasting}>
+          <IconClipboard /> {pasting ? 'Reading clipboard…' : 'Paste from Word'}
         </button>
       </div>
+      {pasteError && <div className="notice error">{pasteError}</div>}
 
       <div className="doc-desk">
-        <div className="doc-editor-wrap" style={{ width: PAGE_WIDTH }}>
-          <iframe ref={frameRef} className="doc-editor" title="Document canvas" />
-          {totalPages > 1 && (
-            <span className="doc-page-badge">
-              Page {currentPage} of {totalPages}
-            </span>
-          )}
+        <div className="doc-editor-wrap">
+          <div ref={editorRef} className="docx-editor-canvas" />
+          {pageCount > 1 && <span className="doc-page-badge">{pageCount} pages</span>}
         </div>
       </div>
 
@@ -367,46 +238,12 @@ export default function CreateDocumentTab({ documents, onChange, editingDoc, onD
           value={draftName}
           onChange={(e) => setDraftName(e.target.value)}
         />
-        <button className="ghost" onClick={openPreview}>
-          <IconEye /> Preview
-        </button>
         <button className="primary" onClick={addToDocument}>
           <IconPlus /> {editingId ? 'Save changes' : 'Add this to Document'}
         </button>
       </div>
       {addError && <div className="notice error">{addError}</div>}
-      {previewError && <div className="notice error">{previewError}</div>}
       {savedNotice && <div className="notice">{savedNotice}</div>}
-
-      {previewHtml !== null && (
-        <div className="editor-overlay" onClick={() => setPreviewHtml(null)}>
-          <div className="editor-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="editor-head">
-              <span className="editor-title">Preview</span>
-              <div className="editor-head-actions">
-                <button className="ghost" onClick={() => setPreviewHtml(null)}>
-                  Close
-                </button>
-              </div>
-            </div>
-            <div className="doc-desk">
-              <div className="doc-editor-wrap" style={{ width: PAGE_WIDTH }}>
-                <iframe
-                  ref={previewFrameRef}
-                  className="doc-editor"
-                  title="Document preview"
-                  srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><style>${pageShellStyle()}</style></head><body>${previewHtml}</body></html>`}
-                />
-                {previewPages > 1 && (
-                  <span className="doc-page-badge">
-                    Page {previewPage} of {previewPages}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   )
 }

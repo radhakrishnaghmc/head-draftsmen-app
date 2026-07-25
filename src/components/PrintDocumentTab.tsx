@@ -1,11 +1,12 @@
 import { useMemo, useRef, useState } from 'react'
+import { renderAsync } from 'docx-preview'
 import { api } from '../ipc'
-import { findPlaceholders, matchPlaceholdersToColumns, fillDocumentHtml } from '@core/createDocument'
+import { matchPlaceholdersToColumns } from '@core/createDocument'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { withComputedAmounts } from '@core/worksAmounts'
 import type { CreatedDocument, ExcelTable } from '@core/types'
 import { IconDoc, IconTrash, IconEye, IconPrint, IconDownload, IconCheck, IconWarn, IconPlus } from './Icons'
-import { pageShellStyle, usePageScrollTracker, PAGE_WIDTH } from './docPage'
+import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
 import DocThumbnail from './DocThumbnail'
 
 interface Props {
@@ -40,9 +41,14 @@ export default function PrintDocumentTab({ tables, documents, onChange, onEdit, 
   const [genBusy, setGenBusy] = useState(false)
   const [genError, setGenError] = useState<string | null>(null)
   const [genNotice, setGenNotice] = useState<string | null>(null)
-  const [preview, setPreview] = useState<{ html: string; resolved: PlaceholderMatch[] } | null>(null)
-  const previewFrameRef = useRef<HTMLIFrameElement>(null)
-  const { current: previewPage, total: previewPages } = usePageScrollTracker(previewFrameRef, preview?.html)
+  const [preview, setPreview] = useState<{ docx: string; resolved: PlaceholderMatch[] } | null>(null)
+  const [previewPages, setPreviewPages] = useState(0)
+  const previewRef = useRef<HTMLDivElement>(null)
+  // Off-screen render target used only to turn a filled .docx into HTML for
+  // printing (see handlePrint) — printCreatedDocument needs plain HTML, not
+  // a docx buffer, since printing goes through the OS print dialog against
+  // a temp HTML file rather than requiring LibreOffice the way PDF export does.
+  const printScratchRef = useRef<HTMLDivElement>(null)
 
   function confirmDelete() {
     if (!pendingDelete) return
@@ -87,8 +93,8 @@ export default function PrintDocumentTab({ tables, documents, onChange, onEdit, 
     setRowIndex(0)
   }
 
-  async function resolveForRow(doc: CreatedDocument): Promise<{ html: string; resolved: PlaceholderMatch[] }> {
-    const labels = findPlaceholders(doc.html)
+  async function resolveForRow(doc: CreatedDocument): Promise<{ docx: string; resolved: PlaceholderMatch[] }> {
+    const labels = await api.findPlaceholdersInDocument(doc.docx)
     // Amount-bearing columns (Amount of estimate, Estimate Amount ECV, EMD @
     // 1%/1.5%, ASD, Contract Amount) resolve to their computed, Indian-
     // formatted "Rs 1,00,000/-" value rather than the raw spreadsheet figure
@@ -97,7 +103,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onEdit, 
     const columns = table?.headers ?? []
     if (labels.length === 0 || columns.length === 0) {
       const resolved = labels.map((label) => ({ label, column: null, score: 0 }))
-      return { html: fillDocumentHtml(doc.html, resolved, row), resolved }
+      return { docx: await api.fillPlaceholdersInDocument(doc.docx, resolved, row), resolved }
     }
     let embeddings: { labelVectors: number[][]; columnVectors: number[][] } | undefined
     try {
@@ -112,7 +118,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onEdit, 
       embeddings = undefined
     }
     const resolved = matchPlaceholdersToColumns(labels, columns, embeddings)
-    return { html: fillDocumentHtml(doc.html, resolved, row), resolved }
+    return { docx: await api.fillPlaceholdersInDocument(doc.docx, resolved, row), resolved }
   }
 
   async function handlePreview(doc: CreatedDocument) {
@@ -121,6 +127,15 @@ export default function PrintDocumentTab({ tables, documents, onChange, onEdit, 
     try {
       const result = await resolveForRow(doc)
       setPreview(result)
+      requestAnimationFrame(() => {
+        void (async () => {
+          const container = previewRef.current
+          if (!container) return
+          container.innerHTML = ''
+          await renderAsync(base64ToUint8(result.docx), container, undefined, DOCX_PREVIEW_OPTIONS)
+          setPreviewPages(container.querySelectorAll('section.docx').length)
+        })()
+      })
     } catch (e) {
       setGenError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -133,8 +148,12 @@ export default function PrintDocumentTab({ tables, documents, onChange, onEdit, 
     setGenError(null)
     setGenNotice(null)
     try {
-      const { html } = await resolveForRow(doc)
-      await api.printCreatedDocument(html)
+      const { docx } = await resolveForRow(doc)
+      const container = printScratchRef.current
+      if (!container) throw new Error('Print failed to initialize.')
+      container.innerHTML = ''
+      await renderAsync(base64ToUint8(docx), container, undefined, DOCX_PREVIEW_OPTIONS)
+      await api.printCreatedDocument(container.innerHTML)
     } catch (e) {
       setGenError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -152,8 +171,8 @@ export default function PrintDocumentTab({ tables, documents, onChange, onEdit, 
     setGenError(null)
     setGenNotice(null)
     try {
-      const { html } = await resolveForRow(doc)
-      const res = await api.exportCreatedDocument(html, doc.name, formats)
+      const { docx } = await resolveForRow(doc)
+      const res = await api.exportCreatedDocument(docx, doc.name, formats)
       setGenNotice(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
     } catch (e) {
       setGenError(e instanceof Error ? e.message : String(e))
@@ -166,6 +185,8 @@ export default function PrintDocumentTab({ tables, documents, onChange, onEdit, 
 
   return (
     <>
+      <div ref={printScratchRef} style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }} aria-hidden />
+
       <section className="card">
         <div className="card-head">
           <div className="head-ic">
@@ -204,7 +225,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onEdit, 
                 <button className="doc-tile-edit-btn" title="Edit Document" onClick={() => onEdit(doc)}>
                   EDIT
                 </button>
-                <DocThumbnail html={doc.html} />
+                <DocThumbnail docx={doc.docx} />
                 <div className="doc-tile-card-name" title={doc.name}>
                   {doc.name}
                 </div>
@@ -306,18 +327,9 @@ export default function PrintDocumentTab({ tables, documents, onChange, onEdit, 
               ))}
             </div>
             <div className="doc-desk">
-              <div className="doc-editor-wrap" style={{ width: PAGE_WIDTH }}>
-                <iframe
-                  ref={previewFrameRef}
-                  className="doc-editor"
-                  title="Filled document preview"
-                  srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><style>${pageShellStyle()}</style></head><body>${preview.html}</body></html>`}
-                />
-                {previewPages > 1 && (
-                  <span className="doc-page-badge">
-                    Page {previewPage} of {previewPages}
-                  </span>
-                )}
+              <div className="doc-editor-wrap">
+                <div ref={previewRef} className="docx-editor-canvas" />
+                {previewPages > 1 && <span className="doc-page-badge">{previewPages} pages</span>}
               </div>
             </div>
           </div>

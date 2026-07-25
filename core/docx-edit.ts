@@ -1,6 +1,8 @@
 import PizZip from 'pizzip'
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom'
 import type { Document, Element } from '@xmldom/xmldom'
+import { PLACEHOLDER_RE } from './createDocument'
+import type { PlaceholderMatch } from './createDocument'
 
 const DOC_XML = 'word/document.xml'
 const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
@@ -91,6 +93,54 @@ function save(zip: PizZip, xml: Document, part: string = DOC_XML): Buffer {
   return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' })
 }
 
+export interface ParagraphEdit {
+  /** The renderer's DOM paragraph ordinal — see resolveParagraphIndex. */
+  index: number
+  newText: string
+  /** The paragraph's text as last known to the caller — see resolveParagraphIndex. */
+  anchor?: string
+}
+
+/** Applies one already-resolved edit to `paragraphs[idx]`, mutating `xml` in place. Returns whether anything actually changed. */
+function applyOneEdit(xml: Document, para: Element, newText: string): boolean {
+  const runs = tag(para, 'w:r').filter((r) => tag(r, 'w:t').length > 0)
+  const orig = runs.map(runText).join('')
+  if (newText === orig) return false
+  if (runs.length === 0) {
+    // No text runs to carry the edit — append one (copying no formatting).
+    const t = xml.createElementNS(W_NS, 'w:t')
+    t.setAttribute('xml:space', 'preserve')
+    t.appendChild(xml.createTextNode(newText))
+    const run = xml.createElementNS(W_NS, 'w:r')
+    run.appendChild(t)
+    para.appendChild(run)
+    return true
+  }
+  rewriteParagraphRuns(xml, runs, orig, newText)
+  return true
+}
+
+/**
+ * Apply several paragraph text edits in a single zip load/save cycle —
+ * the batched form of setParagraphText, for callers that need to rewrite
+ * many paragraphs at once (e.g. filling every {{Placeholder}} across a
+ * whole document) without reloading and re-deflating the whole zip once
+ * per edit, the way calling setParagraphText in a loop would.
+ */
+export function applyParagraphEdits(buffer: Buffer, edits: ParagraphEdit[], part: string = DOC_XML): Buffer {
+  if (edits.length === 0) return buffer
+  const { zip, xml } = loadDoc(buffer, part)
+  const paragraphs = tag(xml, 'w:p')
+  let changed = false
+  for (const edit of edits) {
+    const idx = resolveParagraphIndex(paragraphs, edit.index, edit.anchor)
+    const para = paragraphs[idx]
+    if (!para) continue
+    if (applyOneEdit(xml, para, edit.newText)) changed = true
+  }
+  return changed ? save(zip, xml, part) : buffer
+}
+
 /**
  * Replace a paragraph's visible text with `newText`, preserving formatting: a
  * longest common prefix/suffix diff keeps every unchanged run (and its rPr)
@@ -105,28 +155,80 @@ export function setParagraphText(
   anchor?: string,
   part: string = DOC_XML
 ): Buffer {
+  return applyParagraphEdits(buffer, [{ index: paragraphIndex, newText, anchor }], part)
+}
+
+function normalizeLabel(label: string): string {
+  return label.trim().replace(/\s+/g, ' ')
+}
+
+/** Every distinct {{Label}} found in the document's body paragraphs, in first-seen order. A placeholder never spans paragraphs. */
+export function findPlaceholdersInDocx(buffer: Buffer, part: string = DOC_XML): string[] {
+  const { xml } = loadDoc(buffer, part)
+  const seen = new Set<string>()
+  for (const para of tag(xml, 'w:p')) {
+    const text = paragraphCombinedText(para)
+    PLACEHOLDER_RE.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = PLACEHOLDER_RE.exec(text)) !== null) seen.add(normalizeLabel(m[1]))
+  }
+  return [...seen]
+}
+
+/** Every paragraph whose combined text changes under `fillFn`, as ParagraphEdit entries ready for applyParagraphEdits — the anchor is the paragraph's own original text, so a later re-resolve isn't thrown off by an earlier edit elsewhere in the document. */
+function computeParagraphEdits(paragraphs: Element[], fillFn: (text: string) => string): ParagraphEdit[] {
+  const edits: ParagraphEdit[] = []
+  paragraphs.forEach((para, index) => {
+    const orig = paragraphCombinedText(para)
+    if (!orig.includes('{{')) return
+    const filled = fillFn(orig)
+    if (filled !== orig) edits.push({ index, newText: filled, anchor: orig })
+  })
+  return edits
+}
+
+function transformPlaceholders(buffer: Buffer, part: string, fillFn: (text: string) => string): Buffer {
   const { zip, xml } = loadDoc(buffer, part)
   const paragraphs = tag(xml, 'w:p')
-  paragraphIndex = resolveParagraphIndex(paragraphs, paragraphIndex, anchor)
-  const para = paragraphs[paragraphIndex]
-  if (!para) throw new Error(`Paragraph ${paragraphIndex} not found`)
-
-  const runs = tag(para, 'w:r').filter((r) => tag(r, 'w:t').length > 0)
-  const orig = runs.map(runText).join('')
-  if (newText === orig) return buffer
-  if (runs.length === 0) {
-    // No text runs to carry the edit — append one (copying no formatting).
-    const t = xml.createElementNS(W_NS, 'w:t')
-    t.setAttribute('xml:space', 'preserve')
-    t.appendChild(xml.createTextNode(newText))
-    const run = xml.createElementNS(W_NS, 'w:r')
-    run.appendChild(t)
-    para.appendChild(run)
-    return save(zip, xml, part)
+  const edits = computeParagraphEdits(paragraphs, fillFn)
+  let changed = false
+  for (const edit of edits) {
+    const para = paragraphs[edit.index]
+    if (para && applyOneEdit(xml, para, edit.newText)) changed = true
   }
+  return changed ? save(zip, xml, part) : buffer
+}
 
-  rewriteParagraphRuns(xml, runs, orig, newText)
-  return save(zip, xml, part)
+/**
+ * OOXML-native equivalent of core/createDocument.ts's fillDocumentHtml:
+ * replace every {{Label}} occurrence with its resolved value (blank if
+ * unresolved), preserving every run's formatting outside the edited spans —
+ * see applyParagraphEdits/rewriteParagraphRuns.
+ */
+export function fillPlaceholdersInDocx(
+  buffer: Buffer,
+  resolved: PlaceholderMatch[],
+  row: Record<string, string>,
+  part: string = DOC_XML
+): Buffer {
+  const valueByLabel = new Map<string, string>()
+  for (const r of resolved) valueByLabel.set(r.label, r.column ? row[r.column] ?? '' : '')
+  return transformPlaceholders(buffer, part, (text) =>
+    text.replace(PLACEHOLDER_RE, (_match, label) => valueByLabel.get(normalizeLabel(label)) ?? '')
+  )
+}
+
+/**
+ * OOXML-native equivalent of core/createDocument.ts's bakeFixedPlaceholders:
+ * replace only the given labels' occurrences (matched case-insensitively)
+ * with fixed values, leaving every other {{Placeholder}} untouched for later
+ * per-row resolution.
+ */
+export function bakeFixedPlaceholdersInDocx(buffer: Buffer, values: Record<string, string>, part: string = DOC_XML): Buffer {
+  const normalized = new Map(Object.entries(values).map(([k, v]) => [normalizeLabel(k).toLowerCase(), v]))
+  return transformPlaceholders(buffer, part, (text) =>
+    text.replace(PLACEHOLDER_RE, (whole, label) => normalized.get(normalizeLabel(label).toLowerCase()) ?? whole)
+  )
 }
 
 /**

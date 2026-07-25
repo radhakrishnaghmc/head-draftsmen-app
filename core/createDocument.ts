@@ -1,6 +1,7 @@
 import { cosineSimilarity } from './embeddingMatch'
 
-const PLACEHOLDER_RE = /\{\{\s*([^{}]+?)\s*\}\}/g
+/** Shared with core/docx-edit.ts's OOXML-native placeholder find/fill — both formats must agree on what counts as a placeholder. */
+export const PLACEHOLDER_RE = /\{\{\s*([^{}]+?)\s*\}\}/g
 
 const NAMED_ENTITIES: Record<string, string> = {
   nbsp: ' ',
@@ -181,57 +182,3 @@ export function matchPlaceholdersToColumns(
   })
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-}
-
-/**
- * Replace every {{Label}} occurrence in the document HTML with its resolved
- * value (HTML-escaped so pasted-in row data can't inject markup). A label
- * with no resolved value is replaced with an empty string, not left
- * dangling. Tag-aware (see findPlaceholderOccurrences): when a placeholder
- * was split across several tags, the whole span from its "{{" to its "}}" —
- * intervening tags included — collapses into one plain replacement, which
- * is the correct outcome here: that markup only existed because Word split
- * one conceptual field into several runs, not because it carried meaningful
- * separate formatting.
- */
-export function fillDocumentHtml(html: string, resolved: PlaceholderMatch[], row: Record<string, string>): string {
-  const valueByLabel = new Map<string, string>()
-  for (const r of resolved) {
-    valueByLabel.set(r.label, r.column ? row[r.column] ?? '' : '')
-  }
-  const occurrences = findPlaceholderOccurrences(html)
-  let out = html
-  for (let i = occurrences.length - 1; i >= 0; i--) {
-    const occ = occurrences[i]
-    const value = escapeHtml(valueByLabel.get(occ.label) ?? '')
-    out = out.slice(0, occ.htmlStart) + value + out.slice(occ.htmlEnd)
-  }
-  return out
-}
-
-/**
- * Replace only the given labels' occurrences (matched case-insensitively) with
- * fixed values, leaving every other {{Placeholder}} in the document untouched
- * for later per-row resolution. Used to bake a Circle-level login's own
- * Zone/Circle/CNO straight into a document once, since every work under that
- * login belongs to the same Zone/Circle — unlike a Zone-level login, which
- * spans many circles and must keep those placeholders dynamic (see the
- * `loginCircle` check at the call site).
- */
-export function bakeFixedPlaceholders(html: string, values: Record<string, string>): string {
-  const normalized = new Map(Object.entries(values).map(([k, v]) => [k.trim().toLowerCase(), v]))
-  const occurrences = findPlaceholderOccurrences(html)
-  let out = html
-  for (let i = occurrences.length - 1; i >= 0; i--) {
-    const occ = occurrences[i]
-    const value = normalized.get(occ.label.trim().toLowerCase())
-    if (value === undefined) continue
-    out = out.slice(0, occ.htmlStart) + escapeHtml(value) + out.slice(occ.htmlEnd)
-  }
-  return out
-}

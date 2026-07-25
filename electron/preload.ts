@@ -25,6 +25,8 @@ const api: DocuGenApi = {
   exportBoqBatch: (entries) => ipcRenderer.invoke(IPC.exportBoqBatch, entries),
   exportDeviation: (items, meta, suggestedName) =>
     ipcRenderer.invoke(IPC.exportDeviation, items, meta, suggestedName),
+  exportDetailedEstimate: (items, meta, suggestedName) =>
+    ipcRenderer.invoke(IPC.exportDetailedEstimate, items, meta, suggestedName),
   generateTenderNotice: (input, suggestedName) =>
     ipcRenderer.invoke(IPC.generateTenderNotice, input, suggestedName),
   previewTenderNotice: (input) => ipcRenderer.invoke(IPC.previewTenderNotice, input),
@@ -42,9 +44,17 @@ const api: DocuGenApi = {
     ),
   searchTenders: (query) => ipcRenderer.invoke(IPC.searchTenders, query),
   embedTexts: (texts) => ipcRenderer.invoke(IPC.embedTexts, texts),
-  exportCreatedDocument: (html, suggestedName, formats) =>
-    ipcRenderer.invoke(IPC.exportCreatedDocument, html, suggestedName, formats),
-  printCreatedDocument: (html) => ipcRenderer.invoke(IPC.printCreatedDocument, html),
+  createDocumentFromClipboard: () => ipcRenderer.invoke(IPC.createDocumentFromClipboard),
+  listDocumentParagraphs: (docxBase64) => ipcRenderer.invoke(IPC.listDocumentParagraphs, docxBase64),
+  saveDocumentEdits: (docxBase64, edits) => ipcRenderer.invoke(IPC.saveDocumentEdits, docxBase64, edits),
+  findPlaceholdersInDocument: (docxBase64) => ipcRenderer.invoke(IPC.findPlaceholdersInDocument, docxBase64),
+  fillPlaceholdersInDocument: (docxBase64, resolved, row) =>
+    ipcRenderer.invoke(IPC.fillPlaceholdersInDocument, docxBase64, resolved, row),
+  bakeFixedPlaceholdersInDocument: (docxBase64, values) =>
+    ipcRenderer.invoke(IPC.bakeFixedPlaceholdersInDocument, docxBase64, values),
+  exportCreatedDocument: (docxBase64, suggestedName, formats) =>
+    ipcRenderer.invoke(IPC.exportCreatedDocument, docxBase64, suggestedName, formats),
+  printCreatedDocument: (renderedHtml) => ipcRenderer.invoke(IPC.printCreatedDocument, renderedHtml),
   loadState: () => ipcRenderer.invoke(IPC.loadState),
   saveState: (state) => ipcRenderer.invoke(IPC.saveState, state),
   onRemoteStateUpdate: (callback) => {

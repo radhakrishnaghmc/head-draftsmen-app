@@ -3,7 +3,7 @@ import { api } from './ipc'
 import { prefetchTenders, fetchTenders } from './tenderCache'
 import { createWorksTable, applyWorksSchema, applyWorksSchemaWithMapping, WORKS_COLUMNS } from './worksSchema'
 import { enforceZoneCircle, fillCircleNumber } from './zoneCircleCheck'
-import { bakeFixedPlaceholders, matchPlaceholdersToColumns } from '@core/createDocument'
+import { matchPlaceholdersToColumns } from '@core/createDocument'
 import { findCircleSheet, mergeMonitoringRows } from '@core/monitoringImport'
 import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
 import { mergeTables } from '@core/merge'
@@ -120,11 +120,13 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
   // Zone/Circle/CNO, so there's no ambiguity to leave for print time. A
   // Zone-level login (loginCircle unset) spans many circles' works, so those
   // placeholders must stay dynamic instead, resolved per-row as before.
-  function bakeLoginPlaceholders(docs: CreatedDocument[]): CreatedDocument[] {
+  async function bakeLoginPlaceholders(docs: CreatedDocument[]): Promise<CreatedDocument[]> {
     if (!loginZone || !loginCircle) return docs
     const values: Record<string, string> = { zone: loginZone, circle: loginCircle }
     if (loginCircleNumber) values.cno = loginCircleNumber
-    return docs.map((d) => ({ ...d, html: bakeFixedPlaceholders(d.html, values) }))
+    return Promise.all(
+      docs.map(async (d) => ({ ...d, docx: await api.bakeFixedPlaceholdersInDocument(d.docx, values) }))
+    )
   }
 
   // ── Persistence: load the saved workspace once on startup ──────────
@@ -163,7 +165,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
           setTodos(s.todos ?? [])
           setLastGoogleLink(s.lastGoogleLink ?? null)
           setTenderReminders((s.tenderReminders ?? []).map(migrateTenderReminder))
-          setCreatedDocuments(bakeLoginPlaceholders(s.createdDocuments ?? []))
+          setCreatedDocuments(await bakeLoginPlaceholders(s.createdDocuments ?? []))
           setBidDocumentBatches(s.bidDocumentBatches ?? [])
         }
       } finally {
@@ -180,7 +182,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
   // can't race the startup load and get clobbered by it.
   useEffect(() => {
     if (!hydrated) return
-    return api.onRemoteStateUpdate((partial) => {
+    return api.onRemoteStateUpdate(async (partial) => {
       if (partial.tables) {
         const loadedTables = partial.tables.map(applyWorksSchema)
         // Keep the same Zone/Circle withholding behaviour as the initial
@@ -195,7 +197,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
       if (partial.todos) setTodos(partial.todos)
       if (partial.lastGoogleLink !== undefined) setLastGoogleLink(partial.lastGoogleLink ?? null)
       if (partial.tenderReminders) setTenderReminders(partial.tenderReminders.map(migrateTenderReminder))
-      if (partial.createdDocuments) setCreatedDocuments(bakeLoginPlaceholders(partial.createdDocuments))
+      if (partial.createdDocuments) setCreatedDocuments(await bakeLoginPlaceholders(partial.createdDocuments))
       if (partial.bidDocumentBatches) setBidDocumentBatches(partial.bidDocumentBatches)
     })
   }, [hydrated, blockedWorksList])
