@@ -34,6 +34,7 @@ const api: DocuGenApi = {
   previewTenderNotice: (input) => ipcRenderer.invoke(IPC.previewTenderNotice, input),
   generateBidDocument: (input, suggestedName) =>
     ipcRenderer.invoke(IPC.generateBidDocument, input, suggestedName),
+  generateBidDocumentBatch: (entries) => ipcRenderer.invoke(IPC.generateBidDocumentBatch, entries),
   previewBidDocument: (input) => ipcRenderer.invoke(IPC.previewBidDocument, input),
   generateTechnicalSanction: (estimatePath, sheetName, edits, suggestedName, rateAnalysisRows) =>
     ipcRenderer.invoke(

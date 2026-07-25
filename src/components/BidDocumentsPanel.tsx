@@ -25,6 +25,10 @@ function rowKey(batchId: string, serial: number): string {
   return `${batchId}-${serial}`
 }
 
+function suggestedName(work: BidDocumentWork): string {
+  return `BID Document ${work.serial}${work.name ? ` - ${work.name}` : ''}`.slice(0, 150)
+}
+
 /**
  * Bid Documents to generate for each tender notice issued from the Calendar
  * section — one "BID Document N" per work in the notice's item table, N
@@ -35,6 +39,8 @@ function rowKey(batchId: string, serial: number): string {
 export default function BidDocumentsPanel({ batches, onRemove }: Props) {
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [savedKey, setSavedKey] = useState<string | null>(null)
+  const [batchBusyId, setBatchBusyId] = useState<string | null>(null)
+  const [batchSavedDir, setBatchSavedDir] = useState<{ batchId: string; dir: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [previewing, setPreviewing] = useState<{ batch: BidDocumentBatch; work: BidDocumentWork } | null>(
     null
@@ -86,16 +92,30 @@ export default function BidDocumentsPanel({ batches, onRemove }: Props) {
     setBusyKey(key)
     setSavedKey(null)
     try {
-      const suggestedName = `BID Document ${work.serial}${work.name ? ` - ${work.name}` : ''}`.slice(
-        0,
-        150
-      )
-      const path = await api.generateBidDocument(buildInput(batch, work), suggestedName)
+      const path = await api.generateBidDocument(buildInput(batch, work), suggestedName(work))
       if (path) setSavedKey(key)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusyKey(null)
+    }
+  }
+
+  async function downloadAll(batch: BidDocumentBatch) {
+    setError(null)
+    setBatchBusyId(batch.id)
+    setBatchSavedDir(null)
+    try {
+      const paths = await api.generateBidDocumentBatch(
+        batch.works.map((work) => ({ input: buildInput(batch, work), suggestedName: suggestedName(work) }))
+      )
+      if (paths && paths.length > 0) {
+        setBatchSavedDir({ batchId: batch.id, dir: paths[0].replace(/[^/\\]+$/, '') })
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBatchBusyId(null)
     }
   }
 
@@ -111,10 +131,20 @@ export default function BidDocumentsPanel({ batches, onRemove }: Props) {
               <h2>Bid Documents</h2>
               <p className="sub">NIT No. {batch.nitNo}</p>
             </div>
+            <button className="primary" onClick={() => downloadAll(batch)} disabled={batchBusyId === batch.id}>
+              <IconDownload /> {batchBusyId === batch.id ? 'Saving…' : `Download All (${batch.works.length})`}
+            </button>
             <button className="danger-ghost" title="Remove this batch" onClick={() => onRemove(batch.id)}>
               <IconTrash />
             </button>
           </div>
+
+          {batchSavedDir?.batchId === batch.id && (
+            <div className="notice ok">
+              <IconCheck />
+              Saved {batch.works.length} Bid Document{batch.works.length === 1 ? '' : 's'} to {batchSavedDir.dir}
+            </div>
+          )}
 
           <ul className="todo-list boq-entries">
             {batch.works.map((work) => {

@@ -757,6 +757,41 @@ function registerHandlers(): void {
   )
 
   ipcMain.handle(
+    IPC.generateBidDocumentBatch,
+    async (
+      _e,
+      entries: { input: BidDocumentInput; suggestedName: string }[]
+    ): Promise<string[] | null> => {
+      const templatePath = bidDocumentTemplateFile()
+      if (!templatePath) throw new Error('Bid Document template is missing from the app bundle.')
+
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Choose a folder to save all Bid Documents into',
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (result.canceled || result.filePaths.length === 0) return null
+      const dir = result.filePaths[0]
+
+      const templateBuffer = fs.readFileSync(templatePath)
+      const used = new Set<string>()
+      const written: string[] = []
+      for (const entry of entries) {
+        const base = entry.suggestedName || 'Bid Document'
+        let fileName = `${base}.docx`
+        let n = 2
+        while (used.has(fileName) || fs.existsSync(path.join(dir, fileName))) {
+          fileName = `${base} (${n}).docx`
+          n += 1
+        }
+        used.add(fileName)
+        fs.writeFileSync(path.join(dir, fileName), fillBidDocument(templateBuffer, entry.input))
+        written.push(path.join(dir, fileName))
+      }
+      return written
+    }
+  )
+
+  ipcMain.handle(
     IPC.previewBidDocument,
     async (_e, input: BidDocumentInput): Promise<string> => {
       const templatePath = bidDocumentTemplateFile()

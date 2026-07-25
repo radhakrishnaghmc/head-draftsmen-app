@@ -53,6 +53,7 @@ export const IPC = {
   generateTenderNotice: 'data:generateTenderNotice',
   previewTenderNotice: 'data:previewTenderNotice',
   generateBidDocument: 'data:generateBidDocument',
+  generateBidDocumentBatch: 'data:generateBidDocumentBatch',
   previewBidDocument: 'data:previewBidDocument',
   generateTechnicalSanction: 'data:generateTechnicalSanction',
   searchTenders: 'tenders:search',
@@ -117,6 +118,10 @@ export interface DocuGenApi {
   previewTenderNotice(input: TenderNoticeInput): Promise<string>
   /** Save one filled Bid Document (one save dialog per call — call once per work). */
   generateBidDocument(input: BidDocumentInput, suggestedName: string): Promise<string | null>
+  /** Save every work's Bid Document from one batch into a single chosen folder — one folder picker for the whole batch instead of a save dialog per work. */
+  generateBidDocumentBatch(
+    entries: { input: BidDocumentInput; suggestedName: string }[]
+  ): Promise<string[] | null>
   previewBidDocument(input: BidDocumentInput): Promise<string>
   generateTechnicalSanction(
     estimatePath: string,
