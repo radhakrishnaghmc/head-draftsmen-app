@@ -1167,6 +1167,20 @@ button.danger-ghost:hover:not(:disabled) {
 .doc-sheet {
   min-width: 460px;
 }
+
+/* Give Intimation's preview: the filled .html format rendered exactly as it
+   will print, inside a sandboxed iframe rather than dangerouslySetInnerHTML
+   — the format's own markup/styles stay isolated from the app's. */
+.intimation-frame-wrap {
+  max-height: 480px;
+}
+.intimation-frame {
+  display: block;
+  width: 100%;
+  height: 480px;
+  border: none;
+  background: #fff;
+}
 .doc-sheet-title {
   position: sticky;
   top: 0;

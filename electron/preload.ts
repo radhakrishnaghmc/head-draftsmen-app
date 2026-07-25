@@ -58,6 +58,7 @@ const api: DocuGenApi = {
   exportCreatedDocument: (docxBase64, suggestedName, formats) =>
     ipcRenderer.invoke(IPC.exportCreatedDocument, docxBase64, suggestedName, formats),
   printCreatedDocument: (renderedHtml) => ipcRenderer.invoke(IPC.printCreatedDocument, renderedHtml),
+  exportIntimationHtml: (html, suggestedName) => ipcRenderer.invoke(IPC.exportIntimationHtml, html, suggestedName),
   loadState: () => ipcRenderer.invoke(IPC.loadState),
   saveState: (state) => ipcRenderer.invoke(IPC.saveState, state),
   onRemoteStateUpdate: (callback) => {

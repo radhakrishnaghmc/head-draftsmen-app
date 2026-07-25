@@ -22,6 +22,7 @@ import GoogleLinkImport from './components/GoogleLinkImport'
 import MonitoringLinkImport, { type MonitoringMergeSummary } from './components/MonitoringLinkImport'
 import EstimateWorkspaceTab from './components/EstimateWorkspaceTab'
 import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
+import GiveIntimationTab from './components/GiveIntimationTab'
 import CreateDocumentTab from './components/CreateDocumentTab'
 import PrintDocumentTab from './components/PrintDocumentTab'
 import TodoList from './components/TodoList'
@@ -35,7 +36,8 @@ import {
   IconPlus,
   IconChecklist,
   IconRefresh,
-  IconCheck
+  IconCheck,
+  IconBell
 } from './components/Icons'
 import type {
   ExcelTable,
@@ -658,6 +660,21 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
               </div>
             </div>
             <GiveTechnicalSanctionTab />
+          </section>
+        )}
+
+        {tab === 'intimation' && (
+          <section className="page">
+            <div className="page-head">
+              <div className="page-ic rose">
+                <IconBell />
+              </div>
+              <div className="page-head-text">
+                <h1>Give Intimation</h1>
+                <p>Upload a PDF (or photos) plus an existing Intimation format to auto-fill it from what's in the document.</p>
+              </div>
+            </div>
+            <GiveIntimationTab tables={tables} />
           </section>
         )}
 

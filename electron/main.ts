@@ -593,6 +593,20 @@ function registerHandlers(): void {
     })
   })
 
+  ipcMain.handle(
+    IPC.exportIntimationHtml,
+    async (_e, html: string, suggestedName: string): Promise<string | null> => {
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        title: `Save ${suggestedName}`,
+        defaultPath: `${suggestedName}.html`,
+        filters: [{ name: 'Web Page', extensions: ['html'] }]
+      })
+      if (result.canceled || !result.filePath) return null
+      fs.writeFileSync(result.filePath, html, 'utf8')
+      return result.filePath
+    }
+  )
+
   const stateFile = () => path.join(app.getPath('userData'), 'state.json')
 
   const seedStateFile = () => {
