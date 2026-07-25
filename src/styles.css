@@ -1114,13 +1114,6 @@ button.danger-ghost:hover:not(:disabled) {
   flex: 2 1 360px;
   min-width: 280px;
 }
-.estimate-preview-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-}
 .estimate-preview-title {
   font-size: 12.5px;
   font-weight: 650;
@@ -1128,29 +1121,108 @@ button.danger-ghost:hover:not(:disabled) {
   letter-spacing: 0.04em;
   color: var(--muted);
 }
+
+/* Document-type tabs (BOQ / Schedule A / Deviation / Material Quantity) — a
+   segmented control choosing which document's live preview shows below. */
+.doc-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px;
+  background: var(--indigo-50);
+  border-radius: 10px;
+  width: fit-content;
+  margin-bottom: 10px;
+}
+.doc-tab {
+  border: none;
+  background: transparent;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--muted);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.doc-tab:hover {
+  color: var(--text);
+}
+.doc-tab.active {
+  background: #fff;
+  color: var(--indigo-600, var(--indigo-500));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* The "sheet" itself — styled like an actual spreadsheet page (a title
+   band, a label/value meta block for that document's header fields, then
+   its item grid) rather than a plain data table. */
 .estimate-preview-scroll {
-  max-height: 220px;
-  overflow-y: auto;
+  max-height: 320px;
+  overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: #fff;
 }
-.estimate-preview-table {
+.doc-sheet {
+  min-width: 460px;
+}
+.doc-sheet-title {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: linear-gradient(90deg, var(--indigo-500), var(--violet-500));
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 10px 14px;
+}
+.doc-sheet-meta {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 18px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.doc-sheet-meta > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.doc-sheet-meta span {
+  font-size: 10.5px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.doc-sheet-meta strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-sheet-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 12.5px;
 }
-.estimate-preview-table th,
-.estimate-preview-table td {
-  padding: 6px 8px;
+.doc-sheet-table th,
+.doc-sheet-table td {
+  padding: 6px 10px;
   text-align: left;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 220px;
+  max-width: 240px;
 }
-.estimate-preview-table th {
+.doc-sheet-table th {
   position: sticky;
   top: 0;
   background: var(--indigo-50);
@@ -1160,8 +1232,27 @@ button.danger-ghost:hover:not(:disabled) {
   font-size: 10.5px;
   letter-spacing: 0.04em;
 }
-.estimate-preview-table tbody tr:last-child td {
+.doc-sheet-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.doc-sheet-table tfoot td {
+  font-weight: 700;
   border-bottom: none;
+  border-top: 2px solid var(--border);
+  background: var(--surface-2);
+}
+.doc-sheet-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.doc-sheet-footer .estimate-hint {
+  margin: 0;
+  flex: 1 1 200px;
 }
 .estimate-details {
   flex: 1 1 220px;
@@ -1187,12 +1278,6 @@ button.danger-ghost:hover:not(:disabled) {
   background: #fff;
   min-width: 0;
   width: 100%;
-}
-.estimate-details-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 4px;
 }
 
 .workspace-section {

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { api } from '../ipc'
 import { guessHeaderRow } from '@core/sheet'
 import { extractWorkName } from '@core/estimateExtract'
@@ -7,6 +7,9 @@ import { extractEstimateItemsWithAi } from '../aiEstimateColumns'
 import { extractEstimateAmountLakhs } from '@core/deviation'
 import { computeEcvFromItems } from '../boqTransform'
 import { formatRupees } from '@core/worksAmounts'
+import { findWorksRowByName, metaFromWorksRow } from '@core/scheduleA'
+import { computeMaterialTotals } from '@core/materialEstimate'
+import type { MaterialTotals } from '@core/materialEstimate'
 import {
   matchWorksRow,
   saveEcvToWorksList,
@@ -20,6 +23,31 @@ import { IconFolder, IconDownload, IconWarn, IconTrash, IconTable } from './Icon
 import type { ExcelTable } from '@core/types'
 
 type ActionKey = 'boq' | 'scheduleA' | 'deviation' | 'material'
+
+const DOC_TABS: { key: ActionKey; label: string }[] = [
+  { key: 'boq', label: 'BOQ' },
+  { key: 'scheduleA', label: 'Schedule A' },
+  { key: 'deviation', label: 'Deviation' },
+  { key: 'material', label: 'Material Quantity' }
+]
+
+function itemAmount(it: EstimateWorkItem): number {
+  return (Number(it.quantity) || 0) * (Number(it.rate) || 0)
+}
+
+function itemsTotal(items: EstimateWorkItem[]): number {
+  return items.reduce((sum, it) => sum + itemAmount(it), 0)
+}
+
+const MATERIAL_ROWS: { key: keyof MaterialTotals; label: string; unit: string }[] = [
+  { key: 'stoneAggregatesMt', label: 'Stone Aggregates', unit: 'MT' },
+  { key: 'sandMt', label: 'Sand', unit: 'MT' },
+  { key: 'gravelMt', label: 'Gravel', unit: 'MT' },
+  { key: 'graniteSqft', label: 'Granite Slabs', unit: 'Sqft' },
+  { key: 'napaSqft', label: 'Napa Slabs', unit: 'Sqft' },
+  { key: 'cementMt', label: 'Cement', unit: 'MT' },
+  { key: 'steelMt', label: 'Steel', unit: 'MT' }
+]
 
 interface Entry {
   id: string
@@ -35,6 +63,8 @@ interface Entry {
   busyAction: ActionKey | null
   error: string | null
   saved: string | null
+  /** Which document's live preview is showing right now. */
+  previewDoc: ActionKey
 }
 
 interface Props {
@@ -49,6 +79,166 @@ function stripExt(name: string): string {
 
 function nextId(): string {
   return `est-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+/**
+ * A live, spreadsheet-styled preview of exactly one of the four documents
+ * this estimate can produce — the same underlying line items, laid out the
+ * way that document's own template presents them (Schedule A's meta block,
+ * Deviation's Circle/Agency header, Material Quantity's computed totals),
+ * so switching tabs shows what that specific download will actually look
+ * like rather than one generic items grid.
+ */
+function DocumentPreview({ entry, worksTable }: { entry: Entry; worksTable: ExcelTable | null }) {
+  const matchedRow = useMemo(
+    () => (entry.workName && worksTable ? findWorksRowByName(worksTable, entry.workName)?.row : undefined),
+    [entry.workName, worksTable]
+  )
+  const scheduleAMeta = useMemo(() => (matchedRow ? metaFromWorksRow(matchedRow) : undefined), [matchedRow])
+  const materialTotals = useMemo(() => computeMaterialTotals(entry.items).totals, [entry.items])
+  const total = itemsTotal(entry.items)
+
+  const itemTable = (
+    <table className="doc-sheet-table">
+      <thead>
+        <tr>
+          <th>Item No.</th>
+          <th>Description</th>
+          <th>Unit</th>
+          <th>Qty</th>
+          <th>Rate</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {entry.items.map((it, i) => (
+          <tr key={i}>
+            <td>{i + 1}</td>
+            <td>{it.description}</td>
+            <td>{it.unit}</td>
+            <td className="num">{it.quantity}</td>
+            <td className="num">{Number(it.rate) ? Number(it.rate).toFixed(2) : it.rate}</td>
+            <td className="num">{itemAmount(it).toFixed(2)}</td>
+          </tr>
+        ))}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colSpan={5}>Total</td>
+          <td className="num">{total.toFixed(2)}</td>
+        </tr>
+      </tfoot>
+    </table>
+  )
+
+  if (entry.previewDoc === 'scheduleA') {
+    return (
+      <div className="doc-sheet">
+        <div className="doc-sheet-title">SCHEDULE-A · BILL OF QUANTITIES</div>
+        <div className="doc-sheet-meta">
+          <div>
+            <span>Name of work</span>
+            <strong>{entry.workName || '—'}</strong>
+          </div>
+          <div>
+            <span>Estimate Amount</span>
+            <strong>Rs. {scheduleAMeta?.estimateAmount ?? `${total.toFixed(2)}/-`}</strong>
+          </div>
+          <div>
+            <span>ECV Amount</span>
+            <strong>{scheduleAMeta?.ecvAmount ? `Rs. ${scheduleAMeta.ecvAmount}` : 'Not on the Works List yet'}</strong>
+          </div>
+          <div>
+            <span>Contract Amount</span>
+            <strong>{scheduleAMeta?.contractAmount ? `Rs. ${scheduleAMeta.contractAmount}` : '—'}</strong>
+          </div>
+          <div>
+            <span>Name of the Contractor</span>
+            <strong>{matchedRow?.['Name of the Agency'] || '—'}</strong>
+          </div>
+        </div>
+        {itemTable}
+      </div>
+    )
+  }
+
+  if (entry.previewDoc === 'deviation') {
+    return (
+      <div className="doc-sheet">
+        <div className="doc-sheet-title">DEVIATION STATEMENT</div>
+        <div className="doc-sheet-meta">
+          <div>
+            <span>Circle</span>
+            <strong>{matchedRow?.['Circle'] || '—'}</strong>
+          </div>
+          <div>
+            <span>Name of Work</span>
+            <strong>{entry.workName || '—'}</strong>
+          </div>
+          <div>
+            <span>Agency</span>
+            <strong>{entry.agencyName || 'Not entered yet'}</strong>
+          </div>
+          <div>
+            <span>Estimate Amount</span>
+            <strong>{entry.estimateAmountLakhs ? `${entry.estimateAmountLakhs} Lakhs` : '—'}</strong>
+          </div>
+        </div>
+        {itemTable}
+      </div>
+    )
+  }
+
+  if (entry.previewDoc === 'material') {
+    return (
+      <div className="doc-sheet">
+        <div className="doc-sheet-title">MATERIAL ESTIMATION</div>
+        <div className="doc-sheet-meta">
+          <div>
+            <span>Name of work</span>
+            <strong>{entry.workName || '—'}</strong>
+          </div>
+          <div>
+            <span>Department</span>
+            <strong>{entry.departmentName || 'Not entered yet'}</strong>
+          </div>
+          <div>
+            <span>District</span>
+            <strong>{entry.district || 'Not entered yet'}</strong>
+          </div>
+          <div>
+            <span>ECV</span>
+            <strong>{formatRupees(entry.ecvRupees)}</strong>
+          </div>
+        </div>
+        <table className="doc-sheet-table">
+          <thead>
+            <tr>
+              <th>Material</th>
+              <th>Quantity</th>
+              <th>Unit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {MATERIAL_ROWS.map((r) => (
+              <tr key={r.key}>
+                <td>{r.label}</td>
+                <td className="num">{materialTotals[r.key].toFixed(2)}</td>
+                <td>{r.unit}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+  return (
+    <div className="doc-sheet">
+      <div className="doc-sheet-title">BILL OF QUANTITIES</div>
+      {itemTable}
+    </div>
+  )
 }
 
 /**
@@ -106,7 +296,8 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
           aiAssisted,
           busyAction: null,
           error: null,
-          saved: null
+          saved: null,
+          previewDoc: 'boq'
         })
       } catch (e) {
         const headerRow = guessHeaderRow(g.grid)
@@ -124,7 +315,8 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
           aiAssisted: [],
           busyAction: null,
           error: message,
-          saved: null
+          saved: null,
+          previewDoc: 'boq'
         })
       }
     }
@@ -208,6 +400,13 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
     )
   }
 
+  function downloadActive(entry: Entry) {
+    if (entry.previewDoc === 'scheduleA') return downloadScheduleA(entry)
+    if (entry.previewDoc === 'deviation') return downloadDeviation(entry)
+    if (entry.previewDoc === 'material') return downloadMaterial(entry)
+    return downloadBoq(entry)
+  }
+
   return (
     <div className="card">
       <div className="empty">
@@ -276,37 +475,31 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
               {e.items.length > 0 && (
                 <div className="estimate-body">
                   <div className="estimate-preview">
-                    <div className="estimate-preview-head">
-                      <span className="estimate-preview-title">Live preview</span>
-                      <span className="estimate-hint">
-                        {e.items.length} item{e.items.length === 1 ? '' : 's'} extracted from the estimate
-                      </span>
+                    <div className="doc-tabs">
+                      {DOC_TABS.map((t) => (
+                        <button
+                          key={t.key}
+                          className={`doc-tab${e.previewDoc === t.key ? ' active' : ''}`}
+                          onClick={() => updateEntry(e.id, { previewDoc: t.key })}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
                     </div>
                     <div className="estimate-preview-scroll">
-                      <table className="estimate-preview-table">
-                        <thead>
-                          <tr>
-                            <th>#</th>
-                            <th>Description</th>
-                            <th>Unit</th>
-                            <th>Qty</th>
-                            <th>Rate</th>
-                            <th>Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {e.items.map((it, i) => (
-                            <tr key={i}>
-                              <td>{i + 1}</td>
-                              <td>{it.description}</td>
-                              <td>{it.unit}</td>
-                              <td>{it.quantity}</td>
-                              <td>{it.rate}</td>
-                              <td>{(Number(it.quantity) * Number(it.rate) || 0).toFixed(2)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                      <DocumentPreview entry={e} worksTable={tables[0] ?? null} />
+                    </div>
+                    <div className="doc-sheet-footer">
+                      <span className="estimate-hint">
+                        Live preview of the {DOC_TABS.find((t) => t.key === e.previewDoc)?.label} — updates as you
+                        fill in the details.
+                      </span>
+                      <button className="primary" onClick={() => downloadActive(e)} disabled={e.busyAction !== null}>
+                        <IconDownload />{' '}
+                        {e.busyAction === e.previewDoc
+                          ? 'Saving…'
+                          : `Download ${DOC_TABS.find((t) => t.key === e.previewDoc)?.label}`}
+                      </button>
                     </div>
                   </div>
 
@@ -339,33 +532,6 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
                         onChange={(ev) => updateEntry(e.id, { district: ev.target.value })}
                       />
                     </label>
-
-                    <div className="estimate-details-actions">
-                      <button className="primary" onClick={() => downloadBoq(e)} disabled={e.busyAction !== null}>
-                        <IconDownload /> {e.busyAction === 'boq' ? 'Saving…' : 'BOQ'}
-                      </button>
-                      <button
-                        className="primary"
-                        onClick={() => downloadScheduleA(e)}
-                        disabled={e.busyAction !== null}
-                      >
-                        <IconDownload /> {e.busyAction === 'scheduleA' ? 'Saving…' : 'Schedule A'}
-                      </button>
-                      <button
-                        className="primary"
-                        onClick={() => downloadDeviation(e)}
-                        disabled={e.busyAction !== null}
-                      >
-                        <IconDownload /> {e.busyAction === 'deviation' ? 'Saving…' : 'Deviation'}
-                      </button>
-                      <button
-                        className="primary"
-                        onClick={() => downloadMaterial(e)}
-                        disabled={e.busyAction !== null}
-                      >
-                        <IconDownload /> {e.busyAction === 'material' ? 'Saving…' : 'Material Quantity'}
-                      </button>
-                    </div>
                   </div>
                 </div>
               )}
