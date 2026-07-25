@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './ipc'
 import { prefetchTenders, fetchTenders } from './tenderCache'
 import { createWorksTable, applyWorksSchema, applyWorksSchemaWithMapping, WORKS_COLUMNS } from './worksSchema'
+import { syncWorksListFromTenderPortal } from './worksListTenderSync'
 import { enforceZoneCircle, fillCircleNumber } from './zoneCircleCheck'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import { findCircleSheet, mergeMonitoringRows } from '@core/monitoringImport'
@@ -82,6 +83,10 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
   const [lastGoogleLink, setLastGoogleLink] = useState<string | null>(null)
   const [refreshingWorks, setRefreshingWorks] = useState(false)
   const [refreshError, setRefreshError] = useState<string | null>(null)
+  // Progress/outcome of the tender-portal sync that follows the Google-link
+  // refresh — see refreshWorksList and src/worksListTenderSync.ts.
+  const [tenderSyncStatus, setTenderSyncStatus] = useState<string | null>(null)
+  const [tenderSyncSummary, setTenderSyncSummary] = useState<string | null>(null)
   const [tenderReminders, setTenderReminders] = useState<TenderReminder[]>([])
   const [refreshingReminderId, setRefreshingReminderId] = useState<string | null>(null)
   const [createdDocuments, setCreatedDocuments] = useState<CreatedDocument[]>([])
@@ -267,7 +272,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
   // the database's columns to match — it isn't rejected just for having no
   // rows yet, since the point of importing it is often exactly to set up
   // the right columns before adding works.
-  async function importFromGoogleLink(url: string): Promise<{ added: number }> {
+  async function importFromGoogleLink(url: string): Promise<{ added: number; table: ExcelTable }> {
     const imported = await api.importFromLink(url)
     const rows = imported.rows.filter((row) => Object.values(row).some((v) => (v ?? '').trim() !== ''))
 
@@ -295,6 +300,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
     // Zone/Circle is accepted — a row explicitly tagged with a different
     // Zone/Circle, or whose "Name of the work" names a different one,
     // rejects the whole import rather than silently mixing works lists.
+    let result: ExcelTable
     if (loginZone && loginCircle) {
       const { table: checked, mismatches } = enforceZoneCircle(normalized, loginZone, loginCircle)
       if (mismatches.length > 0) {
@@ -308,15 +314,15 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
             `${mismatches.length > 3 ? ', …' : ''}.`
         )
       }
-      setTables([fillCircleNumber(checked, loginCircleNumber)])
-      setBlockedWorksList(null)
+      result = fillCircleNumber(checked, loginCircleNumber)
     } else {
-      setTables([normalized])
-      setBlockedWorksList(null)
+      result = normalized
     }
+    setTables([result])
+    setBlockedWorksList(null)
     setLastGoogleLink(url)
 
-    return { added: rows.length }
+    return { added: rows.length, table: result }
   }
 
   // A monitoring format is one workbook with a sheet per circle — pick the
@@ -373,17 +379,43 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
   }
 
   // Re-pull the Works List from whichever Google link it was last filled
-  // from, so the user doesn't have to re-paste the URL to get fresh data.
+  // from, so the user doesn't have to re-paste the URL to get fresh data —
+  // then, against that freshly-pulled table, search the tender portal by
+  // each of its Circles and fill ECV/Tender Notice No/Tender ID from
+  // whichever tender matches each work by name (src/worksListTenderSync.ts).
+  // Uses the table importFromGoogleLink itself just produced, not the
+  // `tables` state variable — that state update hasn't necessarily been
+  // committed yet by the time this line runs.
   async function refreshWorksList() {
     if (!lastGoogleLink) return
     setRefreshingWorks(true)
     setRefreshError(null)
+    setTenderSyncSummary(null)
     try {
-      await importFromGoogleLink(lastGoogleLink)
+      const { table } = await importFromGoogleLink(lastGoogleLink)
+      try {
+        const { table: synced, matchedCount, tenderCount, circleCount } = await syncWorksListFromTenderPortal(
+          table,
+          (p) => setTenderSyncStatus(`Searching tenders for ${p.circle} (${p.circleIndex + 1} of ${p.circleCount})…`)
+        )
+        setTables([synced])
+        setTenderSyncSummary(
+          circleCount === 0
+            ? 'Refreshed from the Google link — no Circle values on the Works List to search tenders for.'
+            : `Refreshed from the Google link, then matched ${matchedCount} work${matchedCount === 1 ? '' : 's'} against ${tenderCount} tender${tenderCount === 1 ? '' : 's'} found across ${circleCount} circle${circleCount === 1 ? '' : 's'}.`
+        )
+      } catch (e) {
+        // The Google-link refresh itself already succeeded — a failed tender
+        // sync on top of it is a partial-success notice, not a full error.
+        setTenderSyncSummary(
+          `Refreshed from the Google link, but the tender-portal search failed: ${e instanceof Error ? e.message : String(e)}`
+        )
+      }
     } catch (e) {
       setRefreshError(e instanceof Error ? e.message : String(e))
     } finally {
       setRefreshingWorks(false)
+      setTenderSyncStatus(null)
     }
   }
 
@@ -530,6 +562,8 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
               )}
             </div>
             {refreshError && <div className="notice error">{refreshError}</div>}
+            {tenderSyncStatus && <div className="notice">{tenderSyncStatus}</div>}
+            {tenderSyncSummary && <div className="notice ok">{tenderSyncSummary}</div>}
             <GoogleLinkImport onImport={importFromGoogleLink} />
             {loginCircle && <MonitoringLinkImport onImport={importFromMonitoringLink} />}
             {currentTable ? (
