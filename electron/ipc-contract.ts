@@ -16,6 +16,8 @@ import type { DeviationItem, DeviationMeta } from '../core/deviationTemplate'
 import type { PlaceholderMatch } from '../core/createDocument'
 import type { EstimateWorkItem } from '../core/estimateExtract'
 import type { DetailedEstimateMeta } from '../core/estimateTemplate'
+import type { MaterialTotals } from '../core/materialEstimate'
+import type { MaterialEstimateMeta } from '../core/materialTemplate'
 
 export type ManualCheckResult = 'update-available' | 'up-to-date' | 'error' | 'dev-mode'
 
@@ -47,6 +49,7 @@ export const IPC = {
   exportBoqBatch: 'data:exportBoqBatch',
   exportDeviation: 'data:exportDeviation',
   exportDetailedEstimate: 'data:exportDetailedEstimate',
+  exportMaterialEstimate: 'data:exportMaterialEstimate',
   generateTenderNotice: 'data:generateTenderNotice',
   previewTenderNotice: 'data:previewTenderNotice',
   generateBidDocument: 'data:generateBidDocument',
@@ -102,6 +105,12 @@ export interface DocuGenApi {
   exportDetailedEstimate(
     items: EstimateWorkItem[],
     meta: DetailedEstimateMeta,
+    suggestedName: string
+  ): Promise<string | null>
+  /** Fills the bundled Material Estimation Template (Work Name/Department/District/ECV header + the 7 standard material rows) from computed material totals — see core/materialEstimate.ts. */
+  exportMaterialEstimate(
+    totals: MaterialTotals,
+    meta: MaterialEstimateMeta,
     suggestedName: string
   ): Promise<string | null>
   generateTenderNotice(input: TenderNoticeInput, suggestedName?: string): Promise<string | null>
@@ -170,3 +179,5 @@ export type { PlaceholderMatch }
 export type { DeviationItem, DeviationMeta }
 export type { EstimateWorkItem }
 export type { DetailedEstimateMeta }
+export type { MaterialTotals }
+export type { MaterialEstimateMeta }

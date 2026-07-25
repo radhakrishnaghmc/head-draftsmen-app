@@ -25,6 +25,7 @@ export type TabKey =
   | 'deviation'
   | 'techSanction'
   | 'photoEstimate'
+  | 'materialQuantity'
   | 'search'
   | 'todo'
 
@@ -136,6 +137,11 @@ export default function Sidebar(props: Props) {
       label: 'Upload Photos to Get Estimate',
       icon: <IconImage />,
       tone: 'rose'
+    },
+    {
+      key: 'materialQuantity',
+      label: 'Download Material Quantity',
+      icon: <IconDownload />
     }
   ]
 

@@ -26,6 +26,7 @@ import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
 import CreateDocumentTab from './components/CreateDocumentTab'
 import PrintDocumentTab from './components/PrintDocumentTab'
 import UploadPhotosTab from './components/UploadPhotosTab'
+import MaterialQuantityTab from './components/MaterialQuantityTab'
 import TodoList from './components/TodoList'
 import TenderReminders from './components/TenderReminders'
 import {
@@ -673,6 +674,21 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
               </div>
             </div>
             <UploadPhotosTab tables={tables} onChange={updateTable} />
+          </section>
+        )}
+
+        {tab === 'materialQuantity' && (
+          <section className="page">
+            <div className="page-head">
+              <div className="page-ic">
+                <IconDoc />
+              </div>
+              <div className="page-head-text">
+                <h1>Download Material Quantity</h1>
+                <p>Upload an estimate to compute Stone Aggregates, Sand, Gravel, Granite/Napa Slabs, Cement, and Steel quantities.</p>
+              </div>
+            </div>
+            <MaterialQuantityTab />
           </section>
         )}
 

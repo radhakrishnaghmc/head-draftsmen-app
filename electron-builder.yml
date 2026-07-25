@@ -19,6 +19,8 @@ extraResources:
     to: boq-template.xlsx
   - from: resources/deviation-template.xlsx
     to: deviation-template.xlsx
+  - from: resources/material-estimation-template.xlsx
+    to: material-estimation-template.xlsx
   - from: resources/models/all-MiniLM-L6-v2
     to: models/all-MiniLM-L6-v2
   - from: resources/ocr-models

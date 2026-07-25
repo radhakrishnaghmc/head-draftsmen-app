@@ -27,6 +27,8 @@ const api: DocuGenApi = {
     ipcRenderer.invoke(IPC.exportDeviation, items, meta, suggestedName),
   exportDetailedEstimate: (items, meta, suggestedName) =>
     ipcRenderer.invoke(IPC.exportDetailedEstimate, items, meta, suggestedName),
+  exportMaterialEstimate: (totals, meta, suggestedName) =>
+    ipcRenderer.invoke(IPC.exportMaterialEstimate, totals, meta, suggestedName),
   generateTenderNotice: (input, suggestedName) =>
     ipcRenderer.invoke(IPC.generateTenderNotice, input, suggestedName),
   previewTenderNotice: (input) => ipcRenderer.invoke(IPC.previewTenderNotice, input),

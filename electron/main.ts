@@ -21,6 +21,9 @@ import type { DeviationItem, DeviationMeta } from '../core/deviationTemplate'
 import { buildDetailedEstimateWorkbook } from '../core/estimateTemplate'
 import type { DetailedEstimateMeta } from '../core/estimateTemplate'
 import type { EstimateWorkItem } from '../core/estimateExtract'
+import { fillMaterialTemplate } from '../core/materialTemplate'
+import type { MaterialEstimateMeta } from '../core/materialTemplate'
+import type { MaterialTotals } from '../core/materialEstimate'
 import { parseCalendarHtml } from '../core/calendar'
 import { importTableFromGoogleLink, importAllSheetsFromGoogleLink } from '../core/googleImport'
 import { validateLogin } from '../core/auth'
@@ -419,6 +422,25 @@ function registerHandlers(): void {
   )
 
   ipcMain.handle(
+    IPC.exportMaterialEstimate,
+    async (_e, totals: MaterialTotals, meta: MaterialEstimateMeta, suggestedName: string): Promise<string | null> => {
+      const templatePath = materialTemplateFile()
+      if (!templatePath) throw new Error('Material Estimation template is missing from the app bundle.')
+
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        title: 'Save Material Estimation',
+        defaultPath: `${suggestedName}.xlsx`,
+        filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
+      })
+      if (result.canceled || !result.filePath) return null
+
+      const buffer = await fillMaterialTemplate(fs.readFileSync(templatePath), totals, meta)
+      fs.writeFileSync(result.filePath, buffer)
+      return result.filePath
+    }
+  )
+
+  ipcMain.handle(
     IPC.searchTenders,
     async (_e, query: TenderQuery): Promise<TenderResult> => {
       const raw = await fetchTenders(query)
@@ -643,6 +665,22 @@ function registerHandlers(): void {
       path.join(process.resourcesPath, 'tender-notice-template.docx'),
       path.join(app.getAppPath(), 'resources', 'tender-notice-template.docx'),
       path.join(app.getAppPath(), '..', 'resources', 'tender-notice-template.docx')
+    ]
+    return candidates.find((p) => {
+      try {
+        fs.accessSync(p)
+        return true
+      } catch {
+        return false
+      }
+    })
+  }
+
+  const materialTemplateFile = () => {
+    const candidates = [
+      path.join(process.resourcesPath, 'material-estimation-template.xlsx'),
+      path.join(app.getAppPath(), 'resources', 'material-estimation-template.xlsx'),
+      path.join(app.getAppPath(), '..', 'resources', 'material-estimation-template.xlsx')
     ]
     return candidates.find((p) => {
       try {
