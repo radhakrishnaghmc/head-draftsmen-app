@@ -1,6 +1,34 @@
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
+// Not yet in this project's configured TS lib version's typings.
+declare global {
+  interface Uint8Array {
+    toHex(): string
+  }
+}
+
+// pdfjs-dist assumes the brand-new (TC39 "Uint8Array to/from base64/hex")
+// Uint8Array.prototype.toHex() exists, unconditionally, calling it while
+// hashing a PDF's content during load — but the Chromium build bundled with
+// this app's current Electron version predates that method entirely, so
+// every PDF load throws "toHex is not a function" with no fallback path.
+// Confirmed as this exact, known pdf.js/runtime compatibility gap (not a
+// bug in a specific PDF) — polyfilled here per the TC39 spec (each byte as
+// 2-digit lowercase hex, concatenated) rather than pinning to an older,
+// less-maintained pdfjs-dist release.
+if (typeof Uint8Array.prototype.toHex !== 'function') {
+  Object.defineProperty(Uint8Array.prototype, 'toHex', {
+    value(this: Uint8Array) {
+      let hex = ''
+      for (const byte of this) hex += byte.toString(16).padStart(2, '0')
+      return hex
+    },
+    writable: true,
+    configurable: true
+  })
+}
+
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 // Scale 2 off a PDF's standard 72dpi page is ~144dpi — plenty of detail for
