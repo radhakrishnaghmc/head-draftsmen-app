@@ -99,7 +99,7 @@ export interface BidDocumentWork {
   name: string
   /** Estimate amount as entered on the Works List, in Lakhs. */
   amount: string
-  /** Estimate Amount ECV, in Lakhs — EMD @ 1% is computed from this when present, otherwise from `amount`. */
+  /** ECV, in Lakhs — EMD @ 1% is computed from this. Left blank when ECV isn't available yet. */
   ecv?: string
   zone?: string
   circle?: string

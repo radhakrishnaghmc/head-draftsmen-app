@@ -95,7 +95,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onEdit, 
 
   async function resolveForRow(doc: CreatedDocument): Promise<{ docx: string; resolved: PlaceholderMatch[] }> {
     const labels = await api.findPlaceholdersInDocument(doc.docx)
-    // Amount-bearing columns (Amount of estimate, Estimate Amount ECV, EMD @
+    // Amount-bearing columns (Amount of estimate, ECV, EMD @
     // 1%/1.5%, ASD, Contract Amount) resolve to their computed, Indian-
     // formatted "Rs 1,00,000/-" value rather than the raw spreadsheet figure
     // — see core/worksAmounts.ts.

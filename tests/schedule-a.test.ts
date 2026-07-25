@@ -16,7 +16,7 @@ describe('buildScheduleARows', () => {
     const meta = metaFromWorksRow({
       'Name of the work': 'Road from A to B',
       'Amount of estimate': '45',
-      'Estimate Amount ECV': '42',
+      'ECV': '42',
       'Tender Percentage': '18',
       'Name of the Agency': 'ABC Constructions'
     })
@@ -35,11 +35,18 @@ describe('buildScheduleARows', () => {
     expect(estimateRow?.[2]).toBe('1,000/-')
   })
 
+  it('leaves ECV Amount blank (never the item total) for a matched row whose ECV is blank', () => {
+    const meta = metaFromWorksRow({ 'Name of the work': 'Road from A to B', 'Amount of estimate': '45', 'ECV': '' })
+    const rows = buildScheduleARows(items, meta)
+    const ecvRow = rows.find((r) => r[0] === 'ECV Amount: Rs.')
+    expect(ecvRow?.[2]).toBe('')
+  })
+
   it('leaves Contract Amount blank when Tender Percentage is not on the Works List row', () => {
     const meta = metaFromWorksRow({
       'Name of the work': 'Road from A to B',
       'Amount of estimate': '45',
-      'Estimate Amount ECV': '42'
+      'ECV': '42'
     })
     const rows = buildScheduleARows(items, meta)
     const contractRow = rows.find((r) => r[0] === 'Contract Amount: Rs.')
@@ -53,7 +60,7 @@ describe('fillScheduleATemplate', () => {
     const meta = metaFromWorksRow({
       'Name of the work': 'Road from A to B',
       'Amount of estimate': '45',
-      'Estimate Amount ECV': '42',
+      'ECV': '42',
       'Tender Percentage': '18',
       'Name of the Agency': 'ABC Constructions'
     })

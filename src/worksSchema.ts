@@ -13,7 +13,7 @@ export const WORKS_COLUMNS: string[] = [
   'Wincode',
   'Name of the work',
   'Amount of estimate',
-  'Estimate Amount ECV',
+  'ECV',
   'Contract Amount',
   'Sanction By',
   'Tender notice',
@@ -50,6 +50,12 @@ export function createWorksTable(): ExcelTable {
   }
 }
 
+// "Estimate Amount ECV" was this column's name before it was shortened to
+// "ECV" — carried across here so a table saved under the old schema doesn't
+// lose its EMD-driving figure the next time it's normalized, rather than
+// starting that column over blank.
+const LEGACY_ECV_COLUMN = 'Estimate Amount ECV'
+
 /**
  * Force a table onto the standard works schema: guarantee every standard
  * column exists, while keeping any *extra* columns already on the table
@@ -58,11 +64,14 @@ export function createWorksTable(): ExcelTable {
  * already has. Guarantees at least one (blank) row.
  */
 export function applyWorksSchema(table: ExcelTable): ExcelTable {
-  const extraHeaders = table.headers.filter((h) => !WORKS_COLUMNS.includes(h))
+  const hasEcv = table.headers.includes('ECV')
+  const extraHeaders = table.headers.filter((h) => !WORKS_COLUMNS.includes(h) && h !== LEGACY_ECV_COLUMN)
   const headers = [...WORKS_COLUMNS, ...extraHeaders]
   const rows = (table.rows.length > 0 ? table.rows : [{}]).map((row) => {
     const next: Record<string, string> = {}
-    for (const h of headers) next[h] = row[h] ?? ''
+    for (const h of headers) {
+      next[h] = h === 'ECV' && !hasEcv ? row[LEGACY_ECV_COLUMN] ?? '' : row[h] ?? ''
+    }
     return next
   })
   return { ...table, path: '', headers, rows }

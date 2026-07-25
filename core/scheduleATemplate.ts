@@ -39,7 +39,7 @@ function numOrNull(s: string | undefined): number | null {
 export async function fillScheduleATemplate(
   templateBuffer: Buffer,
   items: ScheduleAItem[],
-  meta: ScheduleAMeta = {}
+  meta?: ScheduleAMeta
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.load(templateBuffer as unknown as ArrayBuffer)
@@ -89,35 +89,37 @@ export async function fillScheduleATemplate(
   ws.getCell(totalRow, AMOUNT_COL).value = n > 0 ? { formula: `SUM(F${firstItemRow}:F${totalRow - 1})` } : 0
 
   const total = items.reduce((sum, it) => sum + (Number(String(it.amount).replace(/,/g, '')) || 0), 0)
-  // Fallback when there's no Works List match at all — the item table's own
-  // total, Indian-formatted the same way meta.estimateAmount/ecvAmount are
+  // Fallback only when there's no Works List match at all — the item table's
+  // own total, Indian-formatted the same way meta.estimateAmount/ecvAmount are
   // (metaFromWorksRow in core/scheduleA.ts already applies the app's
   // Lakhs-to-rupees + Indian-numbering money rules, so those come in
-  // pre-formatted, e.g. "45,00,000/-" — not run through numOrNull).
-  const totalDisplay = `${indianDigitGroups(total)}/-`
+  // pre-formatted, e.g. "45,00,000/-" — not run through numOrNull). Never
+  // used to paper over a matched row's genuinely blank ECV — that stays
+  // blank rather than being shown as if it were a real figure.
+  const totalDisplay = meta ? '' : `${indianDigitGroups(total)}/-`
 
   // Metadata rows sit above the item header — match by label text so this
   // keeps working even if a row or two shifts in a future template edit.
   for (let r = 1; r < headerRow; r++) {
     const label = cellText(ws.getCell(r, 1).value).trim().toLowerCase()
     if (label.startsWith('name of work')) {
-      ws.getCell(r, 1).value = meta.nameOfWork ? `Name of work: ${meta.nameOfWork}` : 'Name of work:'
+      ws.getCell(r, 1).value = meta?.nameOfWork ? `Name of work: ${meta.nameOfWork}` : 'Name of work:'
     } else if (label.startsWith('name of the contractor')) {
-      ws.getCell(r, 1).value = meta.contractorName
+      ws.getCell(r, 1).value = meta?.contractorName
         ? `Name of the Contractor : ${meta.contractorName}`
         : 'Name of the Contractor : '
     } else if (label.startsWith('estimate amount')) {
-      ws.getCell(r, 3).value = meta.estimateAmount ?? totalDisplay
+      ws.getCell(r, 3).value = meta?.estimateAmount ?? totalDisplay
     } else if (label.startsWith('ecv amount')) {
-      ws.getCell(r, 3).value = meta.ecvAmount ?? totalDisplay
+      ws.getCell(r, 3).value = meta?.ecvAmount ?? totalDisplay
     } else if (label.startsWith('contract amount')) {
-      ws.getCell(r, 3).value = meta.contractAmount ?? ''
+      ws.getCell(r, 3).value = meta?.contractAmount ?? ''
     }
   }
 
   // Tender-quoted % and its "Less:" restatement — filled from the Works List
   // when we have it (meta.tenderPercentage), otherwise left blank.
-  const tenderPct = numOrNull(meta.tenderPercentage)
+  const tenderPct = numOrNull(meta?.tenderPercentage)
   let tenderQuotedRow = -1
   let inFiguresRow = -1
   for (let r = totalRow; r <= ws.rowCount; r++) {

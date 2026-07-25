@@ -41,14 +41,11 @@ describe('fillBidDocument', () => {
     // 45 Lakhs -> 4500000. The cover page has no "Rs:" of its own, so it gets the full "Rs 45,00,000/-".
     expect(joined).toContain('Rs 45,00,000/-')
     expect(joined).not.toContain('{{Estimate Amount}}')
-    // No ECV supplied -> the NIT body's {{ECV}} falls back to the estimate. That slot already has
-    // "Rs:" printed by the template, so just the Indian-grouped figure + "/-", not a second "Rs".
-    const ecvLine = paragraphs.find((p) => p.startsWith('Rs:') && p.includes('45,00,000/-'))
-    expect(ecvLine).toBeDefined()
+    // No ECV supplied -> {{ECV}} and {{EMD 1%}} are left blank (just the template's own "Rs:"
+    // label with nothing after it), never computed from the 45-Lakh estimate instead — ECV and
+    // the estimate are distinct figures.
+    expect(paragraphs.filter((p) => p.trim() === 'Rs:')).toHaveLength(2)
     expect(joined).not.toContain('{{ECV}}')
-    // EMD @ 1% computed from that same fallback ECV (4,500,000 * 1% = 45,000).
-    const emdLine = paragraphs.find((p) => p.startsWith('Rs:') && p.includes('45,000/-'))
-    expect(emdLine).toBeDefined()
     expect(joined).not.toContain('{{EMD 1%}}')
     expect(joined).toContain('16/DB/EE/Gajularamaram Circle-57/CMC/2026-27')
     expect(joined).not.toContain('{{Nit no.}}')

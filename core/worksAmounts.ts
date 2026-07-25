@@ -41,15 +41,15 @@ function parsePercent(v: string | undefined): number | undefined {
 export interface ComputedAmounts {
   /** "Amount of estimate" / "Estimate Amount", converted from Lakhs to rupees. */
   estimate: number
-  /** "Estimate Amount ECV", converted from Lakhs to rupees — falls back to `estimate` when ECV is blank. */
-  ecv: number
-  /** 1% of ECV. */
-  emd1: number
-  /** 1.5% of ECV. */
-  emd1_5: number
-  /** (Tender Percentage - 25%) of ECV, only once Tender Percentage exceeds 25% — otherwise 0. */
-  asd: number
-  /** ECV net of the tendered percentage: ECV * (1 - Tender Percentage) — null when Tender Percentage isn't available yet, rather than assuming 0%. */
+  /** "ECV", converted from Lakhs to rupees — null when ECV is blank. Never falls back to `estimate`: the two are distinct figures and must not be conflated. */
+  ecv: number | null
+  /** 1% of ECV — null when ECV isn't available yet, rather than computed off the estimate. */
+  emd1: number | null
+  /** 1.5% of ECV — null when ECV isn't available yet, rather than computed off the estimate. */
+  emd1_5: number | null
+  /** (Tender Percentage - 25%) of ECV, only once Tender Percentage exceeds 25% — null when ECV isn't available yet, otherwise 0 below the 25% threshold. */
+  asd: number | null
+  /** ECV net of the tendered percentage: ECV * (1 - Tender Percentage) — null when Tender Percentage or ECV isn't available yet, rather than assuming 0%. */
   contractAmount: number | null
 }
 
@@ -62,17 +62,27 @@ export interface ComputedAmounts {
  * - Contract Amount: ECV net of the tendered percentage — left null (not
  *   0%-tendered) when Tender Percentage isn't on the row at all, since a
  *   contract amount doesn't exist before a tender percentage is quoted.
+ *
+ * ECV and "Amount of estimate" are distinct figures (ECV only exists once a
+ * tender is held) — every ECV-derived figure below is left null, never
+ * computed off the estimate instead, when a row's ECV cell is still blank.
  */
 export function computeWorkAmounts(row: Record<string, string>): ComputedAmounts {
   const estimate = lakhsToRupees(row['Amount of estimate'] ?? '')
-  const ecvRaw = row['Estimate Amount ECV']
-  const ecv = ecvRaw?.trim() ? lakhsToRupees(ecvRaw) : estimate
+  const ecvRaw = row['ECV']
+  const ecv = ecvRaw?.trim() ? lakhsToRupees(ecvRaw) : null
   const tenderPercent = parsePercent(row['Tender Percentage'])
 
-  const emd1 = Math.round(ecv * 0.01)
-  const emd1_5 = Math.round(ecv * 0.015)
-  const asd = tenderPercent !== undefined && tenderPercent > 25 ? Math.round(ecv * ((tenderPercent - 25) / 100)) : 0
-  const contractAmount = tenderPercent !== undefined ? Math.round(ecv * (1 - tenderPercent / 100)) : null
+  const emd1 = ecv !== null ? Math.round(ecv * 0.01) : null
+  const emd1_5 = ecv !== null ? Math.round(ecv * 0.015) : null
+  const asd =
+    ecv === null
+      ? null
+      : tenderPercent !== undefined && tenderPercent > 25
+        ? Math.round(ecv * ((tenderPercent - 25) / 100))
+        : 0
+  const contractAmount =
+    ecv !== null && tenderPercent !== undefined ? Math.round(ecv * (1 - tenderPercent / 100)) : null
 
   return { estimate, ecv, emd1, emd1_5, asd, contractAmount }
 }
@@ -90,10 +100,10 @@ export function withComputedAmounts(row: Record<string, string>): Record<string,
     ...row,
     'Amount of estimate': formatRupees(c.estimate),
     'Estimate Amount': formatRupees(c.estimate),
-    'Estimate Amount ECV': formatRupees(c.ecv),
-    'EMD 1%': formatRupees(c.emd1),
-    'EMD 1.5%': formatRupees(c.emd1_5),
-    ASD: formatRupees(c.asd),
+    ECV: c.ecv !== null ? formatRupees(c.ecv) : '',
+    'EMD 1%': c.emd1 !== null ? formatRupees(c.emd1) : '',
+    'EMD 1.5%': c.emd1_5 !== null ? formatRupees(c.emd1_5) : '',
+    ASD: c.asd !== null ? formatRupees(c.asd) : '',
     'Contract Amount': c.contractAmount !== null ? formatRupees(c.contractAmount) : ''
   }
 }
@@ -120,9 +130,9 @@ export interface EcvMatchResult {
 /**
  * Find the Works List row whose "Name of the work" matches (case- and
  * whitespace-insensitive) `workName`, and return an updated table with that
- * row's Estimate Amount ECV, EMD 1% and EMD 1.5% filled in from `ecvRupees`
- * (a BOQ/estimate item total) — Lakhs-formatted, matching every other amount
- * column's own convention. Returns the table unchanged (`matched: false`) if
+ * row's ECV, EMD 1% and EMD 1.5% filled in from `ecvRupees` (a BOQ/estimate
+ * item total) — Lakhs-formatted, matching every other amount column's own
+ * convention. Returns the table unchanged (`matched: false`) if
  * there's no "Name of the work" column, no name to match, or no row matches —
  * callers should treat that as "nothing to update", not an error.
  *
@@ -161,7 +171,7 @@ export function applyEcvFromBoq(
       ? r
       : {
           ...r,
-          'Estimate Amount ECV': rupeesToLakhsString(ecvRupees),
+          ECV: rupeesToLakhsString(ecvRupees),
           'EMD 1%': rupeesToLakhsString(emd1),
           'EMD 1.5%': rupeesToLakhsString(emd1_5)
         }

@@ -40,14 +40,15 @@ export interface ScheduleAMeta {
  * Contract Amount is the computed ECV-net-of-tender-percentage figure, not
  * whatever raw value happens to be in that Works List cell — and is left
  * unset (blank in the output) when Tender Percentage isn't available yet,
- * rather than assuming 0%.
+ * rather than assuming 0%. ECV itself is left unset the same way when the
+ * Works List row's ECV cell is blank — never substituted with the estimate.
  */
 export function metaFromWorksRow(row: Record<string, string>): ScheduleAMeta {
   const c = computeWorkAmounts(row)
   return {
     nameOfWork: row['Name of the work'],
     estimateAmount: `${indianDigitGroups(c.estimate)}/-`,
-    ecvAmount: `${indianDigitGroups(c.ecv)}/-`,
+    ecvAmount: c.ecv !== null ? `${indianDigitGroups(c.ecv)}/-` : undefined,
     contractAmount: c.contractAmount !== null ? `${indianDigitGroups(c.contractAmount)}/-` : undefined,
     contractorName: row['Name of the Agency'],
     tenderPercentage: row['Tender Percentage']
@@ -120,11 +121,13 @@ function numOrStr(s: string): number | string {
  * is left blank since we have no source for it. Used for both the on-screen
  * preview and the saved workbook, so they always match.
  */
-export function buildScheduleARows(items: ScheduleAItem[], meta: ScheduleAMeta = {}): (string | number)[][] {
+export function buildScheduleARows(items: ScheduleAItem[], meta?: ScheduleAMeta): (string | number)[][] {
   const total = items.reduce((sum, it) => sum + (Number(String(it.amount).replace(/,/g, '')) || 0), 0)
-  // Fallback when there's no Works List match at all — the item table's own
-  // total, Indian-formatted the same way metaFromWorksRow's figures are.
-  const totalDisplay = `${indianDigitGroups(total)}/-`
+  // Fallback only when there's no Works List match at all — the item table's
+  // own total, Indian-formatted the same way metaFromWorksRow's figures are.
+  // Never used to paper over a matched row's genuinely blank ECV — that
+  // stays blank rather than being shown as if it were a real figure.
+  const totalDisplay = meta ? '' : `${indianDigitGroups(total)}/-`
 
   return [
     ['SCHEDULE-A'],
@@ -145,11 +148,11 @@ export function buildScheduleARows(items: ScheduleAItem[], meta: ScheduleAMeta =
     ['5. General directions and descriptions of work and materials are not necessarily repeated nor summarised in the Bill of Quantities.'],
     ['6. This schedule is liable to alterations by omissions, deductions, or additions at the discretion of the department.'],
     ['7. Errors will be corrected as follows: where there is a discrepancy between figures and words, the words will govern.'],
-    ['Name of work:', meta.nameOfWork ?? ''],
-    ['Estimate Amount: Rs.', '', meta.estimateAmount ?? totalDisplay],
-    ['ECV Amount: Rs.', '', meta.ecvAmount ?? totalDisplay],
-    ['Contract Amount: Rs.', '', meta.contractAmount ?? ''],
-    ['Name of the Contractor :', meta.contractorName ?? ''],
+    ['Name of work:', meta?.nameOfWork ?? ''],
+    ['Estimate Amount: Rs.', '', meta?.estimateAmount ?? totalDisplay],
+    ['ECV Amount: Rs.', '', meta?.ecvAmount ?? totalDisplay],
+    ['Contract Amount: Rs.', '', meta?.contractAmount ?? ''],
+    ['Name of the Contractor :', meta?.contractorName ?? ''],
     [
       'Item No.',
       'Probable Quantity',
@@ -168,7 +171,7 @@ export function buildScheduleARows(items: ScheduleAItem[], meta: ScheduleAMeta =
       numOrStr(it.amount)
     ]),
     ['', '', '', '', '', total],
-    ['', '', 'Tender Quoted', numOrStr(meta.tenderPercentage ?? ''), meta.tenderPercentage ? '%' : '', 'Less'],
+    ['', '', 'Tender Quoted', numOrStr(meta?.tenderPercentage ?? ''), meta?.tenderPercentage ? '%' : '', 'Less'],
     ['', '', 'Excess:'],
     ['', '', 'Less:'],
     ['', '', '', 'Executive Engineer']
@@ -176,7 +179,7 @@ export function buildScheduleARows(items: ScheduleAItem[], meta: ScheduleAMeta =
 }
 
 /** Serialize the Schedule-A rows to an .xlsx workbook buffer for saving to disk. */
-export function buildScheduleAWorkbook(items: ScheduleAItem[], meta: ScheduleAMeta = {}): Buffer {
+export function buildScheduleAWorkbook(items: ScheduleAItem[], meta?: ScheduleAMeta): Buffer {
   const aoa = buildScheduleARows(items, meta)
   const sheet = XLSX.utils.aoa_to_sheet(aoa)
   const workbook = XLSX.utils.book_new()

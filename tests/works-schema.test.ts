@@ -85,4 +85,17 @@ describe('applyWorksSchema', () => {
     expect(result.headers).toEqual([...WORKS_COLUMNS, 'Eoffice'])
     expect(result.rows[0]['Eoffice']).toBe('EO-123')
   })
+
+  it('carries a table saved under the old "Estimate Amount ECV" column name into the new "ECV" column', () => {
+    const headers = WORKS_COLUMNS.map((h) => (h === 'ECV' ? 'Estimate Amount ECV' : h))
+    const t = table(headers, [{ ...Object.fromEntries(headers.map((h) => [h, ''])), 'Estimate Amount ECV': '45' }])
+    const result = applyWorksSchema(t)
+    expect(result.rows[0]['ECV']).toBe('45')
+  })
+
+  it('does not overwrite a real "ECV" value with a stale legacy column of the same row', () => {
+    const t = table(WORKS_COLUMNS, [{ ...Object.fromEntries(WORKS_COLUMNS.map((h) => [h, ''])), ECV: '50' }])
+    const result = applyWorksSchema(t)
+    expect(result.rows[0]['ECV']).toBe('50')
+  })
 })

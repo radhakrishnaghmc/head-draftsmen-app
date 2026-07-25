@@ -34,16 +34,17 @@ describe('formatRupees', () => {
 })
 
 describe('computeWorkAmounts', () => {
-  it('computes EMD @ 1%/1.5% from ECV, falling back to the estimate when ECV is blank', () => {
-    const c = computeWorkAmounts({ 'Amount of estimate': '45', 'Estimate Amount ECV': '' })
+  it('leaves ECV and every ECV-derived figure null when ECV is blank, never falling back to the estimate', () => {
+    const c = computeWorkAmounts({ 'Amount of estimate': '45', 'ECV': '' })
     expect(c.estimate).toBe(4500000)
-    expect(c.ecv).toBe(4500000) // fell back to the estimate
-    expect(c.emd1).toBe(45000)
-    expect(c.emd1_5).toBe(67500)
+    expect(c.ecv).toBeNull()
+    expect(c.emd1).toBeNull()
+    expect(c.emd1_5).toBeNull()
+    expect(c.asd).toBeNull()
   })
 
   it('uses ECV over the estimate when both are present', () => {
-    const c = computeWorkAmounts({ 'Amount of estimate': '10', 'Estimate Amount ECV': '12' })
+    const c = computeWorkAmounts({ 'Amount of estimate': '10', 'ECV': '12' })
     expect(c.estimate).toBe(1000000)
     expect(c.ecv).toBe(1200000)
     expect(c.emd1).toBe(12000)
@@ -51,29 +52,29 @@ describe('computeWorkAmounts', () => {
   })
 
   it('charges ASD only once Tender Percentage exceeds 25%, at (percentage - 25%) of ECV', () => {
-    const under = computeWorkAmounts({ 'Estimate Amount ECV': '10', 'Tender Percentage': '20' })
+    const under = computeWorkAmounts({ 'ECV': '10', 'Tender Percentage': '20' })
     expect(under.asd).toBe(0)
 
-    const over = computeWorkAmounts({ 'Estimate Amount ECV': '10', 'Tender Percentage': '30' })
+    const over = computeWorkAmounts({ 'ECV': '10', 'Tender Percentage': '30' })
     // 30% - 25% = 5% of 1,000,000 = 50,000
     expect(over.asd).toBe(50000)
   })
 
   it('computes Contract Amount as ECV net of the tendered percentage', () => {
-    const c = computeWorkAmounts({ 'Estimate Amount ECV': '10', 'Tender Percentage': '18' })
+    const c = computeWorkAmounts({ 'ECV': '10', 'Tender Percentage': '18' })
     // 1,000,000 * (1 - 0.18) = 820,000
     expect(c.contractAmount).toBe(820000)
   })
 
   it('leaves Contract Amount null when Tender Percentage is not available, rather than assuming 0%', () => {
-    const missing = computeWorkAmounts({ 'Estimate Amount ECV': '10' })
+    const missing = computeWorkAmounts({ 'ECV': '10' })
     expect(missing.contractAmount).toBeNull()
 
-    const blank = computeWorkAmounts({ 'Estimate Amount ECV': '10', 'Tender Percentage': '' })
+    const blank = computeWorkAmounts({ 'ECV': '10', 'Tender Percentage': '' })
     expect(blank.contractAmount).toBeNull()
 
     // A genuine 0% tender, though, is a real value and should compute (equal to ECV).
-    const zero = computeWorkAmounts({ 'Estimate Amount ECV': '10', 'Tender Percentage': '0' })
+    const zero = computeWorkAmounts({ 'ECV': '10', 'Tender Percentage': '0' })
     expect(zero.contractAmount).toBe(1000000)
   })
 })
@@ -82,20 +83,30 @@ describe('withComputedAmounts', () => {
   it('replaces every amount column with its computed, Rs-formatted value', () => {
     const row = withComputedAmounts({
       'Amount of estimate': '45',
-      'Estimate Amount ECV': '',
+      'ECV': '50',
       'Tender Percentage': '30'
     })
     expect(row['Amount of estimate']).toBe('Rs 45,00,000/-')
     expect(row['Estimate Amount']).toBe('Rs 45,00,000/-')
-    expect(row['Estimate Amount ECV']).toBe('Rs 45,00,000/-')
-    expect(row['EMD 1%']).toBe('Rs 45,000/-')
-    expect(row['EMD 1.5%']).toBe('Rs 67,500/-')
-    expect(row.ASD).toBe('Rs 2,25,000/-') // (30% - 25%) of 45,00,000
-    expect(row['Contract Amount']).toBe('Rs 31,50,000/-') // 45,00,000 * (1 - 0.30)
+    expect(row['ECV']).toBe('Rs 50,00,000/-')
+    expect(row['EMD 1%']).toBe('Rs 50,000/-')
+    expect(row['EMD 1.5%']).toBe('Rs 75,000/-')
+    expect(row.ASD).toBe('Rs 2,50,000/-') // (30% - 25%) of 50,00,000
+    expect(row['Contract Amount']).toBe('Rs 35,00,000/-') // 50,00,000 * (1 - 0.30)
+  })
+
+  it('leaves ECV, EMD and ASD blank (never the estimate figure) when ECV is blank', () => {
+    const row = withComputedAmounts({ 'Amount of estimate': '45', 'ECV': '', 'Tender Percentage': '30' })
+    expect(row['Amount of estimate']).toBe('Rs 45,00,000/-')
+    expect(row['ECV']).toBe('')
+    expect(row['EMD 1%']).toBe('')
+    expect(row['EMD 1.5%']).toBe('')
+    expect(row.ASD).toBe('')
+    expect(row['Contract Amount']).toBe('')
   })
 
   it('leaves Contract Amount blank when Tender Percentage is not available', () => {
-    const row = withComputedAmounts({ 'Amount of estimate': '45', 'Estimate Amount ECV': '' })
+    const row = withComputedAmounts({ 'Amount of estimate': '45', 'ECV': '50' })
     expect(row['Contract Amount']).toBe('')
   })
 })
@@ -113,21 +124,21 @@ describe('applyEcvFromBoq', () => {
     id: 't1',
     name: 'Works database',
     path: '',
-    headers: ['Name of the work', 'Estimate Amount ECV', 'EMD 1%', 'EMD 1.5%'],
+    headers: ['Name of the work', 'ECV', 'EMD 1%', 'EMD 1.5%'],
     rows: [
-      { 'Name of the work': 'Road from A to B', 'Estimate Amount ECV': '', 'EMD 1%': '', 'EMD 1.5%': '' },
-      { 'Name of the work': 'Bridge over river', 'Estimate Amount ECV': '', 'EMD 1%': '', 'EMD 1.5%': '' }
+      { 'Name of the work': 'Road from A to B', 'ECV': '', 'EMD 1%': '', 'EMD 1.5%': '' },
+      { 'Name of the work': 'Bridge over river', 'ECV': '', 'EMD 1%': '', 'EMD 1.5%': '' }
     ]
   }
 
   it('matches the row by name (case/whitespace-insensitive) and fills ECV + EMD @ 1%/1.5%, in Lakhs', () => {
     const { table: out, matched } = applyEcvFromBoq(table, '  road   from a to b ', 2500000)
     expect(matched).toBe(true)
-    expect(out.rows[0]['Estimate Amount ECV']).toBe('25')
+    expect(out.rows[0]['ECV']).toBe('25')
     expect(out.rows[0]['EMD 1%']).toBe('0.25')
     expect(out.rows[0]['EMD 1.5%']).toBe('0.375')
     // The other row is untouched.
-    expect(out.rows[1]['Estimate Amount ECV']).toBe('')
+    expect(out.rows[1]['ECV']).toBe('')
   })
 
   it('returns matched: false, table unchanged, when no row name matches', () => {
@@ -146,7 +157,7 @@ describe('applyEcvFromBoq', () => {
     })
     expect(result.matched).toBe(true)
     expect(result.matchedViaAi).toBe(true)
-    expect(result.table.rows[0]['Estimate Amount ECV']).toBe('25')
+    expect(result.table.rows[0]['ECV']).toBe('25')
   })
 
   it('does not use an embedding match below the threshold', () => {

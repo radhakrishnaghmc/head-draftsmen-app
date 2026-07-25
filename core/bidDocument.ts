@@ -12,7 +12,7 @@ export interface BidDocumentWorkItem {
   name: string
   /** Estimate amount as entered on the Works List, in Lakhs (e.g. "45" = Rs 45,00,000). */
   amount: string
-  /** Estimate Amount ECV, in Lakhs — EMD @ 1% is computed from this when present, otherwise from `amount`. */
+  /** ECV, in Lakhs — EMD @ 1% is computed from this. Left blank (never computed from `amount`) when ECV isn't available yet. */
   ecv?: string
   zone?: string
   circle?: string
@@ -61,9 +61,10 @@ function fillPlaceholders(buffer: Buffer, swaps: Array<[string, string]>): Buffe
  * Fill the bundled Bid Document template for a single work: the NIT-level
  * fields (NIT No., Dated, download window) plus that work's own Name,
  * Estimate Amount, ECV, Zone, Circle, Completion Period and EMD @ 1%
- * (computed from the Estimate Amount ECV when the Works List row has one,
- * per the app's Lakhs-to-rupees/Indian-numbering money rules — see
- * core/worksAmounts.ts).
+ * (computed from the Works List row's ECV, per the app's Lakhs-to-rupees/
+ * Indian-numbering money rules — see core/worksAmounts.ts). ECV and EMD @ 1%
+ * are left blank — never computed from the estimate instead — when the
+ * work's ECV isn't available yet, since the two are distinct figures.
  *
  * The template's cover page has no "Rs:" label of its own before
  * {{Estimate Amount}}, so that occurrence gets the full "Rs 1,00,000/-".
@@ -73,15 +74,15 @@ function fillPlaceholders(buffer: Buffer, swaps: Array<[string, string]>): Buffe
  */
 export function fillBidDocument(buffer: Buffer, input: BidDocumentInput): Buffer {
   const estimateRupees = lakhsToRupees(input.work.amount)
-  const ecvRupees = input.work.ecv?.trim() ? lakhsToRupees(input.work.ecv) : estimateRupees
-  const emdRupees = Math.round(ecvRupees * 0.01)
+  const ecvRupees = input.work.ecv?.trim() ? lakhsToRupees(input.work.ecv) : null
+  const emdRupees = ecvRupees !== null ? Math.round(ecvRupees * 0.01) : null
 
   const swaps: Array<[string, string]> = [
     ['{{Name of the work}}', input.work.name],
     ['{{Estimate Amount}}', formatRupees(estimateRupees)],
-    ['{{ECV}}', `${indianDigitGroups(ecvRupees)}/-`],
+    ['{{ECV}}', ecvRupees !== null ? `${indianDigitGroups(ecvRupees)}/-` : ''],
     ['{{Completion period}}', input.work.completionPeriod ?? ''],
-    ['{{EMD 1%}}', `${indianDigitGroups(emdRupees)}/-`],
+    ['{{EMD 1%}}', emdRupees !== null ? `${indianDigitGroups(emdRupees)}/-` : ''],
     ['{{ Download Start Date}}', `${input.downloadStartDate} at 2:00 P.M`],
     ['{{ Download End Date}}', `${input.downloadEndDate} at 2:00 P.M`],
     ['{{ Price Bid Opening}}', `${input.downloadEndDate} at 2:30 P.M`],

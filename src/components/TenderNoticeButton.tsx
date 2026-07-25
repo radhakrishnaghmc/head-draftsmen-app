@@ -55,7 +55,7 @@ export default function TenderNoticeButton({ tables, onGenerated, onBidBatch }: 
   const zoneHeader = worksTable ? findHeader(worksTable.headers, 'Zone') : undefined
   const circleHeader = worksTable ? findHeader(worksTable.headers, 'Circle') : undefined
   const completionHeader = worksTable ? findHeader(worksTable.headers, 'Completion Period') : undefined
-  const ecvHeader = worksTable ? findHeader(worksTable.headers, 'Estimate Amount ECV') : undefined
+  const ecvHeader = worksTable ? findHeader(worksTable.headers, 'ECV') : undefined
 
   const winCodes = useMemo(() => {
     if (!worksTable || !winCodeHeader) return []
