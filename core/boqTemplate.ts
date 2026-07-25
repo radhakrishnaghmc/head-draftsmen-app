@@ -1,6 +1,7 @@
 import * as ExcelJS from 'exceljs'
 import type { ExcelTable } from './types'
 import { BOQ_HEADERS } from './boqHeaders'
+import { stripDataValidations, trimToContent } from './templateWorkbook'
 
 // Fixed column layout of the bundled BOQ template.
 const QTY_COL = 1
@@ -109,6 +110,7 @@ export async function fillBoqTemplate(
   await workbook.xlsx.load(templateBuffer as unknown as ArrayBuffer)
   const ws = workbook.worksheets[0]
   if (!ws) throw new Error('BOQ template has no sheet.')
+  stripDataValidations(ws)
 
   let headerRow = -1
   for (let r = 1; r <= Math.min(ws.rowCount, 10); r++) {
@@ -163,12 +165,14 @@ export async function fillBoqTemplate(
   // The estimate's own work name, extracted from its title block — written
   // two rows below the total (one blank row as a gap) as a plain reference,
   // not part of the item table itself.
+  let lastContentRow = totalRow
   if (workName?.trim()) {
-    const nameRow = totalRow + 2
-    const cell = ws.getCell(nameRow, DESC_COL)
+    lastContentRow = totalRow + 2
+    const cell = ws.getCell(lastContentRow, DESC_COL)
     cell.value = `Name of Work: ${workName.trim()}`
     cell.style = { ...cell.style, font: { ...cell.style.font, name: 'Verdana', size: 12, bold: true } }
   }
+  trimToContent(ws, lastContentRow, AMOUNT_COL)
 
   const out = await workbook.xlsx.writeBuffer()
   return Buffer.from(out)

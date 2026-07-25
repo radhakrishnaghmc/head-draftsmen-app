@@ -257,6 +257,53 @@ describe('extractEstimateItems', () => {
     expect(items).toMatchObject([{ description: 'Earth work excavation', quantity: '10', rate: '100', unit: 'Cum' }])
     expect(estimateColumnsMatchedViaEmbedding(grid, 0, embeddings)).toEqual(['Quantity'])
   })
+
+  it('finds the real unit column when a "Per" multiplier column (always "1") sits before it and its own header is blank', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    // Real department template shape: Rate | Per (bare "1") | <blank header, real unit text> | Amount.
+    const header = ['S.No', 'Description', 'Qty', 'Rate', 'Per', '', 'Amount']
+    const grid = [header, ['1', 'Earth work excavation', '285.20', '308.31', '1', 'Cum', '87930']]
+    const items = extractEstimateItems(grid, 0)
+    expect(items).toMatchObject([{ description: 'Earth work excavation', quantity: '285.20', rate: '308.31', unit: 'Cum' }])
+  })
+
+  it('keeps "Per" as the unit column when it is not overwhelmingly numeric (no multiplier-column quirk present)', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    const header = ['S.No', 'Description', 'Qty', 'Rate', 'Per']
+    const grid = [header, ['1', 'Earth work excavation', '285.20', '308.31', 'Cum']]
+    const items = extractEstimateItems(grid, 0)
+    expect(items).toMatchObject([{ unit: 'Cum' }])
+  })
+
+  it('reads No\'s/L/B/D from their own dimension row, not just Qty/Rate/Unit', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    const header = ['S.No', 'Description', "No's", 'L', 'B', 'D', 'Qty', 'Rate', 'Unit']
+    const grid = [
+      header,
+      ['1', 'Providing wet mix macadam', '', '', '', '', '', '', ''],
+      ['', '', '5', '10', '2', '0.3', '', '', ''],
+      ['', '', '', '', '', '', '30.00', '2000.00', 'Cum']
+    ]
+    const items = extractEstimateItems(grid, 0)
+    expect(items).toMatchObject([
+      { description: 'Providing wet mix macadam', quantity: '30.00', rate: '2000.00', unit: 'Cum', nos: '5', l: '10', b: '2', d: '0.3' }
+    ])
+  })
+
+  it('keeps each depth-range variant\'s own dimensions separate, not bled from an earlier variant', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    const header = ['S.No', 'Description', "No's", 'L', 'B', 'D', 'Qty', 'Rate', 'Unit']
+    const grid = [
+      header,
+      ['2', 'Drilling of tube wells', '', '', '', '', '', '', ''],
+      ['', '0 to 30 mtrs', '1', '30', '', '', '90.00', '298.00', 'Rmt'],
+      ['', '30 to 60 mtrs', '1', '30', '', '', '90.00', '373.00', 'Rmt']
+    ]
+    const items = extractEstimateItems(grid, 0)
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({ nos: '1', l: '30' })
+    expect(items[1]).toMatchObject({ nos: '1', l: '30' })
+  })
 })
 
 describe('extractEstimateItemsFromLines', () => {
@@ -363,6 +410,162 @@ describe('extractEstimateItemsFromLines', () => {
       { quantity: '500.00', rate: '250.75', unit: 'Rmt' },
       { quantity: '200.00', rate: '450.18', unit: 'Nos' }
     ])
+  })
+
+  it('captures a No\'s/L/B/D dimension line sitting between the description and the summary line', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    const lines = [
+      'Qty Rate Per Amount',
+      'Cutting open CC road surface for pipe line trench work',
+      '5.00 2.50 1.20 0.75',
+      '99.00 2345.00 Cum 232155.00'
+    ]
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toMatchObject([
+      { quantity: '99.00', rate: '2345.00', unit: 'Cum', nos: '5.00', l: '2.50', b: '1.20', d: '0.75' }
+    ])
+  })
+
+  it('treats a 3-number dimension line as L/B/D with an implicit single count', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    const lines = ['Qty Rate Per Amount', 'Plain Cement concrete', '10.00 2.00 0.30', '6.00 6587.04 Cum 43424.00']
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toMatchObject([{ l: '10.00', b: '2.00', d: '0.30' }])
+    expect(items[0].nos).toBeUndefined()
+  })
+
+  it('does not mistake a dimension line for a description, and does not carry stale dims into the next item', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    const lines = [
+      'Qty Rate Per Amount',
+      'Item one with dimensions',
+      '2.00 3.00 4.00 5.00',
+      '99.00 100.00 Cum 9900.00',
+      'Item two with no dimensions shown',
+      '50.00 200.00 Cum 10000.00'
+    ]
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toHaveLength(2)
+    expect(items[0].description).toBe('Item one with dimensions')
+    expect(items[0]).toMatchObject({ nos: '2.00', l: '3.00', b: '4.00', d: '5.00' })
+    expect(items[1].nos).toBeUndefined()
+    expect(items[1].l).toBeUndefined()
+    expect(items[1].b).toBeUndefined()
+    expect(items[1].d).toBeUndefined()
+  })
+
+  it('reconstructs No\'s/L/B/D glued together with no delimiter, alongside real words on the same line, by checking candidate splits against the already-known Qty', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    // Shaped after a real line-detecting OCR engine's output on a photographed
+    // estimate: the printed dimension row ("1  550.00  0.90  0.20") comes back
+    // glued into one blob with no spaces at all, mixed in with a label phrase
+    // and further glued noise (a repeated Qty and an Amount figure) that must
+    // NOT be mistaken for real dimension data.
+    const lines = [
+      'Qty Rate Per Amount',
+      'Cutting open road surface for pipe line trench work as directed by the departmental officers.',
+      'for UGD line X 1550.000.900.20 99.0026642 2616300',
+      '99.00 2345.00 1Cum 232155.00'
+    ]
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toMatchObject([
+      { quantity: '99.00', rate: '2345.00', unit: 'Cum', nos: '1', l: '550.00', b: '0.90', d: '0.20' }
+    ])
+  })
+
+  it('leaves No\'s/L/B/D blank when no candidate split\'s product matches Qty, rather than guessing', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    // A pipe-length item: "550.00" appears twice (matching Qty exactly on its
+    // own), but a single matching number is exactly the case that must be
+    // rejected — with only one piece there's no way to tell it apart from Qty
+    // simply being printed again on the same line.
+    const lines = [
+      'Qty Rate Per Amount',
+      'MANUFACTURE, SUPPLY AND DELIVERY OF 600mm DIA R.C.C pipes',
+      '600 mm dia RCC NP3 Pipes 550.00 550.00',
+      '550.00 3712.24 Rmt 2041732.00'
+    ]
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toHaveLength(1)
+    expect(items[0].nos).toBeUndefined()
+    expect(items[0].l).toBeUndefined()
+  })
+
+  it('does not reconstruct dimensions across a Qty-changing deduction line — leaves it blank rather than match against the gross, pre-deduction figure', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    // The dimension line's own arithmetic (550.00 x 0.90 x 1.50 = 742.50) is
+    // real, but a "Deduct Rock Qty" line nets it down to the final Qty
+    // (519.75) printed on the summary line — the reconstruction must not
+    // match against the pre-deduction 742.50, since that's not the item's
+    // actual final quantity.
+    const lines = [
+      'Qty Rate Per Amount',
+      'Earthwork excavation in all kinds of soil for Pipeline trenches',
+      'for UGD line X 550.00 0.901.50 742.50',
+      'Deduct Rock Qty 222.75 -222.75',
+      '519.75 475.59 Cum 247188.00'
+    ]
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ quantity: '519.75', rate: '475.59' })
+    expect(items[0].l).toBeUndefined()
+  })
+
+  it('recognizes the header even when Qty and Rate land on two separate OCR lines instead of one', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    // A tall/wrapped header row can get split across two detected lines —
+    // e.g. "SI. Rate Per Amount" then "Description of work No's L B D Qty" —
+    // so neither line alone has both "qty" and "rate".
+    const lines = [
+      'CYBERABAD MUNICIPAL CORPORATION : QUTHBULLAPUR ZONE',
+      'SI. Rate Per Amount',
+      "Description of work No's L B D Qty",
+      'Earthwork excavation for road way in soil by mechanical means',
+      '180.00 73.08 Cum 13154.00'
+    ]
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toMatchObject([{ quantity: '180.00', rate: '73.08', unit: 'Cum' }])
+  })
+
+  it('reconstructs No\'s/L/B/D when only some of them are glued together and the rest are already clean, separate tokens on the same line', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    // "1100.006.00" is No's=1/L=100.00/B=6.00 glued into one blob; "0.30" (D)
+    // is already its own clean, separate token right after it.
+    const lines = [
+      'Qty Rate Per Amount',
+      'Earthwork excavation for road way in soil by mechanical means',
+      '1100.006.00 0.30 180.00',
+      '180.00 73.08 Cum 13154.00'
+    ]
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toMatchObject([
+      { quantity: '180.00', rate: '73.08', unit: 'Cum', nos: '1', l: '100.00', b: '6.00', d: '0.30' }
+    ])
+  })
+
+  it('accepts a 3-decimal dimension value (e.g. a 0.075m slab thickness) on its own clean token, not just the usual 2-decimal convention', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    const lines = [
+      'Qty Rate Per Amount',
+      'Supply and placing of the Ready Mix Concrete M10 grade',
+      '100.005.50 0.075 41.25',
+      '41.25 4445.90 Cum 183393.00'
+    ]
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toMatchObject([{ quantity: '41.25', rate: '4445.90', l: '100.00', b: '5.50', d: '0.075' }])
+  })
+
+  it('reconstructs a 2-value L x B dimension (no depth) for an area-only item, without forcing a spurious D', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    const lines = [
+      'Qty Rate Per Amount',
+      'Supply and providing of Seperation membrane including cost and conveyance',
+      '100.005.50 550.00',
+      '550.00 14.00 Cum 7700.00'
+    ]
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toMatchObject([{ quantity: '550.00', l: '100.00', b: '5.50' }])
+    expect(items[0].d).toBeUndefined()
   })
 })
 

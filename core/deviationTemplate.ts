@@ -1,4 +1,5 @@
 import * as ExcelJS from 'exceljs'
+import { stripDataValidations, trimToContent } from './templateWorkbook'
 
 // Fixed layout of the bundled Deviation Statement template
 // (resources/deviation-template.xlsx) — a real, human-authored government
@@ -169,6 +170,7 @@ export async function fillDeviationTemplate(
   await workbook.xlsx.load(templateBuffer as unknown as ArrayBuffer)
   const ws = workbook.worksheets[0]
   if (!ws) throw new Error('Deviation template has no sheet.')
+  stripDataValidations(ws)
 
   // Header meta.
   if (meta.circle) ws.getCell(CIRCLE_ROW, 1).value = meta.circle
@@ -252,6 +254,8 @@ export async function fillDeviationTemplate(
   ws.getCell(newSubTotalRow + GST_ESTIMATE_SIDE_OFFSET, GST_ESTIMATE_SIDE_COL).value = {
     formula: `ROUND(F${totalOfAdditionsRow}*18%,0)`
   }
+
+  trimToContent(ws, lastRow + delta, 14)
 
   const out = await workbook.xlsx.writeBuffer()
   return Buffer.from(out)

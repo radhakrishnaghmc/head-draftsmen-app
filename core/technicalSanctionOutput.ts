@@ -1,6 +1,7 @@
 import * as ExcelJS from 'exceljs'
 import PizZip from 'pizzip'
 import type { CellEdit } from './technicalSanction'
+import { stripDataValidations } from './templateWorkbook'
 
 const GREEN_ARGB = 'FF008000'
 const RED_ARGB = 'FFCC0000'
@@ -92,6 +93,7 @@ export async function applyTechnicalSanctionEdits(
   await workbook.xlsx.load(cleanedBuffer as unknown as ArrayBuffer)
   const ws = workbook.getWorksheet(sheetName) ?? workbook.worksheets[0]
   if (!ws) throw new Error('Could not find a worksheet to edit in the estimate file.')
+  stripDataValidations(ws)
 
   for (const edit of edits) {
     // ExcelJS rows/columns are 1-indexed; our grid positions are 0-indexed.

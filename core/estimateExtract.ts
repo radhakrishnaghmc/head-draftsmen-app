@@ -6,6 +6,11 @@ export interface EstimateWorkItem {
   quantity: string
   rate: string
   unit: string
+  /** Dimension breakdown (No's/L/B/D) that produced `quantity`, when the source estimate shows it — undefined when it doesn't (e.g. a hand-abstracted estimate with only the final Qty). */
+  nos?: string
+  l?: string
+  b?: string
+  d?: string
   /** 0-based grid position of the description cell, for writing back to the original file. */
   descRow?: number
   descCol?: number
@@ -105,6 +110,32 @@ export interface ResolvedEstimateColumns {
   qtyCol: number
   rateCol: number
   unitCol: number
+  /** Dimension breakdown columns — best-effort, undefined when the sheet doesn't show them (e.g. only a final Qty). */
+  nosCol?: number
+  lCol?: number
+  bCol?: number
+  dCol?: number
+}
+
+const NOS_HEADER_RE = /^no'?s\.?$/i
+const L_HEADER_RE = /^l\.?$/i
+const B_HEADER_RE = /^b\.?$/i
+const D_HEADER_RE = /^d\.?$/i
+
+/**
+ * Best-effort resolution of the No's/L/B/D dimension columns from the header
+ * row's own text — separate from resolveColumns/ESTIMATE_COLUMN_SPECS since
+ * these are optional (many estimates only ever show the final Qty, not the
+ * breakdown that produced it), so a missing one shouldn't fail the whole
+ * extraction the way a missing Qty/Rate/Unit column does.
+ */
+export function resolveDimensionColumns(header: string[]): Pick<ResolvedEstimateColumns, 'nosCol' | 'lCol' | 'bCol' | 'dCol'> {
+  const normalized = header.map(norm)
+  const find = (re: RegExp): number | undefined => {
+    const idx = normalized.findIndex((h) => re.test(h))
+    return idx === -1 ? undefined : idx
+  }
+  return { nosCol: find(NOS_HEADER_RE), lCol: find(L_HEADER_RE), bCol: find(B_HEADER_RE), dCol: find(D_HEADER_RE) }
 }
 
 /**
@@ -127,17 +158,29 @@ export interface ResolvedEstimateColumns {
 function extractEstimateItemsFromColumns(
   grid: string[][],
   headerRowIndex: number,
-  { snoCol, descCol, qtyCol, rateCol, unitCol }: ResolvedEstimateColumns
+  { snoCol, descCol, qtyCol, rateCol, unitCol, nosCol, lCol, bCol, dCol }: ResolvedEstimateColumns
 ): EstimateWorkItem[] {
   const items: EstimateWorkItem[] = []
   let block: { row: string[]; gridRow: number }[] = []
+
+  // A row's own No's/L/B/D cells if it has any, else undefined — used to find
+  // the dimension row that precedes a variant's own measurement row.
+  function readDims(row: string[]): Pick<EstimateWorkItem, 'nos' | 'l' | 'b' | 'd'> | undefined {
+    const nos = nosCol !== undefined ? norm(row[nosCol]) : ''
+    const l = lCol !== undefined ? norm(row[lCol]) : ''
+    const b = bCol !== undefined ? norm(row[bCol]) : ''
+    const d = dCol !== undefined ? norm(row[dCol]) : ''
+    if (!nos && !l && !b && !d) return undefined
+    return { nos: nos || undefined, l: l || undefined, b: b || undefined, d: d || undefined }
+  }
 
   function resolveBlock() {
     if (block.length === 0) return
     const leadRow = block[0]
     const description = norm(leadRow.row[descCol])
-    const measureRows = block.filter(({ row }) => {
-      return norm(row[rateCol]) !== '' && norm(row[unitCol]) !== '' && norm(row[qtyCol]) !== ''
+    const measureIndices: number[] = []
+    block.forEach(({ row }, idx) => {
+      if (norm(row[rateCol]) !== '' && norm(row[unitCol]) !== '' && norm(row[qtyCol]) !== '') measureIndices.push(idx)
     })
     // A block with more than one measurement row is a single item broken
     // into several depth/size variants — e.g. "Drilling of tube wells…"
@@ -145,19 +188,30 @@ function extractEstimateItemsFromColumns(
     // each with its own Qty/Rate but sharing the lead row's description.
     // Emit one BOQ item per variant (tagging each with its own row label)
     // instead of collapsing them all into just the last measurement row.
-    const multipleVariants = measureRows.length > 1
-    for (const { row, gridRow } of measureRows) {
+    const multipleVariants = measureIndices.length > 1
+    measureIndices.forEach((idx, pos) => {
+      const { row, gridRow } = block[idx]
       const rate = norm(row[rateCol])
       const unit = norm(row[unitCol])
       const quantity = norm(row[qtyCol])
       const label = norm(row[descCol])
       const itemDescription = multipleVariants && label && label !== description ? `${description}( ${label})` : description
+      // Dimension data (if any) sits on this variant's own row, or on a row
+      // between it and the previous variant's own measurement row — never
+      // reaching back into an earlier variant's dimensions.
+      const lowerBound = pos > 0 ? measureIndices[pos - 1] + 1 : 1
+      let dims: Pick<EstimateWorkItem, 'nos' | 'l' | 'b' | 'd'> | undefined
+      for (let k = idx; k >= lowerBound; k--) {
+        dims = readDims(block[k].row)
+        if (dims) break
+      }
       if (itemDescription && quantity) {
         items.push({
           description: itemDescription,
           quantity,
           rate,
           unit,
+          ...dims,
           // A variant's own row carries its short label in descCol — that's
           // what gets colored, since the shared lead row can't be uniquely
           // colored per variant. A non-variant item's description instead
@@ -169,7 +223,7 @@ function extractEstimateItemsFromColumns(
           isVariant: multipleVariants
         })
       }
-    }
+    })
     block = []
   }
 
@@ -187,6 +241,39 @@ function extractEstimateItemsFromColumns(
   resolveBlock()
 
   return items
+}
+
+function looksNumeric(s: string): boolean {
+  const t = s.trim().replace(/,/g, '')
+  return t !== '' && Number.isFinite(Number(t))
+}
+
+/**
+ * Some departmental templates squeeze a "Per" multiplier column ("Rate ...
+ * Per 1 ... Cum" — almost always just the bare number 1) directly before the
+ * real unit-text column, and leave that real unit column's own header cell
+ * blank — so `/unit|^per$/i` (ESTIMATE_COLUMN_SPECS) claims the "Per" column
+ * as "Unit" and every item ends up with "1" as its unit instead of "Cum"/
+ * "Sqm"/etc.
+ *
+ * Detected after the fact, from the data rows themselves rather than the
+ * header: if the resolved Unit column is overwhelmingly bare numbers across
+ * the item rows while the very next column instead holds recognized unit
+ * tokens, that next column is almost certainly the real one.
+ */
+function fixUnitColumnIfNumeric(grid: string[][], headerRowIndex: number, unitCol: number): number {
+  const candidate = unitCol + 1
+  let numeric = 0
+  let unitLike = 0
+  let sampled = 0
+  for (let r = headerRowIndex + 1; r < grid.length && sampled < 30; r++) {
+    const cell = norm(grid[r]?.[unitCol])
+    if (!cell) continue
+    sampled++
+    if (looksNumeric(cell)) numeric++
+    if (UNIT_RE.test(norm(grid[r]?.[candidate] ?? ''))) unitLike++
+  }
+  return sampled > 0 && numeric / sampled > 0.6 && unitLike > 0 ? candidate : unitCol
 }
 
 /**
@@ -214,13 +301,15 @@ export function extractEstimateItems(
   } catch {
     throw new Error('Could not find S.No / Qty / Rate / Unit columns in the estimate.')
   }
+  unitCol = fixUnitColumnIfNumeric(grid, headerRowIndex, unitCol)
   // Description isn't reliably labelled (and is often a merged cell with no
   // header of its own) — it's always the cell right after the serial number.
   const descCol = snoCol + 1
   if (descCol >= header.length) {
     throw new Error('Could not find a description column next to the S.No column in the estimate.')
   }
-  return extractEstimateItemsFromColumns(grid, headerRowIndex, { snoCol, descCol, qtyCol, rateCol, unitCol })
+  const dims = resolveDimensionColumns(header)
+  return extractEstimateItemsFromColumns(grid, headerRowIndex, { snoCol, descCol, qtyCol, rateCol, unitCol, ...dims })
 }
 
 /**
@@ -251,6 +340,174 @@ const UNIT_TOKENS = ['Cum', 'Sqm', 'Rmt', 'Nos', 'Kg', 'MT', 'Ltr', 'Mtr', 'Sft'
 // word-boundary check between the digit and the letter.
 const UNIT_RE = new RegExp(`(${UNIT_TOKENS.join('|')})\\b`, 'i')
 const NUMBER_RE = /\d[\d,]*\.\d{2}/g
+const NUMBER_TOKEN_RE = /^\d[\d,]*\.\d{2}$/
+
+/**
+ * A "No's / L / B / D" dimension line has no unit token and no other text —
+ * just 2 to 4 decimal numbers, printed in that column order. Distinguished
+ * from a description line (which has actual words, so never matches purely
+ * numeric tokens) and from a summary line (which always carries a unit
+ * token). 4 numbers is the unambiguous No's+L+B+D case; 3 is L+B+D with an
+ * implicit single count; 2 is treated as L+B (e.g. an area item), the most
+ * common two-number case.
+ */
+function parseDimensionLine(text: string): Pick<EstimateWorkItem, 'nos' | 'l' | 'b' | 'd'> | undefined {
+  const tokens = text.split(/\s+/)
+  if (tokens.length < 2 || tokens.length > 4 || !tokens.every((t) => NUMBER_TOKEN_RE.test(t))) return undefined
+  if (tokens.length === 4) {
+    const [nos, l, b, d] = tokens
+    return { nos, l, b, d }
+  }
+  if (tokens.length === 3) {
+    const [l, b, d] = tokens
+    return { l, b, d }
+  }
+  const [l, b] = tokens
+  return { l, b }
+}
+
+// The final Qty print is trusted (rounding to 2 decimals from a real
+// multiplication) — a reconstructed No's×L×B×D product is accepted only
+// within floating-point/rounding noise of it, not a loose approximation. A
+// genuine OCR misread of a dimension digit throws the product off by far
+// more than this, so it correctly fails closed rather than accepting a
+// wrong number.
+const DIMENSION_PRODUCT_TOLERANCE = 0.02
+
+/**
+ * Split a run of digits-and-dots with no delimiters (e.g. "1550.000.900.20")
+ * into consecutive `digits.digits` tokens. With a single dot there's only
+ * one number here at all — whatever follows the dot is its decimal part,
+ * however many digits (a thickness like "0.075" is common and shouldn't be
+ * rejected just for having 3). With 2+ dots there's real ambiguity about
+ * where one token's decimals end and the next's integer part begins, so
+ * each dot is deterministically treated as *some* token's own decimal
+ * point with exactly the next 2 digits as its decimal part (the department's
+ * usual convention) and whatever sits between that and the next dot as the
+ * following token's integer part. Returns undefined if the string doesn't
+ * fully consume this way — i.e. it isn't actually shaped like a
+ * concatenation of `\d+\.\d\d` tokens (or, for a single dot, `\d+\.\d+`) at
+ * all.
+ */
+function splitGluedDecimalTokens(s: string): string[] | undefined {
+  const dots: number[] = []
+  for (let i = 0; i < s.length; i++) if (s[i] === '.') dots.push(i)
+  if (dots.length === 0) return undefined
+  if (dots.length === 1) {
+    const intPart = s.slice(0, dots[0])
+    const decPart = s.slice(dots[0] + 1)
+    return /^\d+$/.test(intPart) && /^\d+$/.test(decPart) ? [`${intPart}.${decPart}`] : undefined
+  }
+  const tokens: string[] = []
+  let pos = 0
+  for (const dot of dots) {
+    const intPart = s.slice(pos, dot)
+    const decPart = s.slice(dot + 1, dot + 3)
+    if (!/^\d+$/.test(intPart) || !/^\d{2}$/.test(decPart)) return undefined
+    tokens.push(`${intPart}.${decPart}`)
+    pos = dot + 3
+  }
+  return pos === s.length ? tokens : undefined
+}
+
+function mapPiecesToDims(pieces: string[], hasNos: boolean): Pick<EstimateWorkItem, 'nos' | 'l' | 'b' | 'd'> | undefined {
+  if (hasNos) {
+    if (pieces.length === 4) return { nos: pieces[0], l: pieces[1], b: pieces[2], d: pieces[3] }
+    if (pieces.length === 3) return { nos: pieces[0], l: pieces[1], b: pieces[2] }
+    if (pieces.length === 2) return { nos: pieces[0], l: pieces[1] }
+  } else {
+    if (pieces.length === 4) return { nos: pieces[0], l: pieces[1], b: pieces[2], d: pieces[3] }
+    if (pieces.length === 3) return { l: pieces[0], b: pieces[1], d: pieces[2] }
+    if (pieces.length === 2) return { l: pieces[0], b: pieces[1] }
+  }
+  return undefined
+}
+
+const MAX_DIMENSION_PIECES = 4
+
+/**
+ * Try to recover No's/L/B/D starting from `runs[startIdx]` (already isolated
+ * from surrounding words — see factorGluedDimensions), against the item's
+ * own already-trusted Qty. Handles two distinct ways OCR has been observed
+ * to glue this row's numbers together:
+ *
+ * - all of them fused into runs[startIdx] itself with no delimiter at all
+ *   (e.g. "1550.000.900.20" for No's=1/L=550.00/B=0.90/D=0.20) — recovered
+ *   by peeling 0-3 leading digits off the front as a bare-integer No's and
+ *   deterministically splitting the remainder into decimal tokens
+ *   (splitGluedDecimalTokens);
+ * - only some of them fused, with the rest already clean, separate tokens
+ *   later on the same line (e.g. "1100.006.00 0.30" for No's=1/L=100.00/
+ *   B=6.00 glued, then D=0.30 on its own) — recovered by extending the
+ *   piece list forward into subsequent runs' own (unpeeled) tokens.
+ *
+ * Tries every peel first, then — per peel — every resulting piece count
+ * from longest (4) down to 2, always anchored at the start of the sequence
+ * (real No's/L/B/D always leads; anything after is Qty/Amount noise), and
+ * accepts the first whose product matches Qty. A lone single-piece result
+ * is never accepted even if it numerically equals Qty: with only one piece
+ * there's no way to tell genuine dimension data apart from Qty/Amount just
+ * being printed again on the same line, so accepting it would risk
+ * reporting a coincidence as fact.
+ */
+function tryFactorFrom(runs: string[], startIdx: number, targetQty: number): Pick<EstimateWorkItem, 'nos' | 'l' | 'b' | 'd'> | undefined {
+  const run = runs[startIdx]
+  for (let peel = 0; peel <= 3 && peel < run.length; peel++) {
+    const nos = peel > 0 ? run.slice(0, peel) : undefined
+    const ownTokens = splitGluedDecimalTokens(run.slice(peel))
+    if (!ownTokens) continue
+
+    const pieces = [...(nos ? [nos] : []), ...ownTokens]
+    for (let j = startIdx + 1; j < runs.length && pieces.length < MAX_DIMENSION_PIECES; j++) {
+      const extra = splitGluedDecimalTokens(runs[j])
+      if (!extra) break // a later run that isn't itself clean decimal tokens ends the dimension sequence
+      pieces.push(...extra)
+    }
+
+    for (let len = Math.min(MAX_DIMENSION_PIECES, pieces.length); len >= 2; len--) {
+      const window = pieces.slice(0, len)
+      const product = window.reduce((p, t) => p * Number(t), 1)
+      if (Math.abs(product - targetQty) > DIMENSION_PRODUCT_TOLERANCE) continue
+      const dims = mapPiecesToDims(window, Boolean(nos))
+      if (dims) return dims
+    }
+  }
+  return undefined
+}
+
+/**
+ * Recover No's/L/B/D from a line where OCR glued the dimension numbers
+ * together with no delimiter, possibly alongside real description words on
+ * the same line (e.g. "for UGD line X 1550.000.900.20 99.0026642 2616300") —
+ * the shape a line-detecting OCR engine (see electron/ocr.ts) actually
+ * produces for this row when the printed columns sit close together,
+ * unlike the clean, evenly-spaced case parseDimensionLine already handles.
+ * Isolates each maximal digit-and-dot run in the line and tries factoring
+ * starting from each one in turn (tryFactorFrom) against the item's own
+ * already-trusted Qty, taking the first that resolves unambiguously.
+ * Returns undefined (leave the dimension row blank) rather than ever guess —
+ * better than silently printing a wrong figure onto an official estimate.
+ */
+function factorGluedDimensions(text: string, targetQty: number): Pick<EstimateWorkItem, 'nos' | 'l' | 'b' | 'd'> | undefined {
+  const runs = text.match(/[0-9.]+/g) ?? []
+  for (let i = 0; i < runs.length; i++) {
+    const found = tryFactorFrom(runs, i, targetQty)
+    if (found) return found
+  }
+  return undefined
+}
+
+/** Tries factorGluedDimensions against each of an item's accumulated description lines in order, taking the first that resolves. */
+function findGluedDimensions(
+  descriptionLines: string[],
+  targetQty: number
+): Pick<EstimateWorkItem, 'nos' | 'l' | 'b' | 'd'> | undefined {
+  for (const line of descriptionLines) {
+    const found = factorGluedDimensions(line, targetQty)
+    if (found) return found
+  }
+  return undefined
+}
 
 /**
  * Parse a "detailed abstract estimate" directly from OCR'd *line* text (one
@@ -271,19 +528,35 @@ const NUMBER_RE = /\d[\d,]*\.\d{2}/g
  * that item's description; a summary line closes the block and starts the
  * next one. Lines before the printed "Qty ... Rate ..." header (the title
  * block, corporation letterhead, "Name of Work" line) are skipped so they
- * never leak into the first item's description.
+ * never leak into the first item's description. "Qty" and "Rate" don't
+ * always land on the same detected line — a tall/wrapped header row can get
+ * split across two OCR lines (e.g. "SI. Rate Per Amount" then "Description
+ * of work No's L B D Qty") — so each is tracked independently and the
+ * header counts as done once both have been seen, not only when one line
+ * contains both.
  */
 export function extractEstimateItemsFromLines(lines: string[]): EstimateWorkItem[] {
   const items: EstimateWorkItem[] = []
   let description: string[] = []
+  let pendingDims: Pick<EstimateWorkItem, 'nos' | 'l' | 'b' | 'd'> | undefined
   let pastHeader = false
+  let sawQty = false
+  let sawRate = false
 
   for (const raw of lines) {
     const text = norm(raw)
     if (!text) continue
 
     if (!pastHeader) {
-      if (/\bqty\b/i.test(text) && /\brate\b/i.test(text)) pastHeader = true
+      if (/\bqty\b/i.test(text)) sawQty = true
+      if (/\brate\b/i.test(text)) sawRate = true
+      if (sawQty && sawRate) pastHeader = true
+      continue
+    }
+
+    const dims = parseDimensionLine(text)
+    if (dims) {
+      pendingDims = dims
       continue
     }
 
@@ -291,8 +564,15 @@ export function extractEstimateItemsFromLines(lines: string[]): EstimateWorkItem
     const numbers = text.match(NUMBER_RE) ?? []
     if (unitMatch && numbers.length >= 3 && description.join(' ').trim()) {
       const [quantity, rate] = numbers.slice(-3)
-      items.push({ description: description.join(' ').trim(), quantity, rate, unit: unitMatch[1] })
+      // The clean, cleanly-spaced dimension line (parseDimensionLine, above)
+      // takes priority when present; otherwise fall back to reconstructing
+      // No's/L/B/D out of whichever accumulated line has them glued into a
+      // noisy, word-mixed blob, now that Qty (the reconstruction's own
+      // check) is finally known.
+      const dims = pendingDims ?? findGluedDimensions(description, Number(quantity))
+      items.push({ description: description.join(' ').trim(), quantity, rate, unit: unitMatch[1], ...dims })
       description = []
+      pendingDims = undefined
       continue
     }
 

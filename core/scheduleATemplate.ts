@@ -1,6 +1,7 @@
 import * as ExcelJS from 'exceljs'
 import type { ScheduleAItem, ScheduleAMeta } from './scheduleA'
 import { indianDigitGroups } from './worksAmounts'
+import { stripDataValidations } from './templateWorkbook'
 
 // Fixed column layout of the bundled Schedule-A template's item table.
 const ITEM_NO_COL = 1
@@ -44,6 +45,7 @@ export async function fillScheduleATemplate(
   await workbook.xlsx.load(templateBuffer as unknown as ArrayBuffer)
   const ws = workbook.worksheets[0]
   if (!ws) throw new Error('Schedule A template has no sheet.')
+  stripDataValidations(ws)
 
   let headerRow = -1
   for (let r = 1; r <= Math.min(ws.rowCount, 40); r++) {
