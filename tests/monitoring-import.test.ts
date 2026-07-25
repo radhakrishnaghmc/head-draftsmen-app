@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { findCircleSheet, mergeMonitoringRows } from '../core/monitoringImport'
+import {
+  findCircleSheet,
+  mergeMonitoringRows,
+  splitAgencyNameAndPhones,
+  formatAgencyPhones,
+  splitCircleNumberAndName
+} from '../core/monitoringImport'
 import type { PlaceholderMatch } from '../core/createDocument'
 import type { ExcelTable } from '../core/types'
 import type { SheetGrid } from '../core/sheet'
@@ -30,6 +36,101 @@ describe('findCircleSheet', () => {
   it('returns null when nothing matches', () => {
     const sheets = [sheet('Alwal Circle-12')]
     expect(findCircleSheet(sheets, 'Gajularamaram Circle-57')).toBeNull()
+  })
+
+  it('prefers matching by circle number ("c57"/"C-58" style sheet names) when a circle number is given', () => {
+    const sheets = [sheet('c12'), sheet('C-57'), sheet('c 3')]
+    expect(findCircleSheet(sheets, 'Gajularamaram Circle-57', '57')?.sheetName).toBe('C-57')
+    expect(findCircleSheet(sheets, 'Alwal Circle-12', '12')?.sheetName).toBe('c12')
+  })
+
+  it('matches a sheet named with the bare circle number and nothing else', () => {
+    const sheets = [sheet('58'), sheet('12')]
+    expect(findCircleSheet(sheets, 'Nizampet Circle-58', '58')?.sheetName).toBe('58')
+  })
+
+  it('falls back to name-based matching when the circle number matches no sheet', () => {
+    const sheets = [sheet('Gajularamaram Circle-57')]
+    expect(findCircleSheet(sheets, 'Gajularamaram Circle-57', '99')?.sheetName).toBe('Gajularamaram Circle-57')
+  })
+
+  it('prefers the "list of works" sheet over a same-numbered "MF" summary sheet with no per-work rows', () => {
+    // Real shape of this app's own monitoring workbook: each circle number
+    // pairs an aggregated dashboard sheet ("MF") with the real per-work data
+    // ("list of works") — "MF" must never win, in either array order.
+    expect(findCircleSheet([sheet('C57 MF'), sheet('C57 list of works')], 'Gajularamaram', '57')?.sheetName).toBe(
+      'C57 list of works'
+    )
+    expect(findCircleSheet([sheet('C58 list of works'), sheet('C58 MF')], 'Nizampet', '58')?.sheetName).toBe(
+      'C58 list of works'
+    )
+  })
+})
+
+describe('splitCircleNumberAndName', () => {
+  it('splits "<digits>-<name>" into CNO and Circle', () => {
+    expect(splitCircleNumberAndName('58-Nizampet')).toEqual({ cno: '58', circle: 'Nizampet' })
+  })
+
+  it('handles spaces around the hyphen and a multi-word circle name', () => {
+    expect(splitCircleNumberAndName('57 - Gajularamaram Circle')).toEqual({
+      cno: '57',
+      circle: 'Gajularamaram Circle'
+    })
+  })
+
+  it('returns null for a value with no leading circle number', () => {
+    expect(splitCircleNumberAndName('Nizampet')).toBeNull()
+  })
+})
+
+describe('splitAgencyNameAndPhones', () => {
+  it('splits a single 10-digit phone number out of the agency name', () => {
+    const { name, phones } = splitAgencyNameAndPhones('Radha Krishna Contractors 9789879878')
+    expect(name).toBe('Radha Krishna Contractors')
+    expect(phones).toEqual(['9789879878'])
+  })
+
+  it('splits two phone numbers, keeping their order', () => {
+    const { name, phones } = splitAgencyNameAndPhones('Radha Krishna Contractors 9789879878 9848012345')
+    expect(name).toBe('Radha Krishna Contractors')
+    expect(phones).toEqual(['9789879878', '9848012345'])
+  })
+
+  it('strips hyphens/dots within a single phone token before counting digits', () => {
+    const { phones } = splitAgencyNameAndPhones('Radha Krishna Contractors 978-987-9878')
+    expect(phones).toEqual(['9789879878'])
+  })
+
+  it('leaves a name with no embedded phone number untouched', () => {
+    const { name, phones } = splitAgencyNameAndPhones('Radha Krishna Contractors')
+    expect(name).toBe('Radha Krishna Contractors')
+    expect(phones).toEqual([])
+  })
+
+  it('leaves a non-10-digit number (e.g. a registration number) in the name rather than misidentifying it', () => {
+    const { name, phones } = splitAgencyNameAndPhones('Radha Krishna Contractors REG12345')
+    expect(name).toBe('Radha Krishna Contractors REG12345')
+    expect(phones).toEqual([])
+  })
+
+  it('drops a trailing comma left over after removing a phone number', () => {
+    const { name } = splitAgencyNameAndPhones('Radha Krishna Contractors, 9789879878')
+    expect(name).toBe('Radha Krishna Contractors')
+  })
+})
+
+describe('formatAgencyPhones', () => {
+  it('returns the bare number for exactly one phone', () => {
+    expect(formatAgencyPhones(['9789879878'])).toBe('9789879878')
+  })
+
+  it('numbers each phone on its own line for more than one', () => {
+    expect(formatAgencyPhones(['9789879878', '9848012345'])).toBe('1. 9789879878\n2. 9848012345')
+  })
+
+  it('returns an empty string for no phones', () => {
+    expect(formatAgencyPhones([])).toBe('')
   })
 })
 
@@ -115,5 +216,65 @@ describe('mergeMonitoringRows', () => {
     expect(result.table.rows[0]['Amount of estimate']).toBe('4,00,000')
     expect(result.table.rows[1]['Amount of estimate']).toBe('1,00,000') // untouched
     expect(result.table.rows[2]['Wincode']).toBe('WC-3')
+  })
+
+  it('splits an embedded phone number out of the Name of the Agency column into Phone number of the agency', () => {
+    const agencyHeaders = [...headers, 'Name of the Agency', 'Phone number of the agency']
+    const agencyMapping: PlaceholderMatch[] = [...mapping, { label: 'Name of the Agency', column: 'Agency', score: 1 }]
+    const t = table(agencyHeaders, [
+      {
+        Wincode: 'WC-1',
+        'Name of the work': 'Road A',
+        'Amount of estimate': '',
+        'Contract Amount': '',
+        'Name of the Agency': '',
+        'Phone number of the agency': ''
+      }
+    ])
+    const monitoringRows = [{ 'Win Code': 'WC-1', 'Work Name': 'Road A', Agency: 'Radha Krishna Contractors 9789879878 9848012345' }]
+    const result = mergeMonitoringRows(t, monitoringRows, agencyMapping)
+
+    expect(result.table.rows[0]['Name of the Agency']).toBe('Radha Krishna Contractors')
+    expect(result.table.rows[0]['Phone number of the agency']).toBe('1. 9789879878\n2. 9848012345')
+  })
+
+  it('does not touch an already-filled Phone number of the agency even when the agency name has its own embedded number', () => {
+    const agencyHeaders = [...headers, 'Name of the Agency', 'Phone number of the agency']
+    const agencyMapping: PlaceholderMatch[] = [...mapping, { label: 'Name of the Agency', column: 'Agency', score: 1 }]
+    const t = table(agencyHeaders, [
+      {
+        Wincode: 'WC-1',
+        'Name of the work': 'Road A',
+        'Amount of estimate': '',
+        'Contract Amount': '',
+        'Name of the Agency': '',
+        'Phone number of the agency': '9000000000'
+      }
+    ])
+    const monitoringRows = [{ 'Win Code': 'WC-1', 'Work Name': 'Road A', Agency: 'Radha Krishna Contractors 9789879878' }]
+    const result = mergeMonitoringRows(t, monitoringRows, agencyMapping)
+
+    expect(result.table.rows[0]['Name of the Agency']).toBe('Radha Krishna Contractors')
+    expect(result.table.rows[0]['Phone number of the agency']).toBe('9000000000')
+  })
+
+  it('splits a combined "58-Nizampet" Circle column into CNO and Circle separately', () => {
+    const circleHeaders = [...headers, 'Circle', 'CNO']
+    const circleMapping: PlaceholderMatch[] = [...mapping, { label: 'Circle', column: 'Name of the Circle', score: 1 }]
+    const t = table(circleHeaders, [
+      {
+        Wincode: 'WC-1',
+        'Name of the work': 'Road A',
+        'Amount of estimate': '',
+        'Contract Amount': '',
+        Circle: '',
+        CNO: ''
+      }
+    ])
+    const monitoringRows = [{ 'Win Code': 'WC-1', 'Work Name': 'Road A', 'Name of the Circle': '58-Nizampet' }]
+    const result = mergeMonitoringRows(t, monitoringRows, circleMapping)
+
+    expect(result.table.rows[0]['Circle']).toBe('Nizampet')
+    expect(result.table.rows[0]['CNO']).toBe('58')
   })
 })

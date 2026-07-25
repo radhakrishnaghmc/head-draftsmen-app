@@ -335,7 +335,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
     }
 
     const sheets = await api.importAllSheetsFromLink(url)
-    const picked = findCircleSheet(sheets, loginCircle)
+    const picked = findCircleSheet(sheets, loginCircle, loginCircleNumber)
     if (!picked) {
       throw new Error(`Couldn't find a sheet matching your Circle ("${loginCircle}") in that monitoring format link.`)
     }
