@@ -1017,6 +1017,123 @@ button.danger-ghost:hover:not(:disabled) {
   outline: none;
   border-color: var(--indigo-500);
 }
+/* Estimate Workspace's per-estimate cards: a clean list (one card per row)
+   whose header stats render as "live tiles" — small, glanceable summaries of
+   that estimate's item count/ECV/work name — with each download action on
+   its own row below rather than everything wrapping into a single crowded
+   line. */
+.estimate-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.estimate-entry {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 14px 16px;
+}
+.estimate-entry-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.estimate-entry-name {
+  font-size: 14.5px;
+  font-weight: 650;
+  color: var(--text);
+  word-break: break-word;
+}
+.estimate-entry-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--danger);
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+.live-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 0;
+}
+.live-tile {
+  background: var(--indigo-50);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 12px;
+  min-width: 90px;
+}
+.live-tile-wide {
+  flex: 1 1 260px;
+}
+.live-tile-label {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.live-tile-value {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+}
+.live-tile-value-text {
+  display: block;
+  font-weight: 550;
+  white-space: normal;
+}
+.estimate-hint {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 8px 0 0;
+}
+.estimate-actions {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.estimate-action-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.estimate-action-row .editor-name {
+  flex: 1 1 160px;
+  min-width: 140px;
+  border-color: var(--border);
+  background: #fff;
+}
+
+.workspace-section {
+  margin-top: 28px;
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+}
+.workspace-section-title {
+  font-size: 15px;
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+.workspace-section-hint {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
 .sa-preview {
   margin-top: 16px;
   border-top: 1px solid var(--border);

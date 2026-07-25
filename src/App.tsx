@@ -20,14 +20,10 @@ import TenderNoticeButton from './components/TenderNoticeButton'
 import BidDocumentsPanel from './components/BidDocumentsPanel'
 import GoogleLinkImport from './components/GoogleLinkImport'
 import MonitoringLinkImport, { type MonitoringMergeSummary } from './components/MonitoringLinkImport'
-import EstimateToBoqTab from './components/EstimateToBoqTab'
-import ScheduleATab from './components/ScheduleATab'
-import GetDeviationTab from './components/GetDeviationTab'
+import EstimateWorkspaceTab from './components/EstimateWorkspaceTab'
 import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
 import CreateDocumentTab from './components/CreateDocumentTab'
 import PrintDocumentTab from './components/PrintDocumentTab'
-import UploadPhotosTab from './components/UploadPhotosTab'
-import MaterialQuantityTab from './components/MaterialQuantityTab'
 import TodoList from './components/TodoList'
 import TenderReminders from './components/TenderReminders'
 import {
@@ -39,8 +35,7 @@ import {
   IconPlus,
   IconChecklist,
   IconRefresh,
-  IconCheck,
-  IconImage
+  IconCheck
 } from './components/Icons'
 import type {
   ExcelTable,
@@ -636,48 +631,18 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
           </section>
         )}
 
-        {tab === 'boq' && (
+        {tab === 'estimateWorkspace' && (
           <section className="page">
             <div className="page-head">
               <div className="page-ic amber">
                 <IconDoc />
               </div>
               <div className="page-head-text">
-                <h1>Download BOQ</h1>
-                <p>Upload an estimate to generate its Bill of Quantities.</p>
+                <h1>BOQ, Schedule A, Deviation & Material Quantity</h1>
+                <p>Upload an estimate once to download its BOQ, Schedule A, Deviation Statement, and Material Quantity.</p>
               </div>
             </div>
-            <EstimateToBoqTab tables={tables} onChange={updateTable} />
-          </section>
-        )}
-
-        {tab === 'scheduleA' && (
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic teal">
-                <IconDoc />
-              </div>
-              <div className="page-head-text">
-                <h1>Download Schedule A</h1>
-                <p>Upload a BOQ to generate its Schedule A.</p>
-              </div>
-            </div>
-            <ScheduleATab tables={tables} />
-          </section>
-        )}
-
-        {tab === 'deviation' && (
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic">
-                <IconDoc />
-              </div>
-              <div className="page-head-text">
-                <h1>Get Deviation Statement</h1>
-                <p>Upload an estimate to generate its Deviation Statement.</p>
-              </div>
-            </div>
-            <GetDeviationTab tables={tables} />
+            <EstimateWorkspaceTab tables={tables} onChange={updateTable} />
           </section>
         )}
 
@@ -693,36 +658,6 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
               </div>
             </div>
             <GiveTechnicalSanctionTab />
-          </section>
-        )}
-
-        {tab === 'photoEstimate' && (
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic rose">
-                <IconImage />
-              </div>
-              <div className="page-head-text">
-                <h1>Upload Photos to Get Estimate</h1>
-                <p>Upload site photos and drag to arrange them in the order they should appear.</p>
-              </div>
-            </div>
-            <UploadPhotosTab tables={tables} onChange={updateTable} />
-          </section>
-        )}
-
-        {tab === 'materialQuantity' && (
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic">
-                <IconDoc />
-              </div>
-              <div className="page-head-text">
-                <h1>Download Material Quantity</h1>
-                <p>Upload an estimate to compute Stone Aggregates, Sand, Gravel, Granite/Napa Slabs, Cement, and Steel quantities.</p>
-              </div>
-            </div>
-            <MaterialQuantityTab />
           </section>
         )}
 

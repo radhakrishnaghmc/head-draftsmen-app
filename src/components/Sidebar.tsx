@@ -11,8 +11,7 @@ import {
   IconCalendar,
   IconDownload,
   IconChecklist,
-  IconRefresh,
-  IconImage
+  IconRefresh
 } from './Icons'
 
 export type TabKey =
@@ -20,12 +19,8 @@ export type TabKey =
   | 'data'
   | 'createDoc'
   | 'printDoc'
-  | 'boq'
-  | 'scheduleA'
-  | 'deviation'
+  | 'estimateWorkspace'
   | 'techSanction'
-  | 'photoEstimate'
-  | 'materialQuantity'
   | 'search'
   | 'todo'
 
@@ -111,37 +106,15 @@ export default function Sidebar(props: Props) {
       tone: 'sky'
     },
     {
-      key: 'boq',
-      label: 'Download BOQ',
+      key: 'estimateWorkspace',
+      label: 'BOQ, Schedule A, Deviation & Material Quantity',
       icon: <IconDownload />,
       tone: 'amber'
-    },
-    {
-      key: 'scheduleA',
-      label: 'Download Schedule A',
-      icon: <IconDownload />,
-      tone: 'teal'
-    },
-    {
-      key: 'deviation',
-      label: 'Get Deviation Statement',
-      icon: <IconDownload />
     },
     {
       key: 'techSanction',
       label: 'Give Technical Sanction',
       icon: <IconCheck />
-    },
-    {
-      key: 'photoEstimate',
-      label: 'Upload Photos to Get Estimate',
-      icon: <IconImage />,
-      tone: 'rose'
-    },
-    {
-      key: 'materialQuantity',
-      label: 'Download Material Quantity',
-      icon: <IconDownload />
     }
   ]
 
