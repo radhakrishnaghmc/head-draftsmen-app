@@ -77,6 +77,36 @@ export function applyWorksSchema(table: ExcelTable): ExcelTable {
   return { ...table, path: '', headers, rows }
 }
 
+/** Persisted-state schema version at which ECV/Contract Amount moved from Lakhs to rupees (see migrateEcvContractToRupees). */
+export const ECV_RUPEES_STATE_VERSION = 2
+
+// ECV and Contract Amount are stored in rupees (matching the tender portal);
+// "Amount of estimate" stays in Lakhs. These two columns are the ones
+// migrated from the old Lakhs storage.
+const RUPEE_COLUMNS = ['ECV', 'Contract Amount']
+
+/**
+ * One-time migration for a Works List saved when ECV/Contract Amount were
+ * stored in Lakhs: multiply those two columns' numeric cells by 100000 to
+ * convert them to rupees. Idempotency is the caller's job — run this only
+ * when the loaded state predates ECV_RUPEES_STATE_VERSION (see App.tsx), or
+ * values would be inflated again on every load. Blank/unparseable cells and
+ * every other column (including Amount of estimate) are left untouched.
+ */
+export function migrateEcvContractToRupees(table: ExcelTable): ExcelTable {
+  const rows = table.rows.map((row) => {
+    const next = { ...row }
+    for (const col of RUPEE_COLUMNS) {
+      const raw = (next[col] ?? '').trim()
+      if (!raw) continue
+      const n = Number(raw.replace(/,/g, ''))
+      if (Number.isFinite(n)) next[col] = String(Math.round(n * 100000))
+    }
+    return next
+  })
+  return { ...table, rows }
+}
+
 /**
  * Like applyWorksSchema, but pulls each standard column's value from
  * whichever imported header `mapping` resolved it to (semantic/keyword

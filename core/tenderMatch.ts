@@ -1,6 +1,6 @@
 import type { ExcelTable } from './types'
 import { rankByEmbedding } from './embeddingMatch'
-import { rupeesToLakhsString } from './worksAmounts'
+import { rupeesToCell } from './worksAmounts'
 
 // A match below this score is treated as "no real match" — same threshold
 // used for work-name matching elsewhere (core/worksAmounts.ts,
@@ -84,7 +84,7 @@ export function fillWorksListFromTenders(
     matchedCount++
     return {
       ...row,
-      ECV: rupeesToLakhsString(match.ecvRupees),
+      ECV: rupeesToCell(match.ecvRupees),
       'Tender Notice No': match.noticeNo,
       'Tender ID': match.tenderId
     }

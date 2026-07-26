@@ -1,5 +1,5 @@
 import { listParagraphs, setParagraphText } from './docx-edit'
-import { lakhsToRupees, indianDigitGroups, formatRupees } from './worksAmounts'
+import { lakhsToRupees, rupeesFromCell, indianDigitGroups, formatRupees } from './worksAmounts'
 
 // Placeholder tokens present in the bundled Bid Document template, and the
 // zip parts they can appear in — {{Circle}} repeats in the running footer
@@ -74,7 +74,8 @@ function fillPlaceholders(buffer: Buffer, swaps: Array<[string, string]>): Buffe
  */
 export function fillBidDocument(buffer: Buffer, input: BidDocumentInput): Buffer {
   const estimateRupees = lakhsToRupees(input.work.amount)
-  const ecvRupees = input.work.ecv?.trim() ? lakhsToRupees(input.work.ecv) : null
+  // ECV is stored in rupees on the Works List (Amount of estimate is in Lakhs).
+  const ecvRupees = input.work.ecv?.trim() ? rupeesFromCell(input.work.ecv) : null
   const emdRupees = ecvRupees !== null ? Math.round(ecvRupees * 0.01) : null
 
   const swaps: Array<[string, string]> = [

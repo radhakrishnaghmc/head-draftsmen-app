@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { applyWorksSchema, applyWorksSchemaWithMapping, WORKS_COLUMNS } from '../src/worksSchema'
+import {
+  applyWorksSchema,
+  applyWorksSchemaWithMapping,
+  migrateEcvContractToRupees,
+  WORKS_COLUMNS
+} from '../src/worksSchema'
 import type { PlaceholderMatch } from '../core/createDocument'
 import type { ExcelTable } from '../core/types'
 
@@ -97,5 +102,32 @@ describe('applyWorksSchema', () => {
     const t = table(WORKS_COLUMNS, [{ ...Object.fromEntries(WORKS_COLUMNS.map((h) => [h, ''])), ECV: '50' }])
     const result = applyWorksSchema(t)
     expect(result.rows[0]['ECV']).toBe('50')
+  })
+})
+
+describe('migrateEcvContractToRupees', () => {
+  it('multiplies ECV and Contract Amount (Lakhs) by 100000, leaving other columns alone', () => {
+    const t = table(WORKS_COLUMNS, [
+      {
+        ...Object.fromEntries(WORKS_COLUMNS.map((h) => [h, ''])),
+        'Amount of estimate': '45',
+        ECV: '15.93493',
+        'Contract Amount': '14.16456'
+      }
+    ])
+    const out = migrateEcvContractToRupees(t)
+    expect(out.rows[0]['ECV']).toBe('1593493')
+    expect(out.rows[0]['Contract Amount']).toBe('1416456')
+    // Amount of estimate stays in Lakhs, untouched.
+    expect(out.rows[0]['Amount of estimate']).toBe('45')
+  })
+
+  it('leaves blank and non-numeric ECV/Contract cells untouched', () => {
+    const t = table(WORKS_COLUMNS, [
+      { ...Object.fromEntries(WORKS_COLUMNS.map((h) => [h, ''])), ECV: '', 'Contract Amount': 'N/A' }
+    ])
+    const out = migrateEcvContractToRupees(t)
+    expect(out.rows[0]['ECV']).toBe('')
+    expect(out.rows[0]['Contract Amount']).toBe('N/A')
   })
 })

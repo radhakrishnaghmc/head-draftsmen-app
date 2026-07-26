@@ -1,7 +1,7 @@
 import type { ExcelTable } from './types'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
 import { rankByEmbedding } from './embeddingMatch'
-import { rupeesToLakhsString } from './worksAmounts'
+import { rupeesToCell } from './worksAmounts'
 
 // A match below this score is treated as "no real match" — same threshold
 // used for work-name matching elsewhere (core/tenderMatch.ts, core/scheduleA.ts).
@@ -23,10 +23,10 @@ function valuesFor(ev: TenderEvaluation): Record<string, string> {
   if (ev.tenderId) out['Tender ID'] = ev.tenderId
   if (ev.noticeNo) out['Tender Notice No'] = ev.noticeNo
   if (ev.noticeDate) out['Tender notice Date'] = ev.noticeDate
-  if (ev.ecvRupees != null) out['ECV'] = rupeesToLakhsString(ev.ecvRupees)
+  if (ev.ecvRupees != null) out['ECV'] = rupeesToCell(ev.ecvRupees)
   if (ev.l1AgencyName) out['Name of the Agency'] = ev.l1AgencyName
   if (ev.tenderPercentage != null) out['Tender Percentage'] = String(ev.tenderPercentage)
-  if (ev.contractRupees != null) out['Contract Amount'] = rupeesToLakhsString(ev.contractRupees)
+  if (ev.contractRupees != null) out['Contract Amount'] = rupeesToCell(ev.contractRupees)
   return out
 }
 

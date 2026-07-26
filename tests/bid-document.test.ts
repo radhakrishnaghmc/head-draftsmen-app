@@ -68,14 +68,14 @@ describe('fillBidDocument', () => {
         serial: 2,
         name: 'Another work',
         amount: '10',
-        ecv: '12',
+        ecv: '1200000', // ECV is stored in rupees (Amount of estimate is in Lakhs)
         completionPeriod: '2'
       }
     })
     const paragraphs = listParagraphs(out)
     // Estimate Amount (cover page) stays at the 10-Lakh estimate.
     expect(paragraphs.join('\n')).toContain('Rs 10,00,000/-')
-    // ECV 12 Lakhs -> 1,200,000 rupees, distinct from the estimate.
+    // ECV 12,00,000 rupees, distinct from the estimate.
     const ecvLine = paragraphs.find((p) => p.startsWith('Rs:') && p.includes('12,00,000/-'))
     expect(ecvLine).toBeDefined()
     // EMD @ 1% of ECV = 12,000 (not 1% of the 10-Lakh estimate, which would be 10,000).

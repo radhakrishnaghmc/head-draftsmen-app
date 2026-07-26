@@ -617,7 +617,7 @@ describe('Schedule A meta from the Works List', () => {
       {
         'Name of the work': 'Road from A to B',
         'Amount of estimate': '45',
-        'ECV': '42',
+        'ECV': '4200000',
         'Contract Amount': '40',
         'Name of the Agency': 'ABC Constructions',
         'Tender Percentage': '18'

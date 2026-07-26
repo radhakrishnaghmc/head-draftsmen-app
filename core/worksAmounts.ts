@@ -9,10 +9,27 @@ import { rankByEmbedding } from './embeddingMatch'
 // used for placeholder/column matching elsewhere (core/columnMatch.ts).
 const EMBEDDING_THRESHOLD = 0.5
 
-/** "1" or ".30" (Lakhs) -> 100000 or 30000 (rupees). Estimate/ECV figures on the Works List are always entered in Lakhs. */
+/** "1" or ".30" (Lakhs) -> 100000 or 30000 (rupees). "Amount of estimate" is entered on the Works List in Lakhs. */
 export function lakhsToRupees(lakhs: string): number {
   const n = Number(String(lakhs).replace(/,/g, '').trim())
   return Number.isFinite(n) ? Math.round(n * 100000) : 0
+}
+
+/**
+ * Parse a rupee-denominated Works List cell to a whole number of rupees.
+ * ECV and Contract Amount are stored on the Works List in rupees (the tender
+ * portal reports them that way), unlike "Amount of estimate" which is in
+ * Lakhs — so those columns are read with this, not lakhsToRupees. Blank or
+ * unparseable -> 0.
+ */
+export function rupeesFromCell(cell: string): number {
+  const n = Number(String(cell).replace(/,/g, '').trim())
+  return Number.isFinite(n) ? Math.round(n) : 0
+}
+
+/** A rupee amount as a plain whole-number string for storing in a rupee-denominated Works List cell (ECV / Contract Amount). */
+export function rupeesToCell(rupees: number): string {
+  return String(Math.round(rupees))
 }
 
 /** 1234567 -> "12,34,567" (Indian digit grouping: last 3 digits, then pairs). */
@@ -41,7 +58,7 @@ function parsePercent(v: string | undefined): number | undefined {
 export interface ComputedAmounts {
   /** "Amount of estimate" / "Estimate Amount", converted from Lakhs to rupees. */
   estimate: number
-  /** "ECV", converted from Lakhs to rupees — null when ECV is blank. Never falls back to `estimate`: the two are distinct figures and must not be conflated. */
+  /** "ECV" in rupees (stored in rupees, so read as-is) — null when ECV is blank. Never falls back to `estimate`: the two are distinct figures and must not be conflated. */
   ecv: number | null
   /** 1% of ECV — null when ECV isn't available yet, rather than computed off the estimate. */
   emd1: number | null
@@ -70,7 +87,8 @@ export interface ComputedAmounts {
 export function computeWorkAmounts(row: Record<string, string>): ComputedAmounts {
   const estimate = lakhsToRupees(row['Amount of estimate'] ?? '')
   const ecvRaw = row['ECV']
-  const ecv = ecvRaw?.trim() ? lakhsToRupees(ecvRaw) : null
+  // ECV is stored in rupees (unlike Amount of estimate, in Lakhs).
+  const ecv = ecvRaw?.trim() ? rupeesFromCell(ecvRaw) : null
   const tenderPercent = parsePercent(row['Tender Percentage'])
 
   const emd1 = ecv !== null ? Math.round(ecv * 0.01) : null
@@ -131,8 +149,9 @@ export interface EcvMatchResult {
  * Find the Works List row whose "Name of the work" matches (case- and
  * whitespace-insensitive) `workName`, and return an updated table with that
  * row's ECV, EMD 1% and EMD 1.5% filled in from `ecvRupees` (a BOQ/estimate
- * item total) — Lakhs-formatted, matching every other amount column's own
- * convention. Returns the table unchanged (`matched: false`) if
+ * item total) — in rupees, matching how ECV is stored (EMD written in rupees
+ * too so it stays consistent with the rupee ECV it's derived from). Returns
+ * the table unchanged (`matched: false`) if
  * there's no "Name of the work" column, no name to match, or no row matches —
  * callers should treat that as "nothing to update", not an error.
  *
@@ -171,9 +190,9 @@ export function applyEcvFromBoq(
       ? r
       : {
           ...r,
-          ECV: rupeesToLakhsString(ecvRupees),
-          'EMD 1%': rupeesToLakhsString(emd1),
-          'EMD 1.5%': rupeesToLakhsString(emd1_5)
+          ECV: rupeesToCell(ecvRupees),
+          'EMD 1%': rupeesToCell(emd1),
+          'EMD 1.5%': rupeesToCell(emd1_5)
         }
   )
   return { table: { ...table, rows }, matched: true, matchedViaAi }

@@ -16,7 +16,7 @@ describe('buildScheduleARows', () => {
     const meta = metaFromWorksRow({
       'Name of the work': 'Road from A to B',
       'Amount of estimate': '45',
-      'ECV': '42',
+      'ECV': '4200000',
       'Tender Percentage': '18',
       'Name of the Agency': 'ABC Constructions'
     })
@@ -46,7 +46,7 @@ describe('buildScheduleARows', () => {
     const meta = metaFromWorksRow({
       'Name of the work': 'Road from A to B',
       'Amount of estimate': '45',
-      'ECV': '42'
+      'ECV': '4200000'
     })
     const rows = buildScheduleARows(items, meta)
     const contractRow = rows.find((r) => r[0] === 'Contract Amount: Rs.')
@@ -60,7 +60,7 @@ describe('fillScheduleATemplate', () => {
     const meta = metaFromWorksRow({
       'Name of the work': 'Road from A to B',
       'Amount of estimate': '45',
-      'ECV': '42',
+      'ECV': '4200000',
       'Tender Percentage': '18',
       'Name of the Agency': 'ABC Constructions'
     })

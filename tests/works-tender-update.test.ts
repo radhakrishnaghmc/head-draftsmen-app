@@ -32,10 +32,10 @@ describe('updateWorksListFromEvaluations', () => {
     expect(r['Tender ID']).toBe('717574')
     expect(r['Tender Notice No']).toBe('12/DB/EE/Nizampet Circle-58/CMC/2026-27')
     expect(r['Tender notice Date']).toBe('15.07.2026')
-    expect(r['ECV']).toBe('15.93493')
+    expect(r['ECV']).toBe('1593493') // stored in rupees
     expect(r['Name of the Agency']).toBe('M V S CONSTRUCTIONS')
     expect(r['Tender Percentage']).toBe('11.11')
-    expect(r['Contract Amount']).toBe('14.16456') // rupeesToLakhsString rounds to the nearest rupee
+    expect(r['Contract Amount']).toBe('1416456') // rupees, rounded to the nearest rupee
   })
 
   it('overwrites existing values (the PDF is the authoritative post-award record)', () => {
@@ -44,7 +44,7 @@ describe('updateWorksListFromEvaluations', () => {
     ])
     const { table: out } = updateWorksListFromEvaluations(t, [EV])
     expect(out.rows[0]['Tender ID']).toBe('717574')
-    expect(out.rows[0]['ECV']).toBe('15.93493')
+    expect(out.rows[0]['ECV']).toBe('1593493')
   })
 
   it('only writes fields the PDF carried, leaving the rest of the row alone', () => {

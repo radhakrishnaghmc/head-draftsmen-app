@@ -37,13 +37,13 @@ describe('parseTenderRows', () => {
 })
 
 describe('fillWorksListFromTenders', () => {
-  it('fills ECV (Lakhs), Tender Notice No, and Tender ID for a row whose work name matches exactly', () => {
+  it('fills ECV (rupees), Tender Notice No, and Tender ID for a row whose work name matches exactly', () => {
     const t = table([blankRow({ 'Name of the work': 'Road from A to B' })])
     const tenders = parseTenderRows([tenderRow({ id: 'T-1', notice: 'NIT-1', work: 'Road from A to B', ecv: '4500000' })])
     const { table: out, matchedCount } = fillWorksListFromTenders(t, tenders)
 
     expect(matchedCount).toBe(1)
-    expect(out.rows[0]['ECV']).toBe('45')
+    expect(out.rows[0]['ECV']).toBe('4500000')
     expect(out.rows[0]['Tender Notice No']).toBe('NIT-1')
     expect(out.rows[0]['Tender ID']).toBe('T-1')
   })
@@ -61,7 +61,7 @@ describe('fillWorksListFromTenders', () => {
     ])
     const tenders = parseTenderRows([tenderRow({ id: 'T-new', work: 'Road from A to B', ecv: '1000000' })])
     const { table: out } = fillWorksListFromTenders(t, tenders)
-    expect(out.rows[0]['ECV']).toBe('10')
+    expect(out.rows[0]['ECV']).toBe('1000000')
     expect(out.rows[0]['Tender ID']).toBe('T-new')
   })
 

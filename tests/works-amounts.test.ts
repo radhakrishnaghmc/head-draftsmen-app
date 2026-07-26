@@ -43,8 +43,9 @@ describe('computeWorkAmounts', () => {
     expect(c.asd).toBeNull()
   })
 
-  it('uses ECV over the estimate when both are present', () => {
-    const c = computeWorkAmounts({ 'Amount of estimate': '10', 'ECV': '12' })
+  it('uses ECV (stored in rupees) over the estimate when both are present', () => {
+    // Amount of estimate is in Lakhs ("10" = 10,00,000); ECV is in rupees.
+    const c = computeWorkAmounts({ 'Amount of estimate': '10', 'ECV': '1200000' })
     expect(c.estimate).toBe(1000000)
     expect(c.ecv).toBe(1200000)
     expect(c.emd1).toBe(12000)
@@ -52,29 +53,29 @@ describe('computeWorkAmounts', () => {
   })
 
   it('charges ASD only once Tender Percentage exceeds 25%, at (percentage - 25%) of ECV', () => {
-    const under = computeWorkAmounts({ 'ECV': '10', 'Tender Percentage': '20' })
+    const under = computeWorkAmounts({ 'ECV': '1000000', 'Tender Percentage': '20' })
     expect(under.asd).toBe(0)
 
-    const over = computeWorkAmounts({ 'ECV': '10', 'Tender Percentage': '30' })
+    const over = computeWorkAmounts({ 'ECV': '1000000', 'Tender Percentage': '30' })
     // 30% - 25% = 5% of 1,000,000 = 50,000
     expect(over.asd).toBe(50000)
   })
 
   it('computes Contract Amount as ECV net of the tendered percentage', () => {
-    const c = computeWorkAmounts({ 'ECV': '10', 'Tender Percentage': '18' })
+    const c = computeWorkAmounts({ 'ECV': '1000000', 'Tender Percentage': '18' })
     // 1,000,000 * (1 - 0.18) = 820,000
     expect(c.contractAmount).toBe(820000)
   })
 
   it('leaves Contract Amount null when Tender Percentage is not available, rather than assuming 0%', () => {
-    const missing = computeWorkAmounts({ 'ECV': '10' })
+    const missing = computeWorkAmounts({ 'ECV': '1000000' })
     expect(missing.contractAmount).toBeNull()
 
-    const blank = computeWorkAmounts({ 'ECV': '10', 'Tender Percentage': '' })
+    const blank = computeWorkAmounts({ 'ECV': '1000000', 'Tender Percentage': '' })
     expect(blank.contractAmount).toBeNull()
 
     // A genuine 0% tender, though, is a real value and should compute (equal to ECV).
-    const zero = computeWorkAmounts({ 'ECV': '10', 'Tender Percentage': '0' })
+    const zero = computeWorkAmounts({ 'ECV': '1000000', 'Tender Percentage': '0' })
     expect(zero.contractAmount).toBe(1000000)
   })
 })
@@ -83,7 +84,7 @@ describe('withComputedAmounts', () => {
   it('replaces every amount column with its computed, Rs-formatted value', () => {
     const row = withComputedAmounts({
       'Amount of estimate': '45',
-      'ECV': '50',
+      'ECV': '5000000',
       'Tender Percentage': '30'
     })
     expect(row['Amount of estimate']).toBe('Rs 45,00,000/-')
@@ -106,7 +107,7 @@ describe('withComputedAmounts', () => {
   })
 
   it('leaves Contract Amount blank when Tender Percentage is not available', () => {
-    const row = withComputedAmounts({ 'Amount of estimate': '45', 'ECV': '50' })
+    const row = withComputedAmounts({ 'Amount of estimate': '45', 'ECV': '5000000' })
     expect(row['Contract Amount']).toBe('')
   })
 })
@@ -131,12 +132,12 @@ describe('applyEcvFromBoq', () => {
     ]
   }
 
-  it('matches the row by name (case/whitespace-insensitive) and fills ECV + EMD @ 1%/1.5%, in Lakhs', () => {
+  it('matches the row by name (case/whitespace-insensitive) and fills ECV + EMD @ 1%/1.5%, in rupees', () => {
     const { table: out, matched } = applyEcvFromBoq(table, '  road   from a to b ', 2500000)
     expect(matched).toBe(true)
-    expect(out.rows[0]['ECV']).toBe('25')
-    expect(out.rows[0]['EMD 1%']).toBe('0.25')
-    expect(out.rows[0]['EMD 1.5%']).toBe('0.375')
+    expect(out.rows[0]['ECV']).toBe('2500000')
+    expect(out.rows[0]['EMD 1%']).toBe('25000')
+    expect(out.rows[0]['EMD 1.5%']).toBe('37500')
     // The other row is untouched.
     expect(out.rows[1]['ECV']).toBe('')
   })
@@ -157,7 +158,7 @@ describe('applyEcvFromBoq', () => {
     })
     expect(result.matched).toBe(true)
     expect(result.matchedViaAi).toBe(true)
-    expect(result.table.rows[0]['ECV']).toBe('25')
+    expect(result.table.rows[0]['ECV']).toBe('2500000')
   })
 
   it('does not use an embedding match below the threshold', () => {

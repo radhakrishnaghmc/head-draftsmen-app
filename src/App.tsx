@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './ipc'
 import { prefetchTenders, fetchTenders } from './tenderCache'
-import { createWorksTable, applyWorksSchema, applyWorksSchemaWithMapping, WORKS_COLUMNS } from './worksSchema'
+import {
+  createWorksTable,
+  applyWorksSchema,
+  applyWorksSchemaWithMapping,
+  migrateEcvContractToRupees,
+  ECV_RUPEES_STATE_VERSION,
+  WORKS_COLUMNS
+} from './worksSchema'
 import { syncWorksListFromTenderPortal } from './worksListTenderSync'
 import { enforceZoneCircle, fillCircleNumber } from './zoneCircleCheck'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
@@ -146,7 +153,13 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
         if (!cancelled && s) {
           // Force every existing works database onto the standard column schema
           // (columns come from the APP Excel). Any other columns are dropped.
-          const loadedTables = (s.tables ?? []).map(applyWorksSchema)
+          // A Works List saved before ECV/Contract Amount moved to rupee
+          // storage is converted once here (Lakhs -> rupees), keyed on the
+          // persisted schema version so it never double-converts.
+          const needsEcvRupeeMigration = (s.version ?? 1) < ECV_RUPEES_STATE_VERSION
+          const loadedTables = (s.tables ?? [])
+            .map(applyWorksSchema)
+            .map((t) => (needsEcvRupeeMigration ? migrateEcvContractToRupees(t) : t))
 
           // A previously-saved Works List belonging to a different Zone/Circle
           // than the one logged in now must not be shown — same rule as a
@@ -216,7 +229,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
     if (!hydrated) return
     const handle = setTimeout(() => {
       api.saveState({
-        version: 1,
+        version: ECV_RUPEES_STATE_VERSION,
         tables: blockedWorksList ? (withheldTablesRef.current ?? tables) : tables,
         resolution,
         todos,
