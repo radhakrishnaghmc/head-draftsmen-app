@@ -1168,18 +1168,22 @@ button.danger-ghost:hover:not(:disabled) {
   min-width: 460px;
 }
 
-/* Give Intimation's preview: the filled .html format rendered exactly as it
-   will print, inside a sandboxed iframe rather than dangerouslySetInnerHTML
-   — the format's own markup/styles stay isolated from the app's. */
-.intimation-frame-wrap {
-  max-height: 480px;
+/* Give Intimation's live preview: the filled Intimation .docx rendered by
+   docx-preview (same as Issue Document), scaled down to fit the workspace
+   column while keeping the real page proportions. */
+.intimation-docx-preview {
+  transform: scale(0.62);
+  transform-origin: top left;
+  width: 161%; /* 1 / 0.62 — so the scaled content still fills the column width */
+  padding: 8px;
 }
-.intimation-frame {
-  display: block;
-  width: 100%;
-  height: 480px;
-  border: none;
-  background: #fff;
+.intimation-docx-preview .docx-wrapper {
+  background: transparent;
+  padding: 0;
+}
+.intimation-docx-preview section.docx {
+  margin: 0 auto 12px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12);
 }
 .doc-sheet-title {
   position: sticky;

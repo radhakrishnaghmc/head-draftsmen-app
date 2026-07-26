@@ -593,19 +593,27 @@ function registerHandlers(): void {
     })
   })
 
-  ipcMain.handle(
-    IPC.exportIntimationHtml,
-    async (_e, html: string, suggestedName: string): Promise<string | null> => {
-      const result = await dialog.showSaveDialog(mainWindow!, {
-        title: `Save ${suggestedName}`,
-        defaultPath: `${suggestedName}.html`,
-        filters: [{ name: 'Web Page', extensions: ['html'] }]
-      })
-      if (result.canceled || !result.filePath) return null
-      fs.writeFileSync(result.filePath, html, 'utf8')
-      return result.filePath
-    }
-  )
+  const intimationTemplateFile = () => {
+    const candidates = [
+      path.join(process.resourcesPath, 'intimation-template.docx'),
+      path.join(app.getAppPath(), 'resources', 'intimation-template.docx'),
+      path.join(app.getAppPath(), '..', 'resources', 'intimation-template.docx')
+    ]
+    return candidates.find((p) => {
+      try {
+        fs.accessSync(p)
+        return true
+      } catch {
+        return false
+      }
+    })
+  }
+
+  ipcMain.handle(IPC.intimationTemplate, async (): Promise<string> => {
+    const templatePath = intimationTemplateFile()
+    if (!templatePath) throw new Error('Intimation format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
 
   const stateFile = () => path.join(app.getPath('userData'), 'state.json')
 

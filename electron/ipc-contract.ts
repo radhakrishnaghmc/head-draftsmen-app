@@ -66,7 +66,7 @@ export const IPC = {
   bakeFixedPlaceholdersInDocument: 'doc:bakeFixedPlaceholdersInDocument',
   exportCreatedDocument: 'doc:exportCreatedDocument',
   printCreatedDocument: 'doc:printCreatedDocument',
-  exportIntimationHtml: 'doc:exportIntimationHtml',
+  intimationTemplate: 'doc:intimationTemplate',
   loadState: 'state:load',
   saveState: 'state:save',
   remoteStateUpdate: 'state:remoteUpdate',
@@ -157,8 +157,8 @@ export interface DocuGenApi {
   ): Promise<{ file: string; format: 'docx' | 'pdf' }[] | null>
   /** Open the OS print dialog directly against the already-rendered document HTML (docx-preview's own output, captured by the caller). */
   printCreatedDocument(renderedHtml: string): Promise<void>
-  /** Saves a filled Intimation (already-HTML, no docx conversion needed) straight to a chosen .html file. */
-  exportIntimationHtml(html: string, suggestedName: string): Promise<string | null>
+  /** Reads the bundled Intimation format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
+  intimationTemplate(): Promise<string>
   loadState(): Promise<PersistedState | null>
   saveState(state: PersistedState): Promise<void>
   /** Fires when the other signed-in device changes the workspace, so this one can merge it in live. Returns an unsubscribe function. */
