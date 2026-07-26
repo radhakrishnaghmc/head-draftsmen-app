@@ -4,7 +4,8 @@ import {
   mergeMonitoringRows,
   splitAgencyNameAndPhones,
   formatAgencyPhones,
-  splitCircleNumberAndName
+  splitCircleNumberAndName,
+  looksLikeReferenceEntry
 } from '../core/monitoringImport'
 import type { PlaceholderMatch } from '../core/createDocument'
 import type { ExcelTable } from '../core/types'
@@ -134,6 +135,23 @@ describe('formatAgencyPhones', () => {
   })
 })
 
+describe('looksLikeReferenceEntry', () => {
+  it('flags a circle/ward dropdown token (no Wincode) as a reference entry', () => {
+    expect(looksLikeReferenceEntry('54-Chintal', '')).toBe(true)
+    expect(looksLikeReferenceEntry('57-Gajularamaram', '')).toBe(true)
+    expect(looksLikeReferenceEntry('277-Mahadevapuram', '')).toBe(true)
+  })
+
+  it('does not flag a real, descriptive work name', () => {
+    expect(looksLikeReferenceEntry('Laying of CC road at Ayyappa Colony, Gajularamaram Circle', '')).toBe(false)
+    expect(looksLikeReferenceEntry('2 lane road widening from X to Y in ward 12', '')).toBe(false)
+  })
+
+  it('does not flag anything that carries a Wincode (a real work)', () => {
+    expect(looksLikeReferenceEntry('58-Nizampet', 'WC-123')).toBe(false)
+  })
+})
+
 function table(headers: string[], rows: Record<string, string>[]): ExcelTable {
   return { id: 't1', name: 'Works database', path: '', headers, rows }
 }
@@ -187,6 +205,29 @@ describe('mergeMonitoringRows', () => {
       'Name of the work': 'Road C (new)',
       'Amount of estimate': '3,00,000'
     })
+  })
+
+  it('does not add a monitoring sheet\'s dropdown-reference entries (circle/ward lists) as works', () => {
+    const t = table(headers, [{ Wincode: 'WC-1', 'Name of the work': 'Road A', 'Amount of estimate': '', 'Contract Amount': '' }])
+    // A legend block: circle list mapped onto Name of the work, ward list onto
+    // Amount of estimate — no Wincodes. None of these should become works.
+    const monitoringRows = [
+      { 'Win Code': '', 'Work Name': '54-Chintal', 'Estimate Amt': '277-Mahadevapuram' },
+      { 'Win Code': '', 'Work Name': '57-Gajularamaram', 'Estimate Amt': '291-Shapur Nagar' },
+      { 'Win Code': '', 'Work Name': '58-Nizampet', 'Estimate Amt': '293-Suraram' }
+    ]
+    const result = mergeMonitoringRows(t, monitoringRows, mapping)
+    expect(result.addedCount).toBe(0)
+    expect(result.table.rows).toHaveLength(1)
+  })
+
+  it('still adds a real work whose name happens to start with a number (has a Wincode / long name)', () => {
+    const t = table(headers, [{ Wincode: 'WC-1', 'Name of the work': 'Road A', 'Amount of estimate': '', 'Contract Amount': '' }])
+    const monitoringRows = [
+      { 'Win Code': 'WC-9', 'Work Name': '2 lane road widening from X to Y in ward 12', 'Estimate Amt': '5,00,000' }
+    ]
+    const result = mergeMonitoringRows(t, monitoringRows, mapping)
+    expect(result.addedCount).toBe(1)
   })
 
   it('skips a monitoring row with neither a Wincode nor a Name of the work to match or add on', () => {

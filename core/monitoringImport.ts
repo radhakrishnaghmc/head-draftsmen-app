@@ -140,6 +140,22 @@ export function splitCircleNumberAndName(raw: string): CircleSplit | null {
   return m ? { cno: m[1], circle: m[2] } : null
 }
 
+/**
+ * A monitoring workbook usually carries reference/legend blocks off to the
+ * side — the source lists that feed its data-validation dropdowns: the
+ * circles ("54-Chintal", "58-Nizampet"), the wards ("277-Mahadevapuram"),
+ * fund types, progress buckets, statuses. The column matcher can map one of
+ * those list columns onto "Name of the work", and each list entry would then
+ * be added as a bogus work. This spots such an entry so it can be skipped:
+ * a value with no Wincode whose name is just a short "<number>-<name>" token
+ * (a circle/ward code), never a real, descriptive work name.
+ */
+export function looksLikeReferenceEntry(name: string, wincode: string): boolean {
+  if (wincode.trim()) return false
+  const n = name.trim()
+  return /^\d{1,4}\s*-\s*[A-Za-z][A-Za-z .]{0,24}$/.test(n)
+}
+
 export interface MonitoringMergeResult {
   table: ExcelTable
   /** Monitoring rows matched to an existing Works List row by Wincode or Name of the work. */
@@ -238,6 +254,9 @@ export function mergeMonitoringRows(
     const circleSplit = circleSplitFor(monRow)
 
     if (matchIndex === -1) {
+      // Don't add a monitoring sheet's dropdown-reference entries (circle/ward
+      // lists, etc.) as works — see looksLikeReferenceEntry.
+      if (looksLikeReferenceEntry(monName, monWincode)) continue
       const newRow: Record<string, string> = {}
       for (const h of table.headers) newRow[h] = valueFor(h, monRow, agencySplit, circleSplit).trim()
       newRows.push(newRow)
