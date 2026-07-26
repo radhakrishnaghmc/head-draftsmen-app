@@ -26,6 +26,7 @@ import type { MaterialEstimateMeta } from '../core/materialTemplate'
 import type { MaterialTotals } from '../core/materialEstimate'
 import { parseCalendarHtml } from '../core/calendar'
 import { importTableFromGoogleLink, importAllSheetsFromGoogleLink } from '../core/googleImport'
+import { listDriveFolderPdfs, downloadDriveFile } from '../core/googleDriveFolder'
 import { validateLogin } from '../core/auth'
 import type { LoginResult } from '../core/auth'
 import { fillTenderNotice } from '../core/tenderNotice'
@@ -169,6 +170,15 @@ function registerHandlers(): void {
   ipcMain.handle(IPC.readFileBase64, async (_e, filePath: string): Promise<string> => {
     if (!filePath.toLowerCase().endsWith('.pdf')) throw new Error('Only .pdf files can be read here.')
     return fs.readFileSync(filePath).toString('base64')
+  })
+
+  ipcMain.handle(
+    IPC.listDriveFolderPdfs,
+    async (_e, link: string): Promise<{ id: string; name: string }[]> => listDriveFolderPdfs(link)
+  )
+
+  ipcMain.handle(IPC.downloadDriveFile, async (_e, id: string): Promise<string> => {
+    return (await downloadDriveFile(id)).toString('base64')
   })
 
   ipcMain.handle(IPC.ocrEstimatePhotos, async (_e, dataUrls: string[]): Promise<SheetGrid> => {

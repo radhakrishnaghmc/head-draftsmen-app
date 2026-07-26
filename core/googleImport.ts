@@ -40,7 +40,7 @@ export function resolveGoogleDownloadUrl(link: string, opts?: { wholeWorkbook?: 
 }
 
 /** Download a binary resource, following redirects. */
-function download(url: string, redirectsLeft = 5): Promise<Buffer> {
+export function download(url: string, redirectsLeft = 5): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('http://') ? http : https
     const req = client.get(url, { headers: { 'user-agent': USER_AGENT } }, (res) => {

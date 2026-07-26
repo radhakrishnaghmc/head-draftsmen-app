@@ -33,6 +33,7 @@ export default function TenderPdfImport({ table, onChange }: Props) {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
+  const [driveLink, setDriveLink] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   async function process(sources: PdfSource[]) {
@@ -123,6 +124,30 @@ export default function TenderPdfImport({ table, onChange }: Props) {
     )
   }
 
+  async function handleDriveLink() {
+    const link = driveLink.trim()
+    if (!link || loading) return
+    setLoading(true)
+    setError(null)
+    setDone(null)
+    let files: { id: string; name: string }[]
+    try {
+      files = await api.listDriveFolderPdfs(link)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      setLoading(false)
+      return
+    }
+    // process() manages its own loading/progress from here.
+    setLoading(false)
+    void process(
+      files.map((f) => ({
+        name: f.name,
+        getLines: async () => pdfToTextLinesFromData(base64ToUint8(await api.downloadDriveFile(f.id)))
+      }))
+    )
+  }
+
   const pct = progress ? Math.round((progress.done / progress.total) * 100) : 0
 
   return (
@@ -150,6 +175,22 @@ export default function TenderPdfImport({ table, onChange }: Props) {
             e.target.value = ''
           }}
         />
+      </div>
+      <div className="link-import-row" style={{ marginTop: 8 }}>
+        <input
+          value={driveLink}
+          placeholder="…or paste a Google Drive folder link of tender PDFs"
+          onChange={(e) => {
+            setDriveLink(e.target.value)
+            setError(null)
+            setDone(null)
+          }}
+          onKeyDown={(e) => e.key === 'Enter' && handleDriveLink()}
+          disabled={loading}
+        />
+        <button className="primary" onClick={handleDriveLink} disabled={loading || !driveLink.trim()}>
+          {loading ? 'Reading…' : 'From Drive Link'}
+        </button>
       </div>
       {progress && (
         <div className="tender-progress">

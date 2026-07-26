@@ -35,6 +35,8 @@ export const IPC = {
   pickDataSheet: 'dialog:pickDataSheet',
   pickTenderEvalFolder: 'dialog:pickTenderEvalFolder',
   readFileBase64: 'fs:readFileBase64',
+  listDriveFolderPdfs: 'drive:listFolderPdfs',
+  downloadDriveFile: 'drive:downloadFile',
   ocrEstimatePhotos: 'data:ocrEstimatePhotos',
   openPath: 'shell:openPath',
   revealItem: 'shell:revealItem',
@@ -89,6 +91,10 @@ export interface DocuGenApi {
   pickTenderEvalFolder(): Promise<{ dir: string; files: string[] } | null>
   /** Reads a .pdf file at an absolute path and returns it base64-encoded — used to feed folder PDFs into the renderer's pdf.js text extractor. */
   readFileBase64(filePath: string): Promise<string>
+  /** Lists the PDF files (id + name) in a public Google Drive folder link. */
+  listDriveFolderPdfs(link: string): Promise<{ id: string; name: string }[]>
+  /** Downloads one Google Drive file (by id) and returns it base64-encoded. */
+  downloadDriveFile(id: string): Promise<string>
   /** Runs local OCR on photos of a paper estimate (in page order) and reconstructs one combined grid, best-effort — always review before exporting. */
   ocrEstimatePhotos(dataUrls: string[]): Promise<SheetGrid>
   openPath(target: string): Promise<void>
