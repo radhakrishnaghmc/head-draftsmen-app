@@ -1,12 +1,4 @@
-import * as pdfjsLib from 'pdfjs-dist'
-import { applyPdfJsCompatPolyfills } from './pdfJsCompatPolyfills'
-// The worker shim (not the raw pdf.worker.min.mjs) — see pdfToImages.ts for
-// why: pdf.js's Worker is its own JS realm and needs the compat polyfills
-// applied there before the real worker module loads.
-import pdfWorkerUrl from './pdfWorkerShim.ts?url'
-
-applyPdfJsCompatPolyfills()
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+import { pdfjsLib } from './pdfjsSetup'
 
 interface TextItem {
   str: string

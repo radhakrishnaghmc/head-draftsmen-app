@@ -28,6 +28,10 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, 'src'),
+    // ES-module workers: the pdf.js worker shim (src/pdfWorkerShim.ts) applies
+    // compat polyfills then dynamically imports the real pdf.worker, and that
+    // code-split isn't allowed under the default IIFE worker format.
+    worker: { format: 'es' },
     build: {
       rollupOptions: {
         input: { index: resolve(__dirname, 'src/index.html') }
