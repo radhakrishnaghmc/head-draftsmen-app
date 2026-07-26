@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { updateWorksListFromEvaluations, applyAgencyAddresses } from '../core/worksTenderUpdate'
+import { updateWorksListFromEvaluations } from '../core/worksTenderUpdate'
 import type { TenderEvaluation } from '../core/tenderEvaluationPdf'
 import type { ExcelTable } from '../core/types'
 import { WORKS_COLUMNS } from '../src/worksSchema'
@@ -82,35 +82,5 @@ describe('updateWorksListFromEvaluations', () => {
     })
     expect(matchedCount).toBe(0)
     expect(unmatched).toEqual(['Junction Improvement in Aleap Circle'])
-  })
-})
-
-describe('applyAgencyAddresses', () => {
-  it('fills Address of the agency on every row of a matching agency, by agency name alone (not work name)', () => {
-    const t = table([
-      blankRow({ 'Name of the work': 'Work A', 'Name of the Agency': 'M V S CONSTRUCTIONS' }),
-      blankRow({ 'Name of the work': 'Work B (different work, same agency)', 'Name of the Agency': 'M V S CONSTRUCTIONS' }),
-      blankRow({ 'Name of the work': 'Work C', 'Name of the Agency': 'Other Builders' })
-    ])
-    const map = new Map([['m v s constructions', '13/B, Allwyn Colony, Hyderabad -500072']])
-    const { table: out, filledCount } = applyAgencyAddresses(t, map)
-    expect(filledCount).toBe(2)
-    expect(out.rows[0]['Address of the agency']).toBe('13/B, Allwyn Colony, Hyderabad -500072')
-    expect(out.rows[1]['Address of the agency']).toBe('13/B, Allwyn Colony, Hyderabad -500072')
-    expect(out.rows[2]['Address of the agency']).toBe('') // agency not in the map
-  })
-
-  it('matches the agency name case/whitespace-insensitively and is idempotent', () => {
-    const t = table([blankRow({ 'Name of the Agency': '  m v s   CONSTRUCTIONS ', 'Address of the agency': '13/B, Allwyn Colony' })])
-    const map = new Map([['m v s constructions', '13/B, Allwyn Colony']])
-    const { filledCount } = applyAgencyAddresses(t, map)
-    expect(filledCount).toBe(0) // already the same value — no change
-  })
-
-  it('leaves rows with no agency name untouched', () => {
-    const t = table([blankRow({ 'Name of the work': 'Work X', 'Name of the Agency': '' })])
-    const map = new Map([['m v s constructions', 'somewhere']])
-    const { filledCount } = applyAgencyAddresses(t, map)
-    expect(filledCount).toBe(0)
   })
 })

@@ -1493,38 +1493,6 @@ input[type='text']:focus {
   outline: none;
   border-color: var(--indigo-500);
 }
-.tender-pdf-label {
-  flex: 1;
-  font-size: 12.5px;
-  color: var(--muted);
-  line-height: 1.35;
-}
-.tender-progress {
-  position: relative;
-  margin-top: 10px;
-  height: 22px;
-  border-radius: 6px;
-  background: var(--indigo-50);
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
-.tender-progress-bar {
-  position: absolute;
-  inset: 0 auto 0 0;
-  background: linear-gradient(90deg, var(--indigo-500), var(--violet-500));
-  transition: width 0.2s ease;
-}
-.tender-progress-text {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--text);
-}
-
 /* ---------- controls ---------- */
 .controls {
   display: flex;

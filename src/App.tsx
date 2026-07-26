@@ -27,7 +27,6 @@ import TenderNoticeButton from './components/TenderNoticeButton'
 import BidDocumentsPanel from './components/BidDocumentsPanel'
 import GoogleLinkImport from './components/GoogleLinkImport'
 import MonitoringLinkImport, { type MonitoringMergeSummary } from './components/MonitoringLinkImport'
-import TenderPdfImport from './components/TenderPdfImport'
 import EstimateWorkspaceTab from './components/EstimateWorkspaceTab'
 import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
 import GiveIntimationTab from './components/GiveIntimationTab'
@@ -585,7 +584,6 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
             {tenderSyncSummary && <div className="notice ok">{tenderSyncSummary}</div>}
             <GoogleLinkImport onImport={importFromGoogleLink} />
             {loginCircle && <MonitoringLinkImport onImport={importFromMonitoringLink} />}
-            <TenderPdfImport table={currentTable} onChange={updateTable} />
             {currentTable ? (
               <>
                 <ExcelInline key={currentTable.id} table={currentTable} onChange={updateTable} />

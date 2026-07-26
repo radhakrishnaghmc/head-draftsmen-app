@@ -33,10 +33,6 @@ export const IPC = {
   pickExcelGrids: 'dialog:pickExcelGrids',
   pickEstimateGrid: 'dialog:pickEstimateGrid',
   pickDataSheet: 'dialog:pickDataSheet',
-  pickTenderEvalFolder: 'dialog:pickTenderEvalFolder',
-  readFileBase64: 'fs:readFileBase64',
-  listDriveFolderTenderFiles: 'drive:listFolderTenderFiles',
-  downloadDriveFile: 'drive:downloadFile',
   ocrEstimatePhotos: 'data:ocrEstimatePhotos',
   openPath: 'shell:openPath',
   revealItem: 'shell:revealItem',
@@ -87,14 +83,6 @@ export interface DocuGenApi {
   pickExcelGrids(): Promise<SheetGrid[]>
   pickEstimateGrid(): Promise<SheetGrid | null>
   pickDataSheet(): Promise<SheetGrid[] | null>
-  /** Prompts for a tender-evaluation folder and returns the folder path plus its tender-evaluation PDF paths and intimation-notice (.pdf/.html) paths found anywhere under it, or null if cancelled. */
-  pickTenderEvalFolder(): Promise<{ dir: string; tenderPdfs: string[]; intimationFiles: string[] } | null>
-  /** Reads a .pdf or .html file at an absolute path and returns it base64-encoded — used to feed folder files into the renderer's pdf.js / HTML parsers. */
-  readFileBase64(filePath: string): Promise<string>
-  /** Lists the tender-evaluation PDFs and intimation notices (id + name) in a public Google Drive folder link. */
-  listDriveFolderTenderFiles(link: string): Promise<{ tenderPdfs: { id: string; name: string }[]; intimationFiles: { id: string; name: string }[] }>
-  /** Downloads one Google Drive file (by id) and returns it base64-encoded. */
-  downloadDriveFile(id: string): Promise<string>
   /** Runs local OCR on photos of a paper estimate (in page order) and reconstructs one combined grid, best-effort — always review before exporting. */
   ocrEstimatePhotos(dataUrls: string[]): Promise<SheetGrid>
   openPath(target: string): Promise<void>

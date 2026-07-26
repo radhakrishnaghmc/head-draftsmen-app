@@ -26,7 +26,6 @@ import type { MaterialEstimateMeta } from '../core/materialTemplate'
 import type { MaterialTotals } from '../core/materialEstimate'
 import { parseCalendarHtml } from '../core/calendar'
 import { importTableFromGoogleLink, importAllSheetsFromGoogleLink } from '../core/googleImport'
-import { listDriveFolderTenderFiles, downloadDriveFile, isTenderPdf, isIntimationFile } from '../core/googleDriveFolder'
 import { validateLogin } from '../core/auth'
 import type { LoginResult } from '../core/auth'
 import { fillTenderNotice } from '../core/tenderNotice'
@@ -147,62 +146,6 @@ function registerHandlers(): void {
     })
     if (result.canceled || result.filePaths.length === 0) return null
     return readAllSheetGrids(result.filePaths[0])
-  })
-
-  ipcMain.handle(
-    IPC.pickTenderEvalFolder,
-    async (): Promise<{ dir: string; tenderPdfs: string[]; intimationFiles: string[] } | null> => {
-      const result = await dialog.showOpenDialog(mainWindow!, {
-        title: 'Select the Tender Evaluation folder',
-        properties: ['openDirectory']
-      })
-      if (result.canceled || result.filePaths.length === 0) return null
-      const dir = result.filePaths[0]
-      // Recurse the tree (skipping "<name>_files" asset folders), classifying
-      // by filename the same way the Drive folder scan does.
-      const tenderPdfs: string[] = []
-      const intimationFiles: string[] = []
-      const walk = (d: string, depth: number) => {
-        if (depth > 8) return
-        let entries: import('fs').Dirent[]
-        try {
-          entries = fs.readdirSync(d, { withFileTypes: true })
-        } catch {
-          return
-        }
-        for (const ent of entries) {
-          const full = path.join(d, ent.name)
-          if (ent.isDirectory()) {
-            if (!/_files$/i.test(ent.name)) walk(full, depth + 1)
-          } else if (isIntimationFile(ent.name)) {
-            intimationFiles.push(full)
-          } else if (isTenderPdf(ent.name)) {
-            tenderPdfs.push(full)
-          }
-        }
-      }
-      walk(dir, 0)
-      tenderPdfs.sort()
-      intimationFiles.sort()
-      return { dir, tenderPdfs, intimationFiles }
-    }
-  )
-
-  ipcMain.handle(IPC.readFileBase64, async (_e, filePath: string): Promise<string> => {
-    const lower = filePath.toLowerCase()
-    if (!lower.endsWith('.pdf') && !lower.endsWith('.html') && !lower.endsWith('.htm')) {
-      throw new Error('Only .pdf and .html files can be read here.')
-    }
-    return fs.readFileSync(filePath).toString('base64')
-  })
-
-  ipcMain.handle(
-    IPC.listDriveFolderTenderFiles,
-    async (_e, link: string) => listDriveFolderTenderFiles(link)
-  )
-
-  ipcMain.handle(IPC.downloadDriveFile, async (_e, id: string): Promise<string> => {
-    return (await downloadDriveFile(id)).toString('base64')
   })
 
   ipcMain.handle(IPC.ocrEstimatePhotos, async (_e, dataUrls: string[]): Promise<SheetGrid> => {
