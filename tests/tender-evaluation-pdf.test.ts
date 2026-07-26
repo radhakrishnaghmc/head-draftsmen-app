@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseTenderEvaluation } from '../core/tenderEvaluationPdf'
+import { parseTenderEvaluation, mergeEvaluationsByWork } from '../core/tenderEvaluationPdf'
 
 // pdf.js reconstructs these lines from the portal's Commercial Evaluation
 // page — the header's two-column layout interleaves "Tender ID …" into the
@@ -73,5 +73,42 @@ describe('parseTenderEvaluation', () => {
     expect(r.l1AgencyName).toBeUndefined()
     expect(r.tenderPercentage).toBeUndefined()
     expect(r.contractRupees).toBeUndefined()
+  })
+})
+
+describe('mergeEvaluationsByWork', () => {
+  it('combines a responsiveness page and a commercial page for the same work into one complete record', () => {
+    const responsiveness = {
+      nameOfWork: 'Junction Improvement in Aleap Circle',
+      tenderId: '717574',
+      noticeNo: '12/DB/EE/…/2026-27',
+      noticeDate: '15.07.2026',
+      ecvRupees: 1593493
+    }
+    const commercial = {
+      nameOfWork: 'Junction improvement in aleap circle', // different casing, same work
+      l1AgencyName: 'M V S CONSTRUCTIONS',
+      tenderPercentage: 11.11,
+      contractRupees: 1416455.93
+    }
+    const merged = mergeEvaluationsByWork([responsiveness, commercial])
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toMatchObject({
+      tenderId: '717574',
+      noticeDate: '15.07.2026',
+      ecvRupees: 1593493,
+      l1AgencyName: 'M V S CONSTRUCTIONS',
+      tenderPercentage: 11.11,
+      contractRupees: 1416455.93
+    })
+  })
+
+  it('keeps distinct works separate and drops records with no work name', () => {
+    const merged = mergeEvaluationsByWork([
+      { nameOfWork: 'Work A', tenderId: 'A1' },
+      { nameOfWork: 'Work B', tenderId: 'B1' },
+      { tenderId: 'no-work' }
+    ])
+    expect(merged.map((m) => m.tenderId).sort()).toEqual(['A1', 'B1'])
   })
 })

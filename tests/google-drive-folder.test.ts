@@ -44,32 +44,51 @@ describe('parseDriveFolderListing', () => {
 })
 
 describe('collectFolderPdfs', () => {
-  // A tree: root -> [Circle-58 (sub), Contractors (sub, must skip), top.pdf]
-  //         Circle-58 -> [deeper (sub), work1.pdf]
-  //         deeper -> [work2.pdf]
-  //         Contractors -> [should-never-see.pdf]
+  // The real tree nests tender PDFs inconsistently:
+  //  - W1 (NIT.12): tender PDFs sit directly in the work folder, agency
+  //    subfolders alongside carry the bidder's own docs.
+  //  - W3 (NIT.02): the work folder has NO direct PDFs — the tender PDFs are
+  //    inside the agency's "Common Documents" subfolder, mixed with bidder docs.
   const tree: Record<string, string> = {
-    ROOT: folderEntry('C58', 'Circle-58') + folderEntry('CON', 'Contractors') + fileEntry('T', 'top.pdf'),
-    C58: folderEntry('DEEP', 'deeper') + fileEntry('W1', 'work1.pdf'),
-    DEEP: fileEntry('W2', 'work2.pdf'),
-    CON: fileEntry('NOPE', 'should-never-see.pdf')
+    ROOT: folderEntry('NIT12', 'NIT.12') + folderEntry('NIT02', 'NIT.02(FY-026-27)'),
+    NIT12: folderEntry('W1', '1.717574-Aleap circle'),
+    W1:
+      folderEntry('AG1', 'M V S CONSTRUCTIONS') +
+      folderEntry('ASSETS', 'viewIntimationNoticealeadp circle_files') +
+      fileEntry('P1', 'Stage Selected Form l1.pdf') +
+      fileEntry('P2', 'Stage Selected Form.pdf') +
+      fileEntry('X', '717574-Evaluations.xlsx'),
+    AG1: fileEntry('BID1', '7406082-ravi aadhar.pdf') + fileEntry('BID2', '7406086-ravi new gst.pdf'),
+    ASSETS: fileEntry('IMG', 'image001.pdf'),
+    NIT02: folderEntry('W3', '1.iTEM.01-699966'),
+    W3: folderEntry('AG3', 'N K INFRA PROJECTS'),
+    AG3: folderEntry('CD', 'Common Documents'),
+    // Tender PDFs and a bidder doc share this folder — only filename tells them apart.
+    CD: fileEntry('P3', 'L1.pdf') + fileEntry('P4', 'Stage Selected Form 1.pdf') + fileEntry('BID3', '10971896-gst naresh.pdf')
   }
   const fetchHtml = async (id: string) => tree[id] ?? ''
 
-  it('recurses into subfolders and collects every PDF', async () => {
+  it('collects tender PDFs whether direct in the work folder or nested in Common Documents', async () => {
     const pdfs = await collectFolderPdfs('ROOT', fetchHtml)
-    const names = pdfs.map((p) => p.name).sort()
-    expect(names).toEqual(['top.pdf', 'work1.pdf', 'work2.pdf'])
+    expect(pdfs.map((p) => p.name).sort()).toEqual([
+      'L1.pdf',
+      'Stage Selected Form 1.pdf',
+      'Stage Selected Form l1.pdf',
+      'Stage Selected Form.pdf'
+    ])
   })
 
-  it('never descends into a Contractors folder', async () => {
+  it('excludes bidder documents by filename, even when mixed in the same folder as tender PDFs', async () => {
     const pdfs = await collectFolderPdfs('ROOT', fetchHtml)
-    expect(pdfs.find((p) => p.name === 'should-never-see.pdf')).toBeUndefined()
+    expect(pdfs.find((p) => ['BID1', 'BID2', 'BID3', 'IMG'].includes(p.id))).toBeUndefined()
   })
 
   it('does not loop forever on a self-referential tree', async () => {
-    const loop: Record<string, string> = { A: folderEntry('B', 'b') + fileEntry('P', 'x.pdf'), B: folderEntry('A', 'a') }
+    const loop: Record<string, string> = {
+      A: folderEntry('B', 'b'),
+      B: folderEntry('A', 'a') + fileEntry('P', 'L1.pdf')
+    }
     const pdfs = await collectFolderPdfs('A', async (id) => loop[id] ?? '')
-    expect(pdfs.map((p) => p.name)).toEqual(['x.pdf'])
+    expect(pdfs.map((p) => p.name)).toEqual(['L1.pdf'])
   })
 })

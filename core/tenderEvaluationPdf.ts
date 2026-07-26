@@ -21,6 +21,36 @@ function toNumber(s: string): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
+/**
+ * Collapse several evaluations of the *same* work into one. A work folder
+ * holds multiple pages for one tender — the responsiveness "Stage Selected
+ * Form" pages (which carry Name of Work / Tender ID / NIT / ECV but no price
+ * bid) and the commercial "L1" page (which adds the L-1 agency, percentage,
+ * and contract value) — so parsing them separately yields several partial
+ * records for one work. Merging by normalized Name of Work fills each field
+ * from whichever page had it (first defined wins), producing one complete
+ * record per work and keeping the caller's matched/updated counts honest.
+ */
+export function mergeEvaluationsByWork(evaluations: TenderEvaluation[]): TenderEvaluation[] {
+  const byWork = new Map<string, TenderEvaluation>()
+  for (const ev of evaluations) {
+    const key = (ev.nameOfWork ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+    if (!key) continue
+    const existing = byWork.get(key)
+    if (!existing) {
+      byWork.set(key, { ...ev })
+      continue
+    }
+    for (const k of Object.keys(ev) as (keyof TenderEvaluation)[]) {
+      if (existing[k] === undefined && ev[k] !== undefined) {
+        // Each field is string | number | undefined; the key-matched assignment is sound.
+        ;(existing as Record<string, unknown>)[k] = ev[k]
+      }
+    }
+  }
+  return [...byWork.values()]
+}
+
 // Tightens OCR/layout spacing inside an identifier so a code split across the
 // PDF's two-column layout ("… Circle- 58/CMC …") rejoins ("…Circle-58/CMC…").
 function tightenCode(s: string): string {

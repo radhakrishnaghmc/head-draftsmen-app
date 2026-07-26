@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { api } from '../ipc'
 import { pdfToTextLines, pdfToTextLinesFromData } from '../pdfToText'
-import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
+import { parseTenderEvaluation, mergeEvaluationsByWork, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
 import { base64ToUint8 } from './docPage'
 import { IconFolder, IconWarn, IconCheck } from './Icons'
@@ -47,19 +47,33 @@ export default function TenderPdfImport({ table, onChange }: Props) {
     setDone(null)
     setProgress({ done: 0, total: sources.length })
     try {
-      const evaluations: TenderEvaluation[] = []
+      const parsed: TenderEvaluation[] = []
       const skipped: string[] = []
-      for (let i = 0; i < sources.length; i++) {
-        try {
-          const ev = parseTenderEvaluation(await sources[i].getLines())
-          if (ev.nameOfWork) evaluations.push(ev)
-          else skipped.push(sources[i].name)
-        } catch {
-          skipped.push(sources[i].name)
+      // A folder can hold hundreds of PDFs (several evaluation pages per
+      // work); download + text-extract them a few at a time rather than one
+      // by one, updating the progress bar as each finishes.
+      let done = 0
+      let next = 0
+      const CONCURRENCY = 5
+      const worker = async () => {
+        for (;;) {
+          const i = next++
+          if (i >= sources.length) return
+          try {
+            const ev = parseTenderEvaluation(await sources[i].getLines())
+            if (ev.nameOfWork) parsed.push(ev)
+            else skipped.push(sources[i].name)
+          } catch {
+            skipped.push(sources[i].name)
+          }
+          setProgress({ done: ++done, total: sources.length })
         }
-        setProgress({ done: i + 1, total: sources.length })
       }
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, sources.length) }, worker))
 
+      // Several pages per work (responsiveness + commercial "L1") collapse
+      // into one complete record per work.
+      const evaluations = mergeEvaluationsByWork(parsed)
       if (evaluations.length === 0) {
         setError(
           `Couldn't read a Name of Work from ${sources.length === 1 ? 'that PDF' : 'any of those PDFs'} — make sure they're the tender's Commercial Evaluation / Stage Selected pages.`
@@ -91,10 +105,10 @@ export default function TenderPdfImport({ table, onChange }: Props) {
       if (matchedCount > 0) onChange(updated)
 
       const parts = [
-        `Updated ${matchedCount} work${matchedCount === 1 ? '' : 's'} from ${evaluations.length} PDF${evaluations.length === 1 ? '' : 's'}.`
+        `Updated ${matchedCount} work${matchedCount === 1 ? '' : 's'} from ${evaluations.length} tender${evaluations.length === 1 ? '' : 's'} (${sources.length} PDF${sources.length === 1 ? '' : 's'} read).`
       ]
       if (unmatched.length > 0) parts.push(`No matching work for: ${unmatched.join('; ')}.`)
-      if (skipped.length > 0) parts.push(`Skipped (no tender details): ${skipped.join(', ')}.`)
+      if (skipped.length > 0) parts.push(`Ignored ${skipped.length} non-tender PDF${skipped.length === 1 ? '' : 's'}.`)
       setDone(parts.join(' '))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))

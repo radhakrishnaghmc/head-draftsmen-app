@@ -9,10 +9,29 @@ export interface DriveEntry extends DriveFile {
   isFolder: boolean
 }
 
-/** Subfolders whose name mentions "contractor(s)" are never scanned — they hold contractor paperwork, not tender-evaluation PDFs. */
-const SKIP_FOLDER_RE = /contractor/i
+// Google's own "<name>_files" asset folders (saved-webpage sidecars) never
+// hold tender PDFs — not descended into.
+const ASSET_FOLDER_RE = /_files$/i
 // Guard against a pathologically deep or self-referential share tree.
-const MAX_DEPTH = 6
+const MAX_DEPTH = 8
+
+/**
+ * The e-procurement portal's tender-evaluation documents have consistent
+ * filenames — the commercial "L1" selection page and the "Stage Selected
+ * Form" responsiveness/evaluation pages. A bidder's own uploaded documents
+ * (PAN, Aadhaar, GST, IT returns, registration, no-blacklist, …) never do.
+ * That filename is the one reliable way to tell them apart, since the real
+ * share tree nests them together inconsistently — sometimes the tender PDFs
+ * sit beside an agency subfolder, sometimes inside that agency's "Common
+ * Documents" folder alongside the bidder docs — so folder-name/structure
+ * skipping alone can't separate them.
+ */
+const TENDER_PDF_RE = /stage\s*selected\s*form|^l\s*-?\s*1\b/i
+
+function isTenderPdf(name: string): boolean {
+  const n = name.trim()
+  return n.toLowerCase().endsWith('.pdf') && TENDER_PDF_RE.test(n)
+}
 
 /** Extract the folder ID from a Google Drive folder share link, or null if the link isn't a Drive folder link. */
 export function driveFolderId(link: string): string | null {
@@ -57,42 +76,71 @@ export function parseDriveFolderListing(html: string): DriveEntry[] {
 }
 
 /**
- * Walk a Drive folder tree from `rootId`, returning every PDF file found at
- * any depth. Recurses into subfolders — the shared link is often a parent of
- * per-work subfolders holding the PDFs — but never descends into a folder
- * whose name mentions "contractor" (SKIP_FOLDER_RE), and guards against
- * cycles/excessive depth. `fetchFolderHtml` returns a folder id's
- * embeddedfolderview HTML (injected so this is unit-testable without network).
+ * Walk a Drive folder tree from `rootId`, returning every tender-evaluation
+ * PDF (by filename — see isTenderPdf / TENDER_PDF_RE) found at any depth. The
+ * whole tree is traversed because the real share layout nests the tender
+ * PDFs inconsistently (sometimes in the per-work folder, sometimes inside an
+ * agency's "Common Documents" subfolder), so the filename filter — not the
+ * folder structure — is what keeps a bidder's own documents (PAN/GST/…) out.
+ * "<name>_files" asset folders are skipped, and cycles/excessive depth are
+ * guarded. `fetchFolderHtml` returns a folder id's embeddedfolderview HTML
+ * (injected so this is unit-testable offline).
  */
 export async function collectFolderPdfs(
   rootId: string,
-  fetchFolderHtml: (folderId: string) => Promise<string>
+  fetchFolderHtml: (folderId: string) => Promise<string>,
+  concurrency = 8
 ): Promise<DriveFile[]> {
   const pdfs: DriveFile[] = []
-  const visited = new Set<string>()
+  const visited = new Set<string>([rootId])
+  const queue: { id: string; depth: number }[] = [{ id: rootId, depth: 0 }]
 
-  async function walk(folderId: string, depth: number): Promise<void> {
-    if (visited.has(folderId) || depth > MAX_DEPTH) return
-    visited.add(folderId)
-    const entries = parseDriveFolderListing(await fetchFolderHtml(folderId))
-    for (const e of entries) {
-      if (e.isFolder) {
-        if (SKIP_FOLDER_RE.test(e.name)) continue
-        await walk(e.id, depth + 1)
-      } else if (e.name.toLowerCase().endsWith('.pdf')) {
-        pdfs.push({ id: e.id, name: e.name })
+  // A bounded worker pool over a growing queue: the real tree fans out into
+  // 100+ folders (per-NIT → per-work → per-agency → Common Documents), and
+  // listing them one network request at a time is far too slow — so up to
+  // `concurrency` folders are listed at once, each enqueueing its own
+  // subfolders as it resolves. A folder that fails to list is skipped rather
+  // than aborting the whole scan.
+  let active = 0
+  return await new Promise<DriveFile[]>((resolve) => {
+    const pump = () => {
+      if (queue.length === 0 && active === 0) {
+        resolve(pdfs)
+        return
+      }
+      while (active < concurrency && queue.length > 0) {
+        const { id, depth } = queue.shift()!
+        active++
+        fetchFolderHtml(id)
+          .then((html) => {
+            for (const e of parseDriveFolderListing(html)) {
+              if (e.isFolder) {
+                if (!ASSET_FOLDER_RE.test(e.name) && depth < MAX_DEPTH && !visited.has(e.id)) {
+                  visited.add(e.id)
+                  queue.push({ id: e.id, depth: depth + 1 })
+                }
+              } else if (isTenderPdf(e.name)) {
+                pdfs.push({ id: e.id, name: e.name })
+              }
+            }
+          })
+          .catch(() => {})
+          .finally(() => {
+            active--
+            pump()
+          })
       }
     }
-  }
-
-  await walk(rootId, 0)
-  return pdfs
+    pump()
+  })
 }
 
 /**
- * List every PDF in a public Google Drive folder link, recursing through
- * subfolders (skipping any "contractor(s)" folder). Throws a clear error
- * when the link isn't a Drive folder or the (public) tree has no PDFs.
+ * List every tender-evaluation PDF (L1 / Stage Selected Form pages) in a
+ * public Google Drive folder link, recursing the whole tree and keeping only
+ * those by filename — so a bidder's own uploaded documents are ignored (see
+ * collectFolderPdfs). Throws a clear error when the link isn't a Drive folder
+ * or the (public) tree has no such PDFs.
  */
 export async function listDriveFolderPdfs(link: string): Promise<DriveFile[]> {
   const id = driveFolderId(link)
@@ -104,7 +152,7 @@ export async function listDriveFolderPdfs(link: string): Promise<DriveFile[]> {
   const pdfs = await collectFolderPdfs(id, fetchFolderHtml)
   if (pdfs.length === 0) {
     throw new Error(
-      'No PDF files found in that Drive folder (or its subfolders). Make sure it\'s shared as "Anyone with the link can view" and contains PDFs.'
+      'No tender-evaluation PDFs (L1 / Stage Selected Form) found in that Drive folder or its subfolders. Make sure it\'s shared as "Anyone with the link can view".'
     )
   }
   return pdfs
