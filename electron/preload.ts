@@ -47,7 +47,6 @@ const api: DocuGenApi = {
     ),
   searchTenders: (query) => ipcRenderer.invoke(IPC.searchTenders, query),
   embedTexts: (texts) => ipcRenderer.invoke(IPC.embedTexts, texts),
-  createDocumentFromClipboard: () => ipcRenderer.invoke(IPC.createDocumentFromClipboard),
   listDocumentParagraphs: (docxBase64) => ipcRenderer.invoke(IPC.listDocumentParagraphs, docxBase64),
   saveDocumentEdits: (docxBase64, edits) => ipcRenderer.invoke(IPC.saveDocumentEdits, docxBase64, edits),
   findPlaceholdersInDocument: (docxBase64) => ipcRenderer.invoke(IPC.findPlaceholdersInDocument, docxBase64),

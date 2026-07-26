@@ -3,7 +3,6 @@ import { api } from '../ipc'
 import appLogo from '../assets/app-logo.png'
 import {
   IconTable,
-  IconDoc,
   IconPrint,
   IconWarn,
   IconCheck,
@@ -18,7 +17,6 @@ import {
 export type TabKey =
   | 'dashboard'
   | 'data'
-  | 'createDoc'
   | 'printDoc'
   | 'estimateWorkspace'
   | 'techSanction'
@@ -93,12 +91,6 @@ export default function Sidebar(props: Props) {
       badge: props.tableCount || undefined,
       warn: props.unresolved > 0,
       tone: 'green'
-    },
-    {
-      key: 'createDoc',
-      label: 'Create New Document',
-      icon: <IconDoc />,
-      tone: 'rose'
     },
     {
       key: 'printDoc',

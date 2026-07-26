@@ -13,8 +13,6 @@ interface Props {
   tables: ExcelTable[]
   documents: CreatedDocument[]
   onChange: (docs: CreatedDocument[]) => void
-  /** Sends a document to Create New Document for edits. */
-  onEdit: (doc: CreatedDocument) => void
   /** Switches to the Works List tab — offered when there are no rows to pick from. */
   onGoToWorksList: () => void
 }
@@ -27,7 +25,7 @@ function rowLabel(row: Record<string, string>, headers: string[], index: number)
 
 const TILE_TONES = ['tone-indigo', 'tone-sky', 'tone-rose', 'tone-amber', 'tone-teal', 'tone-green']
 
-export default function PrintDocumentTab({ tables, documents, onChange, onEdit, onGoToWorksList }: Props) {
+export default function PrintDocumentTab({ tables, documents, onChange, onGoToWorksList }: Props) {
   const table = tables[0] ?? null
 
   const [pendingDelete, setPendingDelete] = useState<CreatedDocument | null>(null)
@@ -201,7 +199,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onEdit, 
         {documents.length === 0 ? (
           <div className="empty">
             <IconDoc />
-            <p>Nothing added yet — paste a document on the Create New Document tab first.</p>
+            <p>No document templates available yet.</p>
           </div>
         ) : (
           <div className="doc-tile-grid">
@@ -222,9 +220,6 @@ export default function PrintDocumentTab({ tables, documents, onChange, onEdit, 
                 onDrop={(e) => handleDrop(e, i)}
                 onDragEnd={handleDragEnd}
               >
-                <button className="doc-tile-edit-btn" title="Edit Document" onClick={() => onEdit(doc)}>
-                  EDIT
-                </button>
                 <DocThumbnail docx={doc.docx} />
                 <div className="doc-tile-card-name" title={doc.name}>
                   {doc.name}

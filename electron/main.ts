@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as https from 'https'
@@ -35,7 +35,6 @@ import type { BidDocumentInput } from '../core/bidDocument'
 import type { CalendarData } from '../core/calendar'
 import { convertHtmlToDocx } from '../core/htmlToDocx'
 import { convertDocxToPdf } from '../core/docxToPdf'
-import { convertRtfToDocx } from '../core/rtfToDocx'
 import {
   listParagraphs,
   applyParagraphEdits,
@@ -459,18 +458,6 @@ function registerHandlers(): void {
 
   ipcMain.handle(IPC.embedTexts, async (_e, texts: string[]): Promise<number[][]> => {
     return embedTexts(texts)
-  })
-
-  ipcMain.handle(IPC.createDocumentFromClipboard, async (): Promise<string | null> => {
-    // RTF is Word's own, far richer clipboard format — readBuffer (not the
-    // string-returning readRTF) avoids corrupting any embedded image data
-    // via a string encoding round-trip.
-    const format = process.platform === 'darwin' ? 'public.rtf' : 'Rich Text Format'
-    if (!clipboard.has(format)) return null
-    const rtfBuffer = clipboard.readBuffer(format)
-    if (rtfBuffer.length === 0) return null
-    const docxBuffer = await convertRtfToDocx(rtfBuffer)
-    return docxBuffer.toString('base64')
   })
 
   ipcMain.handle(IPC.listDocumentParagraphs, async (_e, docxBase64: string): Promise<string[]> => {

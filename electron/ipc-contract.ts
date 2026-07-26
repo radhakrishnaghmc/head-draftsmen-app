@@ -58,7 +58,6 @@ export const IPC = {
   generateTechnicalSanction: 'data:generateTechnicalSanction',
   searchTenders: 'tenders:search',
   embedTexts: 'ai:embedTexts',
-  createDocumentFromClipboard: 'doc:createDocumentFromClipboard',
   listDocumentParagraphs: 'doc:listDocumentParagraphs',
   saveDocumentEdits: 'doc:saveDocumentEdits',
   findPlaceholdersInDocument: 'doc:findPlaceholdersInDocument',
@@ -133,8 +132,6 @@ export interface DocuGenApi {
   ): Promise<string | null>
   searchTenders(query: TenderQuery): Promise<TenderResult>
   embedTexts(texts: string[]): Promise<number[][]>
-  /** Reads Word's own RTF clipboard flavor and converts it to a real .docx via a local LibreOffice install — base64-encoded, or null if the clipboard has no rich content. */
-  createDocumentFromClipboard(): Promise<string | null>
   /** Plain text of every paragraph in a base64 .docx, in document order — used to diff a user's typed edits back against the original before saving. */
   listDocumentParagraphs(docxBase64: string): Promise<string[]>
   /** Rewrites only the paragraphs that actually changed, preserving every other run's formatting — returns the updated base64 .docx. */

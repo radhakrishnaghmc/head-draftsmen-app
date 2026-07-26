@@ -30,7 +30,6 @@ import MonitoringLinkImport, { type MonitoringMergeSummary } from './components/
 import EstimateWorkspaceTab from './components/EstimateWorkspaceTab'
 import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
 import GiveIntimationTab from './components/GiveIntimationTab'
-import CreateDocumentTab from './components/CreateDocumentTab'
 import PrintDocumentTab from './components/PrintDocumentTab'
 import TodoList from './components/TodoList'
 import TenderReminders from './components/TenderReminders'
@@ -106,14 +105,6 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
   // state, so the real data on disk is preserved untouched rather than
   // clobbered with `[]` the moment anything else changes.
   const withheldTablesRef = useRef<ExcelTable[] | null>(null)
-  // Set when a document is sent from Issue Document to Create New Document
-  // for edits — cleared once loaded/saved/cancelled there.
-  const [editingDoc, setEditingDoc] = useState<CreatedDocument | null>(null)
-
-  function editCreatedDocument(doc: CreatedDocument) {
-    setEditingDoc(doc)
-    setTab('createDoc')
-  }
 
   // The current Excel shown on the Data tab (single-workbook workflow).
   const currentTable = tables[0] ?? null
@@ -607,29 +598,6 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
           </section>
         )}
 
-        {tab === 'createDoc' && (
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic rose">
-                <IconDoc />
-              </div>
-              <div className="page-head-text">
-                <h1>Create New Document</h1>
-                <p>
-                  Paste a document and add {'{{Placeholder}}'} markers — find it on the Issue
-                  Document tab when you're ready to fill and print it.
-                </p>
-              </div>
-            </div>
-            <CreateDocumentTab
-              documents={createdDocuments}
-              onChange={setCreatedDocuments}
-              editingDoc={editingDoc}
-              onDoneEditing={() => setEditingDoc(null)}
-            />
-          </section>
-        )}
-
         {tab === 'printDoc' && (
           <section className="page">
             <div className="page-head">
@@ -648,7 +616,6 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
               tables={tables}
               documents={createdDocuments}
               onChange={setCreatedDocuments}
-              onEdit={editCreatedDocument}
               onGoToWorksList={() => setTab('data')}
             />
           </section>

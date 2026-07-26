@@ -78,12 +78,9 @@ export interface TenderReminder {
 }
 
 /**
- * A document created by pasting rich content (with {{Placeholder}} markers)
- * into the "Create New Document" blank space. `docx` is a base64-encoded
- * real .docx (OOXML) buffer — Word's own clipboard RTF converted losslessly
- * via LibreOffice (see electron/main.ts's createDocumentFromClipboard) — the
- * source of truth for every later "Create Document" run against a Works
- * List row.
+ * A saved document template (with {{Placeholder}} markers). `docx` is a
+ * base64-encoded real .docx (OOXML) buffer — the source of truth for every
+ * "Issue Document" run that fills it against a Works List row.
  */
 export interface CreatedDocument {
   id: string
