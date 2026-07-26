@@ -115,5 +115,36 @@ describe('matchPlaceholdersToColumns', () => {
     expect(match.column).toBe('Name of the Contractor')
     expect(match.score).toBeGreaterThan(0.9) // the embedding score, not the weak keyword overlap
   })
+
+  it('by default lets several labels map to the same column (document filling)', () => {
+    const labels = ['Name of the Agency', 'Address of the agency']
+    const columns = ['Agency Details']
+    // Both labels' single best (and only) column is "Agency Details".
+    const embeddings = {
+      labelVectors: [
+        [1, 0],
+        [0.9, 0.1]
+      ],
+      columnVectors: [[0.95, 0.05]]
+    }
+    const result = matchPlaceholdersToColumns(labels, columns, embeddings)
+    expect(result[0].column).toBe('Agency Details')
+    expect(result[1].column).toBe('Agency Details')
+  })
+
+  it('with uniqueColumns, a source column is claimed by only the highest-scoring label', () => {
+    const labels = ['Name of the Agency', 'Address of the agency']
+    const columns = ['Agency Details']
+    const embeddings = {
+      labelVectors: [
+        [1, 0], // "Name of the Agency" scores highest on Agency Details
+        [0.9, 0.1] // "Address of the agency" scores slightly lower
+      ],
+      columnVectors: [[0.98, 0.02]]
+    }
+    const result = matchPlaceholdersToColumns(labels, columns, embeddings, { uniqueColumns: true })
+    expect(result[0].column).toBe('Agency Details') // winner keeps the column
+    expect(result[1].column).toBeNull() // the other gets nothing, not the same column
+  })
 })
 

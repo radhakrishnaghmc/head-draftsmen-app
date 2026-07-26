@@ -161,19 +161,56 @@ function tokenOverlapScore(a: string, b: string): number {
  * core/technicalSanction.ts uses for rate matching, so a weak keyword overlap
  * doesn't drag down an otherwise-confident semantic match, and vice versa.
  * Omitting `embeddings` reproduces plain token-overlap matching exactly.
+ *
+ * `options.uniqueColumns` makes the assignment injective on the *source*
+ * column: each column is claimed by at most one label (the highest-scoring),
+ * so two labels can't both resolve to the same source column. Use it when
+ * pulling target columns *from* a source table (e.g. importing a monitoring
+ * sheet into the Works List) — there, "Name of the Agency" and "Address of
+ * the agency" both scoring highest on one "Agency Details" column would
+ * otherwise copy the same text into both. Leave it off for document
+ * placeholder filling, where several placeholders legitimately read the same
+ * column (a work name printed in both the title and the body).
  */
 export function matchPlaceholdersToColumns(
   labels: string[],
   columns: string[],
-  embeddings?: EmbeddingVectors
+  embeddings?: EmbeddingVectors,
+  options?: { uniqueColumns?: boolean }
 ): PlaceholderMatch[] {
-  return labels.map((label, i) => {
-    if (columns.length === 0) return { label, column: null, score: 0 }
-    const scores = columns.map((column, j) => {
+  const scoreMatrix = labels.map((label, i) =>
+    columns.map((column, j) => {
       const keyword = tokenOverlapScore(label, column)
       const semantic = embeddings ? cosineSimilarity(embeddings.labelVectors[i], embeddings.columnVectors[j]) : 0
       return Math.max(keyword, semantic)
     })
+  )
+
+  if (options?.uniqueColumns) {
+    // Greedy global assignment: take the strongest (label, column) pairs
+    // first, each label and each column used at most once.
+    const result: PlaceholderMatch[] = labels.map((label) => ({ label, column: null, score: 0 }))
+    const pairs: { i: number; j: number; score: number }[] = []
+    for (let i = 0; i < labels.length; i++) {
+      for (let j = 0; j < columns.length; j++) {
+        if (scoreMatrix[i][j] >= MATCH_THRESHOLD) pairs.push({ i, j, score: scoreMatrix[i][j] })
+      }
+    }
+    pairs.sort((a, b) => b.score - a.score)
+    const usedLabels = new Set<number>()
+    const usedColumns = new Set<number>()
+    for (const { i, j, score } of pairs) {
+      if (usedLabels.has(i) || usedColumns.has(j)) continue
+      result[i] = { label: labels[i], column: columns[j], score }
+      usedLabels.add(i)
+      usedColumns.add(j)
+    }
+    return result
+  }
+
+  return labels.map((label, i) => {
+    if (columns.length === 0) return { label, column: null, score: 0 }
+    const scores = scoreMatrix[i]
     let bestIdx = 0
     for (let j = 1; j < scores.length; j++) if (scores[j] > scores[bestIdx]) bestIdx = j
     const bestScore = scores[bestIdx]

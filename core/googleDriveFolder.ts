@@ -28,9 +28,21 @@ const MAX_DEPTH = 8
  */
 const TENDER_PDF_RE = /stage\s*selected\s*form|^l\s*-?\s*1\b/i
 
-function isTenderPdf(name: string): boolean {
+export function isTenderPdf(name: string): boolean {
   const n = name.trim()
   return n.toLowerCase().endsWith('.pdf') && TENDER_PDF_RE.test(n)
+}
+
+/**
+ * An intimation notice (Letter of Acceptance) saved from the portal — the
+ * source of the agency's postal address. Saved either as a webpage
+ * ("viewIntimationNotice…​.html") or as its PDF printout
+ * ("…viewIntimationNotice.html.pdf"); both are collected, keyed off the
+ * "viewIntimationNotice" in the filename.
+ */
+export function isIntimationFile(name: string): boolean {
+  const n = name.trim().toLowerCase()
+  return /viewintimationnotice/.test(n) && (n.endsWith('.html') || n.endsWith('.htm') || n.endsWith('.pdf'))
 }
 
 /** Extract the folder ID from a Google Drive folder share link, or null if the link isn't a Drive folder link. */
@@ -75,23 +87,32 @@ export function parseDriveFolderListing(html: string): DriveEntry[] {
   return entries
 }
 
+export interface DriveTenderFiles {
+  /** Tender-evaluation PDFs (L1 / Stage Selected Form pages) — see isTenderPdf. */
+  tenderPdfs: DriveFile[]
+  /** Intimation notices (.html or .html.pdf) — the source of agency addresses; see isIntimationFile. */
+  intimationFiles: DriveFile[]
+}
+
 /**
- * Walk a Drive folder tree from `rootId`, returning every tender-evaluation
- * PDF (by filename — see isTenderPdf / TENDER_PDF_RE) found at any depth. The
- * whole tree is traversed because the real share layout nests the tender
- * PDFs inconsistently (sometimes in the per-work folder, sometimes inside an
- * agency's "Common Documents" subfolder), so the filename filter — not the
- * folder structure — is what keeps a bidder's own documents (PAN/GST/…) out.
- * "<name>_files" asset folders are skipped, and cycles/excessive depth are
- * guarded. `fetchFolderHtml` returns a folder id's embeddedfolderview HTML
- * (injected so this is unit-testable offline).
+ * Walk a Drive folder tree from `rootId`, collecting the tender-evaluation
+ * PDFs *and* the intimation notices (by filename — see isTenderPdf /
+ * isIntimationFile) found at any depth. The whole tree is traversed because
+ * the real share layout nests these inconsistently (sometimes in the
+ * per-work folder, sometimes inside an agency's "Common Documents" subfolder),
+ * so the filename filter — not the folder structure — is what keeps a
+ * bidder's own documents (PAN/GST/…) out. "<name>_files" asset folders are
+ * skipped, and cycles/excessive depth are guarded. `fetchFolderHtml` returns
+ * a folder id's embeddedfolderview HTML (injected so this is unit-testable
+ * offline).
  */
-export async function collectFolderPdfs(
+export async function collectFolderFiles(
   rootId: string,
   fetchFolderHtml: (folderId: string) => Promise<string>,
   concurrency = 8
-): Promise<DriveFile[]> {
-  const pdfs: DriveFile[] = []
+): Promise<DriveTenderFiles> {
+  const tenderPdfs: DriveFile[] = []
+  const intimationFiles: DriveFile[] = []
   const visited = new Set<string>([rootId])
   const queue: { id: string; depth: number }[] = [{ id: rootId, depth: 0 }]
 
@@ -102,10 +123,10 @@ export async function collectFolderPdfs(
   // subfolders as it resolves. A folder that fails to list is skipped rather
   // than aborting the whole scan.
   let active = 0
-  return await new Promise<DriveFile[]>((resolve) => {
+  return await new Promise<DriveTenderFiles>((resolve) => {
     const pump = () => {
       if (queue.length === 0 && active === 0) {
-        resolve(pdfs)
+        resolve({ tenderPdfs, intimationFiles })
         return
       }
       while (active < concurrency && queue.length > 0) {
@@ -119,8 +140,10 @@ export async function collectFolderPdfs(
                   visited.add(e.id)
                   queue.push({ id: e.id, depth: depth + 1 })
                 }
+              } else if (isIntimationFile(e.name)) {
+                intimationFiles.push({ id: e.id, name: e.name })
               } else if (isTenderPdf(e.name)) {
-                pdfs.push({ id: e.id, name: e.name })
+                tenderPdfs.push({ id: e.id, name: e.name })
               }
             }
           })
@@ -136,26 +159,26 @@ export async function collectFolderPdfs(
 }
 
 /**
- * List every tender-evaluation PDF (L1 / Stage Selected Form pages) in a
- * public Google Drive folder link, recursing the whole tree and keeping only
- * those by filename — so a bidder's own uploaded documents are ignored (see
- * collectFolderPdfs). Throws a clear error when the link isn't a Drive folder
- * or the (public) tree has no such PDFs.
+ * List the tender-evaluation PDFs and intimation notices in a public Google
+ * Drive folder link, recursing the whole tree and keeping only those by
+ * filename — so a bidder's own uploaded documents are ignored (see
+ * collectFolderFiles). Throws a clear error when the link isn't a Drive
+ * folder or the (public) tree has neither.
  */
-export async function listDriveFolderPdfs(link: string): Promise<DriveFile[]> {
+export async function listDriveFolderTenderFiles(link: string): Promise<DriveTenderFiles> {
   const id = driveFolderId(link)
   if (!id) {
     throw new Error("That doesn't look like a Google Drive folder link (expected drive.google.com/drive/folders/…).")
   }
   const fetchFolderHtml = async (folderId: string) =>
     (await download(`https://drive.google.com/embeddedfolderview?id=${folderId}#list`)).toString('utf8')
-  const pdfs = await collectFolderPdfs(id, fetchFolderHtml)
-  if (pdfs.length === 0) {
+  const files = await collectFolderFiles(id, fetchFolderHtml)
+  if (files.tenderPdfs.length === 0 && files.intimationFiles.length === 0) {
     throw new Error(
-      'No tender-evaluation PDFs (L1 / Stage Selected Form) found in that Drive folder or its subfolders. Make sure it\'s shared as "Anyone with the link can view".'
+      'No tender-evaluation PDFs or intimation notices found in that Drive folder or its subfolders. Make sure it\'s shared as "Anyone with the link can view".'
     )
   }
-  return pdfs
+  return files
 }
 
 /** Download one Drive file (by id) as raw bytes — small tender PDFs download directly, with no virus-scan confirmation step. */

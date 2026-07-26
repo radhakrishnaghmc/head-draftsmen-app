@@ -299,7 +299,10 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
       // to plain token overlap automatically when no embeddings are passed.
       embeddings = undefined
     }
-    const mapping = matchPlaceholdersToColumns(WORKS_COLUMNS, imported.headers, embeddings)
+    // uniqueColumns: each imported column feeds at most one Works List column,
+    // so e.g. "Name of the Agency" and "Address of the agency" can't both pull
+    // from a single "Agency Details" column.
+    const mapping = matchPlaceholdersToColumns(WORKS_COLUMNS, imported.headers, embeddings, { uniqueColumns: true })
 
     const normalized = applyWorksSchemaWithMapping(imported.headers, rows, mapping, {
       id: `works-${Date.now()}`,
@@ -377,7 +380,12 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
       // to plain token overlap automatically when no embeddings are passed.
       embeddings = undefined
     }
-    const mapping = matchPlaceholdersToColumns(table.headers, monitoringTable.headers, embeddings)
+    // uniqueColumns: each monitoring column feeds at most one Works List
+    // column (see importFromGoogleLink) — fixes "Name of the Agency" and
+    // "Address of the agency" both mapping to one "Agency Details" column.
+    const mapping = matchPlaceholdersToColumns(table.headers, monitoringTable.headers, embeddings, {
+      uniqueColumns: true
+    })
     const result = mergeMonitoringRows(table, monitoringTable.rows, mapping)
 
     setTables([fillCircleNumber(result.table, loginCircleNumber), ...tables.slice(1)])

@@ -78,3 +78,39 @@ export function parseIntimationNotice(html: string): IntimationNotice {
 
   return result
 }
+
+/**
+ * Extract just the agency name + postal address from an intimation notice
+ * rendered as *text lines* — the same "To / <agency> / <address…> / Sir,
+ * Madam" block, but from a PDF printout's extracted lines (see
+ * src/pdfToText.ts) rather than HTML markup. Used when the intimation is
+ * saved as a .pdf instead of a .html. Tolerant of the "To" label being on
+ * its own line or inline with the agency name, and stops the address block
+ * at the "Sir/Madam" salutation (or after a few lines, as a safety cap).
+ */
+export function parseIntimationNoticeLines(lines: string[]): { agencyName?: string; address?: string } {
+  const rows = lines.map((l) => l.trim()).filter(Boolean)
+  let toIdx = -1
+  let inlineAgency = ''
+  for (let i = 0; i < rows.length; i++) {
+    const m = /^to\b[.,:]?\s*(.*)$/i.exec(rows[i])
+    if (m) {
+      toIdx = i
+      inlineAgency = m[1].trim()
+      break
+    }
+  }
+  if (toIdx === -1) return {}
+
+  const block: string[] = []
+  if (inlineAgency) block.push(inlineAgency)
+  for (let i = toIdx + 1; i < rows.length && block.length < 8; i++) {
+    if (/^(sir|madam|sir\s*\/?\s*madam|dear)\b/i.test(rows[i])) break
+    block.push(rows[i])
+  }
+  if (block.length === 0) return {}
+  return {
+    agencyName: block[0],
+    address: block.length > 1 ? block.slice(1).join(', ') : undefined
+  }
+}

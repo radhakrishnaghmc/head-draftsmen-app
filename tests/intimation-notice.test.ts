@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'fs'
-import { parseIntimationNotice } from '../core/intimationNotice'
+import { parseIntimationNotice, parseIntimationNoticeLines } from '../core/intimationNotice'
 
 // A trimmed copy of the real Telangana portal "viewIntimationNotice" page.
 const SAMPLE = `
@@ -60,5 +60,41 @@ describe('parseIntimationNotice', () => {
     expect(r.nitNo).toContain('Nizampet Circle-58')
     expect(r.contractRupees).toBeGreaterThan(0)
     expect(r.ecvRupees).toBe(1593493)
+  })
+})
+
+describe('parseIntimationNoticeLines (PDF-printout text)', () => {
+  it('reads agency + address from a "To" block with the label on its own line', () => {
+    const lines = [
+      'DATE: Friday, July 24, 2026',
+      'To',
+      'M V S CONSTRUCTIONS',
+      '13/B, Allwyn Colony, Phase 2, Kukatpally',
+      'Hyderabad -500072',
+      'Telangana',
+      'Sir/Madam,',
+      'This is notify you that the bid submitted by you ...'
+    ]
+    const r = parseIntimationNoticeLines(lines)
+    expect(r.agencyName).toBe('M V S CONSTRUCTIONS')
+    expect(r.address).toBe('13/B, Allwyn Colony, Phase 2, Kukatpally, Hyderabad -500072, Telangana')
+  })
+
+  it('reads agency + address when "To" is inline with the agency name', () => {
+    const lines = ['To M V S CONSTRUCTIONS', '13/B, Allwyn Colony', 'Hyderabad -500072', 'Sir/Madam,']
+    const r = parseIntimationNoticeLines(lines)
+    expect(r.agencyName).toBe('M V S CONSTRUCTIONS')
+    expect(r.address).toBe('13/B, Allwyn Colony, Hyderabad -500072')
+  })
+
+  it('does not mistake a word starting with "To" (e.g. "Toilets") for the address block', () => {
+    const lines = ['Toilets at MPPS in ward 12', 'To', 'ABC BUILDERS', 'Road No 1, Hyderabad', 'Sir,']
+    const r = parseIntimationNoticeLines(lines)
+    expect(r.agencyName).toBe('ABC BUILDERS')
+    expect(r.address).toBe('Road No 1, Hyderabad')
+  })
+
+  it('returns empty when there is no address block', () => {
+    expect(parseIntimationNoticeLines(['Some heading', 'Random text'])).toEqual({})
   })
 })
