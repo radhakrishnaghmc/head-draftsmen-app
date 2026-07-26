@@ -1,11 +1,16 @@
 import * as pdfjsLib from 'pdfjs-dist'
+import { applyPdfJsCompatPolyfills } from './pdfJsCompatPolyfills'
 // A shim, not the raw pdf.worker.min.mjs — pdf.js's Worker is its own JS
-// realm, separate from the main thread, and the actual PDF-hashing code
-// that calls the brand-new (and here, Electron-Chromium-unsupported)
-// Uint8Array.prototype.toHex() runs *inside that worker*, not on the main
-// thread — see pdfWorkerShim.ts, which polyfills it there before loading
-// the real worker module.
+// realm, separate from the main thread, with its own unpatched globals, so
+// this main-thread polyfill call doesn't reach it — pdfWorkerShim.ts applies
+// the same polyfills again there before loading the real worker module.
 import pdfWorkerUrl from './pdfWorkerShim.ts?url'
+
+// Applied on this (main) thread too, defensively: pdf.js's main-thread API
+// surface (src/display/*) has needed the same kind of not-yet-supported
+// engine feature before (see pdfJsCompatPolyfills.ts) — cheaper to cover
+// both realms up front than to chase down which one a future one lands in.
+applyPdfJsCompatPolyfills()
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
