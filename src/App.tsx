@@ -676,7 +676,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
                 <p>Upload a PDF (or photos) plus an existing Intimation format to auto-fill it from what's in the document.</p>
               </div>
             </div>
-            <GiveIntimationTab tables={tables} />
+            <GiveIntimationTab tables={tables} onChange={updateTable} />
           </section>
         )}
 

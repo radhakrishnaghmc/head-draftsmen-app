@@ -148,6 +148,29 @@ function registerHandlers(): void {
     return readAllSheetGrids(result.filePaths[0])
   })
 
+  ipcMain.handle(
+    IPC.pickTenderEvalFolder,
+    async (): Promise<{ dir: string; files: string[] } | null> => {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Select the Tender Evaluation folder (PDFs)',
+        properties: ['openDirectory']
+      })
+      if (result.canceled || result.filePaths.length === 0) return null
+      const dir = result.filePaths[0]
+      const files = fs
+        .readdirSync(dir)
+        .filter((name) => name.toLowerCase().endsWith('.pdf'))
+        .sort()
+        .map((name) => path.join(dir, name))
+      return { dir, files }
+    }
+  )
+
+  ipcMain.handle(IPC.readFileBase64, async (_e, filePath: string): Promise<string> => {
+    if (!filePath.toLowerCase().endsWith('.pdf')) throw new Error('Only .pdf files can be read here.')
+    return fs.readFileSync(filePath).toString('base64')
+  })
+
   ipcMain.handle(IPC.ocrEstimatePhotos, async (_e, dataUrls: string[]): Promise<SheetGrid> => {
     const allRows: string[][] = []
     for (const dataUrl of dataUrls) {

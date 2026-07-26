@@ -15,6 +15,7 @@ const EV: TenderEvaluation = {
   nameOfWork: 'Junction Improvement in Aleap Circle',
   tenderId: '717574',
   noticeNo: '12/DB/EE/Nizampet Circle-58/CMC/2026-27',
+  noticeDate: '15.07.2026',
   ecvRupees: 1593493,
   l1AgencyName: 'M V S CONSTRUCTIONS',
   tenderPercentage: 11.11,
@@ -30,6 +31,7 @@ describe('updateWorksListFromEvaluations', () => {
     const r = out.rows[0]
     expect(r['Tender ID']).toBe('717574')
     expect(r['Tender Notice No']).toBe('12/DB/EE/Nizampet Circle-58/CMC/2026-27')
+    expect(r['Tender notice Date']).toBe('15.07.2026')
     expect(r['ECV']).toBe('15.93493')
     expect(r['Name of the Agency']).toBe('M V S CONSTRUCTIONS')
     expect(r['Tender Percentage']).toBe('11.11')

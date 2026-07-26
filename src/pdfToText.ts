@@ -23,8 +23,12 @@ interface TextItem {
  * which have no selectable text and would need OCR (see src/pdfToImages.ts).
  */
 export async function pdfToTextLines(file: File): Promise<string[]> {
-  const buffer = await file.arrayBuffer()
-  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise
+  return pdfToTextLinesFromData(await file.arrayBuffer())
+}
+
+/** Same as pdfToTextLines, from raw bytes — used for folder files read (as base64) via the main process. */
+export async function pdfToTextLinesFromData(data: ArrayBuffer | Uint8Array): Promise<string[]> {
+  const pdf = await pdfjsLib.getDocument({ data }).promise
   const lines: string[] = []
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum)

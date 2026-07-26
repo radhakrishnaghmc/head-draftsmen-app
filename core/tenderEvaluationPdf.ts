@@ -4,6 +4,8 @@ export interface TenderEvaluation {
   tenderId?: string
   /** NIT / Notice number (the trailing "item N Dated:…" tail is dropped). */
   noticeNo?: string
+  /** The "Dated:"/"Dt:" date carried in the NIT No line (e.g. "15.07.2026"), if present. */
+  noticeDate?: string
   /** Estimated Contract Value, in rupees (the portal reports rupees, not Lakhs). */
   ecvRupees?: number
   /** The L-1 (lowest / selected) bidder's company name. */
@@ -57,6 +59,13 @@ export function parseTenderEvaluation(lines: string[]): TenderEvaluation {
     const value = tightenCode(nit[1])
     if (value) result.noticeNo = value
   }
+
+  // The NIT line carries the notice's own date as "Dated:15.07.2026" /
+  // "Dt: 15-07-2026" — split out as the Tender notice Date. "Dated"/"Dt" is
+  // the reliable anchor (bid-submission/server dates on the page carry no
+  // such label), so an unrelated date is never misread as the notice date.
+  const date = /\b(?:Dated|Dt)\b\.?\s*:?\s*(\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4})/i.exec(joined)
+  if (date) result.noticeDate = date[1]
 
   const work = /Name of Work\s+(.+?)\s+(?:Tender Category|Tender Type|Estimated Contract)\b/i.exec(joined)
   if (work) result.nameOfWork = work[1].replace(/\s+/g, ' ').trim()

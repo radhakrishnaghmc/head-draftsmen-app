@@ -38,6 +38,7 @@ describe('parseTenderEvaluation', () => {
     const r = parseTenderEvaluation(COMMERCIAL_LINES)
     expect(r.tenderId).toBe('717574')
     expect(r.noticeNo).toBe('12/DB/EE/Nizampet Circle-58/CMC/2026-27')
+    expect(r.noticeDate).toBe('15.07.2026')
     expect(r.nameOfWork).toBe(
       'Junction Improvement in Aleap Circle in Ward no 276 Pragathi Nagar in Nizampet circle-58, Quthbullapur Zone, CMC'
     )
@@ -66,6 +67,7 @@ describe('parseTenderEvaluation', () => {
     const r = parseTenderEvaluation(RESPONSIVENESS_LINES)
     expect(r.tenderId).toBe('717574')
     expect(r.noticeNo).toBe('12/DB/EE/Nizampet Circle-58/CMC/2026-27')
+    expect(r.noticeDate).toBe('15.07.2026')
     expect(r.ecvRupees).toBe(1593493)
     expect(r.nameOfWork).toContain('Junction Improvement in Aleap Circle')
     expect(r.l1AgencyName).toBeUndefined()

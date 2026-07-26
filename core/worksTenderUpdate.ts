@@ -22,6 +22,7 @@ function valuesFor(ev: TenderEvaluation): Record<string, string> {
   const out: Record<string, string> = {}
   if (ev.tenderId) out['Tender ID'] = ev.tenderId
   if (ev.noticeNo) out['Tender Notice No'] = ev.noticeNo
+  if (ev.noticeDate) out['Tender notice Date'] = ev.noticeDate
   if (ev.ecvRupees != null) out['ECV'] = rupeesToLakhsString(ev.ecvRupees)
   if (ev.l1AgencyName) out['Name of the Agency'] = ev.l1AgencyName
   if (ev.tenderPercentage != null) out['Tender Percentage'] = String(ev.tenderPercentage)
@@ -35,8 +36,8 @@ function valuesFor(ev: TenderEvaluation): Record<string, string> {
  * Works List row's "Name of the work" — exact normalized match first, then
  * an embedding fallback for the wording drift between a tender's title and
  * the Works List's own entry (abbreviations, punctuation) — and writing that
- * row's Tender ID, Tender Notice No, ECV, Name of the Agency (the L-1
- * bidder), Tender Percentage, and Contract Amount. Only fields the PDF
+ * row's Tender ID, Tender Notice No, Tender notice Date, ECV, Name of the
+ * Agency (the L-1 bidder), Tender Percentage, and Contract Amount. Only fields the PDF
  * actually carried are written; existing values for those fields are
  * overwritten (the PDF is the authoritative post-award record). A PDF whose
  * work name matches nothing is reported in `unmatched` rather than guessed at.

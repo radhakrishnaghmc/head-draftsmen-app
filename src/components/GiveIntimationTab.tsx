@@ -2,14 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { renderAsync } from 'docx-preview'
 import { api } from '../ipc'
 import { parseIntimationNotice, type IntimationNotice } from '@core/intimationNotice'
+import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
+import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
 import { computeWorkAmounts, indianDigitGroups } from '@core/worksAmounts'
 import type { PlaceholderMatch } from '@core/createDocument'
+import { pdfToTextLines } from '../pdfToText'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell } from './Icons'
 import type { ExcelTable } from '@core/types'
 
 interface Props {
   tables: ExcelTable[]
+  onChange: (table: ExcelTable) => void
 }
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
@@ -25,25 +29,26 @@ function group(n: number | null | undefined): string {
 }
 
 /**
- * Resolves one Intimation placeholder's value: the uploaded portal notice
- * (see core/intimationNotice.ts) wins for what it carries — agency name,
- * address, NIT No, ECV, contract value — with the picked Works List row
- * filling the rest (Circle, phone, EMD, ASD, Tender %). ECV/Contract/EMD/ASD
- * come back as bare Indian-grouped figures, since the template already
- * prints the "Rs …/-" wording around each placeholder. Every value is
- * pre-filled but editable, so an unmatched or misread field can be fixed
- * before the letter is generated.
+ * Resolves one Intimation placeholder's value from the three sources, in
+ * priority order: the uploaded portal HTML notice (agency name, address,
+ * NIT No, ECV, contract value) → the uploaded tender-evaluation PDF (NIT No,
+ * ECV, L-1 agency, Tender %, contract value) → the picked Works List row
+ * (everything else: Circle, phone, EMD, ASD). ECV/Contract/EMD/ASD come back
+ * as bare Indian-grouped figures, since the template already prints the
+ * "Rs …/-" wording around each placeholder. Every value is pre-filled but
+ * editable, so an unmatched or misread field can be fixed before generating.
  */
 function resolveValue(
   label: string,
   notice: IntimationNotice,
+  pdf: TenderEvaluation,
   row: Record<string, string>
 ): string {
   const c = computeWorkAmounts(row)
   switch (norm(label)) {
     case 'agency name':
     case 'name of the agency':
-      return notice.agencyName ?? row['Name of the Agency'] ?? ''
+      return notice.agencyName ?? pdf.l1AgencyName ?? row['Name of the Agency'] ?? ''
     case 'address of the agency':
       return notice.address ?? row['Address of the agency'] ?? ''
     case 'agency phone number':
@@ -59,14 +64,24 @@ function resolveValue(
       return row['Name of the work'] ?? ''
     case 'nit no':
     case 'tender notice no':
-      return notice.nitNo ?? row['Tender Notice No'] ?? ''
+      return notice.nitNo ?? pdf.noticeNo ?? row['Tender Notice No'] ?? ''
     case 'tender pencentage':
     case 'tender percentage':
-      return (row['Tender Percentage'] ?? '').replace(/%/g, '').trim()
+      return pdf.tenderPercentage != null
+        ? String(pdf.tenderPercentage)
+        : (row['Tender Percentage'] ?? '').replace(/%/g, '').trim()
     case 'ecv':
-      return notice.ecvRupees != null ? group(notice.ecvRupees) : group(c.ecv)
+      return notice.ecvRupees != null
+        ? group(notice.ecvRupees)
+        : pdf.ecvRupees != null
+          ? group(pdf.ecvRupees)
+          : group(c.ecv)
     case 'contract amount':
-      return notice.contractRupees != null ? group(notice.contractRupees) : group(c.contractAmount)
+      return notice.contractRupees != null
+        ? group(notice.contractRupees)
+        : pdf.contractRupees != null
+          ? group(pdf.contractRupees)
+          : group(c.contractAmount)
     case 'emd':
     case 'emd 1.5%':
       return group(c.emd1_5)
@@ -87,7 +102,7 @@ function resolveValue(
  * portal "View Intimation Notice" page (.html). Reuses the same docx
  * placeholder-fill + docx-preview + export/print pipeline as Issue Document.
  */
-export default function GiveIntimationTab({ tables }: Props) {
+export default function GiveIntimationTab({ tables, onChange }: Props) {
   const table = tables[0] ?? null
 
   const [templateB64, setTemplateB64] = useState<string | null>(null)
@@ -97,17 +112,21 @@ export default function GiveIntimationTab({ tables }: Props) {
   const [rowIndex, setRowIndex] = useState(0)
   const [notice, setNotice] = useState<IntimationNotice | null>(null)
   const [noticeName, setNoticeName] = useState('')
+  const [pdfEval, setPdfEval] = useState<TenderEvaluation | null>(null)
+  const [pdfName, setPdfName] = useState('')
+  const [pdfStatus, setPdfStatus] = useState<string | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
   // Labels the user has hand-edited — kept out of the auto-fill so a re-pick
   // or re-upload never clobbers a manual correction.
   const [touched, setTouched] = useState<Record<string, boolean>>({})
 
-  const [busy, setBusy] = useState<null | 'preview' | 'download' | 'print'>(null)
+  const [busy, setBusy] = useState<null | 'preview' | 'download' | 'print' | 'pdf'>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
   const [previewPages, setPreviewPages] = useState(0)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const pdfInputRef = useRef<HTMLInputElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const printScratchRef = useRef<HTMLDivElement>(null)
 
@@ -132,21 +151,22 @@ export default function GiveIntimationTab({ tables }: Props) {
     }
   }, [])
 
-  // Re-fill every untouched placeholder whenever the picked row or uploaded
-  // notice changes — a hand-edited field (touched) is left exactly as typed.
+  // Re-fill every untouched placeholder whenever the picked row, uploaded
+  // notice, or uploaded PDF changes — a hand-edited field (touched) is left
+  // exactly as typed.
   useEffect(() => {
     if (labels.length === 0) return
     setValues((prev) => {
       const next = { ...prev }
       for (const label of labels) {
         if (touched[label]) continue
-        next[label] = resolveValue(label, notice ?? {}, selectedRow ?? {})
+        next[label] = resolveValue(label, notice ?? {}, pdfEval ?? {}, selectedRow ?? {})
       }
       return next
     })
-    // selectedRow identity changes with rowIndex/table; notice with each upload.
+    // selectedRow identity changes with rowIndex/table; notice/pdfEval per upload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [labels, rowIndex, notice, table])
+  }, [labels, rowIndex, notice, pdfEval, table])
 
   function updateValue(label: string, value: string) {
     setTouched((prev) => ({ ...prev, [label]: true }))
@@ -162,6 +182,58 @@ export default function GiveIntimationTab({ tables }: Props) {
       setTouched({}) // a fresh notice supersedes prior manual edits
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  // A tender-evaluation PDF both fills the letter (NIT/ECV/Tender %/contract/
+  // L-1 agency) and updates the Works List row for that work — matched by
+  // Name of Work — so the database reflects the award in one step. The
+  // matched work is auto-selected so the preview shows it.
+  async function handlePdfFile(file: File) {
+    setBusy('pdf')
+    setActionError(null)
+    setPdfStatus(null)
+    try {
+      const lines = await pdfToTextLines(file)
+      const ev = parseTenderEvaluation(lines)
+      if (!ev.nameOfWork && !ev.tenderId) {
+        throw new Error("Couldn't read tender details from that PDF — is it the Commercial Evaluation / Stage Selected page?")
+      }
+      setPdfEval(ev)
+      setPdfName(file.name)
+      setTouched({})
+
+      if (table && ev.nameOfWork) {
+        let embeddings: { rowNameVectors: number[][]; evalNameVectors: number[][] } | undefined
+        const nameHeader = table.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
+        if (nameHeader) {
+          try {
+            const [rowNameVectors, evalNameVectors] = await Promise.all([
+              api.embedTexts(table.rows.map((r) => r[nameHeader] ?? '')),
+              api.embedTexts([ev.nameOfWork])
+            ])
+            embeddings = { rowNameVectors, evalNameVectors }
+          } catch {
+            embeddings = undefined
+          }
+        }
+        const { table: updated, matchedCount } = updateWorksListFromEvaluations(table, [ev], embeddings)
+        if (matchedCount > 0) {
+          onChange(updated)
+          const nh = updated.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
+          const idx = nh
+            ? updated.rows.findIndex((r) => norm(r[nh] ?? '') === norm(ev.nameOfWork!))
+            : -1
+          if (idx >= 0) setRowIndex(idx)
+          setPdfStatus(`Updated "${ev.nameOfWork}" in the Works List (Tender ID, Notice No/Date, ECV, Agency, Tender %, Contract Amount).`)
+        } else {
+          setPdfStatus(`Read the PDF, but no Works List row matched "${ev.nameOfWork}" — the letter is filled, the database wasn't changed.`)
+        }
+      }
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -240,12 +312,16 @@ export default function GiveIntimationTab({ tables }: Props) {
       <div className="empty">
         <IconBell />
         <p>
-          Pick the work below and upload the portal's <strong>Intimation Notice</strong> (.html) — the app fills the
-          Intimation letter, taking the agency address from the notice and the rest from the Works List.
+          Pick the work below, then upload the portal's <strong>Intimation Notice</strong> (.html) for the agency
+          address and/or the <strong>tender evaluation PDF</strong> for the tender details. The PDF also updates that
+          work's row in the Works List.
         </p>
         <div className="boq-actions">
           <button className="primary" onClick={() => fileInputRef.current?.click()} disabled={!templateB64}>
             <IconFolder /> {notice ? 'Change Intimation Notice (.html)' : 'Upload Intimation Notice (.html)'}
+          </button>
+          <button className="primary" onClick={() => pdfInputRef.current?.click()} disabled={!templateB64 || busy === 'pdf'}>
+            <IconFolder /> {busy === 'pdf' ? 'Reading PDF…' : pdfEval ? 'Change Tender PDF' : 'Upload Tender PDF'}
           </button>
           <input
             ref={fileInputRef}
@@ -258,8 +334,25 @@ export default function GiveIntimationTab({ tables }: Props) {
               e.target.value = ''
             }}
           />
+          <input
+            ref={pdfInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void handlePdfFile(file)
+              e.target.value = ''
+            }}
+          />
         </div>
         {noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
+        {pdfName && <p className="estimate-hint">Tender details read from {pdfName}</p>}
+        {pdfStatus && (
+          <div className="notice ok">
+            <IconBell /> {pdfStatus}
+          </div>
+        )}
       </div>
 
       {loadError && (

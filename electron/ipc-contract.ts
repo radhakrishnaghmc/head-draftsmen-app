@@ -33,6 +33,8 @@ export const IPC = {
   pickExcelGrids: 'dialog:pickExcelGrids',
   pickEstimateGrid: 'dialog:pickEstimateGrid',
   pickDataSheet: 'dialog:pickDataSheet',
+  pickTenderEvalFolder: 'dialog:pickTenderEvalFolder',
+  readFileBase64: 'fs:readFileBase64',
   ocrEstimatePhotos: 'data:ocrEstimatePhotos',
   openPath: 'shell:openPath',
   revealItem: 'shell:revealItem',
@@ -83,6 +85,10 @@ export interface DocuGenApi {
   pickExcelGrids(): Promise<SheetGrid[]>
   pickEstimateGrid(): Promise<SheetGrid | null>
   pickDataSheet(): Promise<SheetGrid[] | null>
+  /** Prompts for a folder of tender-evaluation PDFs and returns the folder path plus its .pdf file paths (top level), or null if cancelled. */
+  pickTenderEvalFolder(): Promise<{ dir: string; files: string[] } | null>
+  /** Reads a .pdf file at an absolute path and returns it base64-encoded — used to feed folder PDFs into the renderer's pdf.js text extractor. */
+  readFileBase64(filePath: string): Promise<string>
   /** Runs local OCR on photos of a paper estimate (in page order) and reconstructs one combined grid, best-effort — always review before exporting. */
   ocrEstimatePhotos(dataUrls: string[]): Promise<SheetGrid>
   openPath(target: string): Promise<void>
