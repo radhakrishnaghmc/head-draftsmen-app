@@ -267,6 +267,29 @@ describe('extractEstimateItems', () => {
     expect(items).toMatchObject([{ description: 'Earth work excavation', quantity: '285.20', rate: '308.31', unit: 'Cum' }])
   })
 
+  it('finds the unit column from the data when the estimate has no Unit header at all (detailed No.s/L/B/D layout)', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    // The real CMC detailed-estimate shape: no Unit/UOM header anywhere — the
+    // unit (Cum/Sqm/…) sits in an unlabelled column between Rate and Amount,
+    // filled only on each item's summary line. Previously threw
+    // "Could not find S.No / Qty / Rate / Unit columns in the estimate."
+    const header = ['Sl. No', 'Description', 'No.s', '', '', 'L', 'B', 'D', 'Qty', 'Rate', '', 'Amount']
+    const grid = [
+      header,
+      ['1', 'Earth work excavation', '', '', '', '', '', '', '', '', '', ''],
+      ['', '', '1', 'X', '1', '462.00', '6.50', '0.150', '450.45', '', '', ''],
+      ['', '', '', '', '', '', '', '', '450.45', '308.31', 'Cum', '138878.00'],
+      ['2', 'WMM base course', '', '', '', '', '', '', '', '', '', ''],
+      ['', '', '1', 'X', '1', '462.00', '6.30', '0.100', '291.06', '', '', ''],
+      ['', '', '', '', '', '', '', '', '291.06', '2086.57', 'sqm', '607317.00']
+    ]
+    const items = extractEstimateItems(grid, 0)
+    expect(items).toMatchObject([
+      { description: 'Earth work excavation', quantity: '450.45', rate: '308.31', unit: 'Cum' },
+      { description: 'WMM base course', quantity: '291.06', rate: '2086.57', unit: 'sqm' }
+    ])
+  })
+
   it('keeps "Per" as the unit column when it is not overwhelmingly numeric (no multiplier-column quirk present)', async () => {
     const { extractEstimateItems } = await import('../core/estimateExtract')
     const header = ['S.No', 'Description', 'Qty', 'Rate', 'Per']

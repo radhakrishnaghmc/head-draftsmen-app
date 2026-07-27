@@ -84,6 +84,10 @@ export const ESTIMATE_COLUMN_SPECS: ColumnSpec[] = [
   { label: 'Unit', patterns: [/unit|^per$/i] }
 ]
 
+// S.No / Qty / Rate are always labelled in these estimates; the Unit column
+// sometimes isn't (see detectUnitColumnFromData), so it's resolved separately.
+const ESTIMATE_REQUIRED_COLUMN_SPECS: ColumnSpec[] = ESTIMATE_COLUMN_SPECS.filter((s) => s.label !== 'Unit')
+
 /**
  * Which of ESTIMATE_COLUMN_SPECS' columns (if any) only resolved via the
  * embedding fallback rather than a regex — worth a "please double-check
@@ -261,6 +265,43 @@ function looksNumeric(s: string): boolean {
  * the item rows while the very next column instead holds recognized unit
  * tokens, that next column is almost certainly the real one.
  */
+/**
+ * Locate the Unit column from the *data* when the header row doesn't label it
+ * — a common detailed-estimate layout keeps an unlabelled column between Rate
+ * and Amount that carries the unit token (Cum/Sqm/…) only on each item's
+ * summary line. Picks the unclaimed column with the most recognized unit
+ * tokens across the item rows, breaking ties toward the column just after
+ * Rate (where these templates place it). Returns -1 if no column looks like a
+ * unit column at all.
+ */
+function detectUnitColumnFromData(
+  grid: string[][],
+  headerRowIndex: number,
+  rateCol: number,
+  claimed: Set<number>
+): number {
+  let width = 0
+  for (let r = headerRowIndex; r < grid.length; r++) width = Math.max(width, grid[r]?.length ?? 0)
+  let bestCol = -1
+  let bestHits = 0
+  let bestDist = Infinity
+  for (let c = 0; c < width; c++) {
+    if (claimed.has(c)) continue
+    let hits = 0
+    for (let r = headerRowIndex + 1; r < grid.length; r++) {
+      const cell = norm(grid[r]?.[c] ?? '')
+      if (cell && UNIT_RE.test(cell)) hits++
+    }
+    const dist = Math.abs(c - (rateCol + 1))
+    if (hits > bestHits || (hits === bestHits && hits > 0 && dist < bestDist)) {
+      bestHits = hits
+      bestCol = c
+      bestDist = dist
+    }
+  }
+  return bestHits > 0 ? bestCol : -1
+}
+
 function fixUnitColumnIfNumeric(grid: string[][], headerRowIndex: number, unitCol: number): number {
   const candidate = unitCol + 1
   let numeric = 0
@@ -293,13 +334,32 @@ export function extractEstimateItems(
   const header = (grid[headerRowIndex] ?? []).map(norm)
   let snoCol: number, qtyCol: number, rateCol: number, unitCol: number
   try {
+    // Fast path: a fully-labelled estimate (Serial/Qty/Rate/Unit headers).
     const resolved = resolveColumns(header, ESTIMATE_COLUMN_SPECS, embeddings)
     snoCol = resolved.indexByLabel['Serial Number']
     qtyCol = resolved.indexByLabel['Quantity']
     rateCol = resolved.indexByLabel['Rate']
     unitCol = resolved.indexByLabel['Unit']
   } catch {
-    throw new Error('Could not find S.No / Qty / Rate / Unit columns in the estimate.')
+    // Fallback: estimates that don't label the Unit column but still carry the
+    // unit in an unlabelled column (Cum/Sqm on each item's summary line).
+    // Resolve the three always-labelled columns, then find the unit from data.
+    let required
+    try {
+      required = resolveColumns(header, ESTIMATE_REQUIRED_COLUMN_SPECS, embeddings)
+    } catch {
+      throw new Error('Could not find S.No / Qty / Rate / Unit columns in the estimate.')
+    }
+    snoCol = required.indexByLabel['Serial Number']
+    qtyCol = required.indexByLabel['Quantity']
+    rateCol = required.indexByLabel['Rate']
+    // Exclude the already-identified columns (S.No, its Description at snoCol+1,
+    // Qty, Rate) so those can't be mistaken for the unit column.
+    const claimed = new Set([snoCol, snoCol + 1, qtyCol, rateCol])
+    unitCol = detectUnitColumnFromData(grid, headerRowIndex, rateCol, claimed)
+    if (unitCol === -1) {
+      throw new Error('Could not find S.No / Qty / Rate / Unit columns in the estimate.')
+    }
   }
   unitCol = fixUnitColumnIfNumeric(grid, headerRowIndex, unitCol)
   // Description isn't reliably labelled (and is often a merged cell with no
