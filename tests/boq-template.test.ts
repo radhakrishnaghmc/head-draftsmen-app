@@ -2,11 +2,31 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import * as ExcelJS from 'exceljs'
+import JSZip from 'jszip'
 import { fillBoqTemplate } from '../core/boqTemplate'
 
 const TEMPLATE_PATH = resolve(__dirname, '../resources/boq-template.xlsx')
 
 describe('fillBoqTemplate', () => {
+  it('emits a theme part with the transitional DrawingML namespace so Excel does not strip it', async () => {
+    const buffer = readFileSync(TEMPLATE_PATH)
+    const out = await fillBoqTemplate(buffer, [
+      { quantity: '10', description: 'Test item one', workType: 'Earth Work', shortDescription: 'Test one', apss: 'NA', rate: '100', uom: 'Cum' }
+    ])
+
+    // The bundled template was authored in ISO-Strict OOXML, whose theme uses
+    // the namespace http://purl.oclc.org/ooxml/drawingml/main. ExcelJS copies
+    // the theme part through verbatim (it regenerates every other part), so a
+    // strict-namespace theme survives into the output and a Transitional-format
+    // reader like Excel rejects it — the "Repairs to ...: Removed Records:
+    // Document Theme from /xl/workbook.xml part" prompt the users hit. Guard
+    // that the theme carries the Transitional namespace and no strict one.
+    const zip = await JSZip.loadAsync(out as unknown as ArrayBuffer)
+    const theme = await zip.file('xl/theme/theme1.xml')!.async('string')
+    expect(theme).toContain('http://schemas.openxmlformats.org/drawingml/2006/main')
+    expect(theme).not.toContain('purl.oclc.org')
+  }, 30000)
+
   it('styles header and item cells Verdana 12pt center/middle, without bleeding into untouched rows', async () => {
     const buffer = readFileSync(TEMPLATE_PATH)
     const out = await fillBoqTemplate(buffer, [
