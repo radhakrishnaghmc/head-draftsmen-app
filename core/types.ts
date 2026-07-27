@@ -61,6 +61,30 @@ export interface TodoItem {
   completedDate?: string
 }
 
+/** One point noted during scrutiny — can be ticked off once attended to. */
+export interface MBScrutinyRemark {
+  text: string
+  done: boolean
+}
+
+/** One Measurement Book received for scrutiny — the record persists whether scrutiny is pending or done. */
+export interface MBScrutinyItem {
+  id: string
+  /** Running register number, assigned in receipt order when the entry is added — fixed thereafter. */
+  serialNo: number
+  mbNo: string
+  agencyName: string
+  /** ISO date (YYYY-MM-DD) the MB was received for scrutiny. */
+  receivedDate: string
+  /** ISO date (YYYY-MM-DD) scrutiny is targeted to be completed by. */
+  targetDate?: string
+  done: boolean
+  /** ISO date (YYYY-MM-DD) scrutiny was completed — set (and editable) when marked done. */
+  completedDate?: string
+  /** Objections/notes from scrutiny, one entry per point (not a single paragraph). */
+  remarks?: MBScrutinyRemark[]
+}
+
 export interface TenderReminderItem {
   workName?: string
   tenderId?: string
@@ -131,4 +155,5 @@ export interface PersistedState {
   tenderReminders?: TenderReminder[]
   createdDocuments?: CreatedDocument[]
   bidDocumentBatches?: BidDocumentBatch[]
+  mbScrutiny?: MBScrutinyItem[]
 }

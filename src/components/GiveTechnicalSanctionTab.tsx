@@ -184,7 +184,7 @@ export default function GiveTechnicalSanctionTab() {
             : 'Upload the Data Sheet (rates database) — since rates update monthly, upload the latest copy each time.'}
         </p>
         <div className="boq-actions">
-          <button className="primary" onClick={uploadDataSheet} disabled={dataBusy}>
+          <button className="primary upload-btn" onClick={uploadDataSheet} disabled={dataBusy}>
             <IconFolder /> {dataBusy ? 'Loading & computing matches…' : rateIndex ? 'Replace Data Sheet' : 'Upload Data Sheet'}
           </button>
         </div>
@@ -205,7 +205,7 @@ export default function GiveTechnicalSanctionTab() {
           {estimate ? `Loaded “${estimate.name}”.` : 'Upload the Estimate to match its items against the Data Sheet.'}
         </p>
         <div className="boq-actions">
-          <button className="primary" onClick={uploadEstimate} disabled={estimateBusy}>
+          <button className="primary upload-btn" onClick={uploadEstimate} disabled={estimateBusy}>
             <IconFolder /> {estimateBusy ? 'Loading & computing matches…' : 'Upload Estimate'}
           </button>
           {matches && (

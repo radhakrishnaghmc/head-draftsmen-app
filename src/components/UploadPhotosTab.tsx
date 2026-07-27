@@ -358,7 +358,7 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
             : `${photos.length} photo${photos.length === 1 ? '' : 's'} added — drag to reorder into page order.`}
         </p>
         <div className="boq-actions">
-          <button className="primary" onClick={() => fileInputRef.current?.click()}>
+          <button className="primary upload-btn" onClick={() => fileInputRef.current?.click()}>
             <IconFolder /> Upload Photos or PDF
           </button>
           {photos.length > 0 && (

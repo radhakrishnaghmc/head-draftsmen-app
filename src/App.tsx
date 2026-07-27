@@ -30,8 +30,10 @@ import MonitoringLinkImport, { type MonitoringMergeSummary } from './components/
 import EstimateWorkspaceTab from './components/EstimateWorkspaceTab'
 import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
 import GiveIntimationTab from './components/GiveIntimationTab'
+import WorkOrderAgreementTab from './components/WorkOrderAgreementTab'
 import PrintDocumentTab from './components/PrintDocumentTab'
 import TodoList from './components/TodoList'
+import MbScrutinyList from './components/MbScrutinyList'
 import TenderReminders from './components/TenderReminders'
 import {
   IconTable,
@@ -41,15 +43,19 @@ import {
   IconCalendar,
   IconPlus,
   IconChecklist,
+  IconClipboard,
+  IconEye,
   IconRefresh,
   IconCheck,
-  IconBell
+  IconBell,
+  IconDownload
 } from './components/Icons'
 import type {
   ExcelTable,
   MergedDataset,
   CollisionResolution,
   TodoItem,
+  MBScrutinyItem,
   TenderReminder,
   TenderReminderItem,
   CreatedDocument,
@@ -64,6 +70,27 @@ function migrateTenderReminder(r: TenderReminder): TenderReminder {
   const legacy = r as TenderReminder & { workName?: string; tenderId?: string; bidClosing?: string }
   const item = { workName: legacy.workName, tenderId: legacy.tenderId, bidClosing: legacy.bidClosing }
   return { ...r, items: item.workName || item.tenderId || item.bidClosing ? [item] : [] }
+}
+
+// Older persisted MB Scrutiny entries stored remarks as a single string, then
+// as plain point-wise strings, before each point got its own done checkbox —
+// fold either legacy shape into the current { text, done } list.
+function migrateMbScrutinyItem(it: MBScrutinyItem): MBScrutinyItem {
+  const legacyRemarks = it.remarks as unknown
+  if (typeof legacyRemarks === 'string') {
+    return { ...it, remarks: legacyRemarks.trim() ? [{ text: legacyRemarks.trim(), done: false }] : [] }
+  }
+  if (Array.isArray(legacyRemarks) && legacyRemarks.some((r) => typeof r === 'string')) {
+    return { ...it, remarks: (legacyRemarks as string[]).map((text) => ({ text, done: false })) }
+  }
+  return it
+}
+
+// Older persisted MB Scrutiny entries predate the running register number —
+// assign one in stored (receipt) order to whichever entries are missing it.
+function assignMissingSerialNos(items: MBScrutinyItem[]): MBScrutinyItem[] {
+  let next = items.reduce((max, it) => Math.max(max, it.serialNo || 0), 0) + 1
+  return items.map((it) => (it.serialNo ? it : { ...it, serialNo: next++ }))
 }
 
 interface Props {
@@ -83,6 +110,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
   const [resolution, setResolution] = useState<CollisionResolution>({})
 
   const [todos, setTodos] = useState<TodoItem[]>([])
+  const [mbScrutiny, setMbScrutiny] = useState<MBScrutinyItem[]>([])
   const [lastGoogleLink, setLastGoogleLink] = useState<string | null>(null)
   const [refreshingWorks, setRefreshingWorks] = useState(false)
   const [refreshError, setRefreshError] = useState<string | null>(null)
@@ -170,6 +198,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
           }
           setResolution(s.resolution ?? {})
           setTodos(s.todos ?? [])
+          setMbScrutiny(assignMissingSerialNos((s.mbScrutiny ?? []).map(migrateMbScrutinyItem)))
           setLastGoogleLink(s.lastGoogleLink ?? null)
           setTenderReminders((s.tenderReminders ?? []).map(migrateTenderReminder))
           setCreatedDocuments(await bakeLoginPlaceholders(s.createdDocuments ?? []))
@@ -202,6 +231,8 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
       }
       if (partial.resolution) setResolution(partial.resolution)
       if (partial.todos) setTodos(partial.todos)
+      if (partial.mbScrutiny)
+        setMbScrutiny(assignMissingSerialNos(partial.mbScrutiny.map(migrateMbScrutinyItem)))
       if (partial.lastGoogleLink !== undefined) setLastGoogleLink(partial.lastGoogleLink ?? null)
       if (partial.tenderReminders) setTenderReminders(partial.tenderReminders.map(migrateTenderReminder))
       if (partial.createdDocuments) setCreatedDocuments(await bakeLoginPlaceholders(partial.createdDocuments))
@@ -226,7 +257,8 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
         lastGoogleLink: lastGoogleLink ?? undefined,
         tenderReminders,
         createdDocuments,
-        bidDocumentBatches
+        bidDocumentBatches,
+        mbScrutiny
       })
     }, 400)
     return () => clearTimeout(handle)
@@ -239,7 +271,8 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
     lastGoogleLink,
     tenderReminders,
     createdDocuments,
-    bidDocumentBatches
+    bidDocumentBatches,
+    mbScrutiny
   ])
 
   const collisions = dataset?.collisions ?? []
@@ -253,6 +286,47 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
   function renameTable(name: string) {
     if (!currentTable) return
     updateTable({ ...currentTable, name })
+  }
+
+  // Save the current Works List as an .xlsx (native save dialog in main).
+  async function exportWorksList() {
+    if (!currentTable) return
+    await api.exportTable(currentTable, currentTable.name || 'Works List')
+  }
+
+  // Flatten the MB Scrutiny register into a table and save it as an .xlsx.
+  async function exportMbScrutiny() {
+    if (mbScrutiny.length === 0) return
+    const fmt = (iso?: string) => {
+      if (!iso) return ''
+      const [y, m, d] = iso.split('-')
+      return `${d}.${m}.${y}`
+    }
+    const headers = [
+      'S.No',
+      'MB No.',
+      'Agency name',
+      'Received date',
+      'Target date',
+      'Status',
+      'Scrutiny completed date',
+      'Remarks / objections'
+    ]
+    const rows = [...mbScrutiny]
+      .sort((a, b) => (a.serialNo || 0) - (b.serialNo || 0))
+      .map((it) => ({
+        'S.No': String(it.serialNo ?? ''),
+        'MB No.': it.mbNo,
+        'Agency name': it.agencyName,
+        'Received date': fmt(it.receivedDate),
+        'Target date': fmt(it.targetDate),
+        Status: it.done ? 'Completed' : 'Pending',
+        'Scrutiny completed date': fmt(it.completedDate),
+        'Remarks / objections': (it.remarks ?? [])
+          .map((r) => `${r.done ? '[x]' : '[ ]'} ${r.text}`)
+          .join('\n')
+      }))
+    await api.exportTable({ id: 'mb-scrutiny', name: 'MB Scrutiny', path: '', headers, rows }, 'MB Scrutiny list')
   }
 
   // Create the built-in works database (standard APP columns, one blank row).
@@ -529,8 +603,8 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
         tableCount={tables.length}
         unresolved={unresolved.length}
         createdDocCount={createdDocuments.length}
-        zone={loginZone}
-        circle={loginCircle}
+        zone={loginZone || tables[0]?.rows[0]?.['Zone'] || undefined}
+        circle={loginCircle || tables[0]?.rows[0]?.['Circle'] || undefined}
       />
 
       <main className="workspace">
@@ -562,13 +636,18 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
               <div className="page-head-text">
                 <h1>Works List</h1>
               </div>
-              {lastGoogleLink && (
-                <div className="page-head-action">
+              <div className="page-head-action">
+                {currentTable && (
+                  <button className="ghost" onClick={exportWorksList} title="Download as Excel">
+                    <IconDownload /> Download
+                  </button>
+                )}
+                {lastGoogleLink && (
                   <button className="ghost" onClick={refreshWorksList} disabled={refreshingWorks}>
                     <IconRefresh /> {refreshingWorks ? 'Refreshing…' : 'Refresh'}
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
             {refreshError && <div className="notice error">{refreshError}</div>}
             {tenderSyncStatus && <div className="notice">{tenderSyncStatus}</div>}
@@ -605,7 +684,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
                 <IconPrint />
               </div>
               <div className="page-head-text">
-                <h1>Issue Document</h1>
+                <h1>Issue other Documents</h1>
                 <p>
                   Pick a saved document and a Works List row, then create the filled output —
                   matched to your columns by the neural model, not exact name matching.
@@ -658,11 +737,48 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
                 <IconBell />
               </div>
               <div className="page-head-text">
-                <h1>Give Intimation</h1>
+                <h1>Intimation and agency approval</h1>
                 <p>Upload a PDF (or photos) plus an existing Intimation format to auto-fill it from what's in the document.</p>
               </div>
             </div>
             <GiveIntimationTab tables={tables} onChange={updateTable} />
+          </section>
+        )}
+
+        {tab === 'workOrder' && (
+          <section className="page">
+            <div className="page-head">
+              <div className="page-ic">
+                <IconClipboard />
+              </div>
+              <div className="page-head-text">
+                <h1>Work order and agreement</h1>
+                <p>Fill the Work Order and Agreement for a work, and generate its Schedule A from the estimate / BOQ.</p>
+              </div>
+            </div>
+            <WorkOrderAgreementTab tables={tables} onChange={updateTable} />
+          </section>
+        )}
+
+        {tab === 'mbScrutiny' && (
+          <section className="page">
+            <div className="page-head">
+              <div className="page-ic">
+                <IconEye />
+              </div>
+              <div className="page-head-text">
+                <h1>MB Scrutiny list</h1>
+                <p>Log each Measurement Book received for scrutiny and track it through to completion.</p>
+              </div>
+              {mbScrutiny.length > 0 && (
+                <div className="page-head-action">
+                  <button className="ghost" onClick={exportMbScrutiny} title="Download as Excel">
+                    <IconDownload /> Download
+                  </button>
+                </div>
+              )}
+            </div>
+            <MbScrutinyList items={mbScrutiny} onChange={setMbScrutiny} />
           </section>
         )}
 

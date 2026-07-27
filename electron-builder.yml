@@ -17,6 +17,10 @@ extraResources:
     to: bid-document-template.docx
   - from: resources/intimation-template.docx
     to: intimation-template.docx
+  - from: resources/work-order-template.docx
+    to: work-order-template.docx
+  - from: resources/agreement-template.docx
+    to: agreement-template.docx
   - from: resources/boq-template.xlsx
     to: boq-template.xlsx
   - from: resources/deviation-template.xlsx

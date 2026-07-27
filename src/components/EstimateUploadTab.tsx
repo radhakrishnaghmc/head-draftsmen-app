@@ -417,7 +417,7 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
             : `${entries.length} estimate${entries.length === 1 ? '' : 's'} loaded.`}
         </p>
         <div className="boq-actions">
-          <button className="primary" onClick={uploadEstimates}>
+          <button className="primary upload-btn" onClick={uploadEstimates}>
             <IconFolder /> Add Estimate(s)
           </button>
         </div>

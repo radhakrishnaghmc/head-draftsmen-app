@@ -2,14 +2,15 @@
    DocuGen — design system
    ============================================================ */
 :root {
-  /* palette */
-  --indigo-50: #eef2ff;
-  --indigo-100: #e0e7ff;
-  --indigo-200: #c7d2fe;
-  --indigo-500: #6366f1;
-  --indigo-600: #4f46e5;
-  --indigo-700: #4338ca;
-  --violet-500: #8b5cf6;
+  /* palette — Windows 11 Fluent accent (mapped onto the existing indigo/violet
+     token names so the whole app shifts to the Windows blue accent at once). */
+  --indigo-50: #eff6fc;
+  --indigo-100: #dcecfb;
+  --indigo-200: #b4d6f5;
+  --indigo-500: #0067c0;
+  --indigo-600: #005fb8;
+  --indigo-700: #004f9e;
+  --violet-500: #0a84e0;
   --sky-100: #e0f2fe;
   --sky-500: #0ea5e9;
   --teal-500: #0d9488;
@@ -21,36 +22,41 @@
   --green-bg: #dcfce7;
   --orange-bg: #ffedd5;
 
-  --bg-grad-a: #fafafa;
-  --bg-grad-b: #f2f2f3;
-  --surface: rgba(255, 255, 255, 0.55);
-  --surface-2: rgba(255, 255, 255, 0.4);
-  --border: rgba(255, 255, 255, 0.6);
-  --border-strong: rgba(255, 255, 255, 0.85);
-  --glass-blur: blur(20px) saturate(180%);
+  /* Mica (matte glass) material: soft neutral base, fairly opaque translucent
+     surfaces, and a big low-saturation blur so it reads matte, not glossy. */
+  --bg-grad-a: #f3f4f7;
+  --bg-grad-b: #e9ebef;
+  --surface: rgba(252, 252, 253, 0.72);
+  --surface-2: rgba(250, 250, 252, 0.55);
+  --border: rgba(255, 255, 255, 0.7);
+  --border-strong: rgba(255, 255, 255, 0.9);
+  --glass-blur: blur(40px) saturate(115%);
 
-  --text: #16181f;
-  --text-2: #4b5063;
-  --muted: #868ba1;
+  --text: #1b1b1f;
+  --text-2: #444650;
+  --muted: #7f8290;
 
   --ok: #059669;
   --ok-bg: #ecfdf5;
   --warn: #b45309;
   --warn-bg: #fffbeb;
-  --danger: #dc2626;
+  --danger: #c42b1c;
   --danger-bg: #fef2f2;
 
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --shadow-md: 0 4px 16px -4px rgba(16, 24, 40, 0.1), 0 2px 6px -2px rgba(16, 24, 40, 0.06);
-  --shadow-lg: 0 20px 40px -12px rgba(30, 27, 75, 0.18);
-  --shadow-glow: 0 8px 24px -6px rgba(99, 102, 241, 0.45);
+  /* Fluent-style soft, diffuse shadows */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 4px 16px -6px rgba(16, 24, 40, 0.12), 0 2px 6px -3px rgba(16, 24, 40, 0.07);
+  --shadow-lg: 0 24px 48px -16px rgba(16, 24, 40, 0.22);
+  --shadow-glow: 0 8px 24px -6px rgba(0, 103, 192, 0.4);
 
-  --radius: 14px;
-  --radius-sm: 9px;
+  /* Windows 11 corner rounding is subtler than the old design's */
+  --radius: 8px;
+  --radius-sm: 5px;
   --radius-pill: 999px;
 
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --font: 'Segoe UI Variable', 'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, Roboto,
+    'Helvetica Neue', sans-serif;
 }
 
 * {
@@ -69,9 +75,9 @@ body {
   font-size: 14px;
   line-height: 1.5;
   color: var(--text);
-  background: radial-gradient(1200px 600px at 100% -10%, var(--indigo-50), transparent 60%),
-    radial-gradient(900px 500px at -10% 110%, #ede9fe, transparent 55%),
-    radial-gradient(1000px 480px at 50% 100%, var(--sky-100), transparent 60%),
+  background: radial-gradient(1200px 700px at 100% -10%, rgba(0, 120, 212, 0.07), transparent 60%),
+    radial-gradient(900px 520px at -10% 110%, rgba(0, 103, 192, 0.05), transparent 55%),
+    radial-gradient(1000px 480px at 50% 100%, rgba(148, 163, 184, 0.08), transparent 60%),
     linear-gradient(180deg, var(--bg-grad-a), var(--bg-grad-b));
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
@@ -166,7 +172,7 @@ body::before {
 .update-progress-track {
   height: 6px;
   border-radius: var(--radius-pill);
-  background: rgba(99, 102, 241, 0.15);
+  background: rgba(0, 103, 192, 0.15);
   overflow: hidden;
 }
 .update-progress-fill {
@@ -281,7 +287,7 @@ code {
   width: 42px;
   height: 42px;
   object-fit: contain;
-  filter: drop-shadow(0 4px 10px rgba(99, 102, 241, 0.35));
+  filter: drop-shadow(0 4px 10px rgba(0, 103, 192, 0.35));
 }
 .side-brand h1 {
   margin: 0;
@@ -315,7 +321,7 @@ code {
   transition: transform 0.18s var(--ease);
 }
 .nav-item:hover {
-  background: rgba(99, 102, 241, 0.06);
+  background: rgba(0, 103, 192, 0.06);
 }
 .nav-item.on {
   background: var(--surface);
@@ -522,6 +528,9 @@ code {
 .page-head-action {
   margin-left: auto;
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .page-head-text h1 {
   margin: 0;
@@ -735,14 +744,21 @@ button svg {
 }
 
 button.primary {
-  background: linear-gradient(135deg, var(--indigo-500), var(--violet-500));
+  /* Fluent accent button: near-flat accent fill, faint top highlight, and a
+     slightly darker hairline base — the Windows 11 push-button look. */
+  background: linear-gradient(180deg, var(--indigo-500), var(--indigo-600));
   color: #fff;
-  border: none;
-  box-shadow: var(--shadow-glow);
+  border: 1px solid var(--indigo-700);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), var(--shadow-sm);
 }
 button.primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--indigo-600), var(--violet-500));
-  box-shadow: 0 10px 28px -6px rgba(99, 102, 241, 0.55);
+  background: linear-gradient(180deg, #1272c8, var(--indigo-500));
+  border-color: var(--indigo-700);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), var(--shadow-md);
+}
+button.primary:active:not(:disabled) {
+  background: var(--indigo-600);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 
 button.ghost {
@@ -881,8 +897,8 @@ button.danger-ghost:hover:not(:disabled) {
     45deg,
     transparent,
     transparent 10px,
-    rgba(99, 102, 241, 0.02) 10px,
-    rgba(99, 102, 241, 0.02) 20px
+    rgba(0, 103, 192, 0.02) 10px,
+    rgba(0, 103, 192, 0.02) 20px
   );
 }
 .empty svg {
@@ -901,6 +917,13 @@ button.danger-ghost:hover:not(:disabled) {
   gap: 10px;
   margin-top: 14px;
   flex-wrap: wrap;
+}
+
+/* Uniform file-upload buttons app-wide: a shared minimum width so short and
+   long labels (and their transient "Loading…" states) render the same size. */
+.upload-btn {
+  min-width: 260px;
+  justify-content: center;
 }
 
 .todo-add {
@@ -1002,6 +1025,336 @@ button.danger-ghost:hover:not(:disabled) {
 .todo-target-input:focus {
   outline: none;
   border-color: var(--indigo-500);
+}
+/* ── MB Scrutiny list ─────────────────────────────────────────── */
+.mb-card {
+  padding-top: 20px;
+}
+.mb-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.mb-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 42px;
+  padding: 0 12px;
+  margin-bottom: 14px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  transition: all 0.16s var(--ease);
+}
+.mb-search:focus-within {
+  border-color: var(--indigo-500);
+  background: #fff;
+  box-shadow: 0 0 0 3px var(--indigo-100);
+}
+.mb-search > svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  color: var(--muted);
+}
+.mb-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 14px;
+  color: var(--text);
+}
+.mb-search-clear {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.mb-search-clear:hover {
+  color: var(--text-2);
+  background: var(--surface);
+}
+.mb-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+@media (max-width: 640px) {
+  .mb-tabs {
+    grid-template-columns: 1fr;
+  }
+}
+.mb-tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.16s var(--ease);
+}
+.mb-tab:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 4px 16px rgba(20, 22, 40, 0.06);
+}
+.mb-tab.open {
+  background: var(--surface-2);
+}
+.mb-tab.tone-pending.open {
+  border-color: var(--amber-500);
+}
+.mb-tab.tone-done.open {
+  border-color: var(--green-700, #15803d);
+}
+.mb-tab-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+.mb-tab-chevron {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--muted);
+  transition: transform 0.18s var(--ease);
+}
+.mb-tab.open .mb-tab-chevron {
+  transform: rotate(90deg);
+}
+.mb-field {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+  color: var(--muted);
+}
+.mb-field > span {
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 16px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.mb-field-grow {
+  flex: 1 1 160px;
+}
+.mb-field input {
+  box-sizing: border-box;
+  flex: none;
+  width: 100%;
+  height: 40px;
+  padding: 0 13px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 14px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  transition: all 0.16s var(--ease);
+}
+.mb-field input:focus {
+  outline: none;
+  border-color: var(--indigo-500);
+  background: #fff;
+  box-shadow: 0 0 0 3px var(--indigo-100);
+}
+
+.mb-section-ic {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  flex: none;
+}
+.mb-section-ic svg {
+  width: 15px;
+  height: 15px;
+}
+.mb-tab.tone-pending .mb-section-ic {
+  background: var(--amber-100);
+  color: var(--amber-500);
+}
+.mb-tab.tone-done .mb-section-ic {
+  background: var(--green-bg);
+  color: var(--green-700, #15803d);
+}
+.mb-section-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 2px 9px;
+}
+.mb-section-empty {
+  margin: 0 0 4px;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.mb-item {
+  align-items: flex-start;
+  position: relative;
+  padding-left: 16px;
+  border-left: 3px solid var(--amber-500);
+  transition: box-shadow 0.16s var(--ease), transform 0.16s var(--ease);
+}
+.mb-item:hover {
+  box-shadow: 0 4px 16px rgba(20, 22, 40, 0.07);
+  transform: translateY(-1px);
+}
+.mb-item.done {
+  border-left-color: var(--green-700, #15803d);
+}
+.mb-item .todo-checkbox {
+  margin-top: 3px;
+}
+/* This is a permanent register entry, not a task to cross off — marking it
+   done must not fade or strike through the MB No./agency, or it reads as
+   if the record itself got deleted. */
+.mb-item.done .todo-text {
+  text-decoration: none;
+  color: var(--text);
+}
+.mb-serial {
+  flex: none;
+  margin-top: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--indigo-50);
+  color: var(--indigo-700);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.mb-item.done .mb-serial {
+  background: var(--green-bg);
+  color: var(--green-700, #15803d);
+}
+.mb-row-date {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.mb-remarks {
+  margin-top: 8px;
+  width: 100%;
+}
+.mb-remarks-points {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.mb-remarks-points li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.mb-remarks-points li input[type='checkbox'] {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin-top: 1px;
+  accent-color: var(--indigo-500);
+  cursor: pointer;
+}
+.mb-remarks-points li span {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+.mb-remarks-points li.done span {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.mb-remark-del {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0.6;
+}
+.mb-remark-del:hover {
+  opacity: 1;
+  color: var(--red-600, #dc2626);
+}
+.mb-remark-del svg {
+  width: 12px;
+  height: 12px;
+}
+.mb-remarks-add {
+  display: flex;
+  gap: 6px;
+}
+.mb-remarks-add input {
+  flex: 1;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  color: var(--text);
+}
+.mb-remarks-add input:focus {
+  outline: none;
+  border-color: var(--indigo-500);
+}
+.mb-remarks-add button {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+.mb-remarks-add button svg {
+  width: 14px;
+  height: 14px;
 }
 .win-code-select {
   margin-top: 10px;
@@ -1320,6 +1673,10 @@ button.danger-ghost:hover:not(:disabled) {
   padding-top: 14px;
 }
 .sa-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   font-size: 12.5px;
   font-weight: 650;
   color: var(--muted);
@@ -1341,6 +1698,156 @@ button.danger-ghost:hover:not(:disabled) {
   color: var(--text);
   font-weight: 600;
   background: var(--indigo-50);
+}
+
+/* ---------- work order & agreement: output tiles ---------- */
+.wo-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 16px;
+  margin: 18px 0 4px;
+}
+.wo-tile {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.wo-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+.wo-tile-preview {
+  position: relative;
+  height: 300px;
+  overflow: hidden;
+  background: #fff;
+  border-bottom: 1px solid var(--border-strong);
+}
+/* Shrink the full-width A4 render down to a thumbnail that fills the tile.
+   `zoom` reflows the page into the small box (unlike transform, which keeps
+   the original layout size), so the top of the letterhead sits flush at the
+   tile's top-left. */
+.wo-tile-doc {
+  zoom: 0.29;
+}
+.wo-tile-doc .docx-wrapper {
+  background: #fff !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  min-width: 0 !important;
+  display: block !important;
+}
+.wo-tile-doc .docx-wrapper > section.docx {
+  margin: 0 !important;
+  box-shadow: none !important;
+}
+.wo-tile-preview.sched {
+  padding: 10px 12px;
+}
+.wo-tile-preview.sched .sa-preview-table {
+  font-size: 8.5px;
+  transform-origin: top left;
+}
+.wo-tile-preview.sched .sa-preview-table td {
+  padding: 2px 3px;
+  max-width: 90px;
+}
+.wo-tile-open {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(to top, rgba(0, 103, 192, 0.92), rgba(0, 103, 192, 0));
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+}
+.wo-tile:hover .wo-tile-open {
+  opacity: 1;
+}
+.wo-tile-foot {
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+  text-align: center;
+}
+
+/* ---------- work order & agreement: expanded modal ---------- */
+.wo-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(16, 24, 40, 0.5);
+  backdrop-filter: blur(2px);
+}
+.wo-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(920px, 100%);
+  max-height: 92vh;
+  background: var(--bg-grad-a);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.wo-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--surface);
+}
+.wo-modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.wo-modal-close {
+  font-size: 22px;
+  line-height: 1;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.wo-modal-close:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.wo-modal-body {
+  flex: 1;
+  overflow: auto;
+  padding: 18px;
+  display: flex;
+  justify-content: center;
+}
+.wo-modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border-strong);
+  background: var(--surface);
+  flex-wrap: wrap;
 }
 
 /* ---------- tables ---------- */
@@ -1806,7 +2313,7 @@ input[type='text']:focus {
   align-items: center;
   justify-content: center;
   background: radial-gradient(1200px 600px at 100% -10%, var(--indigo-50), transparent 60%),
-    radial-gradient(900px 500px at -10% 110%, #ede9fe, transparent 55%),
+    radial-gradient(900px 500px at -10% 110%, #e3effb, transparent 55%),
     linear-gradient(180deg, var(--bg-grad-a), var(--bg-grad-b));
 }
 .login-card {
@@ -2371,7 +2878,7 @@ button.danger:disabled {
   padding: 6px 11px;
   border-radius: 8px;
   border: 1px solid var(--indigo-100);
-  background: linear-gradient(135deg, var(--indigo-50), #ede9fe);
+  background: linear-gradient(135deg, var(--indigo-50), #e3effb);
   color: var(--indigo-700);
   font-weight: 600;
   font-size: 12.5px;

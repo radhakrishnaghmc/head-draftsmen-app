@@ -66,6 +66,8 @@ export const IPC = {
   exportCreatedDocument: 'doc:exportCreatedDocument',
   printCreatedDocument: 'doc:printCreatedDocument',
   intimationTemplate: 'doc:intimationTemplate',
+  workOrderTemplate: 'doc:workOrderTemplate',
+  agreementTemplate: 'doc:agreementTemplate',
   loadState: 'state:load',
   saveState: 'state:save',
   remoteStateUpdate: 'state:remoteUpdate',
@@ -156,6 +158,10 @@ export interface DocuGenApi {
   printCreatedDocument(renderedHtml: string): Promise<void>
   /** Reads the bundled Intimation format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
   intimationTemplate(): Promise<string>
+  /** Reads the bundled Work Order format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
+  workOrderTemplate(): Promise<string>
+  /** Reads the bundled Agreement format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
+  agreementTemplate(): Promise<string>
   loadState(): Promise<PersistedState | null>
   saveState(state: PersistedState): Promise<void>
   /** Fires when the other signed-in device changes the workspace, so this one can merge it in live. Returns an unsubscribe function. */

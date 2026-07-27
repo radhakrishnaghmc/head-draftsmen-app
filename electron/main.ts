@@ -602,6 +602,32 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
+  const bundledResourceFile = (fileName: string) =>
+    [
+      path.join(process.resourcesPath, fileName),
+      path.join(app.getAppPath(), 'resources', fileName),
+      path.join(app.getAppPath(), '..', 'resources', fileName)
+    ].find((p) => {
+      try {
+        fs.accessSync(p)
+        return true
+      } catch {
+        return false
+      }
+    })
+
+  ipcMain.handle(IPC.workOrderTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('work-order-template.docx')
+    if (!templatePath) throw new Error('Work Order format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
+  ipcMain.handle(IPC.agreementTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('agreement-template.docx')
+    if (!templatePath) throw new Error('Agreement format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
   const stateFile = () => path.join(app.getPath('userData'), 'state.json')
 
   const seedStateFile = () => {

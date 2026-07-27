@@ -231,7 +231,7 @@ export default function ScheduleATab({ tables }: Props) {
             : 'Upload BOQ to generate the Schedule A.'}
         </p>
         <div className="boq-actions">
-          <button className="primary" onClick={upload}>
+          <button className="primary upload-btn" onClick={upload}>
             <IconFolder /> Upload BOQ
           </button>
           {output && (

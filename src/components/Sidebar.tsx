@@ -10,6 +10,8 @@ import {
   IconCalendar,
   IconDownload,
   IconChecklist,
+  IconClipboard,
+  IconEye,
   IconRefresh,
   IconBell
 } from './Icons'
@@ -21,6 +23,8 @@ export type TabKey =
   | 'estimateWorkspace'
   | 'techSanction'
   | 'intimation'
+  | 'workOrder'
+  | 'mbScrutiny'
   | 'search'
   | 'todo'
 
@@ -80,11 +84,6 @@ export default function Sidebar(props: Props) {
 
   const items: Item[] = [
     {
-      key: 'dashboard',
-      label: 'Calendar',
-      icon: <IconCalendar />
-    },
-    {
       key: 'data',
       label: 'Works List',
       icon: <IconTable />,
@@ -93,8 +92,24 @@ export default function Sidebar(props: Props) {
       tone: 'green'
     },
     {
+      key: 'dashboard',
+      label: 'Calendar',
+      icon: <IconCalendar />
+    },
+    {
+      key: 'intimation',
+      label: 'Intimation and agency approval',
+      icon: <IconBell />,
+      tone: 'rose'
+    },
+    {
+      key: 'workOrder',
+      label: 'Work order and agreement',
+      icon: <IconClipboard />
+    },
+    {
       key: 'printDoc',
-      label: 'Issue Document',
+      label: 'Issue other Documents',
       icon: <IconPrint />,
       badge: props.createdDocCount || undefined,
       tone: 'sky'
@@ -106,15 +121,25 @@ export default function Sidebar(props: Props) {
       tone: 'amber'
     },
     {
+      key: 'todo',
+      label: 'To Do List',
+      icon: <IconChecklist />
+    },
+    {
+      key: 'mbScrutiny',
+      label: 'MB Scrutiny list',
+      icon: <IconEye />
+    },
+    {
+      key: 'search',
+      label: 'Search Tender',
+      icon: <IconSearch />,
+      tone: 'green'
+    },
+    {
       key: 'techSanction',
       label: 'Give Technical Sanction',
       icon: <IconCheck />
-    },
-    {
-      key: 'intimation',
-      label: 'Give Intimation',
-      icon: <IconBell />,
-      tone: 'rose'
     }
   ]
 
@@ -155,38 +180,6 @@ export default function Sidebar(props: Props) {
             ) : null}
           </button>
         ))}
-
-        <div className="nav-sep" />
-
-        <button
-          className={`nav-item ${props.active === 'todo' ? 'on' : ''}`}
-          onClick={() => props.onSelect('todo')}
-        >
-          <span className="nav-step tool">
-            <IconChecklist />
-          </span>
-          <span className="nav-ic">
-            <IconChecklist />
-          </span>
-          <span className="nav-text">
-            <span className="nav-label">To Do List</span>
-          </span>
-        </button>
-
-        <button
-          className={`nav-item tone-green ${props.active === 'search' ? 'on' : ''}`}
-          onClick={() => props.onSelect('search')}
-        >
-          <span className="nav-step tool">
-            <IconSearch />
-          </span>
-          <span className="nav-ic">
-            <IconSearch />
-          </span>
-          <span className="nav-text">
-            <span className="nav-label">Search Tender</span>
-          </span>
-        </button>
       </nav>
 
       <div className="side-foot">
