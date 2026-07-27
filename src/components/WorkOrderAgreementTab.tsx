@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { renderAsync } from 'docx-preview'
 import { api } from '../ipc'
-import { parseIntimationNotice, type IntimationNotice } from '@core/intimationNotice'
+import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice } from '@core/intimationNotice'
 import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
@@ -125,11 +125,18 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
     [notice, pdfEval, selectedRow]
   )
 
+  // The Online Intimation can be uploaded as either the portal "View
+  // Intimation Notice" .html page or the printed Intimation / Letter of
+  // Acceptance .pdf — both carry the agency, address, NIT No, ECV and
+  // contract value, just in different formats, so parse by file type.
   async function handleNoticeFile(file: File) {
     setActionError(null)
     try {
-      const text = await file.text()
-      setNotice(parseIntimationNotice(text))
+      const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
+      const parsed = isPdf
+        ? parseIntimationNoticeText(await pdfToTextLines(file))
+        : parseIntimationNotice(await file.text())
+      setNotice(parsed)
       setNoticeName(file.name)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
@@ -384,7 +391,7 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
           <input
             ref={noticeInputRef}
             type="file"
-            accept=".html,.htm,text/html"
+            accept=".html,.htm,text/html,.pdf,application/pdf"
             style={{ display: 'none' }}
             onChange={(e) => {
               const file = e.target.files?.[0]

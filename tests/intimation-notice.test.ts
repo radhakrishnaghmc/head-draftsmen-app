@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'fs'
-import { parseIntimationNotice } from '../core/intimationNotice'
+import { parseIntimationNotice, parseIntimationNoticeText } from '../core/intimationNotice'
 
 // A trimmed copy of the real Telangana portal "viewIntimationNotice" page.
 const SAMPLE = `
@@ -43,6 +43,33 @@ describe('parseIntimationNotice', () => {
 
   it('returns an empty object for HTML with none of the expected structure', () => {
     expect(parseIntimationNotice('<html><body><p>Nothing here</p></body></html>')).toEqual({})
+  })
+
+  it('parses the printed Intimation / Letter of Acceptance PDF text', () => {
+    // The reconstructed text lines pdfToTextLines produces for the office's
+    // printed Intimation letter (a trimmed copy of the real one).
+    const lines = [
+      'CYBERABAD MUNICIPAL CORPORATION',
+      'Lr. No: /EE/ Nizampet/CIR-58/QBZ/CMC/2026-27Date:15.07.2026',
+      'I N T I M A T I O N',
+      'To,',
+      'M V S CONSTRUCTIONS',
+      '13/B, Allwyn Colony, Phase 2, Kukatpally, Hyderabad -500072, Telangana',
+      'Phone No:',
+      'Sub: -CMC – Quthbullapur Zone – Nizampet – Circle-58 –Works “Junction Improvement…”',
+      'Ref : 1). E-Proc Nit No : 12/DB/EE/Nizampet Circle-58/CMC/2026-27',
+      '2) Your Tender price bid opened Date: 15.07.2026',
+      '3).Amount of Estimate: Rs.20.00 Lakhs',
+      'You are hereby informed that your tender for the execution of the above mentioned work has been',
+      'accepted at (-)11.11% less than the estimated value Rs 1593493.00/-, with a contract value of ₹',
+      '1416455.93/- subject to the terms and conditions of the tender.'
+    ]
+    const r = parseIntimationNoticeText(lines)
+    expect(r.agencyName).toBe('M V S CONSTRUCTIONS')
+    expect(r.address).toBe('13/B, Allwyn Colony, Phase 2, Kukatpally, Hyderabad -500072, Telangana')
+    expect(r.nitNo).toBe('12/DB/EE/Nizampet Circle-58/CMC/2026-27')
+    expect(r.ecvRupees).toBe(1593493)
+    expect(r.contractRupees).toBe(1416455.93)
   })
 
   it('parses the real saved portal page if present', () => {

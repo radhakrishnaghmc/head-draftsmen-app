@@ -78,3 +78,62 @@ export function parseIntimationNotice(html: string): IntimationNotice {
 
   return result
 }
+
+/**
+ * Parses the *printed* Intimation / "Letter of Acceptance" PDF (the office's
+ * own letter, saved as a text-bearing PDF) for the same fields
+ * parseIntimationNotice pulls from the portal HTML — so the Give Intimation
+ * and Work Order / Agreement tabs accept the Online Intimation as either an
+ * .html portal page or a .pdf letter. Input is the reconstructed text lines
+ * (see src/pdfToText.ts's pdfToTextLines). The letter's layout:
+ *
+ *   To,
+ *   M V S CONSTRUCTIONS                          <- agency name
+ *   13/B, Allwyn Colony, … Telangana             <- address (until "Phone No"/"Sub")
+ *   ...
+ *   Ref : 1). E-Proc Nit No : 12/DB/EE/…/2026-27 <- NIT No
+ *   ... accepted at (-)11.11% less than the estimated value Rs 1593493.00/-,
+ *       with a contract value of ₹ 1416455.93/- ...
+ *
+ * Each field is best-effort; anything not found is left undefined (the caller
+ * falls back to the Works List row, and every field stays editable).
+ */
+export function parseIntimationNoticeText(lines: string[]): IntimationNotice {
+  const result: IntimationNotice = {}
+  const joined = lines.join(' ').replace(/\s+/g, ' ').trim()
+
+  // Agency name + address from the "To," block: the first line after "To,"
+  // is the agency, the lines below it (until "Phone No"/"Sub:"/"Ref:") are
+  // the postal address.
+  const toIdx = lines.findIndex((l) => /^to\s*[,:]?\s*$/i.test(l))
+  if (toIdx >= 0) {
+    const after = lines.slice(toIdx + 1).map((l) => l.trim()).filter((l) => l.length > 0)
+    if (after.length > 0) result.agencyName = after[0]
+    const addr: string[] = []
+    for (const l of after.slice(1)) {
+      if (/^(phone\s*no|sub\s*[:.]|ref\s*[:.]|sir|madam)/i.test(l)) break
+      addr.push(l)
+    }
+    if (addr.length > 0) result.address = addr.join(', ')
+  }
+
+  // NIT No — the "…Nit No : <code>" on the Ref line; capture the code up to a
+  // following "2)" ref, a "Date:" tail, or the end of that line.
+  const nitLine = lines.find((l) => /Nit\s*No/i.test(l)) ?? ''
+  const nit = /Nit\s*No\.?\s*:?\s*(.+?)\s*(?:\d\s*\)|Your\s+Tender|Date\s*:|$)/i.exec(nitLine)
+  if (nit) {
+    const value = nit[1].replace(/\s+/g, ' ').trim()
+    if (value) result.nitNo = value
+  }
+
+  // ECV — "…estimated value Rs 1593493.00…" (may drop the paise).
+  const ecv = /estimated\s+value\s+(?:of\s+)?Rs\.?\s*([\d,]+(?:\.\d+)?)/i.exec(joined)
+  if (ecv) result.ecvRupees = toNumber(ecv[1])
+
+  // Accepted contract value — "…contract value of ₹ 1416455.93…" (the "₹"/
+  // "Rs." and the amount often land on different lines, so read from joined).
+  const contract = /contract\s+value\s+of\s*[₹Rs.\s]*([\d,]+(?:\.\d+)?)/i.exec(joined)
+  if (contract) result.contractRupees = toNumber(contract[1])
+
+  return result
+}
