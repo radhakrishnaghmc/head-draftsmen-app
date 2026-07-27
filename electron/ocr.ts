@@ -3,7 +3,6 @@ import * as os from 'os'
 import * as path from 'path'
 import { Worker } from 'worker_threads'
 import { app } from 'electron'
-import sharp from 'sharp'
 
 export interface OcrLine {
   /** The recognized text of one detected line, in no particular order (callers sort by `top`). */
@@ -72,6 +71,10 @@ function getWorker(): Worker {
 const MAX_IMAGE_DIMENSION = 1800
 
 async function capImageSize(imageBuffer: Buffer): Promise<Buffer> {
+  // Loaded lazily (not a top-level import) so that a missing/incompatible
+  // platform binary can only ever break the OCR feature at the point of use,
+  // never crash the whole app at startup when this module is first required.
+  const sharp = (await import('sharp')).default
   return sharp(imageBuffer)
     .rotate() // apply EXIF orientation before resizing, so a sideways photo is capped on the right axis
     .resize({ width: MAX_IMAGE_DIMENSION, height: MAX_IMAGE_DIMENSION, fit: 'inside', withoutEnlargement: true })

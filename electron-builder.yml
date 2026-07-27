@@ -6,6 +6,13 @@ directories:
 files:
   - out/**/*
   - package.json
+# sharp ships platform-native binaries: a *.node addon plus libvips shared
+# libraries (.dll on Windows, .dylib on macOS). Windows DLLs in particular
+# cannot be dlopen'd from inside the asar archive, so unpack sharp and its
+# @img/* platform packages to the real filesystem on every platform.
+asarUnpack:
+  - '**/node_modules/sharp/**'
+  - '**/node_modules/@img/**'
 extraResources:
   - from: resources/seed-state.json
     to: seed-state.json
