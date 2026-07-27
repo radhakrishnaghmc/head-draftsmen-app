@@ -1,21 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { canClaimSlot, claimSlot, releaseSlot, touchSlot, liveSlots, type SessionSlot } from '../core/sessionSlots'
+import { canClaimSlot, claimSlot, releaseSlot, touchSlot, liveSlots, MAX_CONCURRENT_SESSIONS, type SessionSlot } from '../core/sessionSlots'
 
 const now = 1_000_000
 
 describe('sessionSlots', () => {
-  it('allows claiming when there are 0 or 1 live slots', () => {
+  const liveN = (n: number): SessionSlot[] =>
+    Array.from({ length: n }, (_, i) => ({ sessionId: `s${i}`, loginAt: now, lastSeenAt: now }))
+
+  it('allows claiming while fewer than the max slots are live', () => {
     expect(canClaimSlot([], now)).toBe(true)
-    const one: SessionSlot[] = [{ sessionId: 'a', loginAt: now, lastSeenAt: now }]
-    expect(canClaimSlot(one, now)).toBe(true)
+    expect(canClaimSlot(liveN(MAX_CONCURRENT_SESSIONS - 1), now)).toBe(true)
   })
 
-  it('blocks a 3rd claim when 2 slots are live', () => {
-    const two: SessionSlot[] = [
-      { sessionId: 'a', loginAt: now, lastSeenAt: now },
-      { sessionId: 'b', loginAt: now, lastSeenAt: now }
-    ]
-    expect(canClaimSlot(two, now)).toBe(false)
+  it('blocks a claim once the max slots are live', () => {
+    expect(canClaimSlot(liveN(MAX_CONCURRENT_SESSIONS), now)).toBe(false)
   })
 
   it('treats a slot with no heartbeat in 90s as dead, freeing a slot', () => {

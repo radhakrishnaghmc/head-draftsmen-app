@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../ipc'
 import { IconWarn } from './Icons'
 import appLogo from '../assets/app-logo.png'
+import { MAX_CONCURRENT_SESSIONS } from '@core/sessionSlots'
 
 interface Props {
   onSuccess: (zone?: string, circle?: string, circleNumber?: string) => void
@@ -42,7 +43,7 @@ export default function LoginPage({ onSuccess }: Props) {
         onSuccess(result.zone, result.circle, result.circleNumber)
       }
       else if (result.maxSessions)
-        setError('Already signed in on 2 devices. Log out from one of them and try again.')
+        setError(`Already signed in on ${MAX_CONCURRENT_SESSIONS} devices. Log out from one of them and try again.`)
       else setError('Incorrect login ID or password.')
     } catch {
       setError('Could not verify login — check your internet connection and try again.')

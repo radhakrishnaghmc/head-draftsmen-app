@@ -1,6 +1,9 @@
-// Pure session-slot bookkeeping for the "max 2 concurrent logins per user"
+// Pure session-slot bookkeeping for the "max concurrent logins per user"
 // rule — kept free of any Firestore/network code so it can be unit tested
 // directly. electron/firebaseSync.ts wraps these around a live document.
+
+/** How many devices may be signed in to one account at the same time. */
+export const MAX_CONCURRENT_SESSIONS = 5
 
 export interface SessionSlot {
   sessionId: string
@@ -18,7 +21,7 @@ export function liveSlots(slots: SessionSlot[], now: number): SessionSlot[] {
 }
 
 export function canClaimSlot(slots: SessionSlot[], now: number): boolean {
-  return liveSlots(slots, now).length < 2
+  return liveSlots(slots, now).length < MAX_CONCURRENT_SESSIONS
 }
 
 export function claimSlot(

@@ -1,4 +1,4 @@
-// Cross-device sync + "max 2 concurrent logins" enforcement, backed by
+// Cross-device sync + "max concurrent logins" enforcement, backed by
 // Firestore. Runs entirely in the Electron main process (the renderer never
 // talks to Firebase directly). Every call here is best-effort: if the cloud
 // is unreachable, the app must keep working exactly as it did before this
