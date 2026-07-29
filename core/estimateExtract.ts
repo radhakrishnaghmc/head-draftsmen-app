@@ -6,6 +6,8 @@ export interface EstimateWorkItem {
   quantity: string
   rate: string
   unit: string
+  /** The estimate's own printed Amount for this item (its Amount-column cell on the summary row), when that column exists — used to catch items the estimate left un-costed (a quantity and rate, but a blank or zero Amount, so the estimate's own total silently omits them). Undefined when the estimate has no Amount column. */
+  estimateAmount?: string
   /** Dimension breakdown (No's/L/B/D) that produced `quantity`, when the source estimate shows it — undefined when it doesn't (e.g. a hand-abstracted estimate with only the final Qty). */
   nos?: string
   l?: string
@@ -75,13 +77,68 @@ export function extractWorkName(grid: string[][], headerRowIndex: number): strin
   return extractLabeledField(grid, headerRowIndex, WORK_NAME_LABEL_RE)
 }
 
+/**
+ * Split one sheet's grid into separate estimate blocks when several complete
+ * estimates are stacked in the same sheet — each estimate opens with its own
+ * "Name of Work: ..." row, so every such row (after the first) starts a new
+ * block that runs down to the row before the next one. Returns [grid]
+ * unchanged when the sheet holds zero or one estimate, so callers can treat
+ * the single- and multi-estimate cases the same way.
+ */
+export function splitEstimateBlocks(grid: string[][]): string[][][] {
+  const marks: number[] = []
+  grid.forEach((row, i) => {
+    if (row.some((cell) => WORK_NAME_LABEL_RE.test(norm(cell)))) marks.push(i)
+  })
+  if (marks.length <= 1) return [grid]
+  return marks.map((start, m) => grid.slice(start, m + 1 < marks.length ? marks[m + 1] : grid.length))
+}
+
+const GRAND_TOTAL_LABEL_RE = /grand\s*total/i
+
+/**
+ * The estimate's sanctioned Grand Total expressed in lakhs — the figure at the
+ * very bottom of the estimate (after LC/seigniorage/GST/unforeseen), not the
+ * ECV. Unlike extractEstimateAmountLakhs (which reads a labelled field in the
+ * title block above the items), this scans the whole block for the "Grand
+ * Total" row and takes the amount on it: the value in the Amount column when
+ * that column is known, otherwise the first positive number on the row (a
+ * trailing deviation figure like "0.00"/"-3979667" is skipped). Returns
+ * undefined when there is no Grand Total row to read.
+ */
+export function extractGrandTotalLakhs(grid: string[][], headerRowIndex: number): number | undefined {
+  const header = grid[headerRowIndex] ?? []
+  const amountIdx = header.findIndex((c) => /\bamount\b/i.test(norm(c)))
+  const asPositive = (v: unknown): number | undefined => {
+    const n = Number(norm(v).replace(/,/g, ''))
+    return Number.isFinite(n) && n > 0 ? n : undefined
+  }
+  for (const row of grid) {
+    if (!row.some((c) => GRAND_TOTAL_LABEL_RE.test(norm(c)))) continue
+    let val = amountIdx >= 0 ? asPositive(row[amountIdx]) : undefined
+    if (val == null) {
+      for (const c of row) {
+        val = asPositive(c)
+        if (val != null) break
+      }
+    }
+    if (val != null) return Math.round((val / 100000) * 100) / 100
+  }
+  return undefined
+}
+
 // Serial number header varies ("S.No", "S.No.", "Sl.No", "Sl No", "Serial No"…);
-// unit header sometimes reads "Per" instead of "Unit".
+// unit header reads "Unit"/"Units", "UOM", or "Per" across different templates.
 export const ESTIMATE_COLUMN_SPECS: ColumnSpec[] = [
   { label: 'Serial Number', patterns: [/^sl?\.?\s*no\.?$|serial/i] },
-  { label: 'Quantity', patterns: [/qty|quantity/i] },
+  // A "Total Qty" column is the item's final quantity — preferred over an
+  // intermediate "Qty per Day" / "Qty per unit" column that a day-rate estimate
+  // also carries (and leaves blank on most rows), which the plain /qty/ pattern
+  // would otherwise claim first for being further left, dropping every item
+  // whose per-day cell is empty.
+  { label: 'Quantity', patterns: [/total\s*(?:qty|quantity)/i, /qty|quantity/i] },
   { label: 'Rate', patterns: [/rate/i] },
-  { label: 'Unit', patterns: [/unit|^per$/i] }
+  { label: 'Unit', patterns: [/unit|uom|^per$/i] }
 ]
 
 // S.No / Qty / Rate are always labelled in these estimates; the Unit column
@@ -119,6 +176,8 @@ export interface ResolvedEstimateColumns {
   lCol?: number
   bCol?: number
   dCol?: number
+  /** The Amount column — best-effort, undefined when the sheet has no labelled Amount column. */
+  amountCol?: number
 }
 
 const NOS_HEADER_RE = /^no'?s\.?$/i
@@ -142,6 +201,31 @@ export function resolveDimensionColumns(header: string[]): Pick<ResolvedEstimate
   return { nosCol: find(NOS_HEADER_RE), lCol: find(L_HEADER_RE), bCol: find(B_HEADER_RE), dCol: find(D_HEADER_RE) }
 }
 
+// A departmental rate-schedule code (BLD-CSTN-…, APSS/SS clause, TBSC/TBSP,
+// ELEC, MORTH). Its presence marks a full item specification, as opposed to a
+// bare measurement sub-label ("Footings", "Columns", "Roof Beams").
+const SCHEDULE_CODE_RE = /BLD-|CSTN|APSS|TBS[CP]?|\bSS\s*-?\s*\d|ELEC|MORTH/i
+
+// The same code anchored at the very start of a description — the tell that a
+// row *begins a new item* even when the source estimate forgot to put a serial
+// number on it (a real omission seen in the field: an item's spec cell is
+// filled but its S.No cell was left blank, so it would otherwise be swallowed
+// into the item above and mis-take that item's description).
+const STARTS_WITH_SCHEDULE_CODE_RE = /^\s*(BLD-|TBS[CP]|APSS|MORTH|ELEC-|\bSS\s*-?\s*\d)/i
+
+/**
+ * Whether a lead-row description is a full item specification rather than a
+ * bare sub-item label. Detailed estimates break one costed item (e.g. "Supply
+ * and placing of M-25 Design Mix Concrete …") into lettered sub-parts a/b/c
+ * ("Footings", "Pedastals", "Plinth Beams"), each on its own S.No'd row with
+ * only that short label — the parent's full spec never repeats. We treat a
+ * long description, or one carrying a rate-schedule code, as a full spec; a
+ * short, code-less one as a sub-label that should inherit its parent's spec.
+ */
+function isFullSpecDescription(description: string): boolean {
+  return description.length >= 40 || SCHEDULE_CODE_RE.test(description)
+}
+
 /**
  * The actual block-extraction algorithm, shared by both the automatic path
  * (extractEstimateItems, which resolves column indices from the header row's
@@ -162,10 +246,16 @@ export function resolveDimensionColumns(header: string[]): Pick<ResolvedEstimate
 function extractEstimateItemsFromColumns(
   grid: string[][],
   headerRowIndex: number,
-  { snoCol, descCol, qtyCol, rateCol, unitCol, nosCol, lCol, bCol, dCol }: ResolvedEstimateColumns
+  { snoCol, descCol, qtyCol, rateCol, unitCol, nosCol, lCol, bCol, dCol, amountCol }: ResolvedEstimateColumns
 ): EstimateWorkItem[] {
   const items: EstimateWorkItem[] = []
   let block: { row: string[]; gridRow: number }[] = []
+  // The full spec of the most recent "parent" item — a lead row that carries a
+  // real specification but no measurement of its own because its quantity is
+  // spread across lettered sub-parts on the rows below (a/b/c). Each sub-part's
+  // bare label ("Footings") is prefixed with this so the emitted item keeps the
+  // parent's spec; cleared once a self-contained full-spec item is emitted.
+  let pendingParentDescription: string | undefined
 
   // A row's own No's/L/B/D cells if it has any, else undefined — used to find
   // the dimension row that precedes a variant's own measurement row.
@@ -193,13 +283,27 @@ function extractEstimateItemsFromColumns(
     // Emit one BOQ item per variant (tagging each with its own row label)
     // instead of collapsing them all into just the last measurement row.
     const multipleVariants = measureIndices.length > 1
+    // A bare sub-item label (short, no rate-schedule code) inherits the parent
+    // item's spec, when one is pending — see pendingParentDescription. Depth/
+    // size variants keep their own lead description untouched.
+    const inheritsParent = !multipleVariants && pendingParentDescription !== undefined && !isFullSpecDescription(description)
+    const baseDescription = inheritsParent ? `${pendingParentDescription} - ${description}` : description
     measureIndices.forEach((idx, pos) => {
       const { row, gridRow } = block[idx]
-      const rate = norm(row[rateCol])
-      const unit = norm(row[unitCol])
+      let rate = norm(row[rateCol])
+      let unit = norm(row[unitCol])
       const quantity = norm(row[qtyCol])
+      // Some sub-works print the summary line as "… Say | Qty | Cum | <rate> |
+      // Amount", putting the unit token in the Rate column and the rate number
+      // in the Unit column. Detect that inversion per row (unit reads numeric,
+      // rate reads as a unit token) and swap them back so Rate stays numeric.
+      if (looksNumeric(unit) && !looksNumeric(rate) && UNIT_RE.test(rate)) {
+        const swap = rate
+        rate = unit
+        unit = swap
+      }
       const label = norm(row[descCol])
-      const itemDescription = multipleVariants && label && label !== description ? `${description}( ${label})` : description
+      const itemDescription = multipleVariants && label && label !== description ? `${description}( ${label})` : baseDescription
       // Dimension data (if any) sits on this variant's own row, or on a row
       // between it and the previous variant's own measurement row — never
       // reaching back into an earlier variant's dimensions.
@@ -210,11 +314,13 @@ function extractEstimateItemsFromColumns(
         if (dims) break
       }
       if (itemDescription && quantity) {
+        const estimateAmount = amountCol !== undefined ? norm(row[amountCol]) : undefined
         items.push({
           description: itemDescription,
           quantity,
           rate,
           unit,
+          ...(estimateAmount !== undefined ? { estimateAmount } : {}),
           ...dims,
           // A variant's own row carries its short label in descCol — that's
           // what gets colored, since the shared lead row can't be uniquely
@@ -228,14 +334,32 @@ function extractEstimateItemsFromColumns(
         })
       }
     })
+    // A full-spec lead row that produced no measurement of its own is a parent
+    // whose sub-parts follow; remember its spec for them. A full-spec row that
+    // *did* emit is a self-contained item, ending any parent's sub-part run.
+    if (isFullSpecDescription(description)) {
+      pendingParentDescription = measureIndices.length === 0 ? description : undefined
+    }
     block = []
   }
 
   for (let r = headerRowIndex + 1; r < grid.length; r++) {
     const row = grid[r] ?? []
+    // Stop at the end of this estimate's item list — its grand "Total" row, the
+    // "Add …%" abstract lines below it, or a repeated header where a *second*
+    // estimate pasted into the same sheet begins. Without this, an unrelated
+    // estimate stacked below (some CMC sheets carry two) would have its items
+    // read into this work's Schedule A, so the total no longer matches the
+    // estimate's own item total.
+    if (isItemListEnd(row, snoCol, descCol, qtyCol)) break
     const sno = norm(row[snoCol])
     const desc = norm(row[descCol])
-    if (sno !== '' && desc !== '') {
+    // A new item opens on any serial-numbered, described row — or on a row
+    // whose description itself starts with a rate-schedule code even without a
+    // serial (a spec row the estimate left un-numbered), so it isn't folded
+    // into the item above and given that item's description.
+    const opensNewItem = (sno !== '' && desc !== '') || STARTS_WITH_SCHEDULE_CODE_RE.test(desc)
+    if (opensNewItem) {
       resolveBlock() // close whatever block was open
       block = [{ row, gridRow: r }]
     } else if (block.length > 0) {
@@ -245,6 +369,33 @@ function extractEstimateItemsFromColumns(
   resolveBlock()
 
   return items
+}
+
+/**
+ * Whether `row` marks the end of an estimate's measured-item list: its grand
+ * "Total" row, one of the "Add …%" abstract/overhead lines that follow it, or a
+ * reprinted "S.No / Description of work" header where a second estimate stacked
+ * into the same sheet starts. Item extraction stops here so the summary section
+ * and any unrelated estimate below are never read as more items.
+ */
+function isItemListEnd(row: string[], snoCol: number, descCol: number, qtyCol: number): boolean {
+  const desc = norm(row[descCol]).toLowerCase()
+  const qty = norm(row[qtyCol]).toLowerCase()
+  const sno = norm(row[snoCol]).toLowerCase()
+  // A genuine total row tabulates its figure under the Quantity/Amount columns,
+  // so a "Total" in the *Quantity* column reliably marks the end of the items.
+  // A bare "Total" in the *description* column does not: detailed estimates use
+  // it as an intra-item sub-total label (e.g. a flooring item whose measured
+  // parts are summed under a "Total" row, with the real Qty/Rate several rows
+  // below), and a multi-sub-work estimate repeats a sub-work "Total" between
+  // sub-works — stopping at either would truncate the item list mid-estimate.
+  // "Grand Total" is unambiguous wording never used as an intra-item label, so
+  // it still ends the list even when it only labels the description column.
+  const isTotal = /^grand\s+total$/.test(desc) || /^(grand\s+)?total$/.test(qty)
+  const isAbstractAdd =
+    /^add\b/.test(desc) && /(charge|gst|\bvat\b|cess|seign[io]rage|\bnac\b|dmft|smet|permit|royalty|labour|contingenc|u\/f items|ls for)/.test(desc)
+  const isNewEstimateHeader = /^s\.?\s*no\.?$/.test(sno) && /descrip/.test(desc)
+  return isTotal || isAbstractAdd || isNewEstimateHeader
 }
 
 function looksNumeric(s: string): boolean {
@@ -369,7 +520,33 @@ export function extractEstimateItems(
     throw new Error('Could not find a description column next to the S.No column in the estimate.')
   }
   const dims = resolveDimensionColumns(header)
-  return extractEstimateItemsFromColumns(grid, headerRowIndex, { snoCol, descCol, qtyCol, rateCol, unitCol, ...dims })
+  // The Amount column, when labelled — used only to catch un-costed items (a
+  // quantity and rate but a blank/zero Amount). Kept distinct from the unit
+  // column already claimed, and never the unlabelled formula column, so a
+  // labelled "Amount"/"Cost" header is required. Optional: absent → not read.
+  const amountIdx = header.findIndex((h, i) => i !== unitCol && /\bamount\b|\bcost\b/i.test(h))
+  const amountCol = amountIdx === -1 ? undefined : amountIdx
+  return extractEstimateItemsFromColumns(grid, headerRowIndex, { snoCol, descCol, qtyCol, rateCol, unitCol, amountCol, ...dims })
+}
+
+/**
+ * The extracted items the estimate itself left un-costed: a real quantity and
+ * rate (so Qty × Rate is a positive amount) but a blank or zero Amount cell in
+ * the estimate's own Amount column. The estimate's printed total silently
+ * omits these, so a BOQ built as Σ(Qty × Rate) will exceed the estimate's own
+ * figure by exactly their worth — worth surfacing so it's a deliberate choice,
+ * not a surprise. Returns [] when the estimate has no Amount column to compare
+ * against (nothing can be judged missing), or when every item is costed.
+ */
+export function itemsMissingEstimateAmount(items: EstimateWorkItem[]): EstimateWorkItem[] {
+  const num = (s: string | undefined): number => Number(String(s ?? '').replace(/,/g, ''))
+  return items.filter((it) => {
+    if (it.estimateAmount === undefined) return false // no Amount column at all
+    const computed = Math.round((num(it.quantity) || 0) * (num(it.rate) || 0))
+    if (computed <= 0) return false // genuinely zero work (e.g. a 0-qty provisional line)
+    const printed = num(it.estimateAmount)
+    return !Number.isFinite(printed) || Math.round(printed) === 0
+  })
 }
 
 /**
@@ -393,27 +570,150 @@ export function extractEstimateItemsWithColumns(
 // for measuring work items — the one reliable anchor for finding an item's
 // summary line directly in OCR'd text, since it's short, distinctive, and
 // (unlike column position) survives a table-line OCR engine returning whole
-// lines of text instead of per-word/per-cell boxes.
-const UNIT_TOKENS = ['Cum', 'Sqm', 'Rmt', 'Nos', 'Kg', 'MT', 'Ltr', 'Mtr', 'Sft', 'RM', 'Each']
+// lines of text instead of per-word/per-cell boxes. Beyond the civil-works
+// units, service/transport/labour estimates measure by Tonne, Trip, Day,
+// Hour, Km, Pair etc. — included so those estimates' item lines are found too
+// (a garbage-transport estimate priced "…/tonne" is a real case). Longer
+// spellings precede their abbreviations so the regex prefers the fuller match.
+const UNIT_TOKENS = [
+  'Cum',
+  'Sqm',
+  'Rmt',
+  'Nos',
+  'Kg',
+  'MT',
+  'Ltr',
+  'Mtr',
+  'Sft',
+  'RM',
+  'Each',
+  'Tonnes',
+  'Tonne',
+  'Ton',
+  'Trip',
+  'Days',
+  'Day',
+  'Hour',
+  'Hrs',
+  'Hr',
+  'Kms',
+  'Km',
+  'Cft',
+  'Brass',
+  'Pair',
+  'Litre'
+]
 // No leading \b: OCR frequently glues the "Per" multiplier straight onto the
 // unit with no space (e.g. "2345.001Cum"), which would otherwise fail a
-// word-boundary check between the digit and the letter.
-const UNIT_RE = new RegExp(`(${UNIT_TOKENS.join('|')})\\b`, 'i')
+// word-boundary check between the digit and the letter. Exported so the
+// Schedule A builder can detect an unlabelled unit column the same way.
+export const UNIT_RE = new RegExp(`(${UNIT_TOKENS.join('|')})\\b`, 'i')
 const NUMBER_RE = /\d[\d,]*\.\d{2}/g
-const NUMBER_TOKEN_RE = /^\d[\d,]*\.\d{2}$/
+
+/**
+ * A line that is only numbers (with at most a stray "x" multiplier / column
+ * separators) and no unit token or real words — a summary row's Qty/Rate (or
+ * Amount) cell that a line-detecting OCR split off as its own line. Used to
+ * re-stitch a summary row the OCR fragmented across two lines (e.g. "tonne
+ * 5577686.00" on one line and "14960.00 372.84" on the next).
+ */
+function looksNumericFragment(text: string): boolean {
+  if (UNIT_RE.test(text)) return false
+  if (!(text.match(NUMBER_RE)?.length ?? 0)) return false
+  return text.replace(/[0-9.,/\-\s]/g, '').replace(/x/gi, '') === ''
+}
+
+/** How closely Qty × Rate must reproduce Amount to count as consistent (1%, covering display rounding). */
+function amountTolerance(amount: number): number {
+  return Math.max(1, amount * 0.01)
+}
+
+/**
+ * From the decimal numbers on an item's summary line, choose which are Qty,
+ * Rate and Amount. The printed order is "Qty | Rate | Per | Amount", so the
+ * naive choice is the last three. But OCR routinely leaves an *extra* decimal
+ * number on the line — a dimension figure, a running page total, a stray "Per"
+ * multiplier — which would shift that window. So we lean on the one invariant a
+ * detailed estimate always holds: Amount = Qty × Rate. We look for the
+ * right-most Qty/Rate/Amount triple whose product matches, which lands on the
+ * true columns even amid extra numbers. Only when no triple is consistent do we
+ * fall back to the printed last-three. Values with no 2-decimal form (a
+ * whole-number No's) never appear in `numbers`, so can't be mistaken for Qty.
+ */
+function pickQtyRateAmount(numbers: string[]): { quantity: string; rate: string; amount?: string } {
+  const n = numbers.map((s) => Number(s.replace(/,/g, '')))
+  for (let a = n.length - 1; a >= 2; a--) {
+    if (!(n[a] > 0)) continue
+    const tol = amountTolerance(n[a])
+    for (let r = a - 1; r >= 1; r--) {
+      for (let q = r - 1; q >= 0; q--) {
+        if (n[q] > 0 && n[r] > 0 && Math.abs(n[q] * n[r] - n[a]) <= tol) {
+          return { quantity: numbers[q], rate: numbers[r], amount: numbers[a] }
+        }
+      }
+    }
+  }
+  const [quantity, rate, amount] = numbers.slice(-3)
+  return { quantity, rate, amount }
+}
+
+/**
+ * Correct a misread quantity against the authoritative Amount = Qty × Rate.
+ * When a summary line carries an Amount (the estimate's own printed total) that
+ * the read Qty × Rate can't reproduce, and Amount ÷ Rate is a clean positive
+ * value, we trust the Amount and recompute the quantity: OCR trips on the Qty
+ * column's digits far more often than on the (wider, more redundant) Amount, so
+ * this keeps the item's amount — and the grand total, which the app re-derives
+ * as Σ(Qty × Rate) — faithful to the source. Returns the original quantity
+ * untouched when the row is already consistent, has no usable Amount/Rate, or
+ * the recomputation isn't finite.
+ */
+function reconcileQuantity(quantity: string, rate: string, amount: string | undefined): string {
+  const q = Number(quantity.replace(/,/g, ''))
+  const r = Number(rate.replace(/,/g, ''))
+  const a = amount != null ? Number(amount.replace(/,/g, '')) : NaN
+  if (!(r > 0) || !Number.isFinite(a) || !(a > 0)) return quantity
+  if (Math.abs(q * r - a) <= amountTolerance(a)) return quantity
+  const corrected = a / r
+  return Number.isFinite(corrected) && corrected > 0 ? corrected.toFixed(2) : quantity
+}
+
+// A bare-integer No's count ("1", "2", "10") — as printed in the No's column,
+// with no decimal point (distinct from a measurement).
+const DIM_COUNT_RE = /^\d{1,4}$/
+// An L/B/D measurement — always carries a decimal point, but any number of
+// decimals (a thickness is often 3, e.g. "0.075"), unlike a Qty/Rate/Amount
+// figure which the summary line pins to exactly 2.
+const DIM_MEASURE_RE = /^\d[\d,]*\.\d+$/
 
 /**
  * A "No's / L / B / D" dimension line has no unit token and no other text —
- * just 2 to 4 decimal numbers, printed in that column order. Distinguished
- * from a description line (which has actual words, so never matches purely
- * numeric tokens) and from a summary line (which always carries a unit
- * token). 4 numbers is the unambiguous No's+L+B+D case; 3 is L+B+D with an
- * implicit single count; 2 is treated as L+B (e.g. an area item), the most
- * common two-number case.
+ * just the count and 2 to 3 measurements, printed in that column order.
+ * Distinguished from a description line (which has actual words, so never
+ * matches purely numeric tokens) and from a summary line (which always carries
+ * a unit token).
+ *
+ * The No's is usually a *bare integer* ("1 250.00 6.00 0.15") — so it's matched
+ * separately from the decimal measurements rather than demanding it too be a
+ * 2-decimal number, which used to reject the whole (perfectly clean) line and
+ * push it into the far more error-prone glued-number factoring below. When
+ * there's no leading count, 4 numbers is No's+L+B+D, 3 is L+B+D, and 2 is L+B
+ * (an area item).
  */
 function parseDimensionLine(text: string): Pick<EstimateWorkItem, 'nos' | 'l' | 'b' | 'd'> | undefined {
   const tokens = text.split(/\s+/)
-  if (tokens.length < 2 || tokens.length > 4 || !tokens.every((t) => NUMBER_TOKEN_RE.test(t))) return undefined
+  if (tokens.length < 2 || tokens.length > 4) return undefined
+
+  // A leading bare-integer count, then all-measurement dimensions.
+  if (DIM_COUNT_RE.test(tokens[0])) {
+    const [nos, ...dims] = tokens
+    if (dims.length < 2 || dims.length > 3 || !dims.every((t) => DIM_MEASURE_RE.test(t))) return undefined
+    const [l, b, d] = dims
+    return dims.length === 3 ? { nos, l, b, d } : { nos, l, b }
+  }
+
+  // No leading count — every token is a measurement.
+  if (!tokens.every((t) => DIM_MEASURE_RE.test(t))) return undefined
   if (tokens.length === 4) {
     const [nos, l, b, d] = tokens
     return { nos, l, b, d }
@@ -603,8 +903,8 @@ export function extractEstimateItemsFromLines(lines: string[]): EstimateWorkItem
   let sawQty = false
   let sawRate = false
 
-  for (const raw of lines) {
-    const text = norm(raw)
+  for (let i = 0; i < lines.length; i++) {
+    const text = norm(lines[i])
     if (!text) continue
 
     if (!pastHeader) {
@@ -621,9 +921,38 @@ export function extractEstimateItemsFromLines(lines: string[]): EstimateWorkItem
     }
 
     const unitMatch = UNIT_RE.exec(text)
-    const numbers = text.match(NUMBER_RE) ?? []
+    let numbers: string[] = text.match(NUMBER_RE) ?? []
+    // A unit-bearing line with too few numbers is a summary row the OCR split
+    // across two lines — its unit+Amount cell detached from its Qty/Rate cell
+    // (and the two can even land out of reading order). Re-stitch by pulling
+    // the Qty/Rate figures from an adjacent numeric-only fragment (the line
+    // just accumulated, or the next line), always ordered Qty/Rate first and
+    // this line's Amount last so pickQtyRateAmount still reads the columns right.
+    let consumedNext = false
+    if (unitMatch && numbers.length < 3) {
+      const prev = description[description.length - 1]
+      const next = i + 1 < lines.length ? norm(lines[i + 1]) : ''
+      let frag: string[] = []
+      let poppedPrev = false
+      if (prev && looksNumericFragment(prev)) {
+        frag = prev.match(NUMBER_RE) ?? []
+        poppedPrev = true
+      }
+      if (frag.length + numbers.length < 3 && next && looksNumericFragment(next)) {
+        frag = [...frag, ...(next.match(NUMBER_RE) ?? [])]
+        consumedNext = true
+      }
+      if (frag.length + numbers.length >= 3) {
+        numbers = [...frag, ...numbers]
+        if (poppedPrev) description.pop()
+      } else {
+        consumedNext = false
+      }
+    }
     if (unitMatch && numbers.length >= 3 && description.join(' ').trim()) {
-      const [quantity, rate] = numbers.slice(-3)
+      const picked = pickQtyRateAmount(numbers)
+      const rate = picked.rate
+      const quantity = reconcileQuantity(picked.quantity, rate, picked.amount)
       // The clean, cleanly-spaced dimension line (parseDimensionLine, above)
       // takes priority when present; otherwise fall back to reconstructing
       // No's/L/B/D out of whichever accumulated line has them glued into a
@@ -633,6 +962,7 @@ export function extractEstimateItemsFromLines(lines: string[]): EstimateWorkItem
       items.push({ description: description.join(' ').trim(), quantity, rate, unit: unitMatch[1], ...dims })
       description = []
       pendingDims = undefined
+      if (consumedNext) i++ // the next line's figures were folded into this summary
       continue
     }
 

@@ -36,6 +36,24 @@ describe('boqToScheduleA', () => {
     expect(result.rows[0]['Estimated Amount in Rs']).toBe('5000')
   })
 
+  it('drops a reprinted column-header row that repeats mid-sheet, keeping only real items', () => {
+    const boq = table(
+      ['S.No', 'Qty', 'Description of work', 'Rate', 'Per', 'Amount'],
+      [
+        { 'S.No': '15', Qty: '10', 'Description of work': 'Supply of traffic cones', Rate: '600', Per: 'Each', Amount: '6000' },
+        // A page-break reprint of the header — must not become an item.
+        { 'S.No': '', Qty: 'Qty', 'Description of work': 'Description of work', Rate: 'Rate', Per: 'Per', Amount: '' },
+        { 'S.No': '16', Qty: '1440', 'Description of work': 'Job work for JCB', Rate: '800', Per: 'Hour', Amount: '1152000' }
+      ]
+    )
+    const result = boqToScheduleA(boq)
+    const descs = result.rows.map((r) => r['Description of item'])
+    expect(descs).not.toContain('Description of work')
+    expect(descs).toEqual(['Supply of traffic cones', 'Job work for JCB'])
+    // Item numbers are re-serialised after the header row is dropped.
+    expect(result.rows.map((r) => r['Item No.'])).toEqual(['1', '2'])
+  })
+
   it('finds description/unit columns via their common aliases', () => {
     const boq = table(
       ['Sl No', 'Qty', 'Item Description', 'Rate', 'UOM', 'Amount'],

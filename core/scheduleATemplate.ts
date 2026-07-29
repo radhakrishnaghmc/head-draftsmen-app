@@ -29,6 +29,48 @@ function numOrNull(s: string | undefined): number | null {
 }
 
 /**
+ * The bundled Schedule-A template is a real filled-in sample, so it carries a
+ * specific office in two places the metadata fill doesn't touch: the signature
+ * block's circle line ("Gajularamaram Circle-57,CMC") and the preamble's zone
+ * ("…the Quthbullapur Circle does not accept…"). Swap those sample values for
+ * the current work's circle/zone so a saved Schedule A isn't stamped with the
+ * wrong office. Applied to plain-string and rich-text cells alike; the zone is
+ * only substituted when it's a real name (never a bare number).
+ */
+function replaceOfficeText(ws: ExcelJS.Worksheet, meta?: ScheduleAMeta): void {
+  const circle = meta?.circle?.trim()
+  const zone = meta?.zone?.trim()
+  const zoneOk = !!zone && !/^\d+$/.test(zone)
+  if (!circle && !zoneOk) return
+
+  const swap = (text: string): string => {
+    let s = text
+    if (circle) s = s.replace(/Gajularamaram\s+Circle\s*-?\s*57/gi, circle)
+    if (zoneOk) s = s.replace(/Quthbullapur(?=\s+Circle)/gi, zone!)
+    return s
+  }
+
+  ws.eachRow({ includeEmpty: false }, (row) => {
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      const v = cell.value
+      if (typeof v === 'string') {
+        const s = swap(v)
+        if (s !== v) cell.value = s
+      } else if (v && typeof v === 'object' && 'richText' in v && Array.isArray((v as { richText?: unknown }).richText)) {
+        const rich = v as { richText: { text: string }[] }
+        let changed = false
+        const runs = rich.richText.map((run) => {
+          const t = swap(run.text)
+          if (t !== run.text) changed = true
+          return { ...run, text: t }
+        })
+        if (changed) cell.value = { richText: runs } as ExcelJS.CellValue
+      }
+    })
+  })
+}
+
+/**
  * Fill the bundled Schedule-A template in place — preserving its fonts,
  * borders, merged cells and formulas — instead of rebuilding the document
  * from scratch. Item rows are inserted or removed to match the uploaded
@@ -145,6 +187,8 @@ export async function fillScheduleATemplate(
       formula: `+F${totalRow}-(F${totalRow}*D${tenderQuotedRow}%)`
     }
   }
+
+  replaceOfficeText(ws, meta)
 
   const out = await workbook.xlsx.writeBuffer()
   return Buffer.from(out)

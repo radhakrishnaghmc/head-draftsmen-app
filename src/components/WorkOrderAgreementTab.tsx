@@ -2,26 +2,35 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { renderAsync } from 'docx-preview'
 import { api } from '../ipc'
 import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice } from '@core/intimationNotice'
-import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
+import { parseTenderEvaluation, parseAllBidders, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
 import { deriveFields, workOrderPlaceholders, agreementPlaceholders } from '@core/workOrderAgreement'
-import { boqToScheduleA, extractWorkNameFromBoq } from '../boqTransform'
+import { boqToScheduleA, buildBoqFromEstimate, extractWorkNameFromBoq } from '../boqTransform'
+import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
+import { extractEstimateItems, extractWorkName } from '@core/estimateExtract'
 import { buildScheduleARows, rowsToScheduleAItems, metaFromWorksRow, findWorksRowByName } from '@core/scheduleA'
+import { compareWorkNames, workNameMismatchMessage } from '@core/workNameMatch'
+import {
+  buildNoteSubmittedHtml,
+  noteSubmittedFromRow,
+  summarizeNonResponsiveness,
+  type NoteSubmittedData,
+  type NoteBidder
+} from '@core/noteSubmitted'
+import NoteSubmittedEditor from './NoteSubmittedEditor'
 import { mismatchHint } from '../docClassify'
 import type { PlaceholderMatch } from '@core/createDocument'
 import type { ScheduleAMeta } from '../../electron/ipc-contract'
 import type { ExcelTable } from '@core/types'
 import { pdfToTextLines } from '../pdfToText'
-import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
+import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH, normalizeDocxTextboxes } from './docPage'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconCheck, IconClipboard, IconTable } from './Icons'
 
 interface Props {
   tables: ExcelTable[]
   onChange: (table: ExcelTable) => void
 }
-
-const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
 
 function stripExt(name: string): string {
   return name.replace(/\.[^./\\]+$/, '')
@@ -36,13 +45,28 @@ function stripBoqWord(name: string): string {
     .trim()
 }
 
+/** "2026-07-15" (a date-input value) -> "15.07.2026", the templates' dd.mm.yyyy date style. */
+function isoToDmy(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : iso
+}
+
+/** "15.07.2026" (a Works List / LOA date) -> "2026-07-15" to seed a date input. */
+function dmyToIso(dmy: string): string {
+  const m = /^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})$/.exec(dmy.trim())
+  if (!m) return ''
+  const year = m[3].length === 2 ? `20${m[3]}` : m[3]
+  return `${year}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+}
+
 type DocKind = 'workOrder' | 'agreement'
-type Output = DocKind | 'scheduleA'
+type Output = DocKind | 'scheduleA' | 'note'
 
 const DOC_LABEL: Record<Output, string> = {
   workOrder: 'Work Order',
   agreement: 'Agreement Bond',
-  scheduleA: 'Schedule A'
+  scheduleA: 'Schedule A',
+  note: 'Note Submitted'
 }
 
 /**
@@ -71,6 +95,11 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
   const [pdfEval, setPdfEval] = useState<TenderEvaluation | null>(null)
   const [pdfName, setPdfName] = useState('')
   const [pdfStatus, setPdfStatus] = useState<string | null>(null)
+  // Whether the uploaded L1 form's work matched a Works List row. false means
+  // it matched none, so the documents would fill from an unrelated row — the
+  // tiles are gated until the work is added to the Works List. null = not yet
+  // determined (no L1 uploaded, or no works to match against).
+  const [worksRowMatched, setWorksRowMatched] = useState<boolean | null>(null)
 
   // Which output's preview is expanded to the full-size modal, if any.
   const [expanded, setExpanded] = useState<Output | null>(null)
@@ -85,8 +114,25 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
   const [scheduleAError, setScheduleAError] = useState<string | null>(null)
   const [scheduleABusy, setScheduleABusy] = useState(false)
 
+  // One agreement date, shared by the Work Order and the Agreement Bond (both
+  // its A.B.No line and the "…day of…" wording). Held as an ISO date-input
+  // value; blank until the user sets it (via the field here or the prompt shown
+  // when the Agreement Bond tile is opened).
+  const [agreementDate, setAgreementDate] = useState('')
+  const [datePromptOpen, setDatePromptOpen] = useState(false)
+  const [promptDate, setPromptDate] = useState('')
+  // Which document to open once the shared date has been entered in the prompt.
+  const [pendingDoc, setPendingDoc] = useState<DocKind>('agreement')
+
+  // Note Submitted: the full bidder table (from the L-1 PDF) and the editable
+  // note data seeded from the picked row + those bidders — the same generator
+  // as the Intimation tab, shown here as a fourth output tile.
+  const [allBidders, setAllBidders] = useState<NoteBidder[]>([])
+  const [noteData, setNoteData] = useState<NoteSubmittedData | null>(null)
+
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const noticeInputRef = useRef<HTMLInputElement>(null)
+  const nonRespInputRef = useRef<HTMLInputElement>(null)
   const woTileRef = useRef<HTMLDivElement>(null)
   const agTileRef = useRef<HTMLDivElement>(null)
   const expandedRef = useRef<HTMLDivElement>(null)
@@ -120,10 +166,70 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
 
   // Everything the two documents print, resolved from the uploaded Online
   // Intimation + L-1 selection form + the matched Works List row.
-  const fields = useMemo(
-    () => deriveFields(notice ?? {}, pdfEval ?? {}, selectedRow ?? {}),
-    [notice, pdfEval, selectedRow]
-  )
+  const fields = useMemo(() => {
+    const f = deriveFields(notice ?? {}, pdfEval ?? {}, selectedRow ?? {})
+    // The user-entered agreement date wins for both documents (kept identical);
+    // fall back to the LOA/selection date derived from the PDF when unset.
+    const dmy = agreementDate ? isoToDmy(agreementDate) : f.agreementDate
+    return { ...f, agreementDate: dmy, workOrderDate: dmy }
+  }, [notice, pdfEval, selectedRow, agreementDate])
+
+  // Opening either the Work Order or the Agreement Bond preview requires a date
+  // — both documents print the same date, so prompt for it when none has been
+  // set yet (seeding the picker with the LOA date if we have it) and remember
+  // which document the user was opening so we return to it once the date's in.
+  function openDoc(kind: DocKind) {
+    if (!agreementDate) {
+      setPendingDoc(kind)
+      setPromptDate(dmyToIso(fields.agreementDate))
+      setDatePromptOpen(true)
+      return
+    }
+    setExpanded(kind)
+  }
+
+  // Write everything derivable about the award — from the L-1 evaluation and,
+  // when it's been uploaded, the Online Intimation — into the matching Works
+  // List row (Tender ID/Notice/Date, ECV, EMD, ASD, Agency, Address, Tender %,
+  // Contract Amount), and select that row so the documents fill from it.
+  // Re-run whenever either file changes, so a field only one of them carries
+  // (e.g. the address, from the intimation) lands whichever is uploaded second.
+  async function syncWorksListRow(ev: TenderEvaluation, noticeVal: IntimationNotice | null): Promise<void> {
+    if (!table || !ev.nameOfWork) return
+    let embeddings: { rowNameVectors: number[][]; evalNameVectors: number[][] } | undefined
+    const nameHeader = table.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
+    if (nameHeader) {
+      try {
+        const [rowNameVectors, evalNameVectors] = await Promise.all([
+          api.embedTexts(table.rows.map((r) => r[nameHeader] ?? '')),
+          api.embedTexts([ev.nameOfWork])
+        ])
+        embeddings = { rowNameVectors, evalNameVectors }
+      } catch {
+        embeddings = undefined
+      }
+    }
+    const { table: updated, matchedCount, matchedRowIndices } = updateWorksListFromEvaluations(
+      table,
+      [ev],
+      embeddings,
+      noticeVal ?? undefined
+    )
+    if (matchedCount > 0) {
+      onChange(updated)
+      const idx = matchedRowIndices[0]
+      if (idx != null && idx >= 0) setRowIndex(idx)
+      setWorksRowMatched(true)
+      setPdfStatus(
+        `Updated "${ev.nameOfWork}" in the Works List (Tender ID, Notice No/Date, ECV, EMD, ASD, Agency, Address, Tender %, Contract Amount).`
+      )
+    } else {
+      setWorksRowMatched(false)
+      setPdfStatus(
+        `Read the PDF, but no Works List row matched "${ev.nameOfWork}" — add this work to the Works List so the Work Order and Agreement fill the correct row.`
+      )
+    }
+  }
 
   // The Online Intimation can be uploaded as either the portal "View
   // Intimation Notice" .html page or the printed Intimation / Letter of
@@ -138,6 +244,9 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
         : parseIntimationNotice(await file.text())
       setNotice(parsed)
       setNoticeName(file.name)
+      // The L-1 sheet is often uploaded first; now that the intimation is here,
+      // fold its address (and any agency/contract fallback) into the Works List.
+      if (pdfEval) await syncWorksListRow(pdfEval, parsed)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     }
@@ -151,6 +260,7 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
     setBusy('pdf')
     setActionError(null)
     setPdfStatus(null)
+    setWorksRowMatched(null)
     try {
       const lines = await pdfToTextLines(file)
       const ev = parseTenderEvaluation(lines)
@@ -159,32 +269,11 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
       }
       setPdfEval(ev)
       setPdfName(file.name)
+      setAllBidders(parseAllBidders(lines))
 
-      if (table && ev.nameOfWork) {
-        let embeddings: { rowNameVectors: number[][]; evalNameVectors: number[][] } | undefined
-        const nameHeader = table.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
-        if (nameHeader) {
-          try {
-            const [rowNameVectors, evalNameVectors] = await Promise.all([
-              api.embedTexts(table.rows.map((r) => r[nameHeader] ?? '')),
-              api.embedTexts([ev.nameOfWork])
-            ])
-            embeddings = { rowNameVectors, evalNameVectors }
-          } catch {
-            embeddings = undefined
-          }
-        }
-        const { table: updated, matchedCount } = updateWorksListFromEvaluations(table, [ev], embeddings)
-        if (matchedCount > 0) {
-          onChange(updated)
-          const nh = updated.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
-          const idx = nh ? updated.rows.findIndex((r) => norm(r[nh] ?? '') === norm(ev.nameOfWork!)) : -1
-          if (idx >= 0) setRowIndex(idx)
-          setPdfStatus(`Updated "${ev.nameOfWork}" in the Works List (Tender ID, Notice No/Date, ECV, Agency, Tender %, Contract Amount).`)
-        } else {
-          setPdfStatus(`Read the PDF, but no Works List row matched "${ev.nameOfWork}" — the documents are filled, the database wasn't changed.`)
-        }
-      }
+      // Fold the award into the matching Works List row — with the intimation's
+      // own fields (address, agency/contract fallback) too when it's already up.
+      if (table && ev.nameOfWork) await syncWorksListRow(ev, notice)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -205,6 +294,7 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
     const filled = await fillDoc(kind)
     container.innerHTML = ''
     await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
+    normalizeDocxTextboxes(container)
     return container.querySelectorAll('section.docx').length
   }
 
@@ -218,10 +308,17 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
   )
   const workMismatch = workMatch?.status === 'mismatch'
 
+  // The uploaded L1 form's work matched no Works List row, so the selected row
+  // (and everything the documents fill from it — name of work, Circle, CNO,
+  // estimate…) belongs to a different work. Gate the tiles until the work is
+  // added to the Works List.
+  const workRowMismatch = worksRowMatched === false
+
   // Only build the documents once BOTH the Online Intimation and the L1
-  // selection form are uploaded, and they belong to the same work — no tiles
-  // are shown before that (same gate as Give Intimation).
-  const bothUploaded = !!notice && !!pdfEval && !workMismatch
+  // selection form are uploaded, they belong to the same work, and the L1's
+  // work is actually in the Works List — no tiles are shown before that (same
+  // gate as Give Intimation).
+  const bothUploaded = !!notice && !!pdfEval && !workMismatch && !workRowMismatch
   const templatesReady = !!workOrderB64 && !!agreementB64
   const docsReady = templatesReady && bothUploaded
 
@@ -276,7 +373,83 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
       if (!container) throw new Error('Print failed to initialize.')
       container.innerHTML = ''
       await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
+      normalizeDocxTextboxes(container)
       await api.printCreatedDocument(container.innerHTML)
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // --- Note Submitted (same generator as the Intimation tab) ---
+
+  // Seed the note from the picked row and, once uploaded, the L-1 PDF's full
+  // bidder table. Re-seeds on row / PDF change.
+  useEffect(() => {
+    if (!selectedRow) {
+      setNoteData(null)
+      return
+    }
+    const seed = noteSubmittedFromRow(selectedRow, table?.rows[0]?.['Circle'] ?? '')
+    if (allBidders.length > 0) {
+      seed.bidders = allBidders
+      const l1 = allBidders[0]
+      seed.l1Name = l1.name
+      seed.l1PctText = l1.pct
+      seed.l1Tcv = l1.tcv
+    }
+    setNoteData(seed)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowIndex, table, allBidders])
+
+  const notePreviewHtml = useMemo(() => (noteData ? buildNoteSubmittedHtml(noteData) : ''), [noteData])
+  // Same gate as the Work Order / Agreement tiles: don't build the Note
+  // Submitted while the Online Intimation and L1 selection form disagree on the
+  // work/agency, or the L1's work isn't in the Works List (the note is seeded
+  // from the selected row) — otherwise it would show the wrong work/agency.
+  const noteReady = !!noteData && !!pdfEval && !workMismatch && !workRowMismatch
+
+  // Optional non-responsiveness statement — pre-fills the note's rejection line.
+  async function handleNonRespFile(file: File) {
+    setActionError(null)
+    try {
+      const lines = await pdfToTextLines(file)
+      const summary = summarizeNonResponsiveness(lines)
+      setNoteData((prev) => (prev ? { ...prev, qualificationNote: summary } : prev))
+      setPdfStatus(
+        summary
+          ? `Non-responsiveness read from ${file.name} — check the rejection line in the Note Submitted editor.`
+          : `Read ${file.name}, but found no rejected bidders — add the rejection line in the Note Submitted editor if needed.`
+      )
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  async function downloadNote(formats: ('docx' | 'pdf')[]) {
+    if (!noteData) return
+    setBusy(formats[0] === 'pdf' ? 'pdf' : 'download')
+    setActionError(null)
+    setActionSaved(null)
+    try {
+      const b64 = await api.noteSubmittedDocx(notePreviewHtml)
+      const name = `Note Submitted${noteData.workName ? ` - ${noteData.workName}` : ''}`
+      const res = await api.exportCreatedDocument(b64, name, formats)
+      setActionSaved(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function printNote() {
+    if (!noteData) return
+    setBusy('print')
+    setActionError(null)
+    try {
+      await api.printCreatedDocument(notePreviewHtml)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -288,15 +461,51 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
 
   async function uploadBoq() {
     setScheduleAError(null)
-    const uploaded = await api.pickExcels()
-    if (uploaded.length === 0) return
-    const t = uploaded[0]
+    const g = await api.pickEstimateGrid()
+    if (!g) return
+    const headerRow = guessHeaderRow(g.grid)
+    const t = buildTableFromGrid(g.grid, headerRow, { id: `boq-${Date.now()}`, name: g.name, path: g.path })
+
+    // The work name this file describes — from an estimate's title block or a
+    // flat BOQ's header — used both to guard against mixing works and to hop
+    // the Works List selection to the matching row.
+    const detected = extractWorkName(g.grid, headerRow) ?? extractWorkNameFromBoq(t)
+
+    // The work this workspace is currently building for: the L-1 selection
+    // form's Name of Work when it's been uploaded, else the picked Works List
+    // row's name. When both it and the uploaded file name a work, they must be
+    // the same work — otherwise this file's Schedule A would silently belong to
+    // a different work than the Work Order / Agreement. Block the upload and
+    // ask for the same work's details.
+    const expected = pdfEval?.nameOfWork?.trim() || (selectedRow?.['Name of the work'] ?? '').trim()
+    if (detected && expected) {
+      let embeddings: { aVector: number[]; bVector: number[] } | undefined
+      try {
+        const [aVector, bVector] = await api.embedTexts([detected, expected])
+        embeddings = { aVector, bVector }
+      } catch {
+        embeddings = undefined
+      }
+      if (compareWorkNames(detected, expected, embeddings).status === 'mismatch') {
+        setBoq(null)
+        setScheduleA(null)
+        setScheduleAError(workNameMismatchMessage(detected, expected))
+        return
+      }
+    }
+
     setBoq(t)
     try {
-      setScheduleA(boqToScheduleA(t))
-      // If a BOQ names its own work, and it matches a Works List row, hop the
-      // selection there so the whole tab (documents + Schedule A) lines up.
-      const detected = extractWorkNameFromBoq(t)
+      // A detailed CMC/departmental estimate (multi-row No.s/L/B/D measurement
+      // layout) can't be read row-for-row like a flat BOQ — run the estimate
+      // extractor first, which resolves each item's real quantity/rate/unit,
+      // and only fall back to the flat-BOQ column mapping when it finds no
+      // items (i.e. the file really is a plain BOQ). Both yield a Schedule A.
+      const items = extractEstimateItems(g.grid, headerRow)
+      setScheduleA(items.length > 0 ? boqToScheduleA(buildBoqFromEstimate(items)) : boqToScheduleA(t))
+
+      // If the source names its own work and it matches a Works List row, hop
+      // the selection there so the whole tab (documents + Schedule A) lines up.
       if (detected && table) {
         const match = findWorksRowByName(table, detected)
         if (match) {
@@ -311,10 +520,21 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
     }
   }
 
-  const scheduleAMeta: ScheduleAMeta | undefined = useMemo(
-    () => (selectedRow ? metaFromWorksRow(selectedRow) : undefined),
-    [selectedRow]
-  )
+  const scheduleAMeta: ScheduleAMeta | undefined = useMemo(() => {
+    if (!selectedRow) return undefined
+    const base = metaFromWorksRow(selectedRow)
+    // The tender % (and contractor / work name) are frequently known only from
+    // the uploaded L-1 selection form before the Works List row itself carries
+    // them — prefer the resolved `fields` value so Schedule A's "Tender Quoted
+    // %" and "Less: (…)% Less" fill from what was uploaded rather than staying
+    // blank against a not-yet-updated (or mis-selected) row.
+    return {
+      ...base,
+      nameOfWork: base.nameOfWork?.trim() || fields.nameOfWork,
+      contractorName: base.contractorName?.trim() || fields.agencyName,
+      tenderPercentage: fields.tenderPercent || base.tenderPercentage
+    }
+  }, [selectedRow, fields])
 
   const scheduleAPreview = useMemo(
     () => (scheduleA ? buildScheduleARows(rowsToScheduleAItems(scheduleA), scheduleAMeta) : null),
@@ -364,7 +584,7 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
   }
 
   const noWorks = !table || table.rows.length === 0
-  const anyOutput = docsReady || !!scheduleAPreview
+  const anyOutput = docsReady || !!scheduleAPreview || noteReady
 
   return (
     <div className="card">
@@ -378,7 +598,7 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
           technical-sanctioned <strong>estimate / BOQ</strong> to also generate this work's Schedule&nbsp;A. Each
           output appears below as a tile — click one to preview it full size and print / save it.
         </p>
-        <div className="boq-actions">
+        <div className="boq-actions boq-actions--grid">
           <button className="primary upload-btn" onClick={() => noticeInputRef.current?.click()} disabled={!templatesReady}>
             <IconFolder /> {notice ? 'Change Online Intimation' : 'Upload Online Intimation'}
           </button>
@@ -386,7 +606,10 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
             <IconFolder /> {busy === 'pdf' ? 'Reading PDF…' : pdfEval ? 'Change L1 selection form' : 'Upload L1 selection form'}
           </button>
           <button className="primary upload-btn" onClick={uploadBoq} disabled={noWorks}>
-            <IconTable /> {boq ? 'Change estimate / BOQ' : 'Upload estimate / BOQ (Schedule A)'}
+            <IconTable /> {boq ? 'Change estimate / BOQ' : 'Upload estimate/BOQ to get schedule A'}
+          </button>
+          <button className="primary upload-btn" onClick={() => nonRespInputRef.current?.click()} disabled={!pdfEval}>
+            <IconFolder /> Upload Non-responsive form
           </button>
           <input
             ref={noticeInputRef}
@@ -410,6 +633,24 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
               e.target.value = ''
             }}
           />
+          <input
+            ref={nonRespInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void handleNonRespFile(file)
+              e.target.value = ''
+            }}
+          />
+        </div>
+        <div className="wo-date-row">
+          <label className="wo-date-field">
+            <span>Agreement date</span>
+            <input type="date" value={agreementDate} onChange={(e) => setAgreementDate(e.target.value)} />
+          </label>
+          <span className="estimate-hint">Same date fills the Work Order and the Agreement Bond.</span>
         </div>
         {noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
         {pdfName && <p className="estimate-hint">Tender details read from {pdfName}</p>}
@@ -435,6 +676,13 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
           <IconWarn /> {sameWorkMismatchMessage(workMatch)}
         </div>
       )}
+      {workRowMismatch && pdfEval && (
+        <div className="notice error">
+          <IconWarn /> The uploaded L1 selection form is for “{pdfEval.nameOfWork}”, which doesn’t match any work in your
+          Works List. Add that work to the Works List first — otherwise the Work Order and Agreement Bond would fill the
+          name of work and all details from a different work’s row.
+        </div>
+      )}
       {actionSaved && !expanded && (
         <div className="notice ok">
           <IconCheck /> {actionSaved}
@@ -446,7 +694,7 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
       ) : anyOutput ? (
         <div className="wo-tiles">
           {docsReady && (
-            <button className="wo-tile" onClick={() => setExpanded('workOrder')}>
+            <button className="wo-tile" onClick={() => openDoc('workOrder')}>
               <div className="wo-tile-preview">
                 <div ref={woTileRef} className="wo-tile-doc" />
                 <span className="wo-tile-open">Click to preview</span>
@@ -455,12 +703,21 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
             </button>
           )}
           {docsReady && (
-            <button className="wo-tile" onClick={() => setExpanded('agreement')}>
+            <button className="wo-tile" onClick={() => openDoc('agreement')}>
               <div className="wo-tile-preview">
                 <div ref={agTileRef} className="wo-tile-doc" />
                 <span className="wo-tile-open">Click to preview</span>
               </div>
               <div className="wo-tile-foot">{DOC_LABEL.agreement}</div>
+            </button>
+          )}
+          {noteReady && (
+            <button className="wo-tile" onClick={() => setExpanded('note')}>
+              <div className="wo-tile-preview">
+                <div className="wo-tile-doc ns-tile-doc" dangerouslySetInnerHTML={{ __html: notePreviewHtml }} />
+                <span className="wo-tile-open">Click to preview</span>
+              </div>
+              <div className="wo-tile-foot">{DOC_LABEL.note}</div>
             </button>
           )}
           {scheduleAPreview && (
@@ -493,13 +750,52 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
         </div>
       ) : null}
 
+      {datePromptOpen && (
+        <div className="wo-modal-overlay" onClick={() => setDatePromptOpen(false)}>
+          <div className="wo-modal wo-date-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="wo-modal-head">
+              <span className="wo-modal-title">Enter the agreement date</span>
+              <button className="wo-modal-close" onClick={() => setDatePromptOpen(false)} title="Close" aria-label="Close">
+                ×
+              </button>
+            </div>
+            <div className="wo-modal-body wo-date-body">
+              <p>
+                This date fills the Agreement Bond — the <strong>A.B.No line</strong> (as dd.mm.yyyy) and the{' '}
+                <strong>“…day of…”</strong> wording (in words) — and the Work Order date.
+              </p>
+              <input
+                type="date"
+                value={promptDate}
+                onChange={(e) => setPromptDate(e.target.value)}
+                // eslint-disable-next-line jsx-a11y/no-autofocus
+                autoFocus
+              />
+            </div>
+            <div className="wo-modal-foot">
+              <button
+                className="primary"
+                disabled={!promptDate}
+                onClick={() => {
+                  setAgreementDate(promptDate)
+                  setDatePromptOpen(false)
+                  setExpanded(pendingDoc)
+                }}
+              >
+                Continue to preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {expanded && (
         <div className="wo-modal-overlay" onClick={() => setExpanded(null)}>
-          <div className="wo-modal" onClick={(e) => e.stopPropagation()}>
+          <div className={`wo-modal ${expanded === 'note' ? 'wide' : ''}`} onClick={(e) => e.stopPropagation()}>
             <div className="wo-modal-head">
               <span className="wo-modal-title">
                 {DOC_LABEL[expanded]}
-                {expanded !== 'scheduleA' && expandedPages > 1 ? ` — ${expandedPages} pages` : ''}
+                {(expanded === 'workOrder' || expanded === 'agreement') && expandedPages > 1 ? ` — ${expandedPages} pages` : ''}
               </span>
               <button className="wo-modal-close" onClick={() => setExpanded(null)} title="Close" aria-label="Close">
                 ×
@@ -529,6 +825,8 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
                     </tbody>
                   </table>
                 </div>
+              ) : expanded === 'note' ? (
+                noteData && <NoteSubmittedEditor data={noteData} onChange={setNoteData} />
               ) : (
                 <div ref={expandedRef} className="intimation-docx-preview" />
               )}
@@ -547,6 +845,18 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
                   </button>
                   <button className="primary" onClick={printScheduleA} disabled={scheduleABusy}>
                     <IconPrint /> Print
+                  </button>
+                </>
+              ) : expanded === 'note' ? (
+                <>
+                  <button className="primary" onClick={() => downloadNote(['docx'])} disabled={busy !== null}>
+                    <IconDownload /> {busy === 'download' ? 'Saving…' : 'Word'}
+                  </button>
+                  <button className="primary" onClick={() => downloadNote(['pdf'])} disabled={busy !== null}>
+                    <IconDownload /> {busy === 'pdf' ? 'Saving…' : 'PDF'}
+                  </button>
+                  <button className="primary" onClick={printNote} disabled={busy !== null}>
+                    <IconPrint /> {busy === 'print' ? 'Opening…' : 'Print'}
                   </button>
                 </>
               ) : (

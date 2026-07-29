@@ -183,7 +183,12 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
     const t = tablesSnap.exists() ? tablesSnap.data() : {}
     const m = miscSnap.exists() ? miscSnap.data() : {}
     return {
-      version: 1,
+      // The persisted schema version must round-trip through Firebase, or the
+      // caller's one-time migrations (e.g. Lakhs -> rupees ECV/Contract Amount)
+      // re-run on every launch and compound. Older cloud state has no version
+      // field yet — fall back to 1 so those migrations still run exactly once
+      // (each is separately guarded against re-inflating already-migrated data).
+      version: typeof m.version === 'number' ? m.version : 1,
       tables: t.tables ?? [],
       resolution: m.resolution ?? {},
       todos: m.todos ?? [],
@@ -275,6 +280,9 @@ export async function pushState(state: PersistedState): Promise<void> {
       lastWriter: sessionId
     })
     await setDoc(doc(db!, 'users', loginId, 'meta', 'misc'), {
+      // Round-trip the schema version so one-time migrations run only once (see
+      // pullRemoteState) instead of re-running — and compounding — every launch.
+      version: state.version,
       resolution: state.resolution ?? {},
       todos: state.todos ?? [],
       lastGoogleLink: state.lastGoogleLink ?? null,

@@ -1,9 +1,9 @@
 {
   "name": "head-draftsmen-app",
-  "version": "0.1.15",
-  "description": "Head Draftsmen App — desktop mail-merge app: fill .docx templates from Excel data.",
+  "version": "1.0.0",
+  "description": "Documentation made easy",
   "main": "out/main/index.js",
-  "author": "Head Draftsmen App",
+  "author": "Head Draftsman App",
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",

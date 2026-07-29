@@ -6,9 +6,10 @@ import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvalua
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
 import { computeWorkAmounts } from '@core/worksAmounts'
+import { wrapAgencyAddress } from '@core/workOrderAgreement'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLines } from '../pdfToText'
-import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
+import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH, normalizeDocxTextboxes } from './docPage'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell } from './Icons'
 import type { ExcelTable } from '@core/types'
 
@@ -18,12 +19,6 @@ interface Props {
 }
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
-
-function rowLabel(row: Record<string, string>, headers: string[], index: number): string {
-  const nameCol = headers.find((h) => /name of (the )?work/i.test(h)) ?? headers[0]
-  const v = nameCol ? (row[nameCol] ?? '').trim() : ''
-  return v ? `${index + 1}. ${v}` : `Row ${index + 1}`
-}
 
 /**
  * EMD @ 1.5% is exempted for works reserved for a particular category — the
@@ -70,8 +65,7 @@ const PRICE_BID_DATE_LABELS = new Set([
  * own intimation wording exactly (plain 2-decimal ECV/Contract, floored
  * EMD @ 1.5% and ASD, and the "(Rs. 1 ½ Rs.…)" EMD expression — with ASD
  * appended only above 25% and "Exempted" for reserved works). The two date
- * placeholders share one value (see PRICE_BID_DATE_LABELS). Every value is
- * pre-filled but editable, so a misread field can be fixed before generating.
+ * placeholders share one value (see PRICE_BID_DATE_LABELS).
  */
 function resolveValue(
   label: string,
@@ -93,8 +87,6 @@ function resolveValue(
   const reserved = isEmdExempt(row['Name of the work'] ?? '')
 
   const key = norm(label)
-  // Both the letter "Date:" and the "price bid opened Date" carry one value,
-  // taken from the uploaded L1 selection form. Pre-filled, still editable.
   if (PRICE_BID_DATE_LABELS.has(key)) return pdf.noticeDate ?? ''
 
   switch (key) {
@@ -102,7 +94,7 @@ function resolveValue(
     case 'name of the agency':
       return notice.agencyName ?? pdf.l1AgencyName ?? row['Name of the Agency'] ?? ''
     case 'address of the agency':
-      return notice.address ?? row['Address of the agency'] ?? ''
+      return wrapAgencyAddress(notice.address ?? row['Address of the agency'] ?? '')
     case 'agency phone number':
     case 'phone number of the agency':
       return row['Phone number of the agency'] ?? ''
@@ -133,7 +125,6 @@ function resolveValue(
       return money2(contract)
     case 'emd':
     case 'emd 1.5%':
-      // The whole "(…)" content: reserved -> Exempted; else EMD, plus ASD above 25%.
       if (reserved) return 'Rs. 1 ½ Rs.Exempted/-'
       if (emd == null) return ''
       return asd != null && asd > 0 ? `Rs. 1 ½ Rs.${emd},ASD Rs.${asd}/-` : `Rs. 1 ½ Rs.${emd}/-`
@@ -148,11 +139,12 @@ function resolveValue(
 
 /**
  * Give Intimation — fills the bundled Intimation format (a .docx mail-merge
- * template with {{placeholders}}) for a Works List work: most fields come
- * from the picked Works List row, while the agency's address (and, when
- * present, agency name / NIT No / ECV / contract value) come from an uploaded
- * portal "View Intimation Notice" page (.html). Reuses the same docx
- * placeholder-fill + docx-preview + export/print pipeline as Issue Document.
+ * template with {{placeholders}}) for a Works List work: most fields come from
+ * the picked row, while the agency address (and, when present, agency name /
+ * NIT No / ECV / contract value) come from the uploaded Online Intimation
+ * (portal HTML or LOA PDF) plus the L-1 selection form. Shows a live
+ * docx-preview of the filled letter with Word / PDF / Print. (Note Submitted
+ * lives on the Agreement & Work Order tab.)
  */
 export default function GiveIntimationTab({ tables, onChange }: Props) {
   const table = tables[0] ?? null
@@ -167,17 +159,19 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
   const [pdfEval, setPdfEval] = useState<TenderEvaluation | null>(null)
   const [pdfName, setPdfName] = useState('')
   const [pdfStatus, setPdfStatus] = useState<string | null>(null)
+  // Whether the uploaded L1 form's work matched a Works List row. false means
+  // it matched none, so the letter would fill from an unrelated row — the
+  // preview is gated until the work is added to the Works List. null = not yet
+  // determined (no L1 uploaded, or no works to match against).
+  const [worksRowMatched, setWorksRowMatched] = useState<boolean | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
-  // Labels the user has hand-edited — kept out of the auto-fill so a re-pick
-  // or re-upload never clobbers a manual correction.
-  const [touched, setTouched] = useState<Record<string, boolean>>({})
 
-  const [busy, setBusy] = useState<null | 'preview' | 'download' | 'print' | 'pdf'>(null)
+  const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf'>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
   const [previewPages, setPreviewPages] = useState(0)
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const noticeInputRef = useRef<HTMLInputElement>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const printScratchRef = useRef<HTMLDivElement>(null)
@@ -203,44 +197,20 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
     }
   }, [])
 
-  // Re-fill every untouched placeholder whenever the picked row, uploaded
-  // notice, or uploaded PDF changes — a hand-edited field (touched) is left
-  // exactly as typed.
+  // Re-fill every placeholder whenever the row / notice / PDF change.
   useEffect(() => {
     if (labels.length === 0) return
-    setValues((prev) => {
-      const next = { ...prev }
-      for (const label of labels) {
-        if (touched[label]) continue
-        next[label] = resolveValue(label, notice ?? {}, pdfEval ?? {}, selectedRow ?? {})
-      }
+    setValues(() => {
+      const next: Record<string, string> = {}
+      for (const label of labels) next[label] = resolveValue(label, notice ?? {}, pdfEval ?? {}, selectedRow ?? {})
       return next
     })
-    // selectedRow identity changes with rowIndex/table; notice/pdfEval per upload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [labels, rowIndex, notice, pdfEval, table])
 
-  function updateValue(label: string, value: string) {
-    // The letter date and the "price bid opened" date are one and the same —
-    // editing either mirrors to every price-bid-date placeholder in the doc.
-    const mirror = PRICE_BID_DATE_LABELS.has(norm(label))
-    const targets = mirror ? labels.filter((l) => PRICE_BID_DATE_LABELS.has(norm(l))) : [label]
-    setTouched((prev) => {
-      const next = { ...prev }
-      for (const l of targets) next[l] = true
-      return next
-    })
-    setValues((prev) => {
-      const next = { ...prev }
-      for (const l of targets) next[l] = value
-      return next
-    })
-  }
-
-  // The Online Intimation can be uploaded as either the portal "View
-  // Intimation Notice" .html page or the printed Intimation / Letter of
-  // Acceptance .pdf — both carry the agency, address, NIT No, ECV and
-  // contract value, so parse by file type.
+  // The Online Intimation can be uploaded as either the portal "View Intimation
+  // Notice" .html page or the printed Intimation / LOA .pdf — both carry the
+  // agency, address, NIT No, ECV and contract value, so parse by file type.
   async function handleNoticeFile(file: File) {
     setActionError(null)
     try {
@@ -250,16 +220,13 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
         : parseIntimationNotice(await file.text())
       setNotice(parsed)
       setNoticeName(file.name)
-      setTouched({}) // a fresh notice supersedes prior manual edits
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     }
   }
 
-  // A tender-evaluation PDF both fills the letter (NIT/ECV/Tender %/contract/
-  // L-1 agency) and updates the Works List row for that work — matched by
-  // Name of Work — so the database reflects the award in one step. The
-  // matched work is auto-selected so the preview shows it.
+  // The L-1 selection / evaluation PDF fills the letter's tender fields and
+  // updates that work's Works List row (matched by Name of Work), auto-selecting it.
   async function handlePdfFile(file: File) {
     setBusy('pdf')
     setActionError(null)
@@ -272,7 +239,7 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
       }
       setPdfEval(ev)
       setPdfName(file.name)
-      setTouched({})
+      setWorksRowMatched(null)
 
       if (table && ev.nameOfWork) {
         let embeddings: { rowNameVectors: number[][]; evalNameVectors: number[][] } | undefined
@@ -288,17 +255,20 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
             embeddings = undefined
           }
         }
-        const { table: updated, matchedCount } = updateWorksListFromEvaluations(table, [ev], embeddings)
+        const { table: updated, matchedCount, matchedRowIndices } = updateWorksListFromEvaluations(table, [ev], embeddings)
         if (matchedCount > 0) {
           onChange(updated)
-          const nh = updated.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
-          const idx = nh
-            ? updated.rows.findIndex((r) => norm(r[nh] ?? '') === norm(ev.nameOfWork!))
-            : -1
-          if (idx >= 0) setRowIndex(idx)
+          // Select the row that was actually matched — including an embedding
+          // (wording-drift) match, which has no exact name to re-derive from.
+          // Without this the selection stays on row 0 and the letter fills from
+          // a completely different work.
+          const idx = matchedRowIndices[0]
+          if (idx != null && idx >= 0) setRowIndex(idx)
+          setWorksRowMatched(true)
           setPdfStatus(`Updated "${ev.nameOfWork}" in the Works List (Tender ID, Notice No/Date, ECV, Agency, Tender %, Contract Amount).`)
         } else {
-          setPdfStatus(`Read the PDF, but no Works List row matched "${ev.nameOfWork}" — the letter is filled, the database wasn't changed.`)
+          setWorksRowMatched(false)
+          setPdfStatus(`Read the PDF, but no Works List row matched "${ev.nameOfWork}" — add this work to the Works List so the Intimation letter fills the correct row.`)
         }
       }
     } catch (e) {
@@ -310,32 +280,45 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
 
   async function fillTemplate(): Promise<string> {
     if (!templateB64) throw new Error('Intimation format not loaded yet.')
-    // Fill each {{Label}} directly from its edited value: map every label to
-    // itself so fillPlaceholdersInDocument reads values[label] (rather than
-    // resolving through a Works List column).
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
     return api.fillPlaceholdersInDocument(templateB64, resolved, values)
   }
 
-  async function showPreview() {
-    setBusy('preview')
-    setActionError(null)
-    try {
-      const filled = await fillTemplate()
-      const container = previewRef.current
-      if (!container) return
-      container.innerHTML = ''
-      await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
-      setPreviewPages(container.querySelectorAll('section.docx').length)
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(null)
+  // Guard: the Online Intimation and the L1 selection form must describe the
+  // same work (matched by NIT No, or agency name when the NIT No is absent).
+  const workMatch = useMemo(() => (notice && pdfEval ? checkSameWork(notice, pdfEval) : null), [notice, pdfEval])
+  const workMismatch = workMatch?.status === 'mismatch'
+  // The uploaded L1 form's work matched no Works List row, so the selected row
+  // (and everything the letter fills from it) belongs to a different work.
+  const workRowMismatch = worksRowMatched === false
+  const bothUploaded = !!templateB64 && !!notice && !!pdfEval && !workMismatch && !workRowMismatch
+
+  // Live docx preview of the filled letter — refreshed whenever the values change.
+  useEffect(() => {
+    if (!bothUploaded) {
+      if (previewRef.current) previewRef.current.innerHTML = ''
+      setPreviewPages(0)
+      return
     }
-  }
+    const container = previewRef.current
+    if (!container) return
+    setActionError(null)
+    void (async () => {
+      try {
+        const filled = await fillTemplate()
+        container.innerHTML = ''
+        await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
+        normalizeDocxTextboxes(container)
+        setPreviewPages(container.querySelectorAll('section.docx').length)
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : String(e))
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateB64, values, bothUploaded])
 
   async function downloadIntimation(formats: ('docx' | 'pdf')[]) {
-    setBusy('download')
+    setBusy(formats[0] === 'pdf' ? 'pdf' : 'download')
     setActionError(null)
     setActionSaved(null)
     try {
@@ -359,6 +342,7 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
       if (!container) throw new Error('Print failed to initialize.')
       container.innerHTML = ''
       await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
+      normalizeDocxTextboxes(container)
       await api.printCreatedDocument(container.innerHTML)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
@@ -366,33 +350,6 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
       setBusy(null)
     }
   }
-
-  // Guard: the Online Intimation and the L1 selection form must describe the
-  // same work (matched by NIT No, or agency name when the NIT No is absent) —
-  // otherwise the letter would splice one work's agency onto another's tender.
-  const workMatch = useMemo(
-    () => (notice && pdfEval ? checkSameWork(notice, pdfEval) : null),
-    [notice, pdfEval]
-  )
-  const workMismatch = workMatch?.status === 'mismatch'
-
-  // Only build the intimation letter once BOTH the Online Intimation (LOA) and
-  // the L1 selection form are uploaded, and they belong to the same work — no
-  // preview is shown before that.
-  const bothUploaded = !!notice && !!pdfEval && !workMismatch
-
-  // Auto-refresh the preview whenever the filled values change — but only after
-  // both documents are in; otherwise keep the preview area empty.
-  useEffect(() => {
-    if (!templateB64 || labels.length === 0) return
-    if (!bothUploaded) {
-      if (previewRef.current) previewRef.current.innerHTML = ''
-      setPreviewPages(0)
-      return
-    }
-    void showPreview()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateB64, values, bothUploaded])
 
   const noWorks = !table || table.rows.length === 0
 
@@ -404,18 +361,22 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
         <IconBell />
         <p>
           Upload the <strong>Online Intimation</strong> and the <strong>L1 selection form</strong> to build the
-          intimation letter. The L1 form also updates that work's row in the Works List. The details and preview
-          appear once both are uploaded.
+          intimation letter. The L1 form also updates that work's row in the Works List. The letter previews below
+          once both are uploaded.
         </p>
         <div className="boq-actions">
-          <button className="primary upload-btn" onClick={() => fileInputRef.current?.click()} disabled={!templateB64}>
+          <button className="primary upload-btn" onClick={() => noticeInputRef.current?.click()} disabled={!templateB64}>
             <IconFolder /> {notice ? 'Change Online Intimation' : 'Upload Online Intimation'}
           </button>
-          <button className="primary upload-btn" onClick={() => pdfInputRef.current?.click()} disabled={!templateB64 || busy === 'pdf'}>
+          <button
+            className="primary upload-btn"
+            onClick={() => pdfInputRef.current?.click()}
+            disabled={!templateB64 || busy === 'pdf'}
+          >
             <IconFolder /> {busy === 'pdf' ? 'Reading PDF…' : pdfEval ? 'Change L1 selection form' : 'Upload L1 selection form'}
           </button>
           <input
-            ref={fileInputRef}
+            ref={noticeInputRef}
             type="file"
             accept=".html,.htm,text/html,.pdf,application/pdf"
             style={{ display: 'none' }}
@@ -451,10 +412,16 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
           <IconWarn /> {loadError}
         </div>
       )}
-
       {workMismatch && workMatch && (
         <div className="notice error">
           <IconWarn /> {sameWorkMismatchMessage(workMatch)}
+        </div>
+      )}
+      {workRowMismatch && pdfEval && (
+        <div className="notice error">
+          <IconWarn /> The uploaded L1 selection form is for “{pdfEval.nameOfWork}”, which doesn’t match any work in your
+          Works List. Add that work to the Works List first — otherwise the Intimation letter would fill the name of work
+          and all details from a different work’s row.
         </div>
       )}
 
@@ -463,29 +430,29 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
       ) : bothUploaded ? (
         <div className="estimate-body">
           <div className="estimate-preview">
-              <span className="estimate-preview-title">Live Preview{previewPages > 1 ? ` — ${previewPages} pages` : ''}</span>
-              <div className="estimate-preview-scroll">
-                <div ref={previewRef} className="intimation-docx-preview" />
-              </div>
-              <div className="doc-sheet-footer">
-                <span className="estimate-hint">Updates live as you fill in the details.</span>
-                <button className="primary" onClick={() => downloadIntimation(['docx'])} disabled={busy !== null}>
-                  <IconDownload /> {busy === 'download' ? 'Saving…' : 'Word'}
-                </button>
-                <button className="primary" onClick={() => downloadIntimation(['pdf'])} disabled={busy !== null}>
-                  <IconDownload /> {busy === 'download' ? 'Saving…' : 'PDF'}
-                </button>
-                <button className="primary" onClick={printIntimation} disabled={busy !== null}>
-                  <IconPrint /> {busy === 'print' ? 'Opening…' : 'Print'}
-                </button>
-              </div>
-              {actionError && (
-                <div className="notice error">
-                  <IconWarn /> {actionError}
-                </div>
-              )}
-              {actionSaved && <p className="estimate-hint">{actionSaved}</p>}
+            <span className="estimate-preview-title">Live Preview{previewPages > 1 ? ` — ${previewPages} pages` : ''}</span>
+            <div className="estimate-preview-scroll">
+              <div ref={previewRef} className="intimation-docx-preview" />
             </div>
+            <div className="doc-sheet-footer">
+              <span className="estimate-hint">Updates live as the details fill in.</span>
+              <button className="primary" onClick={() => downloadIntimation(['docx'])} disabled={busy !== null}>
+                <IconDownload /> {busy === 'download' ? 'Saving…' : 'Word'}
+              </button>
+              <button className="primary" onClick={() => downloadIntimation(['pdf'])} disabled={busy !== null}>
+                <IconDownload /> {busy === 'pdf' ? 'Saving…' : 'PDF'}
+              </button>
+              <button className="primary" onClick={printIntimation} disabled={busy !== null}>
+                <IconPrint /> {busy === 'print' ? 'Opening…' : 'Print'}
+              </button>
+            </div>
+            {actionError && (
+              <div className="notice error">
+                <IconWarn /> {actionError}
+              </div>
+            )}
+            {actionSaved && <p className="estimate-hint">{actionSaved}</p>}
+          </div>
         </div>
       ) : null}
     </div>

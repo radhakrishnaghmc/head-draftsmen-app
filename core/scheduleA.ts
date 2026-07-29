@@ -24,6 +24,10 @@ export interface ScheduleAMeta {
   contractAmount?: string
   contractorName?: string
   tenderPercentage?: string
+  /** The Executive Engineer's circle office, e.g. "Nizampet Circle-58" — replaces the template's sample circle in the signature block. */
+  circle?: string
+  /** The zone, e.g. "Quthbullapur" — replaces the template's sample zone in the preamble. */
+  zone?: string
 }
 
 /**
@@ -45,13 +49,21 @@ export interface ScheduleAMeta {
  */
 export function metaFromWorksRow(row: Record<string, string>): ScheduleAMeta {
   const c = computeWorkAmounts(row)
+  // The circle office line the way the documents print it: "<Circle> Circle-<CNO>"
+  // (e.g. "Nizampet Circle-58"), so Schedule A's signature isn't left stamped
+  // with the template's sample circle.
+  const circleName = (row['Circle'] ?? '').trim()
+  const cno = (row['Circle number'] ?? row['CNO'] ?? '').trim()
+  const circle = circleName ? (cno ? `${circleName} Circle-${cno}` : circleName) : undefined
   return {
     nameOfWork: row['Name of the work'],
     estimateAmount: `${indianDigitGroups(c.estimate)}/-`,
     ecvAmount: c.ecv !== null ? `${indianDigitGroups(c.ecv)}/-` : undefined,
     contractAmount: c.contractAmount !== null ? `${indianDigitGroups(c.contractAmount)}/-` : undefined,
     contractorName: row['Name of the Agency'],
-    tenderPercentage: row['Tender Percentage']
+    tenderPercentage: row['Tender Percentage'],
+    circle,
+    zone: (row['Zone'] ?? '').trim() || undefined
   }
 }
 

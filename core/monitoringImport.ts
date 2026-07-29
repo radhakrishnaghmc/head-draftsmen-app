@@ -126,18 +126,47 @@ export interface CircleSplit {
   circle: string
 }
 
+// Tidy a circle name pulled out of a combined cell: drop a stray "circle"
+// word ("Gajularamaram Circle" -> "Gajularamaram") and collapse leftover
+// separators/whitespace. CMC circle names never contain a digit or the word
+// "circle" themselves, so this only ever removes the glue, not real name text.
+function cleanCircleName(s: string): string {
+  return s
+    .replace(/\bcircle\b/gi, ' ')
+    .replace(/[-–—]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 /**
- * A monitoring sheet's own "Circle" column is commonly written as the
- * circle's number and name glued together with a hyphen — "58-Nizampet" —
- * the same "two distinct fields squeezed into one cell" shape as the
- * agency name/phone problem above, just for Circle/CNO instead of Name of
- * the Agency/Phone number of the agency. Returns null for a value that
- * isn't in that "<digits>-<name>" shape (a sheet that already keeps them
- * separate, or one with just a bare circle name) — never guessed at.
+ * A "Circle" cell often squeezes the circle's number and name into one value,
+ * in any of the shapes the source lists use — "57-Gajularamaram",
+ * "57 Gajularamaram", "Gajularamaram-57", "Gajularamaram 57" (and with an
+ * optional "Circle" word). This pulls them apart so the number lands in the
+ * Circle number column and the bare name in the Circle column. Returns null
+ * for a value that carries no number — a sheet that already keeps them
+ * separate, or one with just a bare circle name — so those pass through
+ * untouched rather than being guessed at.
  */
 export function splitCircleNumberAndName(raw: string): CircleSplit | null {
-  const m = /^\s*(\d+)\s*-\s*(.+?)\s*$/.exec(raw)
-  return m ? { cno: m[1], circle: m[2] } : null
+  const s = (raw ?? '').trim()
+  if (!s) return null
+
+  // Number first: "57-Gajularamaram", "57 Gajularamaram".
+  let m = /^(\d{1,4})\s*[-–—]\s*(.+)$/.exec(s) ?? /^(\d{1,4})\s+(.+)$/.exec(s)
+  if (m) {
+    const circle = cleanCircleName(m[2])
+    return circle ? { cno: m[1], circle } : null
+  }
+
+  // Number last: "Gajularamaram-57", "Gajularamaram 57".
+  m = /^(.+?)\s*[-–—]\s*(\d{1,4})$/.exec(s) ?? /^(.+?)\s+(\d{1,4})$/.exec(s)
+  if (m) {
+    const circle = cleanCircleName(m[1])
+    return circle ? { cno: m[2], circle } : null
+  }
+
+  return null
 }
 
 /**
@@ -183,10 +212,11 @@ export interface MonitoringMergeResult {
  *
  * "Circle" is special-cased the same way: whatever monitoring column maps
  * to it is run through splitCircleNumberAndName first, so a "58-Nizampet"
- * style combined value fills CNO and Circle separately instead of landing
- * the whole "58-Nizampet" string in Circle alone and leaving CNO blank —
- * only when that split actually recognizes the "<digits>-<name>" shape, so
- * a monitoring sheet with a genuinely separate CNO column isn't overridden.
+ * style combined value fills Circle number and Circle separately instead of
+ * landing the whole "58-Nizampet" string in Circle alone and leaving Circle
+ * number blank — only when that split actually recognizes a combined
+ * number+name shape, so a sheet with a genuinely separate Circle number
+ * column isn't overridden.
  *
  * `mapping` resolves each Works List column to whichever monitoring header
  * means the same thing — a monitoring workbook won't use the app's exact
@@ -227,7 +257,7 @@ export function mergeMonitoringRows(
       return formatAgencyPhones(agencySplit.phones)
     }
     if (h === 'Circle' && circleSplit) return circleSplit.circle
-    if (h === 'CNO' && circleSplit) return circleSplit.cno
+    if (h === 'Circle number' && circleSplit) return circleSplit.cno
     const monCol = columnFor.get(h)
     return monCol ? (monRow[monCol] ?? '') : ''
   }

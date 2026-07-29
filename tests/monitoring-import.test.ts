@@ -69,19 +69,30 @@ describe('findCircleSheet', () => {
 })
 
 describe('splitCircleNumberAndName', () => {
-  it('splits "<digits>-<name>" into CNO and Circle', () => {
+  it('splits "<digits>-<name>" into circle number and circle', () => {
     expect(splitCircleNumberAndName('58-Nizampet')).toEqual({ cno: '58', circle: 'Nizampet' })
   })
 
   it('handles spaces around the hyphen and a multi-word circle name', () => {
-    expect(splitCircleNumberAndName('57 - Gajularamaram Circle')).toEqual({
-      cno: '57',
-      circle: 'Gajularamaram Circle'
-    })
+    expect(splitCircleNumberAndName('51 - Allwyn Colony')).toEqual({ cno: '51', circle: 'Allwyn Colony' })
   })
 
-  it('returns null for a value with no leading circle number', () => {
+  it('splits the number when it comes first with a space ("57 Gajularamaram")', () => {
+    expect(splitCircleNumberAndName('57 Gajularamaram')).toEqual({ cno: '57', circle: 'Gajularamaram' })
+  })
+
+  it('splits the number when it comes last, hyphen or space ("Gajularamaram-57", "Gajularamaram 57")', () => {
+    expect(splitCircleNumberAndName('Gajularamaram-57')).toEqual({ cno: '57', circle: 'Gajularamaram' })
+    expect(splitCircleNumberAndName('Gajularamaram 57')).toEqual({ cno: '57', circle: 'Gajularamaram' })
+  })
+
+  it('drops a stray "Circle" word so the bare name lands in Circle', () => {
+    expect(splitCircleNumberAndName('Gajularamaram Circle-57')).toEqual({ cno: '57', circle: 'Gajularamaram' })
+  })
+
+  it('returns null for a value with no circle number', () => {
     expect(splitCircleNumberAndName('Nizampet')).toBeNull()
+    expect(splitCircleNumberAndName('')).toBeNull()
   })
 })
 
@@ -299,8 +310,8 @@ describe('mergeMonitoringRows', () => {
     expect(result.table.rows[0]['Phone number of the agency']).toBe('9000000000')
   })
 
-  it('splits a combined "58-Nizampet" Circle column into CNO and Circle separately', () => {
-    const circleHeaders = [...headers, 'Circle', 'CNO']
+  it('splits a combined "58-Nizampet" Circle column into Circle and Circle number separately', () => {
+    const circleHeaders = [...headers, 'Circle', 'Circle number']
     const circleMapping: PlaceholderMatch[] = [...mapping, { label: 'Circle', column: 'Name of the Circle', score: 1 }]
     const t = table(circleHeaders, [
       {
@@ -309,13 +320,13 @@ describe('mergeMonitoringRows', () => {
         'Amount of estimate': '',
         'Contract Amount': '',
         Circle: '',
-        CNO: ''
+        'Circle number': ''
       }
     ])
     const monitoringRows = [{ 'Win Code': 'WC-1', 'Work Name': 'Road A', 'Name of the Circle': '58-Nizampet' }]
     const result = mergeMonitoringRows(t, monitoringRows, circleMapping)
 
     expect(result.table.rows[0]['Circle']).toBe('Nizampet')
-    expect(result.table.rows[0]['CNO']).toBe('58')
+    expect(result.table.rows[0]['Circle number']).toBe('58')
   })
 })

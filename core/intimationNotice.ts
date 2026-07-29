@@ -117,12 +117,20 @@ export function parseIntimationNoticeText(lines: string[]): IntimationNotice {
     if (addr.length > 0) result.address = addr.join(', ')
   }
 
-  // NIT No — the "…Nit No : <code>" on the Ref line; capture the code up to a
-  // following "2)" ref, a "Date:" tail, or the end of that line.
-  const nitLine = lines.find((l) => /Nit\s*No/i.test(l)) ?? ''
-  const nit = /Nit\s*No\.?\s*:?\s*(.+?)\s*(?:\d\s*\)|Your\s+Tender|Date\s*:|$)/i.exec(nitLine)
-  if (nit) {
-    const value = nit[1].replace(/\s+/g, ' ').trim()
+  // NIT No — the "…Nit No[.:] <code>" line; capture the code up to a following
+  // "2)" ref, a "Date:"/"Dt"/"Item" tail, "at contract", or the line's end.
+  // In the printed LOA the code wraps onto the next line ("…Gajularamaram" then
+  // "Circle-57/QBZ/CMC/2026-27 Dt.…"), so when the code on the NIT line alone
+  // looks truncated (no 20XX-XX year yet), stitch the following line first.
+  const nitIdx = lines.findIndex((l) => /Nit\s*No/i.test(l))
+  if (nitIdx >= 0) {
+    const nitRe = /Nit\s*No\.?\s*:?\s*(.+?)\s*(?:\d\s*\)|Your\s+Tender|Date\s*:|Dt\b|Item\b|at\s+contract|$)/i
+    const capture = (text: string): string => nitRe.exec(text)?.[1].replace(/\s+/g, ' ').trim() ?? ''
+    let value = capture(lines[nitIdx])
+    if (value && !/20\d\d\s*-\s*\d{2}/.test(value) && lines[nitIdx + 1]) {
+      const stitched = capture(`${lines[nitIdx]} ${lines[nitIdx + 1]}`)
+      if (stitched) value = stitched
+    }
     if (value) result.nitNo = value
   }
 

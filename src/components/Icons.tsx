@@ -99,6 +99,13 @@ export const IconBolt = (p: P) => (
   </svg>
 )
 
+export const IconTools = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 1 5.4-5.4l-2.2 2.2-2-2 2.2-2.2Z" />
+    <path d="m14 14 4 4" />
+  </svg>
+)
+
 export const IconArrow = (p: P) => (
   <svg {...base(p)}>
     <path d="M5 12h14M13 6l6 6-6 6" />

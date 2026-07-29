@@ -6,11 +6,12 @@ import {
   applyWorksSchema,
   applyWorksSchemaWithMapping,
   migrateEcvContractToRupees,
+  repairInflatedRupees,
   ECV_RUPEES_STATE_VERSION,
   WORKS_COLUMNS
 } from './worksSchema'
 import { syncWorksListFromTenderPortal } from './worksListTenderSync'
-import { enforceZoneCircle, fillCircleNumber } from './zoneCircleCheck'
+import { autofillWorksRow, enforceZoneCircle, fillCircleNumber, splitCircleColumn } from './zoneCircleCheck'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import { findCircleSheet, mergeMonitoringRows } from '@core/monitoringImport'
 import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
@@ -32,6 +33,7 @@ import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
 import GiveIntimationTab from './components/GiveIntimationTab'
 import WorkOrderAgreementTab from './components/WorkOrderAgreementTab'
 import PrintDocumentTab from './components/PrintDocumentTab'
+import ToolsTab from './components/ToolsTab'
 import TodoList from './components/TodoList'
 import MbScrutinyList from './components/MbScrutinyList'
 import TenderReminders from './components/TenderReminders'
@@ -48,7 +50,8 @@ import {
   IconRefresh,
   IconCheck,
   IconBell,
-  IconDownload
+  IconDownload,
+  IconTools
 } from './components/Icons'
 import type {
   ExcelTable,
@@ -178,12 +181,15 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
           const loadedTables = (s.tables ?? [])
             .map(applyWorksSchema)
             .map((t) => (needsEcvRupeeMigration ? migrateEcvContractToRupees(t) : t))
+            // Always heal any ECV/Contract Amount left absurdly inflated by an
+            // earlier over-migration (idempotent — see repairInflatedRupees).
+            .map(repairInflatedRupees)
 
           // A previously-saved Works List belonging to a different Zone/Circle
           // than the one logged in now must not be shown — same rule as a
           // fresh import (see importFromGoogleLink), applied to what's already
           // on disk too.
-          const first = loadedTables[0]
+          const first = loadedTables[0] ? splitCircleColumn(loadedTables[0]) : undefined
           if (loginZone && loginCircle && first) {
             const { table: checked, mismatches } = enforceZoneCircle(first, loginZone, loginCircle)
             if (mismatches.length > 0) {
@@ -368,11 +374,15 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
     // from a single "Agency Details" column.
     const mapping = matchPlaceholdersToColumns(WORKS_COLUMNS, imported.headers, embeddings, { uniqueColumns: true })
 
-    const normalized = applyWorksSchemaWithMapping(imported.headers, rows, mapping, {
-      id: `works-${Date.now()}`,
-      name: 'Works database',
-      path: ''
-    })
+    // Split any combined "57-Gajularamaram"/"Gajularamaram 57" Circle cell into
+    // a bare Circle plus a Circle number before matching against the login.
+    const normalized = splitCircleColumn(
+      applyWorksSchemaWithMapping(imported.headers, rows, mapping, {
+        id: `works-${Date.now()}`,
+        name: 'Works database',
+        path: ''
+      })
+    )
 
     // Only a works list belonging to the logged-in Head Draftsman's own
     // Zone/Circle is accepted — a row explicitly tagged with a different
@@ -591,6 +601,11 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
     setTables((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
   }
 
+  // Live auto-fill for the Works List grid: as a work name (or Circle) is typed,
+  // derive that row's blank Zone / Circle / Circle number from it.
+  const autofillWorksRowForLogin = (row: Record<string, string>) =>
+    autofillWorksRow(row, { zone: loginZone, circle: loginCircle, circleNumber: loginCircleNumber })
+
   return (
     <>
       <Skyline />
@@ -656,7 +671,12 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
             {loginCircle && <MonitoringLinkImport onImport={importFromMonitoringLink} />}
             {currentTable ? (
               <>
-                <ExcelInline key={currentTable.id} table={currentTable} onChange={updateTable} />
+                <ExcelInline
+                  key={currentTable.id}
+                  table={currentTable}
+                  onChange={updateTable}
+                  autofillRow={autofillWorksRowForLogin}
+                />
               </>
             ) : (
               <div className="card">
@@ -737,7 +757,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
                 <IconBell />
               </div>
               <div className="page-head-text">
-                <h1>Intimation and agency approval</h1>
+                <h1>Intimation</h1>
                 <p>Upload a PDF (or photos) plus an existing Intimation format to auto-fill it from what's in the document.</p>
               </div>
             </div>
@@ -752,7 +772,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
                 <IconClipboard />
               </div>
               <div className="page-head-text">
-                <h1>Work order and agreement</h1>
+                <h1>Agreement and Work order</h1>
                 <p>Fill the Work Order and Agreement for a work, and generate its Schedule A from the estimate / BOQ.</p>
               </div>
             </div>
@@ -818,6 +838,21 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
               </div>
             </div>
             <TodoList todos={todos} onChange={setTodos} />
+          </section>
+        )}
+
+        {tab === 'tools' && (
+          <section className="page">
+            <div className="page-head">
+              <div className="page-ic teal">
+                <IconTools />
+              </div>
+              <div className="page-head-text">
+                <h1>Tools</h1>
+                <p>Handy utilities that sit outside the main workflow.</p>
+              </div>
+            </div>
+            <ToolsTab tables={tables} onChange={updateTable} />
           </section>
         )}
       </main>

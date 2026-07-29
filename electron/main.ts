@@ -9,6 +9,7 @@ import { IPC } from './ipc-contract'
 import type { ManualCheckResult } from './ipc-contract'
 import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer } from '../core/excel'
 import { recognizeImage } from './ocr'
+import { splitWorkbookSheets } from './excelSplit'
 import { applyTechnicalSanctionEdits } from '../core/technicalSanctionOutput'
 import type { CellEdit } from '../core/technicalSanction'
 import { embedTexts } from './embeddings'
@@ -124,7 +125,11 @@ function registerHandlers(): void {
       properties: ['openFile', 'multiSelections']
     })
     if (result.canceled) return []
-    return result.filePaths.map((p) => readExcelGrid(p))
+    // Read *every* sheet of each picked workbook (not just the first): a
+    // workbook routinely holds one estimate per sheet, and the estimate flow
+    // then splits any sheet that stacks several estimates. See
+    // EstimateUploadTab's uploadEstimates and splitEstimateBlocks.
+    return result.filePaths.flatMap((p) => readAllSheetGrids(p))
   })
 
   ipcMain.handle(IPC.pickEstimateGrid, async (): Promise<SheetGrid | null> => {
@@ -375,6 +380,31 @@ function registerHandlers(): void {
     }
   )
 
+  ipcMain.handle(IPC.splitExcelSheets, async (): Promise<{ dir: string; files: string[] } | null> => {
+    const pick = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Select an Excel workbook to split into separate sheets',
+      filters: [{ name: 'Excel workbook', extensions: ['xlsx'] }],
+      properties: ['openFile']
+    })
+    if (pick.canceled || pick.filePaths.length === 0) return null
+    const srcPath = pick.filePaths[0]
+
+    // Prompt for the destination folder. buttonLabel + a defaultPath in the
+    // source workbook's own folder make it clear this dialog is asking *where
+    // to save the split sheets*, not to re-pick a file.
+    const folder = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Choose where to save the separated sheets',
+      buttonLabel: 'Save sheets here',
+      defaultPath: path.dirname(srcPath),
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (folder.canceled || folder.filePaths.length === 0) return null
+    const dir = folder.filePaths[0]
+
+    const files = await splitWorkbookSheets(srcPath, dir)
+    return { dir, files }
+  })
+
   ipcMain.handle(
     IPC.exportDeviation,
     async (
@@ -544,7 +574,25 @@ function registerHandlers(): void {
   // needing LibreOffice for printing (only creating a document and PDF
   // export need it).
   ipcMain.handle(IPC.printCreatedDocument, async (_e, renderedHtml: string): Promise<void> => {
-    const body = /<html/i.test(renderedHtml) ? renderedHtml : `<!DOCTYPE html><html><body>${renderedHtml}</body></html>`
+    // docx-preview output already renders a full A4 page (section.docx) with the
+    // document's own 1-inch margins baked in, so it must print at zero page
+    // margin — otherwise the browser's default ~0.4-inch print margin makes the
+    // page wider than the printable area and clips the right edge. Plain-HTML
+    // documents (Note Submitted, Schedule A) carry no page margin, so they get
+    // a printed page margin instead. Detected by docx-preview's wrapper class.
+    const isDocx = /docx-wrapper/.test(renderedHtml)
+    const printStyle = isDocx
+      ? `@page { size: A4; margin: 0 }
+         html, body { margin: 0; padding: 0; background: #fff }
+         .docx-wrapper { background: #fff !important; padding: 0 !important; margin: 0 !important }
+         .docx-wrapper > section.docx { box-shadow: none !important; margin: 0 auto !important }`
+      : `@page { size: A4; margin: 0 }
+         html, body { margin: 0; background: #fff }
+         body { padding: 14mm 16mm }`
+    const head = `<head><meta charset="utf-8"><style>${printStyle}</style></head>`
+    const body = /<html/i.test(renderedHtml)
+      ? renderedHtml
+      : `<!DOCTYPE html><html>${head}<body>${renderedHtml}</body></html>`
     const file = path.join(app.getPath('temp'), `docugen-print-${Date.now()}.html`)
     fs.writeFileSync(file, body, 'utf8')
 
@@ -573,11 +621,16 @@ function registerHandlers(): void {
     // — closing the window right then yanked the sheet away with it,
     // which looked like the dialog "opening and closing immediately". The
     // window is left open for the user to dismiss once they're done.
-    win.webContents.print({}, (success, failureReason) => {
+    win.webContents.print({ margins: { marginType: 'none' } }, (success, failureReason) => {
       if (!success && failureReason !== 'cancelled') {
         console.error('Print failed:', failureReason)
       }
     })
+  })
+
+  ipcMain.handle(IPC.noteSubmittedDocx, async (_e, html: string): Promise<string> => {
+    const docxBuffer = await convertHtmlToDocx(html)
+    return docxBuffer.toString('base64')
   })
 
   const intimationTemplateFile = () => {
@@ -743,6 +796,20 @@ function registerHandlers(): void {
     })
   }
 
+  // Make an arbitrary label safe to use as a single file name. Win Codes and
+  // work names can contain path separators (e.g. "16/DB/EE/…") and other
+  // reserved characters; left unescaped these make path.join build a
+  // non-existent sub-directory and fs.writeFileSync throw ENOENT — which, in
+  // the batch loop, aborts after the first file so only one document saves.
+  const sanitizeFileName = (name: string): string => {
+    const cleaned = name
+      .replace(/[/\\:*?"<>| -]/g, '-') // path separators + OS-reserved chars
+      .replace(/\s+/g, ' ')
+      .replace(/[.\s]+$/g, '') // Windows disallows trailing dots/spaces
+      .trim()
+    return cleaned || 'Bid Document'
+  }
+
   ipcMain.handle(
     IPC.generateTenderNotice,
     async (_e, input: TenderNoticeInput, suggestedName?: string): Promise<string | null> => {
@@ -780,7 +847,7 @@ function registerHandlers(): void {
 
       const result = await dialog.showSaveDialog(mainWindow!, {
         title: 'Save Bid Document',
-        defaultPath: `${suggestedName}.docx`,
+        defaultPath: `${sanitizeFileName(suggestedName)}.docx`,
         filters: [{ name: 'Word Document', extensions: ['docx'] }]
       })
       if (result.canceled || !result.filePath) return null
@@ -811,7 +878,7 @@ function registerHandlers(): void {
       const used = new Set<string>()
       const written: string[] = []
       for (const entry of entries) {
-        const base = entry.suggestedName || 'Bid Document'
+        const base = sanitizeFileName(entry.suggestedName || 'Bid Document')
         let fileName = `${base}.docx`
         let n = 2
         while (used.has(fileName) || fs.existsSync(path.join(dir, fileName))) {

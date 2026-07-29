@@ -23,6 +23,7 @@ const api: DocuGenApi = {
   exportBoq: (table, suggestedName, workName) =>
     ipcRenderer.invoke(IPC.exportBoq, table, suggestedName, workName),
   exportBoqBatch: (entries) => ipcRenderer.invoke(IPC.exportBoqBatch, entries),
+  splitExcelSheets: () => ipcRenderer.invoke(IPC.splitExcelSheets),
   exportDeviation: (items, meta, suggestedName) =>
     ipcRenderer.invoke(IPC.exportDeviation, items, meta, suggestedName),
   exportDetailedEstimate: (items, meta, suggestedName) =>
@@ -57,6 +58,7 @@ const api: DocuGenApi = {
   exportCreatedDocument: (docxBase64, suggestedName, formats) =>
     ipcRenderer.invoke(IPC.exportCreatedDocument, docxBase64, suggestedName, formats),
   printCreatedDocument: (renderedHtml) => ipcRenderer.invoke(IPC.printCreatedDocument, renderedHtml),
+  noteSubmittedDocx: (html) => ipcRenderer.invoke(IPC.noteSubmittedDocx, html),
   intimationTemplate: () => ipcRenderer.invoke(IPC.intimationTemplate),
   workOrderTemplate: () => ipcRenderer.invoke(IPC.workOrderTemplate),
   agreementTemplate: () => ipcRenderer.invoke(IPC.agreementTemplate),

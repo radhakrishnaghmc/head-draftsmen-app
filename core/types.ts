@@ -117,6 +117,8 @@ export interface CreatedDocument {
 export interface BidDocumentWork {
   /** Position within the tender notice's item table (1-based) — labels the row "BID Document N". */
   serial: number
+  /** Win Code this work was selected by — used to name the saved file "Bid Document <winCode>". */
+  winCode?: string
   name: string
   /** Estimate amount as entered on the Works List, in Lakhs. */
   amount: string

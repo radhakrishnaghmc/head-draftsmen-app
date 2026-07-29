@@ -49,6 +49,39 @@ function stripExt(name: string): string {
   return name.replace(/\.[^./\\]+$/, '')
 }
 
+// Drop characters a file name can't contain, plus noise words carried by an
+// uploaded file's own name — a leading "Estimate"/"Est" label and the
+// "(page N)" suffix added when a PDF is split into per-page photos — then
+// collapse whitespace.
+function cleanForFileName(s: string): string {
+  return s
+    .replace(/[\\/:*?"<>|]+/g, ' ')
+    .replace(/\(page\s*\d+\)/gi, ' ')
+    .replace(/^\s*est(?:imate)?\b[\s:._-]*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * The suggested file name for everything downloaded from an uploaded estimate:
+ * the first three words of the work's name followed by its estimate amount (in
+ * Lakhs) — e.g. "Laying of CC 24.93". The work name is read from the estimate's
+ * title block; when OCR couldn't find it, the words fall back to the uploaded
+ * file's own name (which the user typically names after the work, e.g.
+ * "estimate laying of cc road from jaya arcade ….pdf") rather than dropping the
+ * name and leaving just the amount.
+ */
+function estimateFileBase(workName: string | undefined, amountLakhs: number | undefined, fallbackName: string): string {
+  const nameSource = (workName ?? '').trim() ? workName! : fallbackName
+  const words = cleanForFileName(nameSource).split(' ').filter(Boolean).slice(0, 3).join(' ')
+  const amt =
+    amountLakhs != null && Number.isFinite(amountLakhs) && amountLakhs > 0
+      ? String(Math.round(amountLakhs * 100) / 100)
+      : ''
+  const base = [words, amt].filter(Boolean).join(' ').trim()
+  return base || cleanForFileName(fallbackName) || 'Estimate'
+}
+
 /**
  * Sl No / Description / No's / L / B / D / Unit / Quantity / Rate / Amount —
  * a plain, editable review table, not the app's specialized BOQ/Schedule A
@@ -132,6 +165,8 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
   // still shows what was actually read (for troubleshooting a bad photo).
   const [ocrGrid, setOcrGrid] = useState<string[][] | null>(null)
   const [workName, setWorkName] = useState<string | undefined>()
+  // Estimate amount (Lakhs) read from the title block — part of the download file name.
+  const [estimateLakhs, setEstimateLakhs] = useState<number | undefined>()
   const [agencyName, setAgencyName] = useState('')
   const [departmentName, setDepartmentName] = useState('')
   const [district, setDistrict] = useState('')
@@ -226,6 +261,7 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
       // whole thing for the title block's "Name of Work"/"Estimate Amount"
       // labels, same as extractEstimateItemsFromLines finds its own anchor.
       setWorkName(extractWorkName(sheet.grid, sheet.grid.length))
+      setEstimateLakhs(extractEstimateAmountLakhs(sheet.grid, sheet.grid.length, items))
     } catch (e) {
       setConvertError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -241,7 +277,7 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
     try {
       const items = tableToItems(resultTable)
       const match = workName && worksTable ? await matchWorksRow(workName, worksTable) : undefined
-      const base = photos[0] ? stripExt(photos[0].name) : 'Estimate'
+      const base = estimateFileBase(workName, estimateLakhs, photos[0] ? stripExt(photos[0].name) : 'Estimate')
       const path = await api.exportDetailedEstimate(
         items,
         { zone: match?.row['Zone'], circle: match?.row['Circle'], workName },
@@ -262,7 +298,7 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
     setActionSaved(null)
     try {
       const items = tableToItems(resultTable)
-      const base = photos[0] ? stripExt(photos[0].name) : 'Estimate'
+      const base = estimateFileBase(workName, estimateLakhs, photos[0] ? stripExt(photos[0].name) : 'Estimate')
       const path = await downloadBoqFromItems(items, workName, base)
       if (path) setActionSaved(path)
 
@@ -298,7 +334,7 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
     setActionSaved(null)
     try {
       const items = tableToItems(resultTable)
-      const base = photos[0] ? stripExt(photos[0].name) : 'Estimate'
+      const base = estimateFileBase(workName, estimateLakhs, photos[0] ? stripExt(photos[0].name) : 'Estimate')
       const path = await downloadScheduleAFromItems(items, workName, worksTable, base)
       if (path) setActionSaved(path)
     } catch (e) {
@@ -320,7 +356,7 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
     try {
       const items = tableToItems(resultTable)
       const estimateAmountLakhs = extractEstimateAmountLakhs(ocrGrid ?? [], (ocrGrid ?? []).length, items)
-      const base = photos[0] ? stripExt(photos[0].name) : 'Estimate'
+      const base = estimateFileBase(workName, estimateLakhs, photos[0] ? stripExt(photos[0].name) : 'Estimate')
       const path = await downloadDeviationFromItems(items, workName, agencyName, estimateAmountLakhs, worksTable, base)
       if (path) setActionSaved(path)
     } catch (e) {
@@ -338,7 +374,7 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
     try {
       const items = tableToItems(resultTable)
       const ecvRupees = computeEcvFromItems(items)
-      const base = photos[0] ? stripExt(photos[0].name) : 'Estimate'
+      const base = estimateFileBase(workName, estimateLakhs, photos[0] ? stripExt(photos[0].name) : 'Estimate')
       const path = await downloadMaterialFromItems(items, workName, ecvRupees, departmentName, district, base)
       if (path) setActionSaved(path)
     } catch (e) {

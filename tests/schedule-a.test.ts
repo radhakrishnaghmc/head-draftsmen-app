@@ -79,4 +79,38 @@ describe('fillScheduleATemplate', () => {
     expect(values).not.toContain('45')
     expect(values).not.toContain('42')
   }, 30000)
+
+  it("replaces the template's sample circle/zone with the work's own circle/zone", async () => {
+    const buffer = readFileSync(TEMPLATE_PATH)
+    const meta = metaFromWorksRow({
+      'Name of the work': 'Road from A to B',
+      Circle: 'Nizampet',
+      'Circle number': '58',
+      Zone: 'Quthbullapur',
+      'Amount of estimate': '45'
+    })
+    expect(meta.circle).toBe('Nizampet Circle-58')
+    const out = await fillScheduleATemplate(buffer, items, meta)
+
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(out as unknown as ArrayBuffer)
+    const ws = workbook.worksheets[0]
+    let allText = ''
+    ws.eachRow((row) => row.eachCell((c) => { allText += ' ' + (typeof c.value === 'string' ? c.value : '') }))
+
+    // The sample circle from the template must be gone, replaced by this work's.
+    expect(allText).not.toContain('Gajularamaram Circle-57')
+    expect(allText).toContain('Nizampet Circle-58,CMC')
+  }, 30000)
+
+  it('leaves the office text alone when no circle/zone is supplied', async () => {
+    const buffer = readFileSync(TEMPLATE_PATH)
+    const out = await fillScheduleATemplate(buffer, items, { nameOfWork: 'X' })
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(out as unknown as ArrayBuffer)
+    const ws = workbook.worksheets[0]
+    let allText = ''
+    ws.eachRow((row) => row.eachCell((c) => { allText += ' ' + (typeof c.value === 'string' ? c.value : '') }))
+    expect(allText).toContain('Gajularamaram Circle-57')
+  }, 30000)
 })

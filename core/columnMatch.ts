@@ -5,6 +5,8 @@ export interface ColumnSpec {
   label: string
   /** Regex patterns tried first, in order (most specific first). Each must already be case-insensitive (`/i`). */
   patterns: RegExp[]
+  /** When true, an unresolved spec is skipped (no `indexByLabel` entry) instead of throwing — the caller detects/handles the absent column itself (e.g. a UOM/Unit column that detailed estimates leave unlabelled). */
+  optional?: boolean
 }
 
 export interface ColumnEmbeddings {
@@ -84,6 +86,7 @@ export function resolveColumns(
       }
     }
     if (found === -1) {
+      if (spec.optional) return // caller handles the absent column
       throw new Error(`Could not find a "${spec.label}" column`)
     }
     indexByLabel[spec.label] = found

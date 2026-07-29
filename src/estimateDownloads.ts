@@ -63,10 +63,13 @@ export async function saveEcvToWorksList(
 export function downloadBoqFromItems(
   items: EstimateWorkItem[],
   workName: string | undefined,
-  suggestedNameBase: string
+  suggestedNameBase: string,
+  // When given, used verbatim as the suggested file name (e.g. the estimate
+  // flow's "Boq <sheet> <lakhs>"); otherwise the base gets the " BOQ" suffix.
+  exactName?: string
 ): Promise<string | null> {
   const boq = buildBoqFromEstimate(items)
-  return api.exportBoq(boq, `${suggestedNameBase} BOQ`, workName)
+  return api.exportBoq(boq, exactName ?? `${suggestedNameBase} BOQ`, workName)
 }
 
 export async function downloadScheduleAFromItems(

@@ -26,7 +26,11 @@ function rowKey(batchId: string, serial: number): string {
 }
 
 function suggestedName(work: BidDocumentWork): string {
-  return `BID Document ${work.serial}${work.name ? ` - ${work.name}` : ''}`.slice(0, 150)
+  // Save each Bid Document under its Win Code, e.g. "Bid Document 12345".
+  // Falls back to the serial-number label for older batches saved before the
+  // Win Code was carried through.
+  const id = work.winCode?.trim() || String(work.serial)
+  return `Bid Document ${id}`.slice(0, 150)
 }
 
 /**

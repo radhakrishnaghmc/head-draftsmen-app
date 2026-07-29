@@ -1,5 +1,5 @@
 import type { ExcelTable } from '@core/types'
-import type { EstimateWorkItem } from '@core/estimateExtract'
+import { type EstimateWorkItem, UNIT_RE } from '@core/estimateExtract'
 import { BOQ_HEADERS } from '@core/boqHeaders'
 import { resolveColumns } from '@core/columnMatch'
 import type { ColumnSpec, ColumnEmbeddings } from '@core/columnMatch'
@@ -32,9 +32,48 @@ export const BOQ_SCHEDULE_A_COLUMN_SPECS: ColumnSpec[] = [
     ]
   },
   { label: 'Rate', patterns: [/\brate\b/i] },
-  { label: 'UOM', patterns: [/\buom\b/i, /\bunit\b/i, /\bunits\b/i] },
+  // Detailed CMC/departmental estimates (No.s/L/B/D layout) often carry no
+  // Unit/UOM header at all — the unit (Cum/Sqm/…) sits in an unlabelled column,
+  // filled only on each item's summary line. So UOM is optional here and, when
+  // no header matches, detected from the data (see detectUnitColumn).
+  { label: 'UOM', patterns: [/\buom\b/i, /\bunit\b/i, /\bunits\b/i], optional: true },
   { label: 'Amount', patterns: [/\bamount\b/i] }
 ]
+
+/**
+ * When an uploaded BOQ/estimate has no labelled Unit/UOM column, find the
+ * unlabelled column that most often carries a recognised unit token
+ * (Cum/Sqm/Rmt/…) across the real item rows — tie-broken toward the column just
+ * after Rate, where the unit usually sits. Returns the header name, or undefined
+ * when no column looks like a unit (Schedule A then leaves Units blank rather
+ * than failing).
+ */
+function detectUnitColumn(
+  headers: string[],
+  itemRows: Record<string, string>[],
+  claimed: Set<string>,
+  rateCol: string
+): string | undefined {
+  const rateIdx = headers.indexOf(rateCol)
+  let bestCol: string | undefined
+  let bestHits = 0
+  let bestDist = Infinity
+  headers.forEach((col, idx) => {
+    if (claimed.has(col)) return
+    let hits = 0
+    for (const row of itemRows) {
+      const cell = (row[col] ?? '').trim()
+      if (cell && UNIT_RE.test(cell)) hits++
+    }
+    const dist = Math.abs(idx - (rateIdx + 1))
+    if (hits > bestHits || (hits === bestHits && hits > 0 && dist < bestDist)) {
+      bestHits = hits
+      bestCol = col
+      bestDist = dist
+    }
+  })
+  return bestHits > 0 ? bestCol : undefined
+}
 
 /**
  * Which of BOQ_SCHEDULE_A_COLUMN_SPECS' columns (if any) only resolved via
@@ -65,6 +104,15 @@ function isNumericLike(v: string): boolean {
   return s !== '' && Number.isFinite(Number(s))
 }
 
+// A repeated column-header row: estimates/BOQs that span pages often reprint
+// their "Qty | Description of work | Rate | Per" header mid-sheet, and that row
+// would otherwise slip through as a bogus line item (a "Description of work"
+// row whose amount comes out as #VALUE!). The description cell carrying a bare
+// header label is the tell — a genuine line item never has one.
+function isHeaderLabel(v: string): boolean {
+  return /^(description(\s+of\s+(work|items?|specification))?|particulars|item(\s+no\.?)?|sl?\.?\s*no\.?)$/i.test(v.trim())
+}
+
 /**
  * Build Schedule A from an uploaded BOQ: Item No. is a running serial number,
  * and the remaining columns are pulled straight from the matching BOQ column
@@ -84,7 +132,6 @@ export function boqToScheduleA(boq: ExcelTable, embeddings?: ColumnEmbeddings): 
   const qtyCol = boq.headers[indexByLabel['Estimate Quantity']]
   const descCol = boq.headers[indexByLabel['Item Detailed Specification Description']]
   let rateCol = boq.headers[indexByLabel['Rate']]
-  let uomCol = boq.headers[indexByLabel['UOM']]
   const amountCol = boq.headers[indexByLabel['Amount']]
 
   // BOQ exports often carry a trailing subtotal row (blank description, just
@@ -92,19 +139,31 @@ export function boqToScheduleA(boq: ExcelTable, embeddings?: ColumnEmbeddings): 
   // the real items — a genuine line item always has both a description and
   // at least a quantity or an amount, so require both to filter those out.
   const itemRows = boq.rows.filter((row) => {
-    if ((row[descCol] ?? '').trim() === '') return false
+    const desc = (row[descCol] ?? '').trim()
+    if (desc === '') return false
+    if (isHeaderLabel(desc)) return false // a reprinted column-header row, not a line item
     return isNumericLike(row[qtyCol] ?? '') || isNumericLike(row[amountCol] ?? '')
   })
+
+  // UOM is optional: use its labelled column when present, otherwise detect the
+  // unlabelled unit column from the data (detailed estimates leave it unheaded).
+  let uomCol: string | undefined =
+    indexByLabel['UOM'] != null ? boq.headers[indexByLabel['UOM']] : undefined
+  if (uomCol == null) {
+    const claimed = new Set(Object.values(indexByLabel).map((i) => boq.headers[i]))
+    uomCol = detectUnitColumn(boq.headers, itemRows, claimed, rateCol)
+  }
 
   // Some source files have Rate and UOM filled in under the wrong header
   // (Rate holding "Cum"/"Rmt" text, UOM holding the numeric rate) — if the
   // "Rate" column is mostly non-numeric while "UOM" is mostly numeric across
   // the actual item rows, they've been swapped, so swap them back.
-  if (itemRows.length > 0) {
+  if (uomCol && itemRows.length > 0) {
+    const uom = uomCol
     const rateNumeric = itemRows.filter((row) => isNumericLike(row[rateCol] ?? '')).length
-    const uomNumeric = itemRows.filter((row) => isNumericLike(row[uomCol] ?? '')).length
+    const uomNumeric = itemRows.filter((row) => isNumericLike(row[uom] ?? '')).length
     if (uomNumeric > rateNumeric) {
-      ;[rateCol, uomCol] = [uomCol, rateCol]
+      ;[rateCol, uomCol] = [uom, rateCol]
     }
   }
 
@@ -113,7 +172,7 @@ export function boqToScheduleA(boq: ExcelTable, embeddings?: ColumnEmbeddings): 
     'Probable Quantity': row[qtyCol] ?? '',
     'Description of item': row[descCol] ?? '',
     'Estimated Rate in Rs. & Ps.': row[rateCol] ?? '',
-    Units: row[uomCol] ?? '',
+    Units: (uomCol ? row[uomCol] : '') ?? '',
     'Estimated Amount in Rs': row[amountCol] ?? ''
   }))
 

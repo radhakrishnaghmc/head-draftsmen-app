@@ -286,7 +286,6 @@ export default function Dashboard({ cached, onData }: Props) {
             <div className="cal-legend">
               <span className="lg lg-public">Public holiday</span>
               <span className="lg lg-optional">Optional holiday</span>
-              <span className="lg lg-num">Working-day number</span>
               <button
                 className="cal-source-link"
                 onClick={() => api.openPath(CALENDAR_SOURCE_URL)}

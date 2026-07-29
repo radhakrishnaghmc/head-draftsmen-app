@@ -172,6 +172,173 @@ describe('extractEstimateItems', () => {
     expect(items).toMatchObject([{ description: 'Earth work excavation', quantity: '237.06', rate: '308.31', unit: 'Cum' }])
   })
 
+  it('stops at the grand Total row, ignoring the abstract and a second estimate stacked in the same sheet', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    const header = ['S. No.', 'Description of work', 'Qty', 'Rate', 'Per', 'Amount']
+    const grid = [
+      header,
+      ['1', 'Engaging of Tractor', '1088', '512', 'Hr', '557056'],
+      ['2', 'Engaging of labour', '544', '847', '1 day', '460768'],
+      // Estimate 1's abstract section — must NOT be read as items.
+      ['', 'Total', 'Total', 'Total', 'Total', '1017824'],
+      ['', 'Add Labour charges @ 1%', '', '', '', '10178'],
+      ['', 'Add GST @ 18%', '', '', '', '183240'],
+      ['', 'or say Rs.', '', '', '30', 'Lakhs'],
+      // A second, unrelated estimate pasted below — must NOT bleed in.
+      ['GREATER HYDERABAD MUNICIPAL CORPORATION', '', '', '', '', ''],
+      ['S. No.', 'Description of work', 'Qty', 'Rate', 'Per', 'Amount'],
+      ['1', 'Job work for engaging of JCB', '1440', '800', 'Hour', '1152000']
+    ]
+    const items = extractEstimateItems(grid, 0)
+    expect(items.map((i) => i.description)).toEqual(['Engaging of Tractor', 'Engaging of labour'])
+    expect(items.some((i) => /JCB/.test(i.description))).toBe(false)
+  })
+
+  it('resolves the unit column whether it is headed Unit, UOM, or Per', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    for (const unitHeader of ['Unit', 'Units', 'UOM']) {
+      const grid = [['S.No', 'Description', 'Qty', 'Rate', unitHeader], ['1', 'Earth work excavation', '237.06', '308.31', 'Cum']]
+      expect(extractEstimateItems(grid, 0)[0]).toMatchObject({ quantity: '237.06', rate: '308.31', unit: 'Cum' })
+    }
+  })
+
+  it('uses the "Total Qty" column, not a blank "Qty per Day", in a day-rate estimate', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    // A day-rate estimate carries both a "Qty per Day" column (blank on most
+    // rows — the qty is built from nos × days × months) and a "Total Qty"
+    // column with the final figure. The plain /qty/ pattern used to grab the
+    // leftmost ("Qty per Day"), dropping every item whose per-day cell is empty.
+    const header = ['Sl. No.', 'Description of Item', 'Qty per Day', 'nos', 'No. of days', 'No of Months', 'Total Qty', 'Rate', 'Unit', 'Amount']
+    const grid = [
+      header,
+      ['1', 'Engaging One Tractor', '', '1', '10', '4', '', '', '', ''],
+      ['', '', '', '', '', '', '320', '512', 'hour', '163840'],
+      ['2', 'Providing UNSKILLED WORKMEN', '', '1', '10', '4', '', '', '', ''],
+      ['', '', '', '', '', '', '120', '847', 'Day', '101640']
+    ]
+    const items = extractEstimateItems(grid, 0)
+    expect(items).toMatchObject([
+      { description: 'Engaging One Tractor', quantity: '320', rate: '512', unit: 'hour' },
+      { description: 'Providing UNSKILLED WORKMEN', quantity: '120', rate: '847', unit: 'Day' }
+    ])
+  })
+
+  it('does not stop at a bare "Total" label used as an intra-item / sub-work subtotal, only at a Total in the Qty column', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    const header = ['S.No', 'Description of Item', 'Nos', 'L', 'B', 'D', 'Quantity', 'Rate', 'Unit', 'Amount']
+    const grid = [
+      header,
+      // Sub-work 1
+      ['1', 'Earth work excavation', '', '', '', '', '34.92', '308.31', 'Cum', '10766'],
+      // An item whose measured parts are summed under a bare "Total" label
+      // (description column), with the real Qty/Rate a couple of rows below.
+      ['2', 'Flooring with Shabad stones', '', '', '', '', '', '', '', ''],
+      ['', 'Total', '', '', '', '', '', '', '', ''],
+      ['', 'Waiting room', '1', '1', '9.23', '4.23', '39.04', '', '', ''],
+      ['', '', '', '', '', '', '39.04', '894.61', 'Sqm', '34926'],
+      // Sub-work 1's own total (amount in Amount column, Qty blank).
+      ['', '', '', '', '', '', 'Total:', '', '', '45692'],
+      // Sub-work 2 starts — a bare "Total" label alone must not have ended things.
+      ['Construction of Toilet Block', '', '', '', '', '', '', '', '', ''],
+      ['1', 'RCC M25 for toilet slab', '', '', '', '', '4.36', '7453.8', 'Cum', '32499'],
+      // True end of items: the final "Total" sits in the Quantity column.
+      ['', '', '', '', '', '', 'Total', '', '', '78191'],
+      ['', 'Provision towards GST @ 18%', '', '', '', '', '', '', '', '14074'],
+      ['', 'Total', '', '', '', '', '', '', '', '92265']
+    ]
+    const items = extractEstimateItems(grid, 0)
+    expect(items.map((i) => i.description)).toEqual([
+      'Earth work excavation',
+      'Flooring with Shabad stones',
+      'RCC M25 for toilet slab'
+    ])
+  })
+
+  it('prefixes lettered sub-parts with their parent item spec, and leaves self-contained items unprefixed', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    const header = ['S.No', 'Description of Item', 'Nos', 'L', 'B', 'D', 'Quantity', 'Rate', 'Unit', 'Amount']
+    const spec = 'Supply and placing of the M-25 Design Mix Concrete corresponding to IS 456 using weigh batcher'
+    const grid = [
+      header,
+      // Parent item: full spec, no measurement of its own.
+      ['3', spec, '', '', '', '', '', '', '', ''],
+      ['a', 'Footings', '', '', '', '', '', '', '', ''],
+      ['', 'F1', '1', '2', '1.3', '1.3', '0.85', '', '', ''],
+      ['', '', '', '', '', '', '0.85', '11031.32', 'Cum', '9377'],
+      ['b', 'Pedastals', '', '', '', '', '', '', '', ''],
+      ['', '', '1', '4', '0.45', '0.45', '0.49', '11031.32', 'Cum', '5405'],
+      // A self-contained full-spec item ends the sub-part run.
+      ['4', 'Filling with useful available excavated earth in trenches', '', '', '', '', '10.8', '43.76', 'Cum', '473'],
+      // A short label after a self-contained item must NOT inherit item 3's spec.
+      ['5', 'Extra soil disposal', '', '', '', '', '5', '100', 'Cum', '500']
+    ]
+    const items = extractEstimateItems(grid, 0)
+    expect(items.map((i) => i.description)).toEqual([
+      `${spec} - Footings`,
+      `${spec} - Pedastals`,
+      'Filling with useful available excavated earth in trenches',
+      'Extra soil disposal'
+    ])
+  })
+
+  it('swaps a per-row Rate/Unit inversion where the unit token sits in the Rate column', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    const header = ['S.No', 'Description of Item', 'Nos', 'L', 'B', 'D', 'Quantity', 'Rate', 'Unit', 'Amount']
+    const grid = [
+      header,
+      // "Say" summary row: unit "Cum" landed in Rate, the rate number in Unit.
+      ['7', 'RCC roof beam for arch', '', '', '', '', '0.43', 'Cum', '7453.8', '3205']
+    ]
+    const items = extractEstimateItems(grid, 0)
+    expect(items[0]).toMatchObject({ description: 'RCC roof beam for arch', quantity: '0.43', rate: '7453.8', unit: 'Cum' })
+  })
+
+  it('starts a new item on a spec row whose S.No was left blank (description begins with a schedule code)', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    const header = ['S.No', 'Description of Item', 'Nos', 'L', 'B', 'D', 'Quantity', 'Rate', 'Unit', 'Amount']
+    const door = 'TBSC-L.III-02: Providing and fixing 30mm thick factory made PVC door shutter'
+    const window = 'TBSC-M.II-02: Providing and fixing of two shutter sliding windows'
+    const grid = [
+      header,
+      ['19', door, '', '', '', '', '', '', '', ''],
+      ['', 'Door D1', '1', '8', '0.75', '2.1', '', '', '', ''],
+      ['', '', '', '', '', '', '16.8', '2618', 'sqm', '43982'],
+      // Next item's spec, but its S.No cell was left blank in the source.
+      ['', window, '', '', '', '', '', '', '', ''],
+      ['', 'window', '1', '2', '1.2', '1.2', '', '', '', ''],
+      ['', '', '', '', '', '', '2.88', '6120.44', 'sqm', '17627']
+    ]
+    const items = extractEstimateItems(grid, 0)
+    expect(items.map((i) => ({ description: i.description, quantity: i.quantity }))).toEqual([
+      { description: door, quantity: '16.8' },
+      { description: window, quantity: '2.88' }
+    ])
+  })
+
+  it('flags items with a quantity and rate but a blank or zero Amount (itemsMissingEstimateAmount)', async () => {
+    const { extractEstimateItems, itemsMissingEstimateAmount } = await import('../core/estimateExtract')
+    const header = ['S.No', 'Description of Item', 'Nos', 'L', 'B', 'D', 'Quantity', 'Rate', 'Unit', 'Amount']
+    const grid = [
+      header,
+      ['1', 'Impervious coat to RCC roof slab', '', '', '', '', '59.04', '533.41', 'Sqm', ''], // Amount blank
+      ['2', 'Rolling shutter for wood storage', '', '', '', '', '5.48', '4017.43', 'Sqm', '0'], // Amount zero
+      ['3', 'Earth work excavation', '', '', '', '', '34.92', '308.31', 'Cum', '10766'], // costed
+      ['4', 'Lintel not executed', '', '', '', '', '0', '13916.2', 'Cum', ''] // zero qty — genuinely no work
+    ]
+    const items = extractEstimateItems(grid, 0)
+    const missing = itemsMissingEstimateAmount(items)
+    expect(missing.map((i) => i.description)).toEqual(['Impervious coat to RCC roof slab', 'Rolling shutter for wood storage'])
+  })
+
+  it('reports no missing-amount items when the estimate has no Amount column', async () => {
+    const { extractEstimateItems, itemsMissingEstimateAmount } = await import('../core/estimateExtract')
+    const header = ['S.No', 'Description', 'Qty', 'Rate', 'Unit']
+    const grid = [header, ['1', 'Earth work excavation', '237.06', '308.31', 'Cum']]
+    const items = extractEstimateItems(grid, 0)
+    expect(items[0].estimateAmount).toBeUndefined()
+    expect(itemsMissingEstimateAmount(items)).toEqual([])
+  })
+
   it('splits a drilling item with depth-range sub-rows into one item per depth, tagging each with its range', async () => {
     const { extractEstimateItems } = await import('../core/estimateExtract')
     const header = ['S.No', 'Description', 'No', 'Length', 'Qty', 'Rate', 'Unit', 'Amount']
@@ -351,9 +518,52 @@ describe('extractEstimateItemsFromLines', () => {
     ])
   })
 
+  it('finds service/transport items priced per tonne (a unit beyond the civil-works set)', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    // The real garbage-transport estimate: two items, both measured in "tonne".
+    const lines = [
+      'DETAILED CUM ABSTRACT ESTIMATE',
+      'Name of the work: Transportation of Garbage from Nizampet Transfer Station',
+      'Sl. Description of work No L B D Qty Rate/per per Amount',
+      'Hiring of JCB for Lifting and Loading the Garbage into tippers per tonne',
+      '1 x 1 14960.00 14960.00',
+      '14960.00 166.76 tonne 2494730.00',
+      'Engaging Tipper for conveyance of Garbage to Dumping Yard at 12 Tonne per trip',
+      '1 x 1 14960.00 14960.00',
+      '14960.00 372.84 tonne 5577686.00'
+    ]
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items.map((i) => ({ quantity: i.quantity, rate: i.rate, unit: i.unit }))).toEqual([
+      { quantity: '14960.00', rate: '166.76', unit: 'tonne' },
+      { quantity: '14960.00', rate: '372.84', unit: 'tonne' }
+    ])
+  })
+
+  it('re-stitches a summary row the OCR split into out-of-order fragments', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    // Exactly what PaddleOCR produced for the second item of the garbage
+    // estimate: its Qty/Rate cell and unit/Amount cell became two lines, in the
+    // wrong order (the Amount line sorted above the Qty/Rate line).
+    const lines = [
+      'Sl. Description of work No L B D Qty Rate/per per Amount',
+      'Hiring of JCB per tonne',
+      '14960.00 166.76 tonne 2494730.00',
+      'Engaging Tipper for conveyance of Garbage per tonne',
+      '14960.00 14960.00',
+      '1x 1',
+      'tonne 5577686.00',
+      '14960.00 372.84'
+    ]
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items.map((i) => ({ quantity: i.quantity, rate: i.rate, unit: i.unit }))).toEqual([
+      { quantity: '14960.00', rate: '166.76', unit: 'tonne' },
+      { quantity: '14960.00', rate: '372.84', unit: 'tonne' }
+    ])
+  })
+
   it('matches a unit glued directly onto the Per number with no space (a common OCR artifact)', async () => {
     const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
-    const lines = ['Qty Rate Per Amount', 'Earthwork excavation', '619.75 475.5901 Cum 247188.00']
+    const lines = ['Qty Rate Per Amount', 'Earthwork excavation', '619.75 475.5901 Cum 294746.90']
     const items = extractEstimateItemsFromLines(lines)
     expect(items).toMatchObject([{ quantity: '619.75', rate: '475.59', unit: 'Cum' }])
   })
@@ -435,6 +645,26 @@ describe('extractEstimateItemsFromLines', () => {
     ])
   })
 
+  it('corrects a misread quantity from the printed Amount ÷ Rate (Qty=Amount/Rate)', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    // OCR misread the quantity as 30.00, but Rate 1500.00 and Amount 135000.00
+    // are right: 30 × 1500 = 45000 ≠ 135000, so the quantity is corrected back
+    // to 135000 / 1500 = 90.00.
+    const lines = ['Qty Rate Per Amount', 'Earthwork excavation', '30.00 1500.00 Cum 135000.00']
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toMatchObject([{ quantity: '90.00', rate: '1500.00', unit: 'Cum' }])
+  })
+
+  it('picks Qty/Rate by the Qty×Rate=Amount invariant when an extra number sits on the summary line', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    // OCR left a stray extra decimal after the amount, so the printed "last
+    // three" (Amount, extra) no longer start on Qty — the product check must
+    // still land Qty=90.00, Rate=1500.00 (90 × 1500 = 135000), not the extra.
+    const lines = ['Qty Rate Per Amount', 'Earthwork excavation', '90.00 1500.00 135000.00 5.00 Cum']
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toMatchObject([{ quantity: '90.00', rate: '1500.00', unit: 'Cum' }])
+  })
+
   it('captures a No\'s/L/B/D dimension line sitting between the description and the summary line', async () => {
     const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
     const lines = [
@@ -447,6 +677,25 @@ describe('extractEstimateItemsFromLines', () => {
     expect(items).toMatchObject([
       { quantity: '99.00', rate: '2345.00', unit: 'Cum', nos: '5.00', l: '2.50', b: '1.20', d: '0.75' }
     ])
+  })
+
+  it('reads a dimension line whose No\'s is a bare integer and whose depth has 3 decimals', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    const lines = [
+      'Qty Rate Per Amount',
+      'Laying of CC road',
+      '1 250.00 6.00 0.075',
+      '112.50 5800.00 Cum 652500.00'
+    ]
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toMatchObject([{ nos: '1', l: '250.00', b: '6.00', d: '0.075' }])
+  })
+
+  it('reads a count + L + B dimension line (area item, no depth)', async () => {
+    const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')
+    const lines = ['Qty Rate Per Amount', 'BT road renewal', '2 100.00 7.50', '1500.00 320.00 Sqm 480000.00']
+    const items = extractEstimateItemsFromLines(lines)
+    expect(items).toMatchObject([{ nos: '2', l: '100.00', b: '7.50' }])
   })
 
   it('treats a 3-number dimension line as L/B/D with an implicit single count', async () => {

@@ -13,7 +13,8 @@ import {
   IconClipboard,
   IconEye,
   IconRefresh,
-  IconBell
+  IconBell,
+  IconTools
 } from './Icons'
 
 export type TabKey =
@@ -27,6 +28,7 @@ export type TabKey =
   | 'mbScrutiny'
   | 'search'
   | 'todo'
+  | 'tools'
 
 interface Props {
   active: TabKey
@@ -98,13 +100,13 @@ export default function Sidebar(props: Props) {
     },
     {
       key: 'intimation',
-      label: 'Intimation and agency approval',
+      label: 'Intimation',
       icon: <IconBell />,
       tone: 'rose'
     },
     {
       key: 'workOrder',
-      label: 'Work order and agreement',
+      label: 'Agreement and Work order',
       icon: <IconClipboard />
     },
     {
@@ -140,6 +142,12 @@ export default function Sidebar(props: Props) {
       key: 'techSanction',
       label: 'Give Technical Sanction',
       icon: <IconCheck />
+    },
+    {
+      key: 'tools',
+      label: 'Tools',
+      icon: <IconTools />,
+      tone: 'teal'
     }
   ]
 

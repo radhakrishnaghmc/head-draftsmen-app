@@ -57,6 +57,30 @@ describe('listParagraphs', () => {
   })
 })
 
+describe('multi-line placeholder values', () => {
+  it('renders newlines in a filled value as Word line breaks (<w:br/>)', () => {
+    const buffer = buildDocx([[{ text: '{{addr}}' }]])
+    const resolved = [{ label: 'addr', column: 'Address' }] as unknown as PlaceholderMatch[]
+    const out = fillPlaceholdersInDocx(buffer, resolved, { Address: 'Line one\nLine two\nLine three' })
+    const xml = new PizZip(out).file('word/document.xml')!.asText()
+    expect((xml.match(/<w:br\s*\/>/g) || []).length).toBe(2) // two breaks for three lines
+    expect(xml).toContain('Line one')
+    expect(xml).toContain('Line two')
+    expect(xml).toContain('Line three')
+    // Combined paragraph text has all three segments (a break adds no character).
+    expect(listParagraphs(out)[0]).toBe('Line oneLine twoLine three')
+  })
+
+  it('keeps a single-line value as a plain run (no break)', () => {
+    const buffer = buildDocx([[{ text: '{{addr}}' }]])
+    const resolved = [{ label: 'addr', column: 'Address' }] as unknown as PlaceholderMatch[]
+    const out = fillPlaceholdersInDocx(buffer, resolved, { Address: 'Single line' })
+    const xml = new PizZip(out).file('word/document.xml')!.asText()
+    expect(xml).not.toContain('<w:br')
+    expect(listParagraphs(out)[0]).toBe('Single line')
+  })
+})
+
 describe('setParagraphText', () => {
   it('preserves an unrelated bold run when only the plain run changes', () => {
     const buffer = buildDocx([[{ text: 'Dear ' }, { text: 'Sir', bold: true }, { text: ', regards' }]])

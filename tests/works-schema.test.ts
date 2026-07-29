@@ -3,6 +3,7 @@ import {
   applyWorksSchema,
   applyWorksSchemaWithMapping,
   migrateEcvContractToRupees,
+  repairInflatedRupees,
   WORKS_COLUMNS
 } from '../src/worksSchema'
 import type { PlaceholderMatch } from '../core/createDocument'
@@ -129,5 +130,34 @@ describe('migrateEcvContractToRupees', () => {
     const out = migrateEcvContractToRupees(t)
     expect(out.rows[0]['ECV']).toBe('')
     expect(out.rows[0]['Contract Amount']).toBe('N/A')
+  })
+
+  it('does NOT re-inflate an already-rupees value (guard against a repeated migration)', () => {
+    const t = table(WORKS_COLUMNS, [
+      { ...Object.fromEntries(WORKS_COLUMNS.map((h) => [h, ''])), ECV: '2571292', 'Contract Amount': '1735622' }
+    ])
+    const out = migrateEcvContractToRupees(t)
+    expect(out.rows[0]['ECV']).toBe('2571292')
+    expect(out.rows[0]['Contract Amount']).toBe('1735622')
+  })
+})
+
+describe('repairInflatedRupees', () => {
+  it('divides an over-inflated ECV/Contract Amount back to a plausible rupee figure', () => {
+    const t = table(WORKS_COLUMNS, [
+      { ...Object.fromEntries(WORKS_COLUMNS.map((h) => [h, ''])), ECV: '2.571292e+21', 'Contract Amount': '1735622000000000000000' }
+    ])
+    const out = repairInflatedRupees(t)
+    expect(out.rows[0]['ECV']).toBe('2571292')
+    expect(out.rows[0]['Contract Amount']).toBe('1735622')
+  })
+
+  it('leaves already-plausible rupee values untouched (idempotent)', () => {
+    const t = table(WORKS_COLUMNS, [
+      { ...Object.fromEntries(WORKS_COLUMNS.map((h) => [h, ''])), ECV: '880637', 'Contract Amount': '725205' }
+    ])
+    const out = repairInflatedRupees(t)
+    expect(out.rows[0]['ECV']).toBe('880637')
+    expect(out.rows[0]['Contract Amount']).toBe('725205')
   })
 })

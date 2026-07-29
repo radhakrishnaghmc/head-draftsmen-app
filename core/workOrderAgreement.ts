@@ -12,6 +12,44 @@ import { amountToWords, dateToWords } from './numberToWords'
 import type { IntimationNotice } from './intimationNotice'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
 
+// The agency's postal address prints in a narrow "To," block, under the agency
+// name — so it must wrap to short lines instead of running the full page width.
+const ADDRESS_WRAP_WIDTH = 21
+
+/**
+ * Wrap an agency address to lines no wider than `maxWidth` characters (spaces
+ * included), breaking at spaces and hard-splitting any single token longer than
+ * the width, joined with "\n". The docx fill turns each "\n" into a real Word
+ * line break (see core/docx-edit.ts's setRunText), so the address sits in a tidy
+ * narrow block under the agency name rather than spanning the whole line.
+ */
+export function wrapAgencyAddress(address: string, maxWidth: number = ADDRESS_WRAP_WIDTH): string {
+  const clean = (address ?? '').replace(/\s+/g, ' ').trim()
+  if (!clean) return ''
+  const lines: string[] = []
+  let cur = ''
+  for (const rawWord of clean.split(' ')) {
+    let word = rawWord
+    // Hard-break a token that can't fit on a line on its own.
+    while (word.length > maxWidth) {
+      if (cur) {
+        lines.push(cur)
+        cur = ''
+      }
+      lines.push(word.slice(0, maxWidth))
+      word = word.slice(maxWidth)
+    }
+    if (!cur) cur = word
+    else if (cur.length + 1 + word.length <= maxWidth) cur += ` ${word}`
+    else {
+      lines.push(cur)
+      cur = word
+    }
+  }
+  if (cur) lines.push(cur)
+  return lines.join('\n')
+}
+
 /** The canonical, editable inputs both documents are built from. */
 export interface WorkOrderAgreementFields {
   circle: string
@@ -93,7 +131,7 @@ export function deriveFields(
 
   return {
     circle: row['Circle'] ?? '',
-    cno: row['CNO'] ?? '',
+    cno: row['Circle number'] ?? row['CNO'] ?? '',
     zone: row['Zone'] ?? '',
     nameOfWork: row['Name of the work'] ?? '',
     agencyName: notice.agencyName ?? pdf.l1AgencyName ?? row['Name of the Agency'] ?? '',
@@ -123,7 +161,7 @@ export function workOrderPlaceholders(f: WorkOrderAgreementFields): Record<strin
     Financialyear: f.financialYear,
     'Agreement date': f.workOrderDate,
     'Name of the agency': f.agencyName,
-    'Address of the agency': f.address,
+    'Address of the agency': wrapAgencyAddress(f.address),
     'Phone no.': f.phone,
     Zone: f.zone,
     'Name of the work': f.nameOfWork,

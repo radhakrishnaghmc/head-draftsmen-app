@@ -54,6 +54,33 @@ export const DOCX_PREVIEW_OPTIONS = {
   renderChanges: false
 }
 
+/**
+ * docx-preview mishandles Word text boxes (`wps` shapes — e.g. the WordArt
+ * "CYBERABAD MUNICIPAL CORPORATION" letterhead): it doesn't parse them as
+ * graphics and forces the drawing wrapper to full page width, which stretches
+ * the title across the whole sheet in the preview. Real pictures (the emblems)
+ * render fine. This runs after `renderAsync` to constrain each text-box drawing
+ * — a docx-preview drawing `div` (marked by its `text-indent: 0px`) that
+ * contains no `<img>` — back to its content width and centre it, matching how
+ * Word lays it out. Preview-only: the exported .docx is built from the real
+ * template and is never touched.
+ */
+export function normalizeDocxTextboxes(container: HTMLElement): void {
+  const drawings = container.querySelectorAll<HTMLElement>('div[style*="text-indent: 0px"]')
+  drawings.forEach((d) => {
+    if (d.querySelector('img')) return // a real picture (emblem) — leave it alone
+    d.style.width = 'auto'
+    d.style.maxWidth = '100%'
+    d.style.display = 'block'
+    d.style.textAlign = 'center'
+    d.style.transform = 'none'
+    d.querySelectorAll<HTMLElement>('*').forEach((el) => {
+      if (el.style.width === '100%') el.style.width = 'auto'
+      if (el.style.transform && /scale/i.test(el.style.transform)) el.style.transform = 'none'
+    })
+  })
+}
+
 export function pageShellStyle(): string {
   return `
     html, body { margin: 0; }

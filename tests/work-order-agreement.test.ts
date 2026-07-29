@@ -10,7 +10,8 @@ import {
   deriveFields,
   workOrderPlaceholders,
   agreementPlaceholders,
-  indianFinancialYear
+  indianFinancialYear,
+  wrapAgencyAddress
 } from '../core/workOrderAgreement'
 
 describe('integerToIndianWords', () => {
@@ -65,7 +66,7 @@ describe('indianFinancialYear', () => {
 // agreement sample (ECV 19,93,085; 27.45% less; contract 14,45,983.17).
 const row: Record<string, string> = {
   Circle: 'Nizampet',
-  CNO: '58',
+  'Circle number': '58',
   Zone: 'Quthbullapur',
   'Name of the work': 'Laying of Storm water line from Vinayaka Nagar to KNR Colony',
   'Amount of estimate': '25',
@@ -121,5 +122,37 @@ describe('deriveFields + placeholders', () => {
     expect(wo['ECV']).toBe('')
     expect(wo['Contract Amount']).toBe('')
     expect(wo['Estimate Amount']).toBe('Rs. 25.00 Lakhs')
+  })
+})
+
+describe('wrapAgencyAddress', () => {
+  it('wraps a long address to lines no wider than 21 characters, losing no words', () => {
+    const raw = 'H.NO. 4-35-189/1 VENKATESHWARA NAGAR KUKATPALLY, HYDERABAD -500072, Telangana'
+    const wrapped = wrapAgencyAddress(raw)
+    const lines = wrapped.split('\n')
+    expect(lines.length).toBeGreaterThan(1)
+    expect(lines.every((l) => l.length <= 21)).toBe(true)
+    // Every original word survives, in order.
+    expect(wrapped.replace(/\n/g, ' ').replace(/\s+/g, ' ')).toBe(raw.replace(/\s+/g, ' '))
+  })
+
+  it('hard-breaks a single token longer than the width', () => {
+    const lines = wrapAgencyAddress('SUPERCALIFRAGILISTICEXPIALIDOCIOUSADDRESS').split('\n')
+    expect(lines.every((l) => l.length <= 21)).toBe(true)
+    expect(lines.join('')).toBe('SUPERCALIFRAGILISTICEXPIALIDOCIOUSADDRESS')
+  })
+
+  it('returns empty string for a blank address', () => {
+    expect(wrapAgencyAddress('')).toBe('')
+    expect(wrapAgencyAddress('   ')).toBe('')
+  })
+
+  it('the Work Order fills the address wrapped (newline-separated)', () => {
+    const wo = workOrderPlaceholders({
+      ...deriveFields({}, {}, {}),
+      address: 'H.NO. 4-35-189/1 VENKATESHWARA NAGAR KUKATPALLY, HYDERABAD -500072, Telangana'
+    })
+    expect(wo['Address of the agency']).toContain('\n')
+    expect(wo['Address of the agency'].split('\n').every((l) => l.length <= 21)).toBe(true)
   })
 })

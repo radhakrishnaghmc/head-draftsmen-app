@@ -59,19 +59,35 @@ describe('updateWorksListFromEvaluations', () => {
 
   it('reports a PDF whose work name matches no row as unmatched, touching nothing', () => {
     const t = table([blankRow({ 'Name of the work': 'Totally different work' })])
-    const { table: out, matchedCount, unmatched } = updateWorksListFromEvaluations(t, [EV])
+    const { table: out, matchedCount, unmatched, matchedRowIndices } = updateWorksListFromEvaluations(t, [EV])
     expect(matchedCount).toBe(0)
     expect(unmatched).toEqual(['Junction Improvement in Aleap Circle'])
+    expect(matchedRowIndices).toEqual([])
     expect(out.rows[0]['Tender ID']).toBe('')
   })
 
+  it('returns the matched row index so the caller can select the exact-matched row', () => {
+    const t = table([
+      blankRow({ 'Name of the work': 'Other work' }),
+      blankRow({ 'Name of the work': 'Junction Improvement in Aleap Circle' })
+    ])
+    const { matchedRowIndices } = updateWorksListFromEvaluations(t, [EV])
+    expect(matchedRowIndices).toEqual([1])
+  })
+
   it('falls back to the embedding match when the exact name differs but scores above threshold', () => {
-    const t = table([blankRow({ 'Name of the work': 'Junction Improvement Aleap Circle Ward 276' })])
-    const { matchedCount } = updateWorksListFromEvaluations(t, [EV], {
-      rowNameVectors: [[1, 0]],
+    const t = table([
+      blankRow({ 'Name of the work': 'Unrelated first row' }),
+      blankRow({ 'Name of the work': 'Junction Improvement Aleap Circle Ward 276' })
+    ])
+    const { matchedCount, matchedRowIndices } = updateWorksListFromEvaluations(t, [EV], {
+      rowNameVectors: [[0, 1], [1, 0]],
       evalNameVectors: [[0.95, 0.05]]
     })
     expect(matchedCount).toBe(1)
+    // The embedding match must report row 1 — this is the index the UI needs to
+    // select, since there is no exact name to re-derive it from.
+    expect(matchedRowIndices).toEqual([1])
   })
 
   it('does not use an embedding match below the threshold', () => {
@@ -82,5 +98,44 @@ describe('updateWorksListFromEvaluations', () => {
     })
     expect(matchedCount).toBe(0)
     expect(unmatched).toEqual(['Junction Improvement in Aleap Circle'])
+  })
+
+  it('also fills EMD @ 1% / 1.5% and ASD from the ECV and Tender %', () => {
+    const t = table([blankRow({ 'Name of the work': 'Junction Improvement in Aleap Circle' })])
+    const r = updateWorksListFromEvaluations(t, [EV]).table.rows[0]
+    expect(r['EMD 1%']).toBe('15935') // 1% of 1593493
+    expect(r['EMD 1.5%']).toBe('23902') // 1.5% of 1593493
+    expect(r['ASD']).toBe('0') // Tender % 11.11 is below the 25% ASD threshold
+  })
+
+  it('charges ASD at (Tender % - 25%) of ECV once Tender % exceeds 25%', () => {
+    const t = table([blankRow({ 'Name of the work': 'Junction Improvement in Aleap Circle' })])
+    const r = updateWorksListFromEvaluations(t, [{ ...EV, tenderPercentage: 30 }]).table.rows[0]
+    expect(r['ASD']).toBe(String(Math.round(1593493 * 0.05))) // (30-25)% of ECV
+  })
+
+  it('folds the intimation address in, and uses it as a fallback for agency / contract', () => {
+    const t = table([blankRow({ 'Name of the work': 'Junction Improvement in Aleap Circle' })])
+    const notice = {
+      agencyName: 'FALLBACK AGENCY',
+      address: '12-3-45 Some Street, Hyderabad',
+      contractRupees: 999999
+    }
+    // L-1 lacking agency & contract — the intimation supplies them; the address
+    // (which only the intimation carries) is written regardless.
+    const evNoAgency: TenderEvaluation = { ...EV, l1AgencyName: undefined, contractRupees: undefined }
+    const r = updateWorksListFromEvaluations(t, [evNoAgency], undefined, notice).table.rows[0]
+    expect(r['Address of the agency']).toBe('12-3-45 Some Street, Hyderabad')
+    expect(r['Name of the Agency']).toBe('FALLBACK AGENCY')
+    expect(r['Contract Amount']).toBe('999999')
+  })
+
+  it('prefers the L-1 sheet over the intimation for agency and contract when both are present', () => {
+    const t = table([blankRow({ 'Name of the work': 'Junction Improvement in Aleap Circle' })])
+    const notice = { agencyName: 'FALLBACK AGENCY', address: 'Addr', contractRupees: 999999 }
+    const r = updateWorksListFromEvaluations(t, [EV], undefined, notice).table.rows[0]
+    expect(r['Name of the Agency']).toBe('M V S CONSTRUCTIONS')
+    expect(r['Contract Amount']).toBe('1416456')
+    expect(r['Address of the agency']).toBe('Addr')
   })
 })

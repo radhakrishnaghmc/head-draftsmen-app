@@ -74,17 +74,32 @@ function paragraphCombinedText(para: Element): string {
     .join('')
 }
 
-/** Replace a run's text, collapsing it to a single <w:t>. */
+/**
+ * Replace a run's text. A value with no newline collapses to a single <w:t>;
+ * a value with newlines becomes <w:t>line0</w:t><w:br/><w:t>line1</w:t>… so it
+ * renders as real hard line breaks in Word (a bare "\n" inside a <w:t> is just
+ * whitespace to Word, not a break). Every added <w:t>/<w:br/> stays inside this
+ * run, so they all inherit its formatting.
+ */
 function setRunText(run: Element, value: string): void {
   const texts = tag(run, 'w:t')
-  texts.forEach((t, i) => {
-    if (i === 0) {
-      t.textContent = value
-      t.setAttribute('xml:space', 'preserve')
-    } else {
-      t.parentNode?.removeChild(t)
-    }
-  })
+  if (texts.length === 0) return
+  const first = texts[0]
+  for (let i = 1; i < texts.length; i++) texts[i].parentNode?.removeChild(texts[i])
+  const segments = value.split('\n')
+  first.textContent = segments[0]
+  first.setAttribute('xml:space', 'preserve')
+  const doc = run.ownerDocument as unknown as Document
+  let anchor: Element = first
+  for (let i = 1; i < segments.length; i++) {
+    const br = doc.createElementNS(W_NS, 'w:br') as unknown as Element
+    const t = doc.createElementNS(W_NS, 'w:t') as unknown as Element
+    t.setAttribute('xml:space', 'preserve')
+    t.textContent = segments[i]
+    anchor.parentNode?.insertBefore(br, anchor.nextSibling)
+    br.parentNode?.insertBefore(t, br.nextSibling)
+    anchor = t
+  }
 }
 
 function save(zip: PizZip, xml: Document, part: string = DOC_XML): Buffer {

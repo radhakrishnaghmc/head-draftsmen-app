@@ -72,6 +72,21 @@ describe('parseIntimationNotice', () => {
     expect(r.contractRupees).toBe(1416455.93)
   })
 
+  it('stitches a NIT No that wraps across two lines in the printed LOA', () => {
+    // Real Gajularamaram LOA: the NIT No wraps mid-code across two lines.
+    const lines = [
+      'tender.telangana.gov.in/viewIntimationNotice.html',
+      'To,',
+      'Sri Duggi Parvathalu',
+      'Gajularamaram, Hyderabad',
+      'This is notify you that the bid submitted by you for execution of the NIT No.02/DB/EE/Gajularamaram',
+      'Circle-57/QBZ/CMC/2026-27 Dt.07.05.2026 (Item No.02) at contract price of Rs. 83008.32 ( Eighty',
+      'Three Thousand Eight and Thirty Two paise only )'
+    ]
+    const r = parseIntimationNoticeText(lines)
+    expect(r.nitNo).toBe('02/DB/EE/Gajularamaram Circle-57/QBZ/CMC/2026-27')
+  })
+
   it('parses the real saved portal page if present', () => {
     const path = '/Users/radhakrishnapodugu/Downloads/viewIntimationNoticealeadp circle.html'
     let html: string

@@ -2,17 +2,20 @@
    DocuGen — design system
    ============================================================ */
 :root {
-  /* palette — Windows 11 Fluent accent (mapped onto the existing indigo/violet
-     token names so the whole app shifts to the Windows blue accent at once). */
-  --indigo-50: #eff6fc;
-  --indigo-100: #dcecfb;
-  --indigo-200: #b4d6f5;
-  --indigo-500: #0067c0;
-  --indigo-600: #005fb8;
-  --indigo-700: #004f9e;
-  --violet-500: #0a84e0;
-  --sky-100: #e0f2fe;
-  --sky-500: #0ea5e9;
+  /* palette — Indian tricolour (Tiranga). The primary accent family (mapped
+     onto the old indigo/violet token names) is India Saffron #FF9933; its
+     gradient partner is India Green #138808; the Ashoka-Chakra navy #1a237e
+     carries the "in-progress" accent. White is the neutral third band. */
+  --indigo-50: #fff4e6; /* lightest saffron tint (chip/pill backgrounds) */
+  --indigo-100: #ffe1bf;
+  --indigo-200: #ffce99;
+  --indigo-500: #ff9933; /* India saffron — primary accent */
+  --indigo-600: #ef7d1a; /* deep saffron — solid fills / accent text */
+  --indigo-700: #b45309; /* burnt saffron — accent text / hairlines */
+  --violet-500: #138808; /* India green — gradient partner */
+  --chakra: #1a237e; /* Ashoka-Chakra navy */
+  --sky-100: #d7f0cf;
+  --sky-500: #138808;
   --teal-500: #0d9488;
   --teal-100: #ccfbf1;
   --rose-500: #e11d48;
@@ -47,7 +50,7 @@
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
   --shadow-md: 0 4px 16px -6px rgba(16, 24, 40, 0.12), 0 2px 6px -3px rgba(16, 24, 40, 0.07);
   --shadow-lg: 0 24px 48px -16px rgba(16, 24, 40, 0.22);
-  --shadow-glow: 0 8px 24px -6px rgba(0, 103, 192, 0.4);
+  --shadow-glow: 0 8px 24px -6px rgba(255, 153, 51, 0.45);
 
   /* Windows 11 corner rounding is subtler than the old design's */
   --radius: 8px;
@@ -67,6 +70,10 @@ html,
 body,
 #root {
   height: 100%;
+  /* The app is a fixed viewport-height shell — only the workspace column
+     scrolls. Locking page-level overflow keeps the sidebar (and the rest of
+     the chrome) static instead of the whole UI scrolling as one. */
+  overflow: hidden;
 }
 
 body {
@@ -75,9 +82,9 @@ body {
   font-size: 14px;
   line-height: 1.5;
   color: var(--text);
-  background: radial-gradient(1200px 700px at 100% -10%, rgba(0, 120, 212, 0.07), transparent 60%),
-    radial-gradient(900px 520px at -10% 110%, rgba(0, 103, 192, 0.05), transparent 55%),
-    radial-gradient(1000px 480px at 50% 100%, rgba(148, 163, 184, 0.08), transparent 60%),
+  background: radial-gradient(1200px 700px at 100% -10%, rgba(255, 153, 51, 0.13), transparent 60%),
+    radial-gradient(900px 520px at -10% 110%, rgba(19, 136, 8, 0.11), transparent 55%),
+    radial-gradient(1000px 480px at 50% 100%, rgba(255, 255, 255, 0.5), transparent 60%),
     linear-gradient(180deg, var(--bg-grad-a), var(--bg-grad-b));
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
@@ -172,7 +179,7 @@ body::before {
 .update-progress-track {
   height: 6px;
   border-radius: var(--radius-pill);
-  background: rgba(0, 103, 192, 0.15);
+  background: rgba(255, 153, 51, 0.18);
   overflow: hidden;
 }
 .update-progress-fill {
@@ -254,7 +261,8 @@ code {
 /* ---------- shell ---------- */
 .shell {
   display: flex;
-  min-height: 100%;
+  height: 100vh;
+  overflow: hidden;
   position: relative;
   z-index: 1;
 }
@@ -265,13 +273,19 @@ code {
   top: 0;
   align-self: flex-start;
   height: 100vh;
-  width: 264px;
+  width: 320px;
   flex: none;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 22px 16px;
-  background: linear-gradient(165deg, rgba(224, 231, 255, 0.65) 0%, rgba(199, 210, 254, 0.4) 30%, rgba(224, 242, 254, 0.4) 65%, rgba(255, 255, 255, 0.7) 100%);
+  /* The sidebar frame stays fixed in place — the brand pinned at the top and
+     the footer at the bottom never move. Only the nav list (.side-nav) scrolls
+     internally if it ever outgrows the space between them, so the sidebar as a
+     whole never scrolls and the footer is never clipped. */
+  overflow: hidden;
+  /* the Tiranga as a vertical band: saffron top, white middle, green bottom */
+  background: linear-gradient(180deg, rgba(255, 153, 51, 0.55) 0%, rgba(255, 153, 51, 0.28) 22%, rgba(255, 255, 255, 0.78) 44%, rgba(255, 255, 255, 0.78) 56%, rgba(19, 136, 8, 0.28) 78%, rgba(19, 136, 8, 0.55) 100%);
   backdrop-filter: saturate(180%) blur(18px);
   -webkit-backdrop-filter: saturate(180%) blur(18px);
   border-right: 1px solid var(--border);
@@ -284,27 +298,35 @@ code {
   padding: 6px 10px 18px;
 }
 .side-brand .logo {
-  width: 42px;
-  height: 42px;
+  width: 78px;
+  height: 78px;
   object-fit: contain;
-  filter: drop-shadow(0 4px 10px rgba(0, 103, 192, 0.35));
+  filter: drop-shadow(0 4px 10px rgba(255, 153, 51, 0.35));
 }
 .side-brand h1 {
   margin: 0;
   font-size: 18px;
   font-weight: 750;
   letter-spacing: -0.02em;
+  white-space: nowrap;
 }
 .side-brand p {
   margin: 0;
   font-size: 12px;
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .side-nav {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  /* Take the space between the fixed brand and footer, and scroll only this
+     list (never the whole sidebar) when the items don't fit. min-height:0 lets
+     a flex child actually shrink below its content height so the scroll works. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .nav-item {
@@ -321,7 +343,7 @@ code {
   transition: transform 0.18s var(--ease);
 }
 .nav-item:hover {
-  background: rgba(0, 103, 192, 0.06);
+  background: rgba(255, 153, 51, 0.1);
 }
 .nav-item.on {
   background: var(--surface);
@@ -494,10 +516,10 @@ code {
   height: 100vh;
   overflow-y: auto;
   padding: 68px 44px 80px;
-  background: radial-gradient(900px 520px at 12% 0%, rgba(199, 210, 254, 0.5), transparent 60%),
-    radial-gradient(820px 480px at 88% 15%, rgba(204, 251, 241, 0.4), transparent 55%),
-    radial-gradient(760px 460px at 95% 75%, rgba(254, 226, 226, 0.35), transparent 55%),
-    radial-gradient(1000px 620px at 30% 100%, rgba(224, 242, 254, 0.45), transparent 60%);
+  background: radial-gradient(900px 520px at 12% 0%, rgba(255, 153, 51, 0.22), transparent 60%),
+    radial-gradient(820px 480px at 88% 15%, rgba(255, 255, 255, 0.5), transparent 55%),
+    radial-gradient(760px 460px at 95% 75%, rgba(19, 136, 8, 0.14), transparent 55%),
+    radial-gradient(1000px 620px at 30% 100%, rgba(19, 136, 8, 0.16), transparent 60%);
 }
 
 .page {
@@ -752,7 +774,7 @@ button.primary {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), var(--shadow-sm);
 }
 button.primary:hover:not(:disabled) {
-  background: linear-gradient(180deg, #1272c8, var(--indigo-500));
+  background: linear-gradient(180deg, #ffab54, var(--indigo-500));
   border-color: var(--indigo-700);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), var(--shadow-md);
 }
@@ -897,8 +919,8 @@ button.danger-ghost:hover:not(:disabled) {
     45deg,
     transparent,
     transparent 10px,
-    rgba(0, 103, 192, 0.02) 10px,
-    rgba(0, 103, 192, 0.02) 20px
+    rgba(255, 153, 51, 0.04) 10px,
+    rgba(255, 153, 51, 0.04) 20px
   );
 }
 .empty svg {
@@ -917,6 +939,21 @@ button.danger-ghost:hover:not(:disabled) {
   gap: 10px;
   margin-top: 14px;
   flex-wrap: wrap;
+}
+
+/* Aligned 2×2 grid of upload buttons (Agreement & Work Order's four sources) —
+   equal-width cells so the buttons line up instead of wrapping unevenly. The
+   hidden file <input>s are display:none and so take no grid cell. */
+.boq-actions--grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.boq-actions--grid .upload-btn {
+  min-width: 0;
+  width: 100%;
 }
 
 /* Uniform file-upload buttons app-wide: a shared minimum width so short and
@@ -1449,6 +1486,15 @@ button.danger-ghost:hover:not(:disabled) {
   color: var(--muted);
   margin: 8px 0 0;
 }
+/* A caution notice (not an error): the estimate parsed fine but something in it
+   warrants a look — e.g. items it left un-costed that the BOQ will still count. */
+.estimate-warning {
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
 /* Per-entry live preview (left) + "details needed" panel (right): the
    preview shows every extracted line item exactly as it stands right now
    (an "unfinished" spreadsheet, before it becomes any of the 4 documents),
@@ -1767,7 +1813,7 @@ button.danger-ghost:hover:not(:disabled) {
   font-size: 11px;
   font-weight: 600;
   color: #fff;
-  background: linear-gradient(to top, rgba(0, 103, 192, 0.92), rgba(0, 103, 192, 0));
+  background: linear-gradient(to top, rgba(19, 136, 8, 0.92), rgba(19, 136, 8, 0));
   opacity: 0;
   transition: opacity 0.15s var(--ease);
 }
@@ -2313,7 +2359,7 @@ input[type='text']:focus {
   align-items: center;
   justify-content: center;
   background: radial-gradient(1200px 600px at 100% -10%, var(--indigo-50), transparent 60%),
-    radial-gradient(900px 500px at -10% 110%, #e3effb, transparent 55%),
+    radial-gradient(900px 500px at -10% 110%, #e6f4e2, transparent 55%),
     linear-gradient(180deg, var(--bg-grad-a), var(--bg-grad-b));
 }
 .login-card {
@@ -2878,7 +2924,7 @@ button.danger:disabled {
   padding: 6px 11px;
   border-radius: 8px;
   border: 1px solid var(--indigo-100);
-  background: linear-gradient(135deg, var(--indigo-50), #e3effb);
+  background: linear-gradient(135deg, var(--indigo-50), #ffe9d1);
   color: var(--indigo-700);
   font-weight: 600;
   font-size: 12.5px;
@@ -5012,8 +5058,8 @@ tr.on .rp-box span {
   border-color: transparent;
 }
 .status-pill.wip {
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: #e8eaf6;
+  color: var(--chakra);
   border-color: transparent;
 }
 .status-pill.pend {
@@ -5964,4 +6010,294 @@ tr.on .rp-box span {
   font-size: 12px;
   color: var(--muted);
   word-break: break-word;
+}
+
+/* ============================================================
+   Note Submitted panel (inside the Intimation tab)
+   ============================================================ */
+.ns-mode-tabs {
+  margin-bottom: 14px;
+}
+.ns-card {
+  padding: 16px;
+}
+.ns-top {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.ns-field {
+  min-width: 0;
+}
+.ns-field input,
+.ns-field select,
+.ns-form input {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+.ns-field input:focus,
+.ns-field select:focus,
+.ns-form input:focus {
+  outline: none;
+  border-color: var(--indigo-500);
+}
+.ns-field-wide {
+  flex: 1 1 320px;
+}
+
+.ns-body {
+  display: flex;
+  gap: 18px;
+  margin-top: 14px;
+  align-items: flex-start;
+}
+.ns-form {
+  flex: 0 1 400px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ns-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 10px 0 2px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.ns-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.ns-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--indigo-600);
+  border-radius: 7px;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ns-add svg {
+  width: 13px;
+  height: 13px;
+}
+.ns-bidders {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.ns-bidder-head,
+.ns-bidder-row {
+  display: grid;
+  grid-template-columns: 44px 1.6fr 1fr 0.9fr 1fr 0.7fr 26px;
+  gap: 5px;
+  align-items: center;
+}
+.ns-bidder-head {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0 2px;
+}
+.ns-bidder-row input {
+  padding: 6px 7px;
+  font-size: 12.5px;
+}
+.ns-del {
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: 6px;
+}
+.ns-del:hover {
+  background: var(--danger-bg);
+}
+
+.ns-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.ns-preview {
+  flex: 1 1 auto;
+  min-width: 380px;
+  position: sticky;
+  top: 0;
+}
+.ns-preview-scroll {
+  margin-top: 6px;
+  max-height: 76vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ececed;
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+}
+.ns-doc {
+  background: #fff;
+  padding: 34px 40px;
+  border-radius: 3px;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
+  width: 100%;
+  max-width: 640px;
+  font-size: 11pt;
+  line-height: 1.5;
+}
+.ns-doc table {
+  font-size: 11pt;
+}
+
+@media (max-width: 1100px) {
+  .ns-body {
+    flex-direction: column;
+  }
+  .ns-preview {
+    position: static;
+    width: 100%;
+  }
+}
+
+/* Note Submitted thumbnail (plain HTML, not a docx render) + its wide modal */
+.ns-tile-doc {
+  zoom: 0.34;
+  padding: 10px 14px;
+}
+.wo-modal.wide {
+  width: min(1180px, 100%);
+}
+.wo-modal.wide .wo-modal-body {
+  justify-content: stretch;
+  padding: 16px;
+}
+.wo-modal.wide .ns-body {
+  flex: 1;
+  width: 100%;
+  margin-top: 0;
+}
+
+/* Agreement/Work Order shared date field + prompt modal */
+.wo-date-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.wo-date-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.wo-date-field input[type='date'] {
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+.wo-date-field input[type='date']:focus {
+  outline: none;
+  border-color: var(--indigo-500);
+}
+.wo-date-modal {
+  width: min(460px, 100%);
+}
+.wo-date-body {
+  display: block;
+  text-align: left;
+}
+.wo-date-body p {
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.wo-date-body input[type='date'] {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+.wo-date-body input[type='date']:focus {
+  outline: none;
+  border-color: var(--indigo-500);
+}
+
+/* Tools tab — reuses the frosted-glass .doc-tile-card, made clickable. */
+.tool-card {
+  font: inherit;
+  cursor: pointer;
+  width: 100%;
+}
+.tool-card:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+.tool-card:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+/* An open/active tool tile (its panel is showing below) reads as selected. */
+.tool-card.on {
+  border-color: var(--tone-a);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--tone-a) 38%, transparent);
+}
+.tool-card-ic {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  /* Follow the tile's own tone (falls back to teal for tone-less tiles). */
+  color: var(--tone-a, var(--teal-500));
+  background: color-mix(in srgb, var(--tone-a, var(--teal-500)) 14%, transparent);
+}
+.tool-card-ic svg {
+  width: 24px;
+  height: 24px;
+}
+.tool-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }

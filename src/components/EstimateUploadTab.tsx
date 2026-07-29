@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
 import { api } from '../ipc'
 import { guessHeaderRow } from '@core/sheet'
-import { extractWorkName } from '@core/estimateExtract'
+import { extractWorkName, splitEstimateBlocks, extractGrandTotalLakhs, itemsMissingEstimateAmount } from '@core/estimateExtract'
 import type { EstimateWorkItem } from '@core/estimateExtract'
 import { extractEstimateItemsWithAi } from '../aiEstimateColumns'
 import { extractEstimateAmountLakhs } from '@core/deviation'
-import { computeEcvFromItems } from '../boqTransform'
+import { computeEcvFromItems, buildBoqFromEstimate } from '../boqTransform'
 import { formatRupees } from '@core/worksAmounts'
 import { findWorksRowByName, metaFromWorksRow } from '@core/scheduleA'
 import { computeMaterialTotals } from '@core/materialEstimate'
@@ -52,10 +52,16 @@ const MATERIAL_ROWS: { key: keyof MaterialTotals; label: string; unit: string }[
 interface Entry {
   id: string
   fileName: string
+  /** The workbook sheet/tab this estimate came from — the BOQ's name descriptor. */
+  sheetName?: string
   items: EstimateWorkItem[]
   workName?: string
   ecvRupees: number
   estimateAmountLakhs: number
+  /** Sanctioned Grand Total in lakhs (bottom of the estimate) — used in the BOQ file name. */
+  grandTotalLakhs?: number
+  /** Items the estimate left un-costed (a quantity and rate, but a blank/zero Amount) — the BOQ counts them, so its total exceeds the estimate's own. */
+  uncostedItems: EstimateWorkItem[]
   agencyName: string
   departmentName: string
   district: string
@@ -79,6 +85,43 @@ function stripExt(name: string): string {
 
 function nextId(): string {
   return `est-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+// Total Qty × Rate of the un-costed items — how far the BOQ's total runs above
+// the estimate's own on their account.
+function uncostedWorth(items: EstimateWorkItem[]): number {
+  const num = (s: string) => Number(String(s).replace(/,/g, '')) || 0
+  return items.reduce((sum, it) => sum + Math.round(num(it.quantity) * num(it.rate)), 0)
+}
+
+// A description clipped for an inline notice — enough to identify the item.
+function shortDesc(description: string): string {
+  const d = description.trim()
+  return d.length > 60 ? `${d.slice(0, 57)}…` : d
+}
+
+// Strip characters a file name can't contain, and collapse whitespace.
+function sanitizeFileName(s: string): string {
+  return s
+    .replace(/[\\/:*?"<>|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * The BOQ file name for an estimate: "Boq <sheet/tab name> <estimate amount in
+ * lakhs>" (e.g. "Boq peddamma 112.00"). The sheet name is the descriptor
+ * because a workbook's estimates are near-identically worded and only their
+ * tab names (the localities) tell them apart; the amount is the estimate's
+ * Grand Total in lakhs. Falls back to the file name / ECV-based lakhs when a
+ * sheet name or Grand Total isn't available. exportBoqBatch de-duplicates any
+ * that still collide.
+ */
+function boqBaseName(e: Entry): string {
+  const descriptor = sanitizeFileName(e.sheetName || stripExt(e.fileName)) || 'estimate'
+  const lakhs = e.grandTotalLakhs ?? e.estimateAmountLakhs
+  const amount = lakhs ? ` ${lakhs.toFixed(2)}` : ''
+  return sanitizeFileName(`Boq ${descriptor}${amount}`)
 }
 
 /**
@@ -260,9 +303,36 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
   const [entries, setEntries] = useState<Entry[]>([])
   const [pickError, setPickError] = useState<string | null>(null)
   const [ecvConfirm, setEcvConfirm] = useState<EcvConfirmState | null>(null)
+  const [downloadingAllBoqs, setDownloadingAllBoqs] = useState(false)
+  const [allBoqsSavedDir, setAllBoqsSavedDir] = useState<string | null>(null)
 
   function updateEntry(id: string, patch: Partial<Entry>) {
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)))
+  }
+
+  // Every loaded estimate that parsed into items — the ones a BOQ can be built for.
+  const boqReadyEntries = entries.filter((e) => !e.error && e.items.length > 0)
+
+  // Save one BOQ per loaded estimate into a single chosen folder, in one go.
+  async function downloadAllBoqs() {
+    if (boqReadyEntries.length === 0) return
+    setPickError(null)
+    setAllBoqsSavedDir(null)
+    setDownloadingAllBoqs(true)
+    try {
+      const paths = await api.exportBoqBatch(
+        boqReadyEntries.map((e) => ({
+          table: buildBoqFromEstimate(e.items),
+          suggestedName: boqBaseName(e),
+          workName: e.workName
+        }))
+      )
+      if (paths && paths.length > 0) setAllBoqsSavedDir(paths[0].replace(/[^/\\]+$/, ''))
+    } catch (e) {
+      setPickError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDownloadingAllBoqs(false)
+    }
   }
 
   async function uploadEstimates() {
@@ -272,52 +342,61 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
 
     const added: Entry[] = []
 
+    // Each grid is one sheet; a sheet may itself stack several complete
+    // estimates, so split it into per-estimate blocks and process each.
     for (const g of grids) {
-      try {
-        const headerRow = guessHeaderRow(g.grid)
-        const { items, aiAssisted } = await extractEstimateItemsWithAi(g.grid, headerRow)
-        if (items.length === 0) {
-          throw new Error('No work items with a quantity, rate, and unit were found in that estimate.')
+      const blocks = splitEstimateBlocks(g.grid)
+      for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+        const grid = blocks[blockIndex]
+        // Distinguish stacked estimates within one sheet by a #n suffix.
+        const sheetName =
+          blocks.length > 1 ? `${g.sheetName || g.name} #${blockIndex + 1}` : g.sheetName || g.name
+        const headerRow = guessHeaderRow(grid)
+        try {
+          const { items, aiAssisted } = await extractEstimateItemsWithAi(grid, headerRow)
+          if (items.length === 0) {
+            throw new Error('No work items with a quantity, rate, and unit were found in that estimate.')
+          }
+          added.push({
+            id: nextId(),
+            fileName: g.name,
+            sheetName,
+            items,
+            workName: extractWorkName(grid, headerRow),
+            ecvRupees: computeEcvFromItems(items),
+            estimateAmountLakhs: extractEstimateAmountLakhs(grid, headerRow, items),
+            grandTotalLakhs: extractGrandTotalLakhs(grid, headerRow),
+            uncostedItems: itemsMissingEstimateAmount(items),
+            agencyName: '',
+            departmentName: '',
+            district: '',
+            aiAssisted,
+            busyAction: null,
+            error: null,
+            saved: null,
+            previewDoc: 'boq'
+          })
+        } catch (e) {
+          const hint = mismatchHint(grid[headerRow] ?? [], 'estimate')
+          const message = (e instanceof Error ? e.message : String(e)) + (hint ? ` ${hint}` : '')
+          added.push({
+            id: nextId(),
+            fileName: g.name,
+            sheetName,
+            items: [],
+            ecvRupees: 0,
+            estimateAmountLakhs: 0,
+            uncostedItems: [],
+            agencyName: '',
+            departmentName: '',
+            district: '',
+            aiAssisted: [],
+            busyAction: null,
+            error: message,
+            saved: null,
+            previewDoc: 'boq'
+          })
         }
-        const workName = extractWorkName(g.grid, headerRow)
-        const ecvRupees = computeEcvFromItems(items)
-        const estimateAmountLakhs = extractEstimateAmountLakhs(g.grid, headerRow, items)
-
-        added.push({
-          id: nextId(),
-          fileName: g.name,
-          items,
-          workName,
-          ecvRupees,
-          estimateAmountLakhs,
-          agencyName: '',
-          departmentName: '',
-          district: '',
-          aiAssisted,
-          busyAction: null,
-          error: null,
-          saved: null,
-          previewDoc: 'boq'
-        })
-      } catch (e) {
-        const headerRow = guessHeaderRow(g.grid)
-        const hint = mismatchHint(g.grid[headerRow] ?? [], 'estimate')
-        const message = (e instanceof Error ? e.message : String(e)) + (hint ? ` ${hint}` : '')
-        added.push({
-          id: nextId(),
-          fileName: g.name,
-          items: [],
-          ecvRupees: 0,
-          estimateAmountLakhs: 0,
-          agencyName: '',
-          departmentName: '',
-          district: '',
-          aiAssisted: [],
-          busyAction: null,
-          error: message,
-          saved: null,
-          previewDoc: 'boq'
-        })
       }
     }
 
@@ -341,7 +420,9 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
   }
 
   async function downloadBoq(entry: Entry) {
-    const ok = await run(entry, 'boq', () => downloadBoqFromItems(entry.items, entry.workName, stripExt(entry.fileName)))
+    const ok = await run(entry, 'boq', () =>
+      downloadBoqFromItems(entry.items, entry.workName, stripExt(entry.fileName), boqBaseName(entry))
+    )
     const worksTable = tables[0]
     if (!ok || !entry.workName || !worksTable) return
     const match = await matchWorksRow(entry.workName, worksTable)
@@ -420,7 +501,17 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
           <button className="primary upload-btn" onClick={uploadEstimates}>
             <IconFolder /> Add Estimate(s)
           </button>
+          {boqReadyEntries.length > 1 && (
+            <button className="ghost upload-btn" onClick={downloadAllBoqs} disabled={downloadingAllBoqs}>
+              <IconDownload /> {downloadingAllBoqs ? 'Saving…' : `Download all BOQs (${boqReadyEntries.length})`}
+            </button>
+          )}
         </div>
+        {allBoqsSavedDir && (
+          <div className="notice ok">
+            <IconTable /> Saved {boqReadyEntries.length} BOQs to {allBoqsSavedDir}
+          </div>
+        )}
       </div>
 
       {pickError && (
@@ -435,7 +526,9 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
           {entries.map((e) => (
             <li key={e.id} className="estimate-entry">
               <div className="estimate-entry-head">
-                <span className="estimate-entry-name">{e.fileName}</span>
+                <span className="estimate-entry-name">
+                  {e.sheetName ? `${e.fileName} · ${e.sheetName}` : e.fileName}
+                </span>
                 <button className="danger-ghost" title="Remove" onClick={() => removeEntry(e.id)}>
                   <IconTrash />
                 </button>
@@ -468,6 +561,15 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
                 <p className="estimate-hint">
                   {e.aiAssisted.join(', ')} column{e.aiAssisted.length === 1 ? '' : 's'} matched by AI — please
                   double-check.
+                </p>
+              )}
+              {e.uncostedItems.length > 0 && (
+                <p className="estimate-hint estimate-warning">
+                  {e.uncostedItems.length} item{e.uncostedItems.length === 1 ? '' : 's'} ha
+                  {e.uncostedItems.length === 1 ? 's' : 've'} a quantity and rate but a blank/zero Amount in the
+                  estimate ({formatRupees(uncostedWorth(e.uncostedItems))} of work) — the BOQ counts{' '}
+                  {e.uncostedItems.length === 1 ? 'it' : 'them'}, so its total is that much above the estimate's own.
+                  Check: {e.uncostedItems.map((it) => shortDesc(it.description)).join('; ')}.
                 </p>
               )}
               {e.saved && <p className="estimate-hint">Saved to {e.saved}</p>}

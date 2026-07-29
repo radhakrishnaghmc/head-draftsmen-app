@@ -1,4 +1,4 @@
-# Head Draftsmen App
+# Head Draftsman App
 
 A desktop **mail-merge** app: fill multiple Word (`.docx`) templates from multiple Excel
 (`.xlsx`/`.xls`) files, then export and print the results.
@@ -31,7 +31,7 @@ Column headers in your Excel files must match the placeholder names (`Name`, `Ac
 ## Multi-file merging
 
 Multiple Excel files are merged **by row position** (row _n_ of each file forms record _n_),
-and their columns are unioned. If two files share a column name, Head Draftsmen App flags a **collision**
+and their columns are unioned. If two files share a column name, Head Draftsman App flags a **collision**
 and asks you to choose the winning source before generating.
 
 ## Scripts

@@ -47,6 +47,7 @@ export const IPC = {
   exportScheduleA: 'data:exportScheduleA',
   exportBoq: 'data:exportBoq',
   exportBoqBatch: 'data:exportBoqBatch',
+  splitExcelSheets: 'tools:splitExcelSheets',
   exportDeviation: 'data:exportDeviation',
   exportDetailedEstimate: 'data:exportDetailedEstimate',
   exportMaterialEstimate: 'data:exportMaterialEstimate',
@@ -65,6 +66,7 @@ export const IPC = {
   bakeFixedPlaceholdersInDocument: 'doc:bakeFixedPlaceholdersInDocument',
   exportCreatedDocument: 'doc:exportCreatedDocument',
   printCreatedDocument: 'doc:printCreatedDocument',
+  noteSubmittedDocx: 'doc:noteSubmittedDocx',
   intimationTemplate: 'doc:intimationTemplate',
   workOrderTemplate: 'doc:workOrderTemplate',
   agreementTemplate: 'doc:agreementTemplate',
@@ -103,6 +105,8 @@ export interface DocuGenApi {
   exportBoqBatch(
     entries: { table: ExcelTable; suggestedName: string; workName?: string }[]
   ): Promise<string[] | null>
+  /** Tool: pick a multi-sheet workbook and split every sheet into its own .xlsx (named after the tab) in a chosen folder. Returns the folder and saved file paths, or null if cancelled. */
+  splitExcelSheets(): Promise<{ dir: string; files: string[] } | null>
   exportDeviation(items: DeviationItem[], meta: DeviationMeta, suggestedName: string): Promise<string | null>
   /** Builds and saves a full "Detailed and Abstract Estimate" workbook (letterhead, item table, standard surcharge cascade, signature block) from scratch — not a bare Sl No/Description/Qty/Rate/Amount table. */
   exportDetailedEstimate(
@@ -156,6 +160,8 @@ export interface DocuGenApi {
   ): Promise<{ file: string; format: 'docx' | 'pdf' }[] | null>
   /** Open the OS print dialog directly against the already-rendered document HTML (docx-preview's own output, captured by the caller). */
   printCreatedDocument(renderedHtml: string): Promise<void>
+  /** Converts built Note Submitted HTML into a base64 .docx, for export via exportCreatedDocument. */
+  noteSubmittedDocx(html: string): Promise<string>
   /** Reads the bundled Intimation format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
   intimationTemplate(): Promise<string>
   /** Reads the bundled Work Order format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */

@@ -5,6 +5,12 @@ import type { ExcelTable } from '@core/types'
 interface Props {
   table: ExcelTable
   onChange: (updated: ExcelTable) => void
+  /**
+   * Optional per-row auto-fill run after a cell edit (Works List only): derives
+   * blank Zone / Circle / Circle number from the row's own values. Given the
+   * edited row as an object, returns it with those blanks filled.
+   */
+  autofillRow?: (row: Record<string, string>) => Record<string, string>
 }
 
 const WIN_RE = /win/
@@ -35,7 +41,7 @@ function orderHeaders(hs: string[]): string[] {
  * Rename headers, edit cells, and add/delete rows & columns — every valid edit
  * is committed straight back to the workspace (and persisted).
  */
-export default function ExcelInline({ table, onChange }: Props) {
+export default function ExcelInline({ table, onChange, autofillRow }: Props) {
   const orderedHeaders = orderHeaders(table.headers)
   const [headers, setHeaders] = useState<string[]>(() => orderedHeaders)
   const [matrix, setMatrix] = useState<string[][]>(() =>
@@ -98,7 +104,20 @@ export default function ExcelInline({ table, onChange }: Props) {
   }
 
   function setCell(ri: number, ci: number, value: string) {
-    const next = matrix.map((row, i) => (i === ri ? row.map((c, j) => (j === ci ? value : c)) : row))
+    let next = matrix.map((row, i) => (i === ri ? row.map((c, j) => (j === ci ? value : c)) : row))
+    // Live auto-fill for the Works List: derive blank Zone/Circle/Circle number
+    // from the row the user just edited, and show the result in the grid at once
+    // (this component holds its own matrix state, so the fill has to land here).
+    if (autofillRow) {
+      const trimmed = headers.map((h) => h.trim())
+      const rowObj: Record<string, string> = {}
+      trimmed.forEach((h, j) => {
+        rowObj[h] = next[ri][j] ?? ''
+      })
+      const filled = autofillRow(rowObj)
+      const filledRow = trimmed.map((h, j) => filled[h] ?? next[ri][j] ?? '')
+      next = next.map((row, i) => (i === ri ? filledRow : row))
+    }
     setMatrix(next)
     commit(headers, next)
   }

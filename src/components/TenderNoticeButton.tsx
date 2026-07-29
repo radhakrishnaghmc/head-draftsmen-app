@@ -99,6 +99,7 @@ export default function TenderNoticeButton({ tables, onGenerated, onBidBatch }: 
       .filter((r): r is Record<string, string> => !!r)
       .map((r, i) => ({
         serial: i + 1,
+        winCode: winCodeHeader ? (r[winCodeHeader] ?? '').trim() : undefined,
         name: r[nameHeader] ?? '',
         amount: r[amountHeader] ?? '',
         ecv: ecvHeader ? r[ecvHeader] : undefined,

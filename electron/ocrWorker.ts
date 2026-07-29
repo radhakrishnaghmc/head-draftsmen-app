@@ -1,12 +1,13 @@
-import { parentPort } from 'worker_threads'
 import path from 'path'
 import type Ocr from '@gutenye/ocr-node'
 import type { OcrLine } from './ocr'
 
-// Runs on its own OS thread, same reasoning as embeddingsWorker.ts — OCR on
-// a full-page photo can take a few seconds, and doing that on Electron's
-// single-threaded main process would freeze the entire app (every IPC
-// call, window repaint) for the duration.
+// Runs as an isolated CHILD PROCESS (child_process.fork), not a worker thread.
+// A large photo can trip a native SIGTRAP deep inside onnxruntime's memory
+// arena on some machines; inside a worker thread that fault takes down the
+// whole Electron process, but in a separate OS process it only kills this
+// child — letting the parent (electron/ocr.ts) retry the page at a smaller,
+// long-proven-safe resolution instead of the whole app going down.
 
 let ocrPromise: Promise<Ocr> | null = null
 
@@ -32,7 +33,7 @@ interface Request {
   modelDir: string
 }
 
-parentPort?.on('message', async (msg: Request) => {
+process.on('message', async (msg: Request) => {
   try {
     const ocr = await getOcr(msg.modelDir)
     const result = await ocr.detect(msg.imagePath)
@@ -41,8 +42,8 @@ parentPort?.on('message', async (msg: Request) => {
       const ys = box.map((p) => p[1])
       return { text: line.text, top: ys.length > 0 ? Math.min(...ys) : 0 }
     })
-    parentPort?.postMessage({ id: msg.id, lines })
+    process.send?.({ id: msg.id, lines })
   } catch (e) {
-    parentPort?.postMessage({ id: msg.id, error: e instanceof Error ? e.message : String(e) })
+    process.send?.({ id: msg.id, error: e instanceof Error ? e.message : String(e) })
   }
 })
