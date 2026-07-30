@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { api } from '../ipc'
-import { IconTable, IconFolder, IconWarn, IconOpen, IconImage } from './Icons'
+import { IconTable, IconFolder, IconWarn, IconOpen, IconImage, IconClipboard } from './Icons'
 import UploadPhotosTab from './UploadPhotosTab'
+import WorkOrderAgreementTab from './WorkOrderAgreementTab'
 import type { ExcelTable } from '@core/types'
 
 interface SplitState {
@@ -28,6 +29,14 @@ export default function ToolsTab({ tables, onChange }: Props) {
   // clicked — the same tile look as the Excel Separator, but it reveals a
   // full workflow (upload → OCR → review → downloads) rather than a one-shot dialog.
   const [showPhotos, setShowPhotos] = useState(false)
+  // Standalone document generators — Work Order, Agreement Bond and Schedule A
+  // built ONLY from uploaded files, with no Works List link and no Zone/Circle
+  // checks. All three live in one panel (one L-1 + Intimation upload drives the
+  // Work Order and Agreement; an estimate upload drives the Schedule A), so the
+  // three tiles are labelled entry points that reveal the same panel.
+  const [showDocs, setShowDocs] = useState(false)
+  // The Schedule A tile opens its own estimate-only panel (no L1/Intimation).
+  const [showScheduleA, setShowScheduleA] = useState(false)
 
   async function runSeparator() {
     if (split.busy) return
@@ -73,6 +82,39 @@ export default function ToolsTab({ tables, onChange }: Props) {
             {showPhotos ? 'Open below — click to hide' : 'Photos / scanned PDF → BOQ, Schedule A, Deviation, Material'}
           </span>
         </button>
+
+        {(['Work Order', 'Agreement Bond'] as const).map((name) => (
+          <button
+            key={name}
+            className={`doc-tile-card tone-sky tool-card ${showDocs ? 'on' : ''}`}
+            onClick={() => setShowDocs((v) => !v)}
+            title="Generate from L1 + Intimation only — no Works List, no Zone/Circle check"
+            aria-expanded={showDocs}
+          >
+            <span className="tool-card-ic">
+              <IconClipboard />
+            </span>
+            <span className="doc-tile-card-name">{name}</span>
+            <span className="doc-tile-card-meta">
+              {showDocs ? 'Open below — click to hide' : 'From L1 + Intimation — any circle/zone'}
+            </span>
+          </button>
+        ))}
+
+        <button
+          className={`doc-tile-card tone-sky tool-card ${showScheduleA ? 'on' : ''}`}
+          onClick={() => setShowScheduleA((v) => !v)}
+          title="Generate a Schedule A from an estimate / BOQ only — no Works List"
+          aria-expanded={showScheduleA}
+        >
+          <span className="tool-card-ic">
+            <IconTable />
+          </span>
+          <span className="doc-tile-card-name">Schedule A</span>
+          <span className="doc-tile-card-meta">
+            {showScheduleA ? 'Open below — click to hide' : 'From an uploaded estimate / BOQ'}
+          </span>
+        </button>
       </div>
 
       {split.error && (
@@ -101,6 +143,27 @@ export default function ToolsTab({ tables, onChange }: Props) {
             A, Deviation, and Material Quantity.
           </div>
           <UploadPhotosTab tables={tables} onChange={onChange} />
+        </div>
+      )}
+
+      {showDocs && (
+        <div className="workspace-section">
+          <div className="workspace-section-hint">
+            Standalone Work Order & Agreement Bond — built only from the uploaded <strong>L1 selection form</strong> and{' '}
+            <strong>Online Intimation</strong>, for any circle/zone. Nothing is read from or written to the Works List,
+            and no Zone/Circle check is applied.
+          </div>
+          <WorkOrderAgreementTab standalone tables={[]} onChange={() => {}} />
+        </div>
+      )}
+
+      {showScheduleA && (
+        <div className="workspace-section">
+          <div className="workspace-section-hint">
+            Standalone Schedule A — built only from an uploaded <strong>estimate / BOQ</strong>, for any circle/zone. No
+            L1 or Intimation needed, and nothing is read from or written to the Works List.
+          </div>
+          <WorkOrderAgreementTab scheduleAOnly tables={[]} onChange={() => {}} />
         </div>
       )}
     </div>

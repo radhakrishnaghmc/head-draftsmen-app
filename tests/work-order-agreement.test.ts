@@ -11,7 +11,9 @@ import {
   workOrderPlaceholders,
   agreementPlaceholders,
   indianFinancialYear,
-  wrapAgencyAddress
+  wrapAgencyAddress,
+  circleFromNit,
+  standaloneRowFromSources
 } from '../core/workOrderAgreement'
 
 describe('integerToIndianWords', () => {
@@ -154,5 +156,35 @@ describe('wrapAgencyAddress', () => {
     })
     expect(wo['Address of the agency']).toContain('\n')
     expect(wo['Address of the agency'].split('\n').every((l) => l.length <= 21)).toBe(true)
+  })
+})
+
+describe('standalone (Tools) derivation — no Works List', () => {
+  it('parses Circle and CNO from the NIT No', () => {
+    expect(circleFromNit('02/DB/EE/Gajularamaram Circle-57/QBZ/CMC/2026-27')).toEqual({ circle: 'Gajularamaram', cno: '57' })
+    expect(circleFromNit('12/DB/EE/Nizampet Circle-58/CMC/2026-27')).toEqual({ circle: 'Nizampet', cno: '58' })
+    expect(circleFromNit(undefined)).toEqual({ circle: '', cno: '' })
+  })
+
+  it('fills the Work Order from L1 + intimation alone, Circle/CNO from the NIT', () => {
+    const pdf = {
+      nameOfWork: 'Laying of CC road in Rodamestri nagar',
+      noticeNo: '11/DB/EE/Gajularamaram Circle-57/CMC/2026-27',
+      ecvRupees: 3140122,
+      tenderPercentage: 19.99,
+      contractRupees: 2512412,
+      l1AgencyName: 'NARENDRA NAIK RAMAVATHU',
+      noticeDate: '15.07.2026'
+    }
+    const notice = { agencyName: 'NARENDRA NAIK RAMAVATHU', address: '1-2-3 Some Street, Hyderabad', ecvRupees: 3140122, contractRupees: 2512412 }
+    const row = standaloneRowFromSources(pdf, notice)
+    expect(row).toMatchObject({ Circle: 'Gajularamaram', 'Circle number': '57', 'Name of the work': 'Laying of CC road in Rodamestri nagar' })
+    const wo = workOrderPlaceholders(deriveFields(notice, pdf, row))
+    expect(wo['Circle']).toBe('Gajularamaram')
+    expect(wo['CNO']).toBe('57')
+    expect(wo['Name of the work']).toBe('Laying of CC road in Rodamestri nagar')
+    expect(wo['Name of the agency']).toBe('NARENDRA NAIK RAMAVATHU')
+    expect(wo['ECV']).toContain('3140122')
+    expect(wo['Contract Amount']).toContain('2512412')
   })
 })

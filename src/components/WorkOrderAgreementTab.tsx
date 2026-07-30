@@ -5,7 +5,7 @@ import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice
 import { parseTenderEvaluation, parseAllBidders, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
-import { deriveFields, workOrderPlaceholders, agreementPlaceholders } from '@core/workOrderAgreement'
+import { deriveFields, workOrderPlaceholders, agreementPlaceholders, standaloneRowFromSources } from '@core/workOrderAgreement'
 import { boqToScheduleA, buildBoqFromEstimate, extractWorkNameFromBoq } from '../boqTransform'
 import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
 import { extractEstimateItems, extractWorkName } from '@core/estimateExtract'
@@ -30,6 +30,19 @@ import { IconFolder, IconDownload, IconPrint, IconWarn, IconCheck, IconClipboard
 interface Props {
   tables: ExcelTable[]
   onChange: (table: ExcelTable) => void
+  /**
+   * Tools-workspace mode: generate the Work Order / Agreement / Schedule A from
+   * ONLY the uploaded L-1, Intimation and estimate — no Works List link, no
+   * Zone/Circle or same-work verification (Circle/CNO come from the NIT). The
+   * default (false) is the Works-List-driven flow used on the main tab.
+   */
+  standalone?: boolean
+  /**
+   * Tools-workspace Schedule-A-only mode: show just the estimate/BOQ upload and
+   * its Schedule A — no L1/Intimation uploads, no Work Order/Agreement/date UI.
+   * Implies standalone. Used by the Tools "Schedule A" tile.
+   */
+  scheduleAOnly?: boolean
 }
 
 function stripExt(name: string): string {
@@ -80,7 +93,13 @@ const DOC_LABEL: Record<Output, string> = {
  * that work's Works List row. Reuses the docx-preview + export/print pipeline
  * of Give Intimation.
  */
-export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
+export default function WorkOrderAgreementTab({
+  tables,
+  onChange,
+  standalone: standaloneProp = false,
+  scheduleAOnly = false
+}: Props) {
+  const standalone = standaloneProp || scheduleAOnly
   const table = tables[0] ?? null
 
   const [workOrderB64, setWorkOrderB64] = useState<string | null>(null)
@@ -138,7 +157,15 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
   const expandedRef = useRef<HTMLDivElement>(null)
   const printScratchRef = useRef<HTMLDivElement>(null)
 
-  const selectedRow = table && table.rows.length > 0 ? table.rows[Math.min(rowIndex, table.rows.length - 1)] : null
+  // Standalone (Tools) mode builds its row purely from the uploads (Circle/CNO
+  // from the NIT, work name from the L-1) instead of a Works List row.
+  const selectedRow = standalone
+    ? notice || pdfEval
+      ? standaloneRowFromSources(pdfEval ?? {}, notice ?? {})
+      : null
+    : table && table.rows.length > 0
+      ? table.rows[Math.min(rowIndex, table.rows.length - 1)]
+      : null
 
   // Load both bundled formats once, and read their placeholders.
   useEffect(() => {
@@ -306,13 +333,15 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
     () => (notice && pdfEval ? checkSameWork(notice, pdfEval) : null),
     [notice, pdfEval]
   )
-  const workMismatch = workMatch?.status === 'mismatch'
+  // Tools mode does no same-work verification — it uses whatever was uploaded.
+  const workMismatch = !standalone && workMatch?.status === 'mismatch'
 
   // The uploaded L1 form's work matched no Works List row, so the selected row
   // (and everything the documents fill from it — name of work, Circle, CNO,
   // estimate…) belongs to a different work. Gate the tiles until the work is
   // added to the Works List.
-  const workRowMismatch = worksRowMatched === false
+  // Tools mode isn't tied to the Works List, so a "no matching row" never gates.
+  const workRowMismatch = !standalone && worksRowMatched === false
 
   // Only build the documents once BOTH the Online Intimation and the L1
   // selection form are uploaded, they belong to the same work, and the L1's
@@ -478,7 +507,9 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
     // a different work than the Work Order / Agreement. Block the upload and
     // ask for the same work's details.
     const expected = pdfEval?.nameOfWork?.trim() || (selectedRow?.['Name of the work'] ?? '').trim()
-    if (detected && expected) {
+    // Tools mode does no work-name verification — it Schedule-A's exactly what
+    // was uploaded, for any circle/zone.
+    if (!standalone && detected && expected) {
       let embeddings: { aVector: number[]; bVector: number[] } | undefined
       try {
         const [aVector, bVector] = await api.embedTexts([detected, expected])
@@ -583,7 +614,9 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
     }
   }
 
-  const noWorks = !table || table.rows.length === 0
+  // Tools mode has no Works List by design, so the "add works first" gate and
+  // the Schedule-A-disabled state don't apply there.
+  const noWorks = !standalone && (!table || table.rows.length === 0)
   const anyOutput = docsReady || !!scheduleAPreview || noteReady
 
   return (
@@ -593,24 +626,40 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
       <div className="empty">
         <IconClipboard />
         <p>
-          Upload the <strong>Online Intimation</strong> and the <strong>L1 selection form</strong> to build the Work
-          Order and Agreement Bond. The L1 form also updates that work's row in the Works List. Upload the
-          technical-sanctioned <strong>estimate / BOQ</strong> to also generate this work's Schedule&nbsp;A. Each
-          output appears below as a tile — click one to preview it full size and print / save it.
+          {scheduleAOnly ? (
+            <>
+              Upload the technical-sanctioned <strong>estimate / BOQ</strong> to generate its Schedule&nbsp;A. The
+              output appears below as a tile — click it to preview full size and print / save it.
+            </>
+          ) : (
+            <>
+              Upload the <strong>Online Intimation</strong> and the <strong>L1 selection form</strong> to build the Work
+              Order and Agreement Bond.{!standalone && " The L1 form also updates that work's row in the Works List."}{' '}
+              Upload the technical-sanctioned <strong>estimate / BOQ</strong> to also generate this work's
+              Schedule&nbsp;A. Each output appears below as a tile — click one to preview it full size and print / save
+              it.
+            </>
+          )}
         </p>
         <div className="boq-actions boq-actions--grid">
-          <button className="primary upload-btn" onClick={() => noticeInputRef.current?.click()} disabled={!templatesReady}>
-            <IconFolder /> {notice ? 'Change Online Intimation' : 'Upload Online Intimation'}
-          </button>
-          <button className="primary upload-btn" onClick={() => pdfInputRef.current?.click()} disabled={!templatesReady || busy === 'pdf'}>
-            <IconFolder /> {busy === 'pdf' ? 'Reading PDF…' : pdfEval ? 'Change L1 selection form' : 'Upload L1 selection form'}
-          </button>
+          {!scheduleAOnly && (
+            <button className="primary upload-btn" onClick={() => noticeInputRef.current?.click()} disabled={!templatesReady}>
+              <IconFolder /> {notice ? 'Change Online Intimation' : 'Upload Online Intimation'}
+            </button>
+          )}
+          {!scheduleAOnly && (
+            <button className="primary upload-btn" onClick={() => pdfInputRef.current?.click()} disabled={!templatesReady || busy === 'pdf'}>
+              <IconFolder /> {busy === 'pdf' ? 'Reading PDF…' : pdfEval ? 'Change L1 selection form' : 'Upload L1 selection form'}
+            </button>
+          )}
           <button className="primary upload-btn" onClick={uploadBoq} disabled={noWorks}>
             <IconTable /> {boq ? 'Change estimate / BOQ' : 'Upload estimate/BOQ to get schedule A'}
           </button>
-          <button className="primary upload-btn" onClick={() => nonRespInputRef.current?.click()} disabled={!pdfEval}>
-            <IconFolder /> Upload Non-responsive form
-          </button>
+          {!scheduleAOnly && (
+            <button className="primary upload-btn" onClick={() => nonRespInputRef.current?.click()} disabled={!pdfEval}>
+              <IconFolder /> Upload Non-responsive form
+            </button>
+          )}
           <input
             ref={noticeInputRef}
             type="file"
@@ -645,13 +694,15 @@ export default function WorkOrderAgreementTab({ tables, onChange }: Props) {
             }}
           />
         </div>
-        <div className="wo-date-row">
-          <label className="wo-date-field">
-            <span>Agreement date</span>
-            <input type="date" value={agreementDate} onChange={(e) => setAgreementDate(e.target.value)} />
-          </label>
-          <span className="estimate-hint">Same date fills the Work Order and the Agreement Bond.</span>
-        </div>
+        {!scheduleAOnly && (
+          <div className="wo-date-row">
+            <label className="wo-date-field">
+              <span>Agreement date</span>
+              <input type="date" value={agreementDate} onChange={(e) => setAgreementDate(e.target.value)} />
+            </label>
+            <span className="estimate-hint">Same date fills the Work Order and the Agreement Bond.</span>
+          </div>
+        )}
         {noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
         {pdfName && <p className="estimate-hint">Tender details read from {pdfName}</p>}
         {pdfStatus && (

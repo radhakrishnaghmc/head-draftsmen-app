@@ -194,6 +194,22 @@ describe('extractEstimateItems', () => {
     expect(items.some((i) => /JCB/.test(i.description))).toBe(false)
   })
 
+  it('keeps an item that has a quantity and rate but a blank unit cell', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    const header = ['Sl. No', 'Description', 'No.s', 'L', 'B', 'D', 'Qty', 'Rate', 'Per', 'Unit', 'Amount']
+    const grid = [
+      header,
+      ['1', 'Earth work excavation', '', '', '', '', '372.15', '308.31', '1', 'Cum', '114738'],
+      // Manhole covers: quantity + rate present, unit cell left blank in the source.
+      ['2', 'Manufacture & supply of manhole covers', '', '', '', '', '4', '2716', '1', '', '10864']
+    ]
+    const items = extractEstimateItems(grid, 0)
+    expect(items.map((i) => ({ description: i.description, quantity: i.quantity, rate: i.rate, unit: i.unit }))).toEqual([
+      { description: 'Earth work excavation', quantity: '372.15', rate: '308.31', unit: 'Cum' },
+      { description: 'Manufacture & supply of manhole covers', quantity: '4', rate: '2716', unit: '' }
+    ])
+  })
+
   it('resolves the unit column whether it is headed Unit, UOM, or Per', async () => {
     const { extractEstimateItems } = await import('../core/estimateExtract')
     for (const unitHeader of ['Unit', 'Units', 'UOM']) {

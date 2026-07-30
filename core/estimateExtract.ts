@@ -274,7 +274,12 @@ function extractEstimateItemsFromColumns(
     const description = norm(leadRow.row[descCol])
     const measureIndices: number[] = []
     block.forEach(({ row }, idx) => {
-      if (norm(row[rateCol]) !== '' && norm(row[unitCol]) !== '' && norm(row[qtyCol]) !== '') measureIndices.push(idx)
+      // A summary/measured row carries both a Quantity and a Rate; the Unit is
+      // NOT required, because some items (e.g. a "supply & delivery of manhole
+      // covers" line) leave the unit cell blank yet are still real items that
+      // must appear in the BOQ/Schedule A. Dimension rows (No's/L/B/D) carry a
+      // Quantity but no Rate, so they're still correctly excluded.
+      if (norm(row[rateCol]) !== '' && norm(row[qtyCol]) !== '') measureIndices.push(idx)
     })
     // A block with more than one measurement row is a single item broken
     // into several depth/size variants — e.g. "Drilling of tube wells…"

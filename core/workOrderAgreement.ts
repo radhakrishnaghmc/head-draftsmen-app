@@ -77,6 +77,25 @@ export interface WorkOrderAgreementFields {
   adminSanctionDate: string
 }
 
+/** The Circle name and number out of a NIT No ("…/EE/Gajularamaram Circle-57/QBZ/CMC/…" -> {circle:"Gajularamaram", cno:"57"}). */
+export function circleFromNit(nit: string | undefined): { circle: string; cno: string } {
+  const m = /\/EE\/\s*(.+?)\s*Circle-\s*(\d+)/i.exec(nit ?? '')
+  return m ? { circle: m[1].trim(), cno: m[2] } : { circle: '', cno: '' }
+}
+
+/**
+ * A synthetic Works-List-shaped row built purely from an uploaded L-1
+ * evaluation + Online Intimation, for the Tools workspace's standalone Work
+ * Order / Agreement generators — which are deliberately NOT tied to the Works
+ * List and do no Zone/Circle verification. Circle & number come from the NIT
+ * No, the work name from the L-1 sheet; every other column is left for
+ * deriveFields to fill from the uploads (agency/address/amounts/dates).
+ */
+export function standaloneRowFromSources(pdf: TenderEvaluation, notice: IntimationNotice): Record<string, string> {
+  const { circle, cno } = circleFromNit(pdf.noticeNo || notice.nitNo)
+  return { Circle: circle, 'Circle number': cno, Zone: '', 'Name of the work': pdf.nameOfWork ?? '' }
+}
+
 /** Indian financial year for a date (1 April boundary): 2026-07-27 -> "2026-27". */
 export function indianFinancialYear(d = new Date()): string {
   const y = d.getFullYear()

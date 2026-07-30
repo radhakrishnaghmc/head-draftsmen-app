@@ -127,6 +127,27 @@ describe('parseTenderEvaluation', () => {
     expect(r.l1AgencyName).toBe('CHALLAPURAM SREE DEVAYANI')
   })
 
+  it('reads a Name of Work whose value wraps onto TWO lines above the label (title + tail)', () => {
+    // Real SVS Infra L1: the title spans two lines before the "Name of Work"
+    // label, then "(Reserved for ST)" after it. The old parser kept only the
+    // second line ("…under Municipal General Funds…"), dropping the title, so
+    // the Work Order matched a completely different work.
+    const r = parseTenderEvaluation([
+      'Commercial Evaluation',
+      'Enquiry/IFB/Tender E1/06/17/DB/EE/Nizampet Circle-58/CMC/2026-27',
+      'Notice Number',
+      'Laying of CC Road From SVR Infra SV Sadan to Plot no 59,60 to Sri Sai Datta Residency in Nizampet Municipal Corporation',
+      'under Municipal General Funds 2025-26 (ward No 274, Bachupally Nizampet Circle-58, Quthbullapur Zone CMC)',
+      'Name of Work',
+      '(Reserved for ST)',
+      'Works Percentage',
+      'M V S CONSTRUCTIONS 1195243.00 Less 5.00 1135480.85 L-1'
+    ])
+    expect(r.nameOfWork).toBe(
+      'Laying of CC Road From SVR Infra SV Sadan to Plot no 59,60 to Sri Sai Datta Residency in Nizampet Municipal Corporation under Municipal General Funds 2025-26 (ward No 274, Bachupally Nizampet Circle-58, Quthbullapur Zone CMC) (Reserved for ST)'
+    )
+  })
+
   it('takes the L-1 row, not L-2, for the winning bid', () => {
     const r = parseTenderEvaluation(COMMERCIAL_LINES)
     expect(r.l1AgencyName).toBe('M V S CONSTRUCTIONS')

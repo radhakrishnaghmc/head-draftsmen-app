@@ -113,4 +113,32 @@ describe('fillScheduleATemplate', () => {
     ws.eachRow((row) => row.eachCell((c) => { allText += ' ' + (typeof c.value === 'string' ? c.value : '') }))
     expect(allText).toContain('Gajularamaram Circle-57')
   }, 30000)
+
+  it('auto-sizes each item row to fit its wrapping description, with wrapText on', async () => {
+    const buffer = readFileSync(TEMPLATE_PATH)
+    const longDesc =
+      'Manufacture as per BIS:12592 (part 1 & 2) supply and delivery of heavy-duty manhole covers and frames, including cost and conveyance of all materials, all charges etc. complete for the finished item of work as per the directions of the Engineer-In-Charge.'
+    const twoItems: ScheduleAItem[] = [
+      { itemNo: '1', quantity: '4', description: 'Short item', rate: '100', units: 'Each', amount: '400' },
+      { itemNo: '2', quantity: '4', description: longDesc, rate: '2716', units: '', amount: '10864' }
+    ]
+    const out = await fillScheduleATemplate(buffer, twoItems, { nameOfWork: 'X' })
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(out as unknown as ArrayBuffer)
+    const ws = workbook.worksheets[0]
+    let shortH = 0
+    let longH = 0
+    let longWraps = false
+    ws.eachRow((row, r) => {
+      const d = String(ws.getCell(r, 3).value ?? '')
+      if (d === 'Short item') shortH = row.height ?? 0
+      if (d.startsWith('Manufacture as per BIS')) {
+        longH = row.height ?? 0
+        longWraps = !!ws.getCell(r, 3).alignment?.wrapText
+      }
+    })
+    expect(shortH).toBeGreaterThan(0)
+    expect(longH).toBeGreaterThan(shortH) // the long description forced a taller row
+    expect(longWraps).toBe(true)
+  }, 30000)
 })

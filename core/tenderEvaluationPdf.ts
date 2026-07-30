@@ -87,8 +87,20 @@ function extractNameOfWork(lines: string[]): string | undefined {
   if (after) {
     parts.push(after)
   } else {
-    const prev = (lines[li - 1] ?? '').trim()
-    if (prev && !isFieldLabelLine(prev) && !isWorkNameBoundary(prev)) parts.push(prev)
+    // Label alone: the value's first part wraps ABOVE the label. Collect EVERY
+    // preceding value line (a long title routinely spans two or more), walking
+    // up until the previous field label (e.g. "Notice Number") or a boundary —
+    // not just the single line immediately above, which used to drop the title
+    // and leave only its "…under Municipal General Funds…" tail.
+    const above: string[] = []
+    for (let j = li - 1; j >= 0; j--) {
+      const t = (lines[j] ?? '').trim()
+      if (!t) continue
+      if (isFieldLabelLine(t) || isWorkNameBoundary(t)) break
+      above.push(t)
+    }
+    above.reverse()
+    parts.push(...above)
   }
   for (let j = li + 1; j < lines.length; j++) {
     const t = lines[j].trim()

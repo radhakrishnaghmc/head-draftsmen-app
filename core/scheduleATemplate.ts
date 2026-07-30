@@ -116,15 +116,35 @@ export async function fillScheduleATemplate(
     ws.spliceRows(firstItemRow + n, templateItemCount - n)
   }
 
+  // Metrics for auto-fitting each item row to its wrapping Description text.
+  // Excel doesn't grow a row to fit wrapped text on open unless a height is
+  // set, so estimate the wrapped line count from the description length and the
+  // Description column's width, and size each row to match (see the loop). A
+  // slightly generous charsPerLine errs toward a taller row over clipped text.
+  const descColWidth = Math.floor(ws.getColumn(DESC_COL).width ?? 45)
+  const charsPerLine = Math.max(12, descColWidth - 2)
+  const descFontSize = ws.getCell(firstItemRow, DESC_COL).font?.size ?? 11
+  const lineHeightPt = Math.max(15, Math.round(descFontSize * 1.35))
+  const baseRowHeight = ws.getRow(firstItemRow).height ?? lineHeightPt
+
   for (let i = 0; i < n; i++) {
     const r = firstItemRow + i
     const it = items[i]
     ws.getCell(r, ITEM_NO_COL).value = i + 1
     ws.getCell(r, QTY_COL).value = numOrNull(it.quantity) ?? it.quantity
-    ws.getCell(r, DESC_COL).value = it.description
+    const descCell = ws.getCell(r, DESC_COL)
+    descCell.value = it.description
+    descCell.alignment = { ...(descCell.alignment ?? {}), wrapText: true }
     ws.getCell(r, RATE_COL).value = numOrNull(it.rate) ?? it.rate
     ws.getCell(r, UNITS_COL).value = it.units
     ws.getCell(r, AMOUNT_COL).value = { formula: `ROUND(B${r}*D${r},0)` }
+
+    // Auto-height: sum wrapped lines across any explicit newlines, then size
+    // the row so the whole description shows (never shorter than a normal row).
+    const wrappedLines = String(it.description)
+      .split(/\r?\n/)
+      .reduce((sum, para) => sum + Math.max(1, Math.ceil(para.length / charsPerLine)), 0)
+    ws.getRow(r).height = Math.max(baseRowHeight, wrappedLines * lineHeightPt)
   }
 
   const totalRow = firstItemRow + n
