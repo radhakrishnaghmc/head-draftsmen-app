@@ -28,6 +28,8 @@ extraResources:
     to: work-order-template.docx
   - from: resources/agreement-template.docx
     to: agreement-template.docx
+  - from: resources/forwarding-slip-template.docx
+    to: forwarding-slip-template.docx
   - from: resources/boq-template.xlsx
     to: boq-template.xlsx
   - from: resources/deviation-template.xlsx

@@ -1,6 +1,6 @@
 {
   "name": "head-draftsmen-app",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Documentation made easy",
   "main": "out/main/index.js",
   "author": "Head Draftsman App",
