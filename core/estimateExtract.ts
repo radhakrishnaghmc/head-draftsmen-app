@@ -36,6 +36,61 @@ function norm(s: unknown): string {
     .trim()
 }
 
+/**
+ * Optimal String Alignment distance (Levenshtein + adjacent transpositions, so a
+ * swapped pair like "uint"/"unit" or "qauntity"/"quantity" costs 1), short-
+ * circuited once it exceeds `max` (returns max+1 then).
+ */
+function editDistanceAtMost(a: string, b: string, max: number): number {
+  const n = a.length
+  const m = b.length
+  if (Math.abs(n - m) > max) return max + 1
+  let prevPrev: number[] = []
+  let prev = Array.from({ length: m + 1 }, (_, i) => i)
+  for (let i = 1; i <= n; i++) {
+    const cur = [i]
+    let rowMin = i
+    for (let j = 1; j <= m; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      let v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, prevPrev[j - 2] + 1)
+      cur[j] = v
+      rowMin = Math.min(rowMin, v)
+    }
+    if (rowMin > max) return max + 1
+    prevPrev = prev
+    prev = cur
+  }
+  return prev[m]
+}
+
+// The distinctive column words worth typo-correcting. Rate and Serial are left
+// out on purpose — a fuzzy match there is unsafe (e.g. a "Date" column sits one
+// edit from "Rate"); their own patterns already cover the real-world spellings.
+const HEADER_TYPO_WORDS: { canon: string; maxDist: number }[] = [
+  { canon: 'quantity', maxDist: 2 },
+  { canon: 'amount', maxDist: 2 },
+  { canon: 'unit', maxDist: 1 }
+]
+
+/**
+ * Repair near-typos of the distinctive estimate column words WITHIN a header
+ * cell — "Qantity" -> "quantity", "Amout" -> "amount", "Uint" -> "unit" — so a
+ * mis-spelled header (real ones are hand-typed) still resolves. Only the
+ * mis-spelled word is replaced, leaving the rest of the cell intact so e.g.
+ * "Total Qantity" still reads as a *total* quantity. Words under 3 letters
+ * (L/B/D, "No") are never touched.
+ */
+export function correctHeaderTypos(cell: string): string {
+  return cell.replace(/[A-Za-z]{3,}/g, (word) => {
+    const lw = word.toLowerCase()
+    for (const { canon, maxDist } of HEADER_TYPO_WORDS) {
+      if (lw !== canon && editDistanceAtMost(lw, canon, maxDist) <= maxDist) return canon
+    }
+    return word
+  })
+}
+
 // Matches a "Name of Work" / "Name of the Work" label cell, capturing any
 // text already inline after it (e.g. "Name of Work: Road from A to B").
 const WORK_NAME_LABEL_RE = /^name\s+of\s+(?:the\s+)?work\b\s*:?\s*(.*)$/i
@@ -136,7 +191,9 @@ export const ESTIMATE_COLUMN_SPECS: ColumnSpec[] = [
   // also carries (and leaves blank on most rows), which the plain /qty/ pattern
   // would otherwise claim first for being further left, dropping every item
   // whose per-day cell is empty.
-  { label: 'Quantity', patterns: [/total\s*(?:qty|quantity)/i, /qty|quantity/i] },
+  // "q\w*antity" also matches the common "Qantity"/"Quantiy"-style mis-spellings
+  // real estimate headers carry, so a typo doesn't drop the quantity column.
+  { label: 'Quantity', patterns: [/total\s*(?:qty|q\w*ntity)/i, /qty|q\w*ntity/i] },
   { label: 'Rate', patterns: [/rate/i] },
   { label: 'Unit', patterns: [/unit|uom|^per$/i] }
 ]
@@ -157,7 +214,7 @@ export function estimateColumnsMatchedViaEmbedding(
   headerRowIndex: number,
   embeddings?: ColumnEmbeddings
 ): string[] {
-  const header = (grid[headerRowIndex] ?? []).map(norm)
+  const header = (grid[headerRowIndex] ?? []).map((c) => correctHeaderTypos(norm(c)))
   try {
     return resolveColumns(header, ESTIMATE_COLUMN_SPECS, embeddings).viaEmbedding
   } catch {
@@ -487,7 +544,7 @@ export function extractEstimateItems(
   headerRowIndex: number,
   embeddings?: ColumnEmbeddings
 ): EstimateWorkItem[] {
-  const header = (grid[headerRowIndex] ?? []).map(norm)
+  const header = (grid[headerRowIndex] ?? []).map((c) => correctHeaderTypos(norm(c)))
   let snoCol: number, qtyCol: number, rateCol: number, unitCol: number
   try {
     // Fast path: a fully-labelled estimate (Serial/Qty/Rate/Unit headers).

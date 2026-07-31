@@ -8,6 +8,8 @@ export interface TenderEvaluation {
   noticeNo?: string
   /** The "Dated:"/"Dt:" date carried in the NIT No line (e.g. "15.07.2026"), if present. */
   noticeDate?: string
+  /** The page footer's "Server Time: 02/07/2026 …" date (bottom-right of the L1 sheet) — when the sheet was generated; used as the Note Submitted's Intimation date. Normalised to dd.mm.yyyy. */
+  serverDate?: string
   /** Estimated Contract Value, in rupees (the portal reports rupees, not Lakhs). */
   ecvRupees?: number
   /** The L-1 (lowest / selected) bidder's company name. */
@@ -182,6 +184,14 @@ export function parseTenderEvaluation(lines: string[]): TenderEvaluation {
   // such label), so an unrelated date is never misread as the notice date.
   const date = /\b(?:Dated|Dt)\b\.?\s*:?\s*(\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4})/i.exec(joined)
   if (date) result.noticeDate = date[1]
+
+  // The page footer (bottom-right) prints "Server Time: 02/07/2026 03:59:31 PM"
+  // — when this L1 sheet was generated. Anchored on the "Server Time"/"Server
+  // Date" label so it's never confused with the notice or bid-submission dates
+  // elsewhere on the page. Normalised to dd.mm.yyyy to match the note's other
+  // dates. Used as the Note Submitted's Intimation date.
+  const server = /Server\s*(?:Time|Date)[^0-9]{0,20}(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})/i.exec(joined)
+  if (server) result.serverDate = `${server[1]}.${server[2]}.${server[3]}`
 
   result.nameOfWork = extractNameOfWork(lines)
   if (!result.nameOfWork) {

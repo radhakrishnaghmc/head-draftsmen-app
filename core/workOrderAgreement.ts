@@ -75,6 +75,24 @@ export interface WorkOrderAgreementFields {
   agreementDate: string
   /** "Note approved by the Zonal Commissioner Dt." reference date on the Work Order, "dd.mm.yyyy". */
   adminSanctionDate: string
+  /** Corporation abbreviation for the Forwarding Slip (e.g. "CMC"), from the chosen office. */
+  corporation: string
+  /** Corporation full name for the Forwarding Slip title (e.g. "Cyberabad Municipal Corporation"). */
+  corporationFullName: string
+  /** Technical Sanction No & Date, hand-entered for the Forwarding Slip (e.g. "11/26-27, Dt: 29.05.2026"). */
+  tsNoDate: string
+  /** Period of completion in months, hand-entered for the Forwarding Slip (e.g. "02"). */
+  completionMonths: string
+  /** Reservation category on the work ("SC" / "ST" / ""), for the Forwarding Slip's EMD/ASD exemption. */
+  reservation: string
+}
+
+/** SC/ST reservation drives EMD/ASD exemption — read from the work name's "(Reserved to SC/ST)" tag or a Reservation column. */
+export function reservationFromRow(row: Record<string, string>): string {
+  const explicit = (row['Reservation'] ?? '').trim()
+  if (/\b(SC|ST)\b/i.test(explicit)) return explicit.toUpperCase().match(/\b(SC|ST)\b/i)![0].toUpperCase()
+  const m = /reserved\s*(?:to|for)?\s*(SC|ST)\b/i.exec(row['Name of the work'] ?? '')
+  return m ? m[1].toUpperCase() : ''
 }
 
 /** The Circle name and number out of a NIT No ("…/EE/Gajularamaram Circle-57/QBZ/CMC/…" -> {circle:"Gajularamaram", cno:"57"}). */
@@ -93,7 +111,17 @@ export function circleFromNit(nit: string | undefined): { circle: string; cno: s
  */
 export function standaloneRowFromSources(pdf: TenderEvaluation, notice: IntimationNotice): Record<string, string> {
   const { circle, cno } = circleFromNit(pdf.noticeNo || notice.nitNo)
-  return { Circle: circle, 'Circle number': cno, Zone: '', 'Name of the work': pdf.nameOfWork ?? '' }
+  return {
+    Circle: circle,
+    'Circle number': cno,
+    Zone: '',
+    'Name of the work': pdf.nameOfWork ?? '',
+    // The tender Notice No (= NIT No) and its date, from the uploaded L-1 sheet
+    // (falling back to the Intimation) — so the Note Submitted's "NIT No:" fills
+    // here just like it would from a Works List row.
+    'Tender Notice No': pdf.noticeNo || notice.nitNo || '',
+    'Tender notice Date': pdf.noticeDate || ''
+  }
 }
 
 /** Indian financial year for a date (1 April boundary): 2026-07-27 -> "2026-27". */
@@ -164,7 +192,12 @@ export function deriveFields(
     contractRupees: contract != null ? String(contract) : '',
     workOrderDate: loaDate,
     agreementDate: loaDate,
-    adminSanctionDate: ''
+    adminSanctionDate: '',
+    corporation: '',
+    corporationFullName: '',
+    tsNoDate: '',
+    completionMonths: '',
+    reservation: reservationFromRow(row)
   }
 }
 
@@ -214,5 +247,36 @@ export function agreementPlaceholders(f: WorkOrderAgreementFields): Record<strin
     'Agreement date in words': dateToWords(f.agreementDate),
     'Agency Name': f.agencyName,
     'Contract value in rupees': contract != null ? amountToWords(contract) : ''
+  }
+}
+
+/** The {{Label}} -> value map for the Forwarding Slip template. */
+export function forwardingSlipPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
+  const estLakhs = num(f.estimateLakhs)
+  const ecv = num(f.ecvRupees)
+  const pct = num(f.tenderPercent)
+  const contract = num(f.contractRupees)
+  const reserved = /\b(SC|ST)\b/i.test(f.reservation)
+  const EXEMPT = 'Exempted for reservation work'
+  // Contractor block: name, address, phone — each on its own line.
+  const contractor = [f.agencyName, f.address, f.phone].map((s) => (s ?? '').trim()).filter(Boolean).join('\n')
+  return {
+    Corporation: f.corporation,
+    'Corporation Full Name': f.corporationFullName.toUpperCase(),
+    Circle: f.circle,
+    CNO: f.cno,
+    Financialyear: f.financialYear,
+    'Name of the work': f.nameOfWork,
+    'Amount of Estimation': estLakhs != null ? groupedRupees(estLakhs * 100000) : '',
+    'Contractor Name and Address': contractor,
+    'Approximate Value': contract != null ? groupedRupees(contract) : '',
+    'Tender Percentage': pct == null ? '' : pct === 0 ? '0%' : `(-) ${formatPercent(pct)}% Less`,
+    'Technical Sanction No and Date': f.tsNoDate,
+    'Period of completion': f.completionMonths.trim() ? `${f.completionMonths.trim()}   Months` : '',
+    // Reserved works are EMD-exempt; otherwise the 1% / 1.5% amounts off ECV.
+    'EMD 1 percent': reserved ? EXEMPT : ecv != null ? groupedRupees(ecv * 0.01) : '',
+    'EMD 1.5 percent': reserved ? EXEMPT : ecv != null ? groupedRupees(ecv * 0.015) : '',
+    // ASD applies only when the tender % exceeds 25 (at (%-25)% of ECV); else "-".
+    'ASD Details': !reserved && pct != null && pct > 25 && ecv != null ? groupedRupees(ecv * ((pct - 25) / 100)) : '-'
   }
 }

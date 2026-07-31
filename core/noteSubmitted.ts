@@ -27,10 +27,12 @@ export interface NoteSubmittedData {
   /** Administrative-sanction date (optional; the note tolerates a blank). */
   asDate: string
   financialYear: string
-  /** Note 3's tender Notice "Lr No" — distinct from the note-4 NIT No. */
+  /** The tender Notice No printed in note 3. The Tender Notice No and the NIT No
+   * are the same reference, so `nitNo` mirrors this (the editor keeps them in
+   * sync); likewise `nitDate` mirrors `tenderNoticeDate`. */
   tenderNoticeNo: string
   tenderNoticeDate: string
-  /** Note 4's NIT No. */
+  /** Note 4's NIT No — same value as `tenderNoticeNo` (see above). */
   nitNo: string
   nitDate: string
   /** Newspapers the tender notice was published in (one sentence fragment). */

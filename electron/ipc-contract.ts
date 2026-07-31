@@ -28,6 +28,15 @@ export interface UpdateProgress {
   bytesPerSecond: number
 }
 
+export interface SplitProgress {
+  /** Sheets finished so far. */
+  done: number
+  /** Total sheets in the workbook. */
+  total: number
+  /** Name of the sheet currently being written. */
+  sheet: string
+}
+
 export const IPC = {
   pickExcels: 'dialog:pickExcels',
   pickExcelGrids: 'dialog:pickExcelGrids',
@@ -48,6 +57,7 @@ export const IPC = {
   exportBoq: 'data:exportBoq',
   exportBoqBatch: 'data:exportBoqBatch',
   splitExcelSheets: 'tools:splitExcelSheets',
+  splitProgress: 'tools:splitProgress',
   exportDeviation: 'data:exportDeviation',
   exportDetailedEstimate: 'data:exportDetailedEstimate',
   exportMaterialEstimate: 'data:exportMaterialEstimate',
@@ -70,6 +80,7 @@ export const IPC = {
   intimationTemplate: 'doc:intimationTemplate',
   workOrderTemplate: 'doc:workOrderTemplate',
   agreementTemplate: 'doc:agreementTemplate',
+  forwardingSlipTemplate: 'doc:forwardingSlipTemplate',
   loadState: 'state:load',
   saveState: 'state:save',
   remoteStateUpdate: 'state:remoteUpdate',
@@ -107,6 +118,8 @@ export interface DocuGenApi {
   ): Promise<string[] | null>
   /** Tool: pick a multi-sheet workbook and split every sheet into its own .xlsx (named after the tab) in a chosen folder. Returns the folder and saved file paths, or null if cancelled. */
   splitExcelSheets(): Promise<{ dir: string; files: string[] } | null>
+  /** Fires as each sheet is written while splitExcelSheets runs, so the UI can show a progress bar. Returns an unsubscribe function. */
+  onSplitProgress(callback: (progress: SplitProgress) => void): () => void
   exportDeviation(items: DeviationItem[], meta: DeviationMeta, suggestedName: string): Promise<string | null>
   /** Builds and saves a full "Detailed and Abstract Estimate" workbook (letterhead, item table, standard surcharge cascade, signature block) from scratch — not a bare Sl No/Description/Qty/Rate/Amount table. */
   exportDetailedEstimate(
@@ -168,6 +181,8 @@ export interface DocuGenApi {
   workOrderTemplate(): Promise<string>
   /** Reads the bundled Agreement format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
   agreementTemplate(): Promise<string>
+  /** Reads the bundled Forwarding Slip format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
+  forwardingSlipTemplate(): Promise<string>
   loadState(): Promise<PersistedState | null>
   saveState(state: PersistedState): Promise<void>
   /** Fires when the other signed-in device changes the workspace, so this one can merge it in live. Returns an unsubscribe function. */

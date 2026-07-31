@@ -21,6 +21,14 @@ export interface ZoneCircleEntry {
   cno: string
 }
 
+export interface CorporationDirectory {
+  /** Short name / abbreviation used on documents and in the picker (e.g. "CMC"). */
+  name: string
+  /** Full name, shown as a subtitle where there's room (optional). */
+  fullName?: string
+  entries: ZoneCircleEntry[]
+}
+
 export const CMC_ZONE_CIRCLES: ZoneCircleEntry[] = [
   // Kukatpally zone
   { zone: 'Kukatpally', circle: 'Madhapur', cno: '50' },
@@ -42,6 +50,73 @@ export const CMC_ZONE_CIRCLES: ZoneCircleEntry[] = [
   { zone: 'Serilingampally', circle: 'Miyapur', cno: '48' },
   { zone: 'Serilingampally', circle: 'Serilingampally', cno: '49' }
 ]
+
+/**
+ * Every corporation the app can prepare documents for. The Head Draftsman
+ * picks Corporation → Zone → Circle in the sidebar, and that choice (not the
+ * login) drives which circle/zone the documents and Works List validation use.
+ *
+ * CMC is fully populated. Add a corporation by appending an entry here with its
+ * full zone → circle → circle-number (CNO) list — no other code changes are
+ * needed; the picker and validation read this array.
+ *
+ * TODO: populate GHMC (and any further corporations) with their real
+ * zone/circle/CNO lists — left empty here until that data is provided, so the
+ * picker will show the corporation but offer no zones until it's filled in.
+ */
+export const CORPORATIONS: CorporationDirectory[] = [
+  { name: 'CMC', fullName: 'Cyberabad Municipal Corporation', entries: CMC_ZONE_CIRCLES },
+  { name: 'GHMC', fullName: 'Greater Hyderabad Municipal Corporation', entries: [] },
+  { name: 'MMC', fullName: 'Malkajgiri Municipal Corporation', entries: [] }
+]
+
+const norm = (s: string) => s.trim().toLowerCase()
+
+/** The corporation directory for a given name (case/space-insensitive), if known. */
+export function corporationByName(name: string | undefined): CorporationDirectory | undefined {
+  if (!name) return undefined
+  return CORPORATIONS.find((c) => norm(c.name) === norm(name))
+}
+
+/** The zone/circle entries of a corporation (empty when unknown). */
+export function entriesOf(corporation: string | undefined): ZoneCircleEntry[] {
+  return corporationByName(corporation)?.entries ?? []
+}
+
+/** Distinct zone names within a corporation, in first-seen order. */
+export function zonesOf(corporation: string | undefined): string[] {
+  return [...new Set(entriesOf(corporation).map((e) => e.zone))]
+}
+
+/** Circles of a corporation's zone, in listed order. */
+export function circlesOf(corporation: string | undefined, zone: string | undefined): ZoneCircleEntry[] {
+  if (!zone) return []
+  return entriesOf(corporation).filter((e) => norm(e.zone) === norm(zone))
+}
+
+/**
+ * Which corporation's directory contains this zone/circle — used to backfill the
+ * Corporation on an office saved before the corporation field existed (old
+ * login-based flow), so a remembered Zone/Circle still shows its Corporation.
+ */
+export function corporationOf(zone: string | undefined, circle: string | undefined): string | undefined {
+  if (!zone && !circle) return undefined
+  return CORPORATIONS.find((c) =>
+    c.entries.some((e) => (!zone || norm(e.zone) === norm(zone)) && (!circle || norm(e.circle) === norm(circle)))
+  )?.name
+}
+
+/** The circle number (CNO) for a corporation/zone/circle, if found. */
+export function cnoOf(
+  corporation: string | undefined,
+  zone: string | undefined,
+  circle: string | undefined
+): string | undefined {
+  if (!circle) return undefined
+  return entriesOf(corporation).find(
+    (e) => (!zone || norm(e.zone) === norm(zone)) && norm(e.circle) === norm(circle)
+  )?.cno
+}
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -71,16 +146,19 @@ export interface DirectoryMatch {
  * carries neither do we fall back to scanning for a bare circle name anywhere
  * in the text (and then only commit to an unambiguous single circle/zone).
  */
-export function resolveFromDirectory(text: string | undefined): DirectoryMatch {
+export function resolveFromDirectory(
+  text: string | undefined,
+  entries: ZoneCircleEntry[] = CMC_ZONE_CIRCLES
+): DirectoryMatch {
   const hay = (text ?? '').trim()
   if (!hay) return {}
 
   // 1. Explicit "<name> circle" / "<name> zone" designation wins over any
   //    incidental place names elsewhere in the string.
-  const taggedCircle = CMC_ZONE_CIRCLES.find((e) =>
+  const taggedCircle = entries.find((e) =>
     new RegExp(`\\b${escapeRegExp(e.circle)}\\s+circle\\b`, 'i').test(hay)
   )
-  const distinctZoneNames = [...new Set(CMC_ZONE_CIRCLES.map((e) => e.zone))]
+  const distinctZoneNames = [...new Set(entries.map((e) => e.zone))]
   const taggedZone = distinctZoneNames.find((z) => new RegExp(`\\b${escapeRegExp(z)}\\s+zone\\b`, 'i').test(hay))
 
   if (taggedCircle || taggedZone) {
@@ -95,7 +173,7 @@ export function resolveFromDirectory(text: string | undefined): DirectoryMatch {
 
   // 2. No explicit designation — fall back to a bare scan of any known circle
   //    name in the text, committing only to an unambiguous single circle/zone.
-  const matched = CMC_ZONE_CIRCLES.filter((e) =>
+  const matched = entries.filter((e) =>
     new RegExp(`\\b${escapeRegExp(e.circle)}\\b`, 'i').test(hay)
   )
   if (matched.length === 0) return {}

@@ -8,11 +8,6 @@ const LOGIN_SHEET_URL =
 
 export interface LoginResult {
   ok: boolean
-  /** The matched row's Zone/Circle, when present — the logged-in Head Draftsman's own office identity, shown in the sidebar. */
-  zone?: string
-  circle?: string
-  /** The matched row's Circle number, when present — used to auto-fill the Works List's CNO column, same as Zone/Circle. */
-  circleNumber?: string
   /** True when the credentials were correct but this account already has 2 other devices signed in. */
   maxSessions?: boolean
 }
@@ -20,17 +15,17 @@ export interface LoginResult {
 /**
  * Check a login attempt against the credentials sheet. Fetches fresh every
  * call (no caching) so newly added/changed credentials take effect
- * immediately. Only Zone/Circle (never the password, any other column, or
- * the sheet's contents/URL) cross back to the renderer alongside the
- * pass/fail result.
+ * immediately. Only a plain pass/fail result crosses back to the renderer —
+ * never the password, any other column, or the sheet's contents/URL.
+ *
+ * The login no longer carries any office identity: Zone/Circle/Corporation are
+ * chosen by the Head Draftsman in the app itself (sidebar) and drive document
+ * preparation there, so the credentials sheet only needs a Login ID + Password.
  */
 export async function validateLogin(loginId: string, password: string): Promise<LoginResult> {
   const table = await importTableFromGoogleLink(LOGIN_SHEET_URL)
   const idHeader = table.headers.find((h) => /login\s*id|user/i.test(h))
   const pwHeader = table.headers.find((h) => /password/i.test(h))
-  const zoneHeader = table.headers.find((h) => /^zone$/i.test(h.trim()))
-  const circleHeader = table.headers.find((h) => /^circle$/i.test(h.trim()))
-  const circleNumberHeader = table.headers.find((h) => /^circle\s*number$/i.test(h.trim()))
   if (!idHeader || !pwHeader) {
     throw new Error('Could not read the login credentials sheet.')
   }
@@ -41,10 +36,5 @@ export async function validateLogin(loginId: string, password: string): Promise<
   )
   if (!row) return { ok: false }
 
-  return {
-    ok: true,
-    zone: zoneHeader ? row[zoneHeader]?.trim() || undefined : undefined,
-    circle: circleHeader ? row[circleHeader]?.trim() || undefined : undefined,
-    circleNumber: circleNumberHeader ? row[circleNumberHeader]?.trim() || undefined : undefined
-  }
+  return { ok: true }
 }

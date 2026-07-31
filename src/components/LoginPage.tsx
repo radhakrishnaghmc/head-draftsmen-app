@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { api } from '../ipc'
-import { IconWarn } from './Icons'
+import { IconWarn, IconWhatsApp } from './Icons'
 import appLogo from '../assets/app-logo.png'
 import { MAX_CONCURRENT_SESSIONS } from '@core/sessionSlots'
 
 interface Props {
-  onSuccess: (zone?: string, circle?: string, circleNumber?: string) => void
+  onSuccess: () => void
 }
 
 // Remembered across app restarts (localStorage, not sessionStorage) so the
@@ -40,7 +40,7 @@ export default function LoginPage({ onSuccess }: Props) {
       const result = await api.login(loginId.trim(), password)
       if (result.ok) {
         localStorage.setItem(REMEMBERED_LOGIN_ID_KEY, loginId.trim())
-        onSuccess(result.zone, result.circle, result.circleNumber)
+        onSuccess()
       }
       else if (result.maxSessions)
         setError(`Already signed in on ${MAX_CONCURRENT_SESSIONS} devices. Log out from one of them and try again.`)
@@ -99,6 +99,14 @@ export default function LoginPage({ onSuccess }: Props) {
         <p className="login-credits">
           App developed by Radhakrishna, HD{version ? ` · v${version}` : ''}
         </p>
+        <button
+          type="button"
+          className="wa-contact"
+          title="Contact Admin on WhatsApp"
+          onClick={() => api.openPath('https://wa.me/919063836115?text=Hello')}
+        >
+          <IconWhatsApp /> Contact Admin on WhatsApp
+        </button>
       </form>
     </div>
   )

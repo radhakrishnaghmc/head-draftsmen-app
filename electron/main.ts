@@ -401,7 +401,9 @@ function registerHandlers(): void {
     if (folder.canceled || folder.filePaths.length === 0) return null
     const dir = folder.filePaths[0]
 
-    const files = await splitWorkbookSheets(srcPath, dir)
+    const files = await splitWorkbookSheets(srcPath, dir, (done, total, sheet) => {
+      mainWindow?.webContents.send(IPC.splitProgress, { done, total, sheet })
+    })
     return { dir, files }
   })
 
@@ -681,6 +683,12 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
+  ipcMain.handle(IPC.forwardingSlipTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('forwarding-slip-template.docx')
+    if (!templatePath) throw new Error('Forwarding Slip format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
   const stateFile = () => path.join(app.getPath('userData'), 'state.json')
 
   const seedStateFile = () => {
@@ -803,7 +811,7 @@ function registerHandlers(): void {
   // the batch loop, aborts after the first file so only one document saves.
   const sanitizeFileName = (name: string): string => {
     const cleaned = name
-      .replace(/[/\\:*?"<>| -]/g, '-') // path separators + OS-reserved chars
+      .replace(/[/\\:*?"<>|\x00-\x1f]/g, '-') // path separators + OS-reserved chars
       .replace(/\s+/g, ' ')
       .replace(/[.\s]+$/g, '') // Windows disallows trailing dots/spaces
       .trim()

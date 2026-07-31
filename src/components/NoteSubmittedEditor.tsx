@@ -62,10 +62,23 @@ export default function NoteSubmittedEditor({ data, onChange }: Props) {
 
         <div className="ns-group-title">Tender</div>
         <div className="ns-grid">
-          {field('Tender Notice No (Lr No)', 'tenderNoticeNo')}
-          {field('Tender notice date', 'tenderNoticeDate')}
-          {field('NIT No', 'nitNo')}
-          {field('NIT date', 'nitDate')}
+          {/* The Tender Notice and the NIT are the same reference — one number
+              and one date fill both note 3 ("tender Notice No … Dt:") and note 4
+              ("NIT No: … Dt:"), so they can never diverge. */}
+          <label className="field-label ns-field">
+            Tender Notice No / NIT No
+            <input
+              value={data.tenderNoticeNo}
+              onChange={(e) => onChange({ ...data, tenderNoticeNo: e.target.value, nitNo: e.target.value })}
+            />
+          </label>
+          <label className="field-label ns-field">
+            Tender Notice / NIT date
+            <input
+              value={data.tenderNoticeDate}
+              onChange={(e) => onChange({ ...data, tenderNoticeDate: e.target.value, nitDate: e.target.value })}
+            />
+          </label>
         </div>
         {field('Newspapers', 'newspapers')}
         {field('Qualification / rejection note (optional)', 'qualificationNote')}

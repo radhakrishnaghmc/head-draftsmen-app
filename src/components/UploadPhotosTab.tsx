@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { api } from '../ipc'
 import { extractWorkName, extractEstimateItemsFromLines } from '@core/estimateExtract'
 import { extractEstimateAmountLakhs } from '@core/deviation'
@@ -28,6 +28,12 @@ interface Props {
   /** The Works List database — tables[0], by the app's own convention — used for ECV write-back and Circle/Agency lookups. */
   tables: ExcelTable[]
   onChange: (table: ExcelTable) => void
+  /** Open the file picker straight away on mount — set when the Tools tile is
+   * clicked, so a single-upload tool needs no second click to start. */
+  autoOpen?: boolean
+  /** Told whether any photo/result exists yet, so the Tools host only gives the
+   * panel a full-width grid row once there's something to show. */
+  onContent?: (hasContent: boolean) => void
 }
 
 type ActionKey = 'excel' | 'boq' | 'scheduleA' | 'deviation' | 'material'
@@ -150,15 +156,30 @@ function tableToItems(table: ExcelTable): EstimateWorkItem[] {
  * an estimate's items into the app, not a separate feature with its own
  * output logic.
  */
-export default function UploadPhotosTab({ tables, onChange }: Props) {
+export default function UploadPhotosTab({ tables, onChange, autoOpen = false, onContent }: Props) {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Fire the file picker once as soon as the tool opens (Tools tile click), so
+  // this single-upload tool needs no extra click. Guarded so StrictMode's
+  // double-mount doesn't open it twice.
+  const autoOpened = useRef(false)
+  useEffect(() => {
+    if (autoOpen && !autoOpened.current) {
+      autoOpened.current = true
+      fileInputRef.current?.click()
+    }
+  }, [autoOpen])
 
   const [converting, setConverting] = useState(false)
   const [convertError, setConvertError] = useState<string | null>(null)
   const [resultTable, setResultTable] = useState<ExcelTable | null>(null)
+  // Report to the Tools host whether there's anything to show yet — before
+  // paint, so the panel gets its full-width row without a one-frame flash.
+  useLayoutEffect(() => {
+    onContent?.(photos.length > 0 || resultTable !== null)
+  }, [photos.length, resultTable, onContent])
   // The raw OCR'd lines, kept alongside the editable preview so BOQ/Schedule
   // A/Deviation generation (below) can reuse them exactly like the
   // Excel-upload versions of these features do, and so a failed conversion
@@ -382,6 +403,25 @@ export default function UploadPhotosTab({ tables, onChange }: Props) {
     } finally {
       setActionBusy(null)
     }
+  }
+
+  // Launched from a Tools tile (autoOpen): until a photo/PDF is actually
+  // picked, show nothing at all — just the hidden picker the mount effect
+  // fires — so clicking the tile opens the folder with no placeholder panel.
+  if (autoOpen && photos.length === 0 && !resultTable) {
+    return (
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,application/pdf"
+        multiple
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          void handleFiles(e.target.files)
+          e.target.value = ''
+        }}
+      />
+    )
   }
 
   return (

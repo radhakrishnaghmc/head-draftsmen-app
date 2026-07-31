@@ -154,6 +154,13 @@ export interface PersistedState {
   todos?: TodoItem[]
   /** The last Google Sheets/Drive link used to fill the Works List, so it can be refreshed later. */
   lastGoogleLink?: string
+  /**
+   * The Works List link remembered per office (key: "Corporation|Zone|Circle"),
+   * so switching back to a circle reloads its own database automatically — and,
+   * because this is part of the synced state, the links follow the user to any
+   * system they log in from.
+   */
+  worksListLinks?: Record<string, string>
   tenderReminders?: TenderReminder[]
   createdDocuments?: CreatedDocument[]
   bidDocumentBatches?: BidDocumentBatch[]

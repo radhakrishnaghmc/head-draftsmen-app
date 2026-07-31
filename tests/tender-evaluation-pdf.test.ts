@@ -48,6 +48,17 @@ describe('parseTenderEvaluation', () => {
     expect(r.contractRupees).toBeCloseTo(1416455.93, 2)
   })
 
+  it("reads the footer's Server Time date (bottom-right) as the server date, normalised to dd.mm.yyyy", () => {
+    // The L1 sheet's bottom-right footer, split across lines by pdf.js the way
+    // the real page wraps the date above the time.
+    const r = parseTenderEvaluation([...COMMERCIAL_LINES, 'a, India. All Server Time: 02/07/2026', '03:59:31 PM'])
+    expect(r.serverDate).toBe('02.07.2026')
+  })
+
+  it('leaves the server date undefined when no Server Time footer is present', () => {
+    expect(parseTenderEvaluation(COMMERCIAL_LINES).serverDate).toBeUndefined()
+  })
+
   // A long Name of Work wraps around its own label: value part 1, then the
   // "Name of Work" label alone, then value part 2, then the next field. Taken
   // from a real GHMC L1 form (Stage Selected Form). The old single-line regex

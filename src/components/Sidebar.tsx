@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../ipc'
 import appLogo from '../assets/app-logo.png'
+import { type Office, isOfficeReady } from '../office'
 import {
   IconTable,
   IconPrint,
@@ -14,7 +15,8 @@ import {
   IconEye,
   IconRefresh,
   IconBell,
-  IconTools
+  IconTools,
+  IconWhatsApp
 } from './Icons'
 
 export type TabKey =
@@ -36,9 +38,8 @@ interface Props {
   tableCount: number
   unresolved: number
   createdDocCount: number
-  /** From the Works List's first row — shown under the app name. */
-  zone?: string
-  circle?: string
+  /** The chosen office (Corporation/Zone/Circle) — shown under the app name; picked in the Works List. */
+  office: Office
 }
 
 interface Item {
@@ -111,7 +112,7 @@ export default function Sidebar(props: Props) {
     },
     {
       key: 'printDoc',
-      label: 'Issue other Documents',
+      label: 'Issue Documents',
       icon: <IconPrint />,
       badge: props.createdDocCount || undefined,
       tone: 'sky'
@@ -140,7 +141,7 @@ export default function Sidebar(props: Props) {
     },
     {
       key: 'techSanction',
-      label: 'Give Technical Sanction',
+      label: 'Give Technical Sanction (Experimental)',
       icon: <IconCheck />
     },
     {
@@ -157,8 +158,14 @@ export default function Sidebar(props: Props) {
         <img src={appLogo} alt="" className="logo" />
         <div>
           <h1>Head Draftsman</h1>
-          {(props.zone || props.circle) && (
-            <p>{[props.circle, props.zone].filter(Boolean).join(' · ')}</p>
+          {isOfficeReady(props.office) ? (
+            <p>
+              {[props.office.corporation, props.office.zone, props.office.circle, props.office.circleNumber]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+          ) : (
+            <p className="warn">Select your office in Works List</p>
           )}
         </div>
       </div>
@@ -194,6 +201,14 @@ export default function Sidebar(props: Props) {
         <div className="side-foot-row">
           <span className="side-credits">
             App developed by Radhakrishna, HD{version ? ` · v${version}` : ''}
+            <button
+              type="button"
+              className="wa-contact"
+              title="Contact Admin on WhatsApp"
+              onClick={() => api.openPath('https://wa.me/919063836115?text=Hello')}
+            >
+              <IconWhatsApp /> Contact Admin on WhatsApp
+            </button>
           </span>
           <button
             className={`side-update-btn ${checkingUpdate ? 'spinning' : ''}`}

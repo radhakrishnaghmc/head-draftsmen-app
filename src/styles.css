@@ -311,10 +311,124 @@ code {
   white-space: nowrap;
 }
 .side-brand p {
-  margin: 0;
+  margin: 2px 0 0;
   font-size: 12px;
+  font-weight: 600;
   color: var(--muted);
-  white-space: nowrap;
+  line-height: 1.3;
+}
+.side-brand p.warn {
+  color: var(--amber-600, #b45309);
+}
+
+/* ---------- Office picker (Corporation / Zone / Circle) ---------- */
+.office-picker {
+  margin: 0 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.office-picker.unset {
+  border-color: color-mix(in srgb, var(--amber-500) 55%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber-500) 18%, transparent);
+}
+.office-summary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 11px;
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  text-align: left;
+}
+.office-summary-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 0;
+}
+.office-summary-text.warn {
+  color: var(--amber-600, #b45309);
+}
+.office-summary-text svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.office-summary-toggle {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--brand, var(--sky-500));
+  flex: none;
+}
+.office-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 11px 12px;
+  border-top: 1px solid var(--border);
+  /* Bound the open picker so a long circle list scrolls inside it rather than
+     running off the bottom of the fixed-height sidebar (and pushing the nav /
+     footer out of view). */
+  max-height: min(46vh, 340px);
+  overflow-y: auto;
+}
+.office-field-label {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.office-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.office-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.1;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease), color 0.12s var(--ease);
+}
+.office-chip:hover {
+  border-color: var(--sky-500);
+}
+.office-chip.on {
+  background: var(--sky-500);
+  border-color: var(--sky-500);
+  color: #fff;
+}
+.office-chip-cno {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+.office-empty {
+  font-size: 11.5px;
+  color: var(--muted);
 }
 
 .side-nav {
@@ -468,6 +582,39 @@ code {
   font-weight: 550;
   color: var(--muted);
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+/* WhatsApp "Contact Admin" link, shown under the credits in the sidebar and on
+   the login screen. Styled as a pill button in WhatsApp green. */
+.wa-contact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid #25d36633;
+  background: #25d3661a;
+  color: #128c4b;
+  font-size: 11.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.wa-contact:hover {
+  background: #25d36630;
+  border-color: #25d36666;
+}
+.wa-contact svg {
+  width: 15px;
+  height: 15px;
+}
+.login-credits + .wa-contact {
+  margin: 8px auto 0;
+  display: flex;
 }
 .side-update-btn {
   flex: none;
@@ -3043,6 +3190,51 @@ button.danger:disabled {
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 16px;
   margin-top: 14px;
+  /* Top-align so a tool that expands inline (Work Order / Agreement Bond) grows
+     downward within its own column instead of stretching its row-mates. */
+  align-items: start;
+}
+
+/* Work Order / Agreement Bond expand inside their own tile column: the tile
+   grows taller and its upload panel sits right below it, within the tile's
+   margins — so the other tiles aren't pushed by a full-width panel. */
+.tool-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.tool-inline-panel {
+  min-width: 0;
+}
+
+/* Compact Work Order / Agreement upload UI shown inside the tile column: no
+   card, no paragraph, no date row — just the two upload buttons (and, once
+   built, the output tile). Kept small so the tile stays tidy. */
+.wo-compact {
+  min-width: 0;
+}
+.wo-compact-body {
+  min-width: 0;
+}
+.wo-compact-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wo-compact-actions .upload-btn {
+  width: 100%;
+  min-height: 0;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: 12px;
+  gap: 6px;
+}
+.wo-compact-actions .upload-btn svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
 }
 .doc-tile-card {
   --tone-a: var(--indigo-500);
@@ -6264,13 +6456,79 @@ tr.on .rp-box span {
   font: inherit;
   cursor: pointer;
   width: 100%;
+  /* Uniform tile height (grid is top-aligned, so cards no longer auto-stretch
+     to match their row). */
+  min-height: 172px;
 }
+/* Hover pops the tile a little larger and swaps its caption for an upload
+   action — reveal happens in place (the caption fades out, the pill fades in
+   over the same spot) so nothing reflows and the neighbouring tiles stay put. */
 .tool-card:hover:not(:disabled) {
-  transform: translateY(-2px);
+  transform: translateY(-4px) scale(1.05);
+  z-index: 3;
 }
 .tool-card:disabled {
   opacity: 0.6;
   cursor: default;
+}
+.tool-card .doc-tile-card-meta {
+  transition: opacity 0.12s var(--ease);
+}
+.tool-card:hover:not(:disabled) .doc-tile-card-meta {
+  opacity: 0;
+}
+/* In-tile split progress: a thin bar pinned to the tile's bottom edge. */
+.tool-card-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  height: 4px;
+  background: color-mix(in srgb, var(--tone-a, var(--teal-500)) 18%, transparent);
+  overflow: hidden;
+}
+.tool-card-progress-bar {
+  display: block;
+  height: 100%;
+  background: var(--tone-a, var(--teal-500));
+  border-radius: 0 2px 2px 0;
+  transition: width 0.2s var(--ease);
+}
+/* Separator outcome notice below the grid — spaced off the tiles. */
+.tool-outcome {
+  margin-top: 16px;
+}
+.tool-card-cta {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translate(-50%, 6px);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100% - 22px);
+  padding: 9px 16px;
+  border-radius: 18px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  color: #fff;
+  background: color-mix(in srgb, var(--tone-a, var(--teal-500)) 86%, #0b1220 6%);
+  box-shadow: 0 8px 18px -7px rgba(30, 41, 59, 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s var(--ease), transform 0.14s var(--ease);
+}
+.tool-card-cta svg {
+  width: 16px;
+  height: 16px;
+}
+.tool-card:hover:not(:disabled) .tool-card-cta {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 /* An open/active tool tile (its panel is showing below) reads as selected. */
 .tool-card.on {
@@ -6300,4 +6558,43 @@ tr.on .rp-box span {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+/* A tool's expanded panel (or the separator's status) drops onto its own full
+   grid-width row directly beneath the tile that opened it, rather than at the
+   bottom of the page. Works with the auto-fill tile grid — 1 / -1 spans every
+   column. */
+.tool-panel-row {
+  grid-column: 1 / -1;
+}
+
+/* Electrical estimate tool: compact scrollable preview of the extracted items. */
+.elec-preview {
+  margin-top: 12px;
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.elec-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.elec-preview th,
+.elec-preview td {
+  border-bottom: 1px solid var(--border);
+  padding: 6px 9px;
+  text-align: center;
+  vertical-align: top;
+}
+.elec-preview th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  font-weight: 650;
+}
+.elec-preview .elec-desc {
+  text-align: left;
+  min-width: 320px;
 }

@@ -106,6 +106,13 @@ export const IconTools = (p: P) => (
   </svg>
 )
 
+export const IconWhatsApp = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M12 21a9 9 0 1 0-7.9-4.7L3 21l4.9-1.3A9 9 0 0 0 12 21Z" />
+    <path d="M9 8.5c0 3.6 2.9 6.5 6.5 6.5.5 0 .8-.4.8-.9v-1.2a.7.7 0 0 0-.5-.7l-1.3-.4a.7.7 0 0 0-.7.2l-.4.4a5.2 5.2 0 0 1-2.4-2.4l.4-.4a.7.7 0 0 0 .2-.7l-.4-1.3a.7.7 0 0 0-.7-.5H9.9c-.5 0-.9.3-.9.8Z" />
+  </svg>
+)
+
 export const IconArrow = (p: P) => (
   <svg {...base(p)}>
     <path d="M5 12h14M13 6l6 6-6 6" />

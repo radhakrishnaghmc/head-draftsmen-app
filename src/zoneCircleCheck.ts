@@ -1,6 +1,6 @@
 import type { ExcelTable } from '@core/types'
 import { splitCircleNumberAndName } from '@core/monitoringImport'
-import { resolveFromDirectory } from './zoneCircleDirectory'
+import { resolveFromDirectory, entriesOf, CMC_ZONE_CIRCLES, type ZoneCircleEntry } from './zoneCircleDirectory'
 
 export interface ZoneCircleMismatch {
   rowIndex: number
@@ -49,7 +49,12 @@ const sameId = (a: string, b: string) => {
  *   they weren't auto-filling before. A conflicting row is never filled (its
  *   import is rejected wholesale by the caller).
  */
-export function enforceZoneCircle(table: ExcelTable, loginZone: string, loginCircle: string): ZoneCircleResult {
+export function enforceZoneCircle(
+  table: ExcelTable,
+  loginZone: string,
+  loginCircle: string,
+  entries: ZoneCircleEntry[] = CMC_ZONE_CIRCLES
+): ZoneCircleResult {
   const zoneHeader = table.headers.find((h) => h.trim().toLowerCase() === 'zone')
   const circleHeader = table.headers.find((h) => h.trim().toLowerCase() === 'circle')
   const nameHeader = table.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
@@ -61,8 +66,9 @@ export function enforceZoneCircle(table: ExcelTable, loginZone: string, loginCir
     const next = { ...row }
     const workName = (nameHeader ? next[nameHeader] : '') ?? ''
     const nameLower = workName.toLowerCase()
-    // Which CMC circle (and hence zone) the work name points at, if any.
-    const dir = resolveFromDirectory(workName)
+    // Which circle (and hence zone) of the selected corporation the work name
+    // points at, if any.
+    const dir = resolveFromDirectory(workName, entries)
 
     const explicitZone = zoneHeader ? (next[zoneHeader] ?? '').trim() : ''
     const explicitCircle = circleHeader ? (next[circleHeader] ?? '').trim() : ''
@@ -166,6 +172,8 @@ export function splitCircleColumn(table: ExcelTable): ExcelTable {
 }
 
 export interface LoginIdentity {
+  /** Which corporation's zone/circle directory to validate against (e.g. "CMC"). */
+  corporation?: string
   zone?: string
   circle?: string
   circleNumber?: string
@@ -185,7 +193,11 @@ export interface LoginIdentity {
 export function autofillWorksRow(row: Record<string, string>, login: LoginIdentity): Record<string, string> {
   const one: ExcelTable = { id: '', name: '', path: '', headers: Object.keys(row), rows: [row] }
   let t = splitCircleColumn(one)
-  if (login.zone && login.circle) t = enforceZoneCircle(t, login.zone, login.circle).table
+  if (login.zone && login.circle) {
+    // Fall back to CMC when no corporation is set, preserving prior behaviour.
+    const entries = login.corporation ? entriesOf(login.corporation) : CMC_ZONE_CIRCLES
+    t = enforceZoneCircle(t, login.zone, login.circle, entries).table
+  }
   t = fillCircleNumber(t, login.circleNumber)
   return t.rows[0]
 }

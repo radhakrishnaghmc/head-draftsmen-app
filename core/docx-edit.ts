@@ -19,11 +19,19 @@ function tag(el: Element | Document, name: string): Element[] {
   return Array.from(el.getElementsByTagName(name)) as unknown as Element[]
 }
 
-/** Plain text of a run element (concatenation of its <w:t> children). */
+/**
+ * Plain text of a run element: its <w:t> children, with a <w:tab/> read back as
+ * a "\t" so a tab between two placeholders survives a fill (see setRunText,
+ * which re-emits "\t" as <w:tab/>). Without this the fill consolidates the
+ * changed span into one <w:t> and the tab is lost/misplaced.
+ */
 function runText(run: Element): string {
-  return tag(run, 'w:t')
-    .map((t) => t.textContent ?? '')
-    .join('')
+  let out = ''
+  for (const node of Array.from(run.childNodes) as unknown as Element[]) {
+    if (node.nodeName === 'w:t') out += node.textContent ?? ''
+    else if (node.nodeName === 'w:tab') out += '\t'
+  }
+  return out
 }
 
 /**
@@ -34,8 +42,9 @@ function runText(run: Element): string {
 export function listParagraphs(buffer: Buffer, part: string = DOC_XML): string[] {
   const { xml } = loadDoc(buffer, part)
   return tag(xml, 'w:p').map((p) =>
-    tag(p, 'w:t')
-      .map((t) => t.textContent ?? '')
+    tag(p, 'w:r')
+      .filter((r) => tag(r, 'w:t').length > 0)
+      .map(runText)
       .join('')
   )
 }
@@ -86,19 +95,26 @@ function setRunText(run: Element, value: string): void {
   if (texts.length === 0) return
   const first = texts[0]
   for (let i = 1; i < texts.length; i++) texts[i].parentNode?.removeChild(texts[i])
-  const segments = value.split('\n')
-  first.textContent = segments[0]
-  first.setAttribute('xml:space', 'preserve')
   const doc = run.ownerDocument as unknown as Document
+  // Tokenise on newlines and tabs, keeping the separators: text -> <w:t>,
+  // "\n" -> <w:br/> (a hard line break), "\t" -> <w:tab/> (jumps to the next
+  // tab stop, so a right tab stop pushes trailing text to the line end).
+  const parts = value.split(/(\n|\t)/)
+  first.setAttribute('xml:space', 'preserve')
+  first.textContent = parts[0] ?? ''
   let anchor: Element = first
-  for (let i = 1; i < segments.length; i++) {
-    const br = doc.createElementNS(W_NS, 'w:br') as unknown as Element
-    const t = doc.createElementNS(W_NS, 'w:t') as unknown as Element
-    t.setAttribute('xml:space', 'preserve')
-    t.textContent = segments[i]
-    anchor.parentNode?.insertBefore(br, anchor.nextSibling)
-    br.parentNode?.insertBefore(t, br.nextSibling)
-    anchor = t
+  for (let i = 1; i < parts.length; i++) {
+    const tok = parts[i]
+    let node: Element
+    if (tok === '\n') node = doc.createElementNS(W_NS, 'w:br') as unknown as Element
+    else if (tok === '\t') node = doc.createElementNS(W_NS, 'w:tab') as unknown as Element
+    else {
+      node = doc.createElementNS(W_NS, 'w:t') as unknown as Element
+      node.setAttribute('xml:space', 'preserve')
+      node.textContent = tok
+    }
+    anchor.parentNode?.insertBefore(node, anchor.nextSibling)
+    anchor = node
   }
 }
 

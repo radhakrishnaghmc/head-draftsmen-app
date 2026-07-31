@@ -13,6 +13,8 @@ export interface SheetGrid {
   grid: string[][]
   /** 0-based index of the first grid row within the real sheet (Excel row = startRow + i + 1). */
   startRow: number
+  /** True when this sheet is hidden (or very hidden) in the workbook — the user never sees it in Excel. */
+  hidden?: boolean
 }
 
 const cellStr = (v: unknown): string => (v === undefined || v === null ? '' : String(v))

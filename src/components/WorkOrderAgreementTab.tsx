@@ -1,11 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { renderAsync } from 'docx-preview'
 import { api } from '../ipc'
 import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice } from '@core/intimationNotice'
 import { parseTenderEvaluation, parseAllBidders, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
-import { deriveFields, workOrderPlaceholders, agreementPlaceholders, standaloneRowFromSources } from '@core/workOrderAgreement'
+import {
+  deriveFields,
+  workOrderPlaceholders,
+  agreementPlaceholders,
+  forwardingSlipPlaceholders,
+  standaloneRowFromSources,
+  circleFromNit
+} from '@core/workOrderAgreement'
+import { corporationByName } from '../zoneCircleDirectory'
+import { type Office } from '../office'
 import { boqToScheduleA, buildBoqFromEstimate, extractWorkNameFromBoq } from '../boqTransform'
 import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
 import { extractEstimateItems, extractWorkName } from '@core/estimateExtract'
@@ -43,6 +52,36 @@ interface Props {
    * Implies standalone. Used by the Tools "Schedule A" tile.
    */
   scheduleAOnly?: boolean
+  /**
+   * Tools-workspace single-document mode: ask only for the Online Intimation +
+   * L1 selection form (no estimate/BOQ, no non-responsive upload) and show only
+   * the one requested output — the Work Order tile passes 'workOrder', the
+   * Agreement Bond tile passes 'agreement'. Implies standalone.
+   */
+  only?: DocKind
+  /**
+   * Open the estimate/BOQ picker on mount — used by the Tools "Schedule A" tile
+   * (scheduleAOnly) so its single upload starts on the tile click, with no
+   * second click.
+   */
+  autoOpen?: boolean
+  /**
+   * Schedule-A Tools tile only: told whether an estimate/BOQ has been picked
+   * yet, so the Tools host gives the panel a full-width grid row only once
+   * there's something to show.
+   */
+  onContent?: (hasContent: boolean) => void
+  /**
+   * Zone-level login (logged in with a Zone id, not a single Circle). A Zone
+   * owns every circle under it, so an uploaded L-1 for any of those circles is
+   * legitimate even when its work isn't in the currently-loaded Works List —
+   * we don't block on a "no matching row" then, and instead fill the documents
+   * from the uploaded L-1 + Intimation (Circle/CNO from the NIT), the same way
+   * the standalone Tools flow does.
+   */
+  zoneLogin?: boolean
+  /** The chosen office (Works List page) — supplies Corporation/Circle/CNO for the Forwarding Slip. */
+  office?: Office
 }
 
 function stripExt(name: string): string {
@@ -72,10 +111,11 @@ function dmyToIso(dmy: string): string {
   return `${year}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
 }
 
-type DocKind = 'workOrder' | 'agreement'
+type DocKind = 'workOrder' | 'agreement' | 'forwardingSlip'
 type Output = DocKind | 'scheduleA' | 'note'
 
 const DOC_LABEL: Record<Output, string> = {
+  forwardingSlip: 'Forwarding Slip',
   workOrder: 'Work Order',
   agreement: 'Agreement Bond',
   scheduleA: 'Schedule A',
@@ -97,16 +137,26 @@ export default function WorkOrderAgreementTab({
   tables,
   onChange,
   standalone: standaloneProp = false,
-  scheduleAOnly = false
+  scheduleAOnly = false,
+  only,
+  autoOpen = false,
+  onContent,
+  zoneLogin = false,
+  office
 }: Props) {
-  const standalone = standaloneProp || scheduleAOnly
+  const standalone = standaloneProp || scheduleAOnly || !!only
   const table = tables[0] ?? null
 
   const [workOrderB64, setWorkOrderB64] = useState<string | null>(null)
   const [agreementB64, setAgreementB64] = useState<string | null>(null)
+  const [forwardingSlipB64, setForwardingSlipB64] = useState<string | null>(null)
   const [workOrderLabels, setWorkOrderLabels] = useState<string[]>([])
   const [agreementLabels, setAgreementLabels] = useState<string[]>([])
+  const [forwardingSlipLabels, setForwardingSlipLabels] = useState<string[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
+  // Forwarding Slip fields the office hand-enters (not on the Works List / L-1).
+  const [tsNoDate, setTsNoDate] = useState('')
+  const [completionMonths, setCompletionMonths] = useState('')
 
   const [rowIndex, setRowIndex] = useState(0)
   const [notice, setNotice] = useState<IntimationNotice | null>(null)
@@ -154,12 +204,30 @@ export default function WorkOrderAgreementTab({
   const nonRespInputRef = useRef<HTMLInputElement>(null)
   const woTileRef = useRef<HTMLDivElement>(null)
   const agTileRef = useRef<HTMLDivElement>(null)
+  const fsTileRef = useRef<HTMLDivElement>(null)
   const expandedRef = useRef<HTMLDivElement>(null)
   const printScratchRef = useRef<HTMLDivElement>(null)
 
-  // Standalone (Tools) mode builds its row purely from the uploads (Circle/CNO
-  // from the NIT, work name from the L-1) instead of a Works List row.
-  const selectedRow = standalone
+  // Schedule-A-only Tools tile: open the estimate/BOQ picker on mount so the
+  // single upload starts on the tile click. Guarded against StrictMode's
+  // double-mount.
+  const autoOpened = useRef(false)
+  useEffect(() => {
+    if (autoOpen && scheduleAOnly && !autoOpened.current) {
+      autoOpened.current = true
+      void uploadBoq()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen, scheduleAOnly])
+
+  // Whether to build the documents' row purely from the uploads instead of a
+  // Works List row: always in standalone (Tools) mode, and — for a Zone login —
+  // whenever the uploaded L-1's work matched no Works List row (a work from
+  // another circle the Zone still owns). Circle/CNO then come from the NIT and
+  // the work name from the L-1, exactly as the Tools flow does.
+  const deriveFromUploads = standalone || (zoneLogin && worksRowMatched === false)
+
+  const selectedRow = deriveFromUploads
     ? notice || pdfEval
       ? standaloneRowFromSources(pdfEval ?? {}, notice ?? {})
       : null
@@ -172,16 +240,23 @@ export default function WorkOrderAgreementTab({
     let cancelled = false
     void (async () => {
       try {
-        const [woB64, agB64] = await Promise.all([api.workOrderTemplate(), api.agreementTemplate()])
-        const [woLabels, agLabels] = await Promise.all([
+        const [woB64, agB64, fsB64] = await Promise.all([
+          api.workOrderTemplate(),
+          api.agreementTemplate(),
+          api.forwardingSlipTemplate()
+        ])
+        const [woLabels, agLabels, fsLabels] = await Promise.all([
           api.findPlaceholdersInDocument(woB64),
-          api.findPlaceholdersInDocument(agB64)
+          api.findPlaceholdersInDocument(agB64),
+          api.findPlaceholdersInDocument(fsB64)
         ])
         if (cancelled) return
         setWorkOrderB64(woB64)
         setAgreementB64(agB64)
+        setForwardingSlipB64(fsB64)
         setWorkOrderLabels(woLabels)
         setAgreementLabels(agLabels)
+        setForwardingSlipLabels(fsLabels)
       } catch (e) {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
       }
@@ -198,15 +273,30 @@ export default function WorkOrderAgreementTab({
     // The user-entered agreement date wins for both documents (kept identical);
     // fall back to the LOA/selection date derived from the PDF when unset.
     const dmy = agreementDate ? isoToDmy(agreementDate) : f.agreementDate
-    return { ...f, agreementDate: dmy, workOrderDate: dmy }
-  }, [notice, pdfEval, selectedRow, agreementDate])
+    return {
+      ...f,
+      agreementDate: dmy,
+      workOrderDate: dmy,
+      // Corporation / Circle / Zone come from the chosen office (Works List page)
+      // when set, so the Forwarding Slip works for any circle/corporation.
+      circle: office?.circle || f.circle,
+      cno: office?.circleNumber || f.cno,
+      zone: office?.zone || f.zone,
+      corporation: office?.corporation ?? '',
+      corporationFullName: corporationByName(office?.corporation)?.fullName ?? '',
+      tsNoDate,
+      completionMonths
+    }
+  }, [notice, pdfEval, selectedRow, agreementDate, office, tsNoDate, completionMonths])
 
   // Opening either the Work Order or the Agreement Bond preview requires a date
   // — both documents print the same date, so prompt for it when none has been
   // set yet (seeding the picker with the LOA date if we have it) and remember
   // which document the user was opening so we return to it once the date's in.
   function openDoc(kind: DocKind) {
-    if (!agreementDate) {
+    // The Forwarding Slip is hand-dated (blank Date line), so it doesn't need
+    // the shared agreement date — only the Work Order / Agreement do.
+    if ((kind === 'workOrder' || kind === 'agreement') && !agreementDate) {
       setPendingDoc(kind)
       setPromptDate(dmyToIso(fields.agreementDate))
       setDatePromptOpen(true)
@@ -309,10 +399,16 @@ export default function WorkOrderAgreementTab({
   }
 
   async function fillDoc(kind: DocKind): Promise<string> {
-    const b64 = kind === 'workOrder' ? workOrderB64 : agreementB64
-    const labels = kind === 'workOrder' ? workOrderLabels : agreementLabels
+    const b64 = kind === 'workOrder' ? workOrderB64 : kind === 'agreement' ? agreementB64 : forwardingSlipB64
+    const labels =
+      kind === 'workOrder' ? workOrderLabels : kind === 'agreement' ? agreementLabels : forwardingSlipLabels
     if (!b64) throw new Error('Format not loaded yet.')
-    const values = kind === 'workOrder' ? workOrderPlaceholders(fields) : agreementPlaceholders(fields)
+    const values =
+      kind === 'workOrder'
+        ? workOrderPlaceholders(fields)
+        : kind === 'agreement'
+          ? agreementPlaceholders(fields)
+          : forwardingSlipPlaceholders(fields)
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
     return api.fillPlaceholdersInDocument(b64, resolved, values)
   }
@@ -340,30 +436,50 @@ export default function WorkOrderAgreementTab({
   // (and everything the documents fill from it — name of work, Circle, CNO,
   // estimate…) belongs to a different work. Gate the tiles until the work is
   // added to the Works List.
-  // Tools mode isn't tied to the Works List, so a "no matching row" never gates.
-  const workRowMismatch = !standalone && worksRowMatched === false
+  // Tools mode isn't tied to the Works List, so a "no matching row" never gates;
+  // nor does a Zone login — it owns every circle, so an L-1 from another circle
+  // is valid and we simply fill from the uploads (see deriveFromUploads).
+  const workRowMismatch = !standalone && !zoneLogin && worksRowMatched === false
+
+  // Guard: the uploaded L-1 must belong to the office's own Circle. Its Circle
+  // is read from the NIT No ("…/EE/Gajularamaram Circle-57/…"); if that doesn't
+  // match the Circle chosen on the Works List page, an L-1 from another circle
+  // would fuzzy-match a row here and issue documents for the wrong work.
+  const l1Circle = useMemo(
+    () => circleFromNit(pdfEval?.noticeNo || notice?.nitNo || '').circle,
+    [pdfEval, notice]
+  )
+  const officeCircle = office?.circle ?? ''
+  const sameCircleId = (a: string, b: string) => {
+    const na = a.trim().toLowerCase()
+    const nb = b.trim().toLowerCase()
+    return !!na && !!nb && (na === nb || na.includes(nb) || nb.includes(na))
+  }
+  const circleMismatch = !standalone && !!officeCircle && !!l1Circle && !sameCircleId(l1Circle, officeCircle)
 
   // Only build the documents once BOTH the Online Intimation and the L1
-  // selection form are uploaded, they belong to the same work, and the L1's
-  // work is actually in the Works List — no tiles are shown before that (same
-  // gate as Give Intimation).
-  const bothUploaded = !!notice && !!pdfEval && !workMismatch && !workRowMismatch
-  const templatesReady = !!workOrderB64 && !!agreementB64
+  // selection form are uploaded, they belong to the same work, the L1's work is
+  // actually in the Works List, and it's this office's own Circle — no tiles are
+  // shown before that.
+  const bothUploaded = !!notice && !!pdfEval && !workMismatch && !workRowMismatch && !circleMismatch
+  const templatesReady = !!workOrderB64 && !!agreementB64 && !!forwardingSlipB64
   const docsReady = templatesReady && bothUploaded
 
-  // Live thumbnails in the two document tiles, refreshed whenever the filled
-  // values change.
+  // Live thumbnails in the document tiles, refreshed whenever the filled values
+  // change. The Forwarding Slip shows only on the main tab (not the Tools-mode
+  // single-document panels).
   useEffect(() => {
     if (!docsReady) return
     if (woTileRef.current) void renderDocInto('workOrder', woTileRef.current).catch(() => {})
     if (agTileRef.current) void renderDocInto('agreement', agTileRef.current).catch(() => {})
+    if (fsTileRef.current) void renderDocInto('forwardingSlip', fsTileRef.current).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docsReady, fields])
 
   // The full-size preview inside the expanded modal (documents only — Schedule
   // A renders its table as JSX below).
   useEffect(() => {
-    if (expanded !== 'workOrder' && expanded !== 'agreement') return
+    if (expanded !== 'workOrder' && expanded !== 'agreement' && expanded !== 'forwardingSlip') return
     const container = expandedRef.current
     if (!container) return
     setActionError(null)
@@ -428,9 +544,13 @@ export default function WorkOrderAgreementTab({
       seed.l1PctText = l1.pct
       seed.l1Tcv = l1.tcv
     }
+    // The Intimation date is the L1 sheet's server date (its bottom-right
+    // "Server Time: …"), so prefer it over the (often blank here) Works List
+    // Intimation Date column.
+    if (pdfEval?.serverDate) seed.intimationDate = pdfEval.serverDate
     setNoteData(seed)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowIndex, table, allBidders])
+  }, [rowIndex, table, allBidders, pdfEval])
 
   const notePreviewHtml = useMemo(() => (noteData ? buildNoteSubmittedHtml(noteData) : ''), [noteData])
   // Same gate as the Work Order / Agreement tiles: don't build the Note
@@ -572,6 +692,12 @@ export default function WorkOrderAgreementTab({
     [scheduleA, scheduleAMeta]
   )
 
+  // Schedule-A Tools tile: report whether an estimate/BOQ has been picked yet —
+  // before paint, so the panel gets its full-width row without a one-frame flash.
+  useLayoutEffect(() => {
+    if (scheduleAOnly) onContent?.(!!boq || !!scheduleAPreview || !!scheduleAError)
+  }, [scheduleAOnly, boq, scheduleAPreview, scheduleAError, onContent])
+
   async function downloadScheduleA() {
     if (!scheduleA) return
     setScheduleABusy(true)
@@ -616,32 +742,43 @@ export default function WorkOrderAgreementTab({
 
   // Tools mode has no Works List by design, so the "add works first" gate and
   // the Schedule-A-disabled state don't apply there.
-  const noWorks = !standalone && (!table || table.rows.length === 0)
+  // A Zone login can build straight from the uploaded L-1 + Intimation, so an
+  // empty (or other-circle) Works List doesn't block it the way it does a
+  // Circle login, whose documents must fill from a Works List row.
+  const noWorks = !standalone && !zoneLogin && (!table || table.rows.length === 0)
   const anyOutput = docsReady || !!scheduleAPreview || noteReady
 
+  // Schedule-A Tools tile (scheduleAOnly + autoOpen): show nothing until an
+  // estimate/BOQ is actually picked (or reading it fails) — the mount effect
+  // fires the folder, so clicking the tile opens it directly with no
+  // placeholder panel.
+  if (autoOpen && scheduleAOnly && !boq && !scheduleAPreview && !scheduleAError) return null
+
   return (
-    <div className="card">
+    <div className={only ? 'wo-compact' : 'card'}>
       <div ref={printScratchRef} style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }} aria-hidden />
 
-      <div className="empty">
-        <IconClipboard />
-        <p>
-          {scheduleAOnly ? (
-            <>
-              Upload the technical-sanctioned <strong>estimate / BOQ</strong> to generate its Schedule&nbsp;A. The
-              output appears below as a tile — click it to preview full size and print / save it.
-            </>
-          ) : (
-            <>
-              Upload the <strong>Online Intimation</strong> and the <strong>L1 selection form</strong> to build the Work
-              Order and Agreement Bond.{!standalone && " The L1 form also updates that work's row in the Works List."}{' '}
-              Upload the technical-sanctioned <strong>estimate / BOQ</strong> to also generate this work's
-              Schedule&nbsp;A. Each output appears below as a tile — click one to preview it full size and print / save
-              it.
-            </>
-          )}
-        </p>
-        <div className="boq-actions boq-actions--grid">
+      <div className={only ? 'wo-compact-body' : 'empty'}>
+        {!only && <IconClipboard />}
+        {!only && (
+          <p>
+            {scheduleAOnly ? (
+              <>
+                Upload the technical-sanctioned <strong>estimate / BOQ</strong> to generate its Schedule&nbsp;A. The
+                output appears below as a tile — click it to preview full size and print / save it.
+              </>
+            ) : (
+              <>
+                Upload the <strong>Online Intimation</strong> and the <strong>L1 selection form</strong> to build the
+                Work Order and Agreement Bond.{!standalone && " The L1 form also updates that work's row in the Works List."}{' '}
+                Upload the technical-sanctioned <strong>estimate / BOQ</strong> to also generate this work's
+                Schedule&nbsp;A. Each output appears below as a tile — click one to preview it full size and print / save
+                it.
+              </>
+            )}
+          </p>
+        )}
+        <div className={only ? 'wo-compact-actions' : 'boq-actions boq-actions--grid'}>
           {!scheduleAOnly && (
             <button className="primary upload-btn" onClick={() => noticeInputRef.current?.click()} disabled={!templatesReady}>
               <IconFolder /> {notice ? 'Change Online Intimation' : 'Upload Online Intimation'}
@@ -652,10 +789,12 @@ export default function WorkOrderAgreementTab({
               <IconFolder /> {busy === 'pdf' ? 'Reading PDF…' : pdfEval ? 'Change L1 selection form' : 'Upload L1 selection form'}
             </button>
           )}
-          <button className="primary upload-btn" onClick={uploadBoq} disabled={noWorks}>
-            <IconTable /> {boq ? 'Change estimate / BOQ' : 'Upload estimate/BOQ to get schedule A'}
-          </button>
-          {!scheduleAOnly && (
+          {!only && (
+            <button className="primary upload-btn" onClick={uploadBoq} disabled={noWorks}>
+              <IconTable /> {boq ? 'Change estimate / BOQ' : 'Upload estimate/BOQ to get schedule A'}
+            </button>
+          )}
+          {!scheduleAOnly && !only && (
             <button className="primary upload-btn" onClick={() => nonRespInputRef.current?.click()} disabled={!pdfEval}>
               <IconFolder /> Upload Non-responsive form
             </button>
@@ -694,7 +833,7 @@ export default function WorkOrderAgreementTab({
             }}
           />
         </div>
-        {!scheduleAOnly && (
+        {!scheduleAOnly && !only && (
           <div className="wo-date-row">
             <label className="wo-date-field">
               <span>Agreement date</span>
@@ -703,9 +842,32 @@ export default function WorkOrderAgreementTab({
             <span className="estimate-hint">Same date fills the Work Order and the Agreement Bond.</span>
           </div>
         )}
-        {noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
-        {pdfName && <p className="estimate-hint">Tender details read from {pdfName}</p>}
-        {pdfStatus && (
+        {!scheduleAOnly && !only && (
+          <div className="wo-date-row">
+            <label className="wo-date-field">
+              <span>Technical Sanction No &amp; Date</span>
+              <input
+                type="text"
+                placeholder="11/26-27, Dt: 29.05.2026"
+                value={tsNoDate}
+                onChange={(e) => setTsNoDate(e.target.value)}
+              />
+            </label>
+            <label className="wo-date-field">
+              <span>Period of completion (months)</span>
+              <input
+                type="text"
+                placeholder="02"
+                value={completionMonths}
+                onChange={(e) => setCompletionMonths(e.target.value)}
+              />
+            </label>
+            <span className="estimate-hint">For the Forwarding Slip.</span>
+          </div>
+        )}
+        {!only && noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
+        {!only && pdfName && <p className="estimate-hint">Tender details read from {pdfName}</p>}
+        {!only && pdfStatus && (
           <div className="notice ok">
             <IconCheck /> {pdfStatus}
           </div>
@@ -727,7 +889,14 @@ export default function WorkOrderAgreementTab({
           <IconWarn /> {sameWorkMismatchMessage(workMatch)}
         </div>
       )}
-      {workRowMismatch && pdfEval && (
+      {circleMismatch && (
+        <div className="notice error">
+          <IconWarn /> The uploaded L1 / Intimation is for <strong>{l1Circle}</strong> circle, but your selected office is{' '}
+          <strong>{officeCircle}</strong> circle. Documents are blocked — select the <strong>{l1Circle}</strong> office on
+          the Works List page, or upload this circle’s L1.
+        </div>
+      )}
+      {workRowMismatch && !circleMismatch && pdfEval && (
         <div className="notice error">
           <IconWarn /> The uploaded L1 selection form is for “{pdfEval.nameOfWork}”, which doesn’t match any work in your
           Works List. Add that work to the Works List first — otherwise the Work Order and Agreement Bond would fill the
@@ -744,16 +913,16 @@ export default function WorkOrderAgreementTab({
         <div className="notice">Add works to the Works List first — the outputs are filled from a work's row.</div>
       ) : anyOutput ? (
         <div className="wo-tiles">
-          {docsReady && (
-            <button className="wo-tile" onClick={() => openDoc('workOrder')}>
+          {docsReady && !only && (
+            <button className="wo-tile" onClick={() => openDoc('forwardingSlip')}>
               <div className="wo-tile-preview">
-                <div ref={woTileRef} className="wo-tile-doc" />
+                <div ref={fsTileRef} className="wo-tile-doc" />
                 <span className="wo-tile-open">Click to preview</span>
               </div>
-              <div className="wo-tile-foot">{DOC_LABEL.workOrder}</div>
+              <div className="wo-tile-foot">{DOC_LABEL.forwardingSlip}</div>
             </button>
           )}
-          {docsReady && (
+          {docsReady && (!only || only === 'agreement') && (
             <button className="wo-tile" onClick={() => openDoc('agreement')}>
               <div className="wo-tile-preview">
                 <div ref={agTileRef} className="wo-tile-doc" />
@@ -762,16 +931,7 @@ export default function WorkOrderAgreementTab({
               <div className="wo-tile-foot">{DOC_LABEL.agreement}</div>
             </button>
           )}
-          {noteReady && (
-            <button className="wo-tile" onClick={() => setExpanded('note')}>
-              <div className="wo-tile-preview">
-                <div className="wo-tile-doc ns-tile-doc" dangerouslySetInnerHTML={{ __html: notePreviewHtml }} />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.note}</div>
-            </button>
-          )}
-          {scheduleAPreview && (
+          {scheduleAPreview && !only && (
             <button className="wo-tile" onClick={() => setExpanded('scheduleA')}>
               <div className="wo-tile-preview sched">
                 <table className="sa-preview-table">
@@ -796,6 +956,24 @@ export default function WorkOrderAgreementTab({
                 <span className="wo-tile-open">Click to preview</span>
               </div>
               <div className="wo-tile-foot">{DOC_LABEL.scheduleA}</div>
+            </button>
+          )}
+          {docsReady && (!only || only === 'workOrder') && (
+            <button className="wo-tile" onClick={() => openDoc('workOrder')}>
+              <div className="wo-tile-preview">
+                <div ref={woTileRef} className="wo-tile-doc" />
+                <span className="wo-tile-open">Click to preview</span>
+              </div>
+              <div className="wo-tile-foot">{DOC_LABEL.workOrder}</div>
+            </button>
+          )}
+          {noteReady && !only && (
+            <button className="wo-tile" onClick={() => setExpanded('note')}>
+              <div className="wo-tile-preview">
+                <div className="wo-tile-doc ns-tile-doc" dangerouslySetInnerHTML={{ __html: notePreviewHtml }} />
+                <span className="wo-tile-open">Click to preview</span>
+              </div>
+              <div className="wo-tile-foot">{DOC_LABEL.note}</div>
             </button>
           )}
         </div>
@@ -846,7 +1024,10 @@ export default function WorkOrderAgreementTab({
             <div className="wo-modal-head">
               <span className="wo-modal-title">
                 {DOC_LABEL[expanded]}
-                {(expanded === 'workOrder' || expanded === 'agreement') && expandedPages > 1 ? ` — ${expandedPages} pages` : ''}
+                {(expanded === 'workOrder' || expanded === 'agreement' || expanded === 'forwardingSlip') &&
+                expandedPages > 1
+                  ? ` — ${expandedPages} pages`
+                  : ''}
               </span>
               <button className="wo-modal-close" onClick={() => setExpanded(null)} title="Close" aria-label="Close">
                 ×

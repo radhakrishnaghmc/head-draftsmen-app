@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../ipc'
-import { IconTable, IconFolder, IconWarn, IconOpen, IconImage, IconClipboard } from './Icons'
+import { IconTable, IconFolder, IconWarn, IconOpen, IconImage, IconClipboard, IconBolt } from './Icons'
 import UploadPhotosTab from './UploadPhotosTab'
 import WorkOrderAgreementTab from './WorkOrderAgreementTab'
+import ElectricalEstimateTab from './ElectricalEstimateTab'
 import type { ExcelTable } from '@core/types'
 
 interface SplitState {
@@ -10,6 +11,16 @@ interface SplitState {
   result: { dir: string; files: string[] } | null
   error: string | null
 }
+
+interface SplitProgress {
+  done: number
+  total: number
+  sheet: string
+}
+
+// The tool tiles whose panel opens beneath them (the Excel Separator runs a
+// one-shot dialog instead of opening a panel, so it isn't one of these).
+type Panel = 'photos' | 'workOrder' | 'agreement' | 'scheduleA' | 'electrical'
 
 interface Props {
   /** The Works List database — passed through to the photo-estimate tool for ECV write-back and Circle/Agency lookups. */
@@ -25,28 +36,50 @@ interface Props {
  */
 export default function ToolsTab({ tables, onChange }: Props) {
   const [split, setSplit] = useState<SplitState>({ busy: false, result: null, error: null })
-  // The photo-estimate tool opens as a panel below the tiles when its tile is
-  // clicked — the same tile look as the Excel Separator, but it reveals a
-  // full workflow (upload → OCR → review → downloads) rather than a one-shot dialog.
-  const [showPhotos, setShowPhotos] = useState(false)
-  // Standalone document generators — Work Order, Agreement Bond and Schedule A
-  // built ONLY from uploaded files, with no Works List link and no Zone/Circle
-  // checks. All three live in one panel (one L-1 + Intimation upload drives the
-  // Work Order and Agreement; an estimate upload drives the Schedule A), so the
-  // three tiles are labelled entry points that reveal the same panel.
-  const [showDocs, setShowDocs] = useState(false)
-  // The Schedule A tile opens its own estimate-only panel (no L1/Intimation).
-  const [showScheduleA, setShowScheduleA] = useState(false)
+  // Live per-sheet progress pushed from the main process while a split runs.
+  const [progress, setProgress] = useState<SplitProgress | null>(null)
+  // Which tool's panel is expanded, if any. One at a time (accordion): opening a
+  // tile reveals its panel directly beneath that tile and closes any other, so
+  // the workspace stays focused on the one tool the user picked. Each tile is
+  // its own focused entry point — Work Order and Agreement Bond ask only for the
+  // L-1 + Intimation and each show only their own document.
+  const [open, setOpen] = useState<Panel | null>(null)
+  // Whether the currently-open single-upload tool has picked a file yet. Until
+  // it has, its panel must take up no grid row (else the empty full-width row
+  // would push the remaining tiles onto the next line — see the wrappers below).
+  const [panelFilled, setPanelFilled] = useState(false)
+
+  // Open (or toggle shut) a tool's panel. Also clears the Excel Separator's
+  // "Saved N sheets…" result so that notice doesn't linger once the user has
+  // moved on to another tile, and resets the single-upload "has content" flag.
+  function toggle(panel: Panel) {
+    setOpen((cur) => (cur === panel ? null : panel))
+    setPanelFilled(false)
+    setSplit({ busy: false, result: null, error: null })
+    setProgress(null)
+  }
+
+  // Subscribe once to the main process's per-sheet progress events; the split
+  // itself runs in the main process, so the whole UI (this and every other tab)
+  // stays usable while it works.
+  useEffect(() => api.onSplitProgress(setProgress), [])
 
   async function runSeparator() {
     if (split.busy) return
+    // Close any open tool panel (e.g. Work Order / Agreement) — picking the
+    // separator is a switch to a different tool, so its panel shouldn't linger.
+    setOpen(null)
+    setPanelFilled(false)
     setSplit({ busy: true, result: null, error: null })
+    setProgress(null)
     try {
       // null when the user cancels either dialog — leave the tile idle.
       const result = await api.splitExcelSheets()
       setSplit({ busy: false, result, error: null })
     } catch (e) {
       setSplit({ busy: false, result: null, error: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setProgress(null)
     }
   }
 
@@ -57,75 +90,168 @@ export default function ToolsTab({ tables, onChange }: Props) {
           className="doc-tile-card tone-teal tool-card"
           onClick={runSeparator}
           disabled={split.busy}
-          title="Split a multi-sheet workbook into one file per sheet"
         >
           <span className="tool-card-ic">
             <IconTable />
           </span>
           <span className="doc-tile-card-name">Excel Sheet Separator</span>
           <span className="doc-tile-card-meta">
-            {split.busy ? 'Working…' : 'One file per sheet, named after each tab'}
+            {split.busy
+              ? progress
+                ? `Splitting ${progress.done} / ${progress.total} sheets…`
+                : 'Reading workbook…'
+              : 'One file per sheet, named after each tab'}
           </span>
+          <span className="tool-card-cta">
+            <IconFolder /> Choose workbook
+          </span>
+          {/* Progress lives inside the tile itself — a thin bar pinned to the
+              bottom edge while a split runs — so nothing pushes the other tiles
+              around. The per-sheet count shows in the meta line above. */}
+          {split.busy && (
+            <span className="tool-card-progress" aria-hidden>
+              <span
+                className="tool-card-progress-bar"
+                style={{ width: progress && progress.total > 0 ? `${(progress.done / progress.total) * 100}%` : '8%' }}
+              />
+            </span>
+          )}
         </button>
 
         <button
-          className={`doc-tile-card tone-amber tool-card ${showPhotos ? 'on' : ''}`}
-          onClick={() => setShowPhotos((v) => !v)}
-          title="Read an estimate from photos or a scanned PDF"
-          aria-expanded={showPhotos}
+          className={`doc-tile-card tone-amber tool-card ${open === 'photos' ? 'on' : ''}`}
+          onClick={() => toggle('photos')}
+          aria-expanded={open === 'photos'}
         >
           <span className="tool-card-ic">
             <IconImage />
           </span>
           <span className="doc-tile-card-name">Estimate from Photos / PDF</span>
           <span className="doc-tile-card-meta">
-            {showPhotos ? 'Open below — click to hide' : 'Photos / scanned PDF → BOQ, Schedule A, Deviation, Material'}
+            {open === 'photos' ? 'Open below — click to hide' : 'Photos / scanned PDF → BOQ, Schedule A, Deviation, Material'}
+          </span>
+          <span className="tool-card-cta">
+            <IconImage /> Upload photos / PDF
           </span>
         </button>
+        {open === 'photos' && (
+          <div
+            className={panelFilled ? 'tool-panel-row workspace-section' : ''}
+            style={panelFilled ? undefined : { display: 'contents' }}
+          >
+            <UploadPhotosTab tables={tables} onChange={onChange} autoOpen onContent={setPanelFilled} />
+          </div>
+        )}
 
-        {(['Work Order', 'Agreement Bond'] as const).map((name) => (
+        <div className="tool-cell">
           <button
-            key={name}
-            className={`doc-tile-card tone-sky tool-card ${showDocs ? 'on' : ''}`}
-            onClick={() => setShowDocs((v) => !v)}
-            title="Generate from L1 + Intimation only — no Works List, no Zone/Circle check"
-            aria-expanded={showDocs}
+            className={`doc-tile-card tone-sky tool-card ${open === 'workOrder' ? 'on' : ''}`}
+            onClick={() => toggle('workOrder')}
+            aria-expanded={open === 'workOrder'}
           >
             <span className="tool-card-ic">
               <IconClipboard />
             </span>
-            <span className="doc-tile-card-name">{name}</span>
+            <span className="doc-tile-card-name">Work Order</span>
             <span className="doc-tile-card-meta">
-              {showDocs ? 'Open below — click to hide' : 'From L1 + Intimation — any circle/zone'}
+              {open === 'workOrder' ? 'Open below — click to hide' : 'From L1 + Intimation — any circle/zone'}
+            </span>
+            <span className="tool-card-cta">
+              <IconFolder /> Upload L1 + Intimation
             </span>
           </button>
-        ))}
+          {open === 'workOrder' && (
+            <div className="tool-inline-panel">
+              <WorkOrderAgreementTab standalone only="workOrder" tables={[]} onChange={() => {}} />
+            </div>
+          )}
+        </div>
+
+        <div className="tool-cell">
+          <button
+            className={`doc-tile-card tone-sky tool-card ${open === 'agreement' ? 'on' : ''}`}
+            onClick={() => toggle('agreement')}
+            aria-expanded={open === 'agreement'}
+          >
+            <span className="tool-card-ic">
+              <IconClipboard />
+            </span>
+            <span className="doc-tile-card-name">Agreement Bond</span>
+            <span className="doc-tile-card-meta">
+              {open === 'agreement' ? 'Open below — click to hide' : 'From L1 + Intimation — any circle/zone'}
+            </span>
+            <span className="tool-card-cta">
+              <IconFolder /> Upload L1 + Intimation
+            </span>
+          </button>
+          {open === 'agreement' && (
+            <div className="tool-inline-panel">
+              <WorkOrderAgreementTab standalone only="agreement" tables={[]} onChange={() => {}} />
+            </div>
+          )}
+        </div>
 
         <button
-          className={`doc-tile-card tone-sky tool-card ${showScheduleA ? 'on' : ''}`}
-          onClick={() => setShowScheduleA((v) => !v)}
-          title="Generate a Schedule A from an estimate / BOQ only — no Works List"
-          aria-expanded={showScheduleA}
+          className={`doc-tile-card tone-sky tool-card ${open === 'scheduleA' ? 'on' : ''}`}
+          onClick={() => toggle('scheduleA')}
+          aria-expanded={open === 'scheduleA'}
         >
           <span className="tool-card-ic">
             <IconTable />
           </span>
           <span className="doc-tile-card-name">Schedule A</span>
           <span className="doc-tile-card-meta">
-            {showScheduleA ? 'Open below — click to hide' : 'From an uploaded estimate / BOQ'}
+            {open === 'scheduleA' ? 'Open below — click to hide' : 'From an uploaded estimate / BOQ'}
+          </span>
+          <span className="tool-card-cta">
+            <IconTable /> Upload estimate / BOQ
           </span>
         </button>
+        {open === 'scheduleA' && (
+          <div
+            className={panelFilled ? 'tool-panel-row workspace-section' : ''}
+            style={panelFilled ? undefined : { display: 'contents' }}
+          >
+            <WorkOrderAgreementTab scheduleAOnly autoOpen onContent={setPanelFilled} tables={[]} onChange={() => {}} />
+          </div>
+        )}
+
+        <button
+          className={`doc-tile-card tone-green tool-card ${open === 'electrical' ? 'on' : ''}`}
+          onClick={() => toggle('electrical')}
+          aria-expanded={open === 'electrical'}
+        >
+          <span className="tool-card-ic">
+            <IconBolt />
+          </span>
+          <span className="doc-tile-card-name">Electrical Estimate</span>
+          <span className="doc-tile-card-meta">
+            {open === 'electrical' ? 'Open below — click to hide' : 'Electrical estimate → BOQ + Schedule A'}
+          </span>
+          <span className="tool-card-cta">
+            <IconBolt /> Upload electrical estimate
+          </span>
+        </button>
+        {open === 'electrical' && (
+          <div
+            className={panelFilled ? 'tool-panel-row workspace-section' : ''}
+            style={panelFilled ? undefined : { display: 'contents' }}
+          >
+            <ElectricalEstimateTab autoOpen onContent={setPanelFilled} />
+          </div>
+        )}
       </div>
 
+      {/* Separator outcome sits below the whole grid, so it never pushes the
+          tiles around. Progress itself shows in the tile (above). */}
       {split.error && (
-        <div className="notice error">
+        <div className="notice error tool-outcome">
           <IconWarn />
           {split.error}
         </div>
       )}
-
       {split.result && (
-        <div className="notice ok tool-result">
+        <div className="notice ok tool-result tool-outcome">
           <span>
             <IconFolder /> Saved {split.result.files.length} sheet
             {split.result.files.length === 1 ? '' : 's'} to {split.result.dir}
@@ -133,37 +259,6 @@ export default function ToolsTab({ tables, onChange }: Props) {
           <button className="ghost" onClick={() => api.openPath(split.result!.dir)}>
             <IconOpen /> Open folder
           </button>
-        </div>
-      )}
-
-      {showPhotos && (
-        <div className="workspace-section">
-          <div className="workspace-section-hint">
-            Read an estimate from photos or a scanned PDF (OCR'd, then reviewed before downloading) — its BOQ, Schedule
-            A, Deviation, and Material Quantity.
-          </div>
-          <UploadPhotosTab tables={tables} onChange={onChange} />
-        </div>
-      )}
-
-      {showDocs && (
-        <div className="workspace-section">
-          <div className="workspace-section-hint">
-            Standalone Work Order & Agreement Bond — built only from the uploaded <strong>L1 selection form</strong> and{' '}
-            <strong>Online Intimation</strong>, for any circle/zone. Nothing is read from or written to the Works List,
-            and no Zone/Circle check is applied.
-          </div>
-          <WorkOrderAgreementTab standalone tables={[]} onChange={() => {}} />
-        </div>
-      )}
-
-      {showScheduleA && (
-        <div className="workspace-section">
-          <div className="workspace-section-hint">
-            Standalone Schedule A — built only from an uploaded <strong>estimate / BOQ</strong>, for any circle/zone. No
-            L1 or Intimation needed, and nothing is read from or written to the Works List.
-          </div>
-          <WorkOrderAgreementTab scheduleAOnly tables={[]} onChange={() => {}} />
         </div>
       )}
     </div>

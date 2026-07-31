@@ -210,6 +210,39 @@ describe('extractEstimateItems', () => {
     ])
   })
 
+  it('correctHeaderTypos fixes distinctive column-word typos but leaves Rate/Date/short headers alone', async () => {
+    const { correctHeaderTypos } = await import('../core/estimateExtract')
+    // Quantity family (substitution + transposition).
+    expect(correctHeaderTypos('Qantity')).toBe('quantity')
+    expect(correctHeaderTypos('Quntity')).toBe('quantity')
+    expect(correctHeaderTypos('Qauntity')).toBe('quantity') // transposition
+    expect(correctHeaderTypos('Total Qantity')).toBe('Total quantity') // only the word fixed
+    // Amount / Unit.
+    expect(correctHeaderTypos('Amout')).toBe('amount')
+    expect(correctHeaderTypos('Uint')).toBe('unit') // transposition
+    expect(correctHeaderTypos('Units')).toBe('unit')
+    // Left alone — no false positives.
+    expect(correctHeaderTypos('Date')).toBe('Date') // one edit from "rate", must NOT become rate
+    expect(correctHeaderTypos('Rate Rs.')).toBe('Rate Rs.')
+    expect(correctHeaderTypos('No.')).toBe('No.')
+    expect(correctHeaderTypos('L')).toBe('L')
+  })
+
+  it('resolves a mis-spelled "Qantity" quantity header (real footpath estimate)', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    const header = ['Sl. No.', 'Description of Work', 'No.', 'L', 'B', 'D', 'Qantity', 'Rate', 'Unit', 'Amount']
+    const grid = [
+      header,
+      ['1', 'Earth work excavation', '', '', '', '', '111.78', '350.28', 'cum', '39154'],
+      ['2', 'Supply of precast CC blocks', '', '', '', '', '2070', '200', 'each', '414000']
+    ]
+    const items = extractEstimateItems(grid, 0)
+    expect(items.map((i) => ({ q: i.quantity, r: i.rate, u: i.unit }))).toEqual([
+      { q: '111.78', r: '350.28', u: 'cum' },
+      { q: '2070', r: '200', u: 'each' }
+    ])
+  })
+
   it('resolves the unit column whether it is headed Unit, UOM, or Per', async () => {
     const { extractEstimateItems } = await import('../core/estimateExtract')
     for (const unitHeader of ['Unit', 'Units', 'UOM']) {

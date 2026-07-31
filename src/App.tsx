@@ -12,11 +12,12 @@ import {
 } from './worksSchema'
 import { syncWorksListFromTenderPortal } from './worksListTenderSync'
 import { autofillWorksRow, enforceZoneCircle, fillCircleNumber, splitCircleColumn } from './zoneCircleCheck'
+import { entriesOf } from './zoneCircleDirectory'
+import { type Office, officeKey } from './office'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
-import { findCircleSheet, mergeMonitoringRows } from '@core/monitoringImport'
-import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
 import { mergeTables } from '@core/merge'
 import Sidebar, { type TabKey } from './components/Sidebar'
+import OfficeSelector from './components/OfficeSelector'
 import ExcelInline from './components/ExcelInline'
 import CollisionPanel from './components/CollisionPanel'
 import SearchTender from './components/SearchTender'
@@ -27,7 +28,6 @@ import UpdateBanner from './components/UpdateBanner'
 import TenderNoticeButton from './components/TenderNoticeButton'
 import BidDocumentsPanel from './components/BidDocumentsPanel'
 import GoogleLinkImport from './components/GoogleLinkImport'
-import MonitoringLinkImport, { type MonitoringMergeSummary } from './components/MonitoringLinkImport'
 import EstimateWorkspaceTab from './components/EstimateWorkspaceTab'
 import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
 import GiveIntimationTab from './components/GiveIntimationTab'
@@ -51,7 +51,8 @@ import {
   IconCheck,
   IconBell,
   IconDownload,
-  IconTools
+  IconTools,
+  IconWarn
 } from './components/Icons'
 import type {
   ExcelTable,
@@ -98,14 +99,21 @@ function assignMissingSerialNos(items: MBScrutinyItem[]): MBScrutinyItem[] {
 
 interface Props {
   onLogout: () => void
-  /** The logged-in Head Draftsman's own Zone/Circle, from the login credentials sheet — shown in the sidebar. */
-  loginZone?: string
-  loginCircle?: string
-  /** Only present for a Circle-level login (not a Zone-level one, which spans many circles and has no single number). */
-  loginCircleNumber?: string
+  /** The Head Draftsman's chosen office (Corporation/Zone/Circle), selected in the sidebar — drives document prep and Works List validation. */
+  office: Office
+  onOfficeChange: (office: Office) => void
 }
 
-export default function App({ onLogout, loginZone, loginCircle, loginCircleNumber }: Props) {
+export default function App({ onLogout, office, onOfficeChange }: Props) {
+  // The office identity drives every Zone/Circle behaviour below. Kept as local
+  // aliases so the rest of the app reads the same as when these came from the
+  // login (Circle is optional — a zone-level Head Draftsman picks just a Zone).
+  const loginCorporation = office.corporation
+  const loginZone = office.zone
+  const loginCircle = office.circle
+  const loginCircleNumber = office.circleNumber
+  const officeEntries = entriesOf(loginCorporation)
+
   const [tab, setTab] = useState<TabKey>('dashboard')
   const [calendar, setCalendar] = useState<CalendarData | null>(null)
 
@@ -117,6 +125,16 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
   const [lastGoogleLink, setLastGoogleLink] = useState<string | null>(null)
   const [refreshingWorks, setRefreshingWorks] = useState(false)
   const [refreshError, setRefreshError] = useState<string | null>(null)
+  // Set when the office (Zone/Circle) was just changed — each circle has its own
+  // Works List, so we prompt the user to import that circle's database link. The
+  // stored label is the new office's Circle (or Zone) shown in the notice.
+  const [officeImportPrompt, setOfficeImportPrompt] = useState<string | null>(null)
+  // Works List link remembered per office (key: officeKey) — synced, so a
+  // circle's database reloads on return and follows the user across systems.
+  const [worksListLinks, setWorksListLinks] = useState<Record<string, string>>({})
+  // A remembered link queued to auto-import once the office prop has updated to
+  // the newly-selected office (so the import validates against the new office).
+  const [pendingOfficeImport, setPendingOfficeImport] = useState<string | null>(null)
   // Progress/outcome of the tender-portal sync that follows the Google-link
   // refresh — see refreshWorksList and src/worksListTenderSync.ts.
   const [tenderSyncStatus, setTenderSyncStatus] = useState<string | null>(null)
@@ -191,7 +209,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
           // on disk too.
           const first = loadedTables[0] ? splitCircleColumn(loadedTables[0]) : undefined
           if (loginZone && loginCircle && first) {
-            const { table: checked, mismatches } = enforceZoneCircle(first, loginZone, loginCircle)
+            const { table: checked, mismatches } = enforceZoneCircle(first, loginZone, loginCircle, officeEntries)
             if (mismatches.length > 0) {
               const m = mismatches[0]
               withheldTablesRef.current = loadedTables
@@ -206,6 +224,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
           setTodos(s.todos ?? [])
           setMbScrutiny(assignMissingSerialNos((s.mbScrutiny ?? []).map(migrateMbScrutinyItem)))
           setLastGoogleLink(s.lastGoogleLink ?? null)
+          setWorksListLinks(s.worksListLinks ?? {})
           setTenderReminders((s.tenderReminders ?? []).map(migrateTenderReminder))
           setCreatedDocuments(await bakeLoginPlaceholders(s.createdDocuments ?? []))
           setBidDocumentBatches(s.bidDocumentBatches ?? [])
@@ -240,6 +259,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
       if (partial.mbScrutiny)
         setMbScrutiny(assignMissingSerialNos(partial.mbScrutiny.map(migrateMbScrutinyItem)))
       if (partial.lastGoogleLink !== undefined) setLastGoogleLink(partial.lastGoogleLink ?? null)
+      if (partial.worksListLinks) setWorksListLinks(partial.worksListLinks)
       if (partial.tenderReminders) setTenderReminders(partial.tenderReminders.map(migrateTenderReminder))
       if (partial.createdDocuments) setCreatedDocuments(await bakeLoginPlaceholders(partial.createdDocuments))
       if (partial.bidDocumentBatches) setBidDocumentBatches(partial.bidDocumentBatches)
@@ -261,6 +281,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
         resolution,
         todos,
         lastGoogleLink: lastGoogleLink ?? undefined,
+        worksListLinks,
         tenderReminders,
         createdDocuments,
         bidDocumentBatches,
@@ -275,6 +296,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
     resolution,
     todos,
     lastGoogleLink,
+    worksListLinks,
     tenderReminders,
     createdDocuments,
     bidDocumentBatches,
@@ -390,14 +412,14 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
     // rejects the whole import rather than silently mixing works lists.
     let result: ExcelTable
     if (loginZone && loginCircle) {
-      const { table: checked, mismatches } = enforceZoneCircle(normalized, loginZone, loginCircle)
+      const { table: checked, mismatches } = enforceZoneCircle(normalized, loginZone, loginCircle, officeEntries)
       if (mismatches.length > 0) {
         const examples = mismatches
           .slice(0, 3)
           .map((m) => `"${m.workName || `Row ${m.rowIndex + 1}`}" (${[m.foundZone, m.foundCircle].filter(Boolean).join(' / ')})`)
           .join(', ')
         throw new Error(
-          `This works list doesn't match your login's Zone/Circle (${loginZone} / ${loginCircle}). ` +
+          `This works list doesn't match your office's Zone/Circle (${loginZone} / ${loginCircle}). ` +
             `${mismatches.length} row${mismatches.length === 1 ? '' : 's'} conflict: ${examples}` +
             `${mismatches.length > 3 ? ', …' : ''}.`
         )
@@ -409,66 +431,13 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
     setTables([result])
     setBlockedWorksList(null)
     setLastGoogleLink(url)
+    setOfficeImportPrompt(null)
+    // Remember this link as the current office's own Works List database, so it
+    // reloads on return to this circle and syncs to the user's other systems.
+    const key = officeKey(office)
+    if (key) setWorksListLinks((prev) => (prev[key] === url ? prev : { ...prev, [key]: url }))
 
     return { added: rows.length, table: result }
-  }
-
-  // A monitoring format is one workbook with a sheet per circle — pick the
-  // one matching this login's own Circle and merge it into the existing
-  // Works List (fill blanks on matched rows, add rows for new works), rather
-  // than replacing the database the way the plain link import above does.
-  async function importFromMonitoringLink(url: string): Promise<MonitoringMergeSummary> {
-    if (!loginCircle) {
-      throw new Error(
-        "Your login isn't tied to a single Circle, so there's no one circle sheet to pick from a monitoring format link."
-      )
-    }
-    const table = tables[0]
-    if (!table) {
-      throw new Error("Add a Works List first — there's nothing yet to merge the monitoring data into.")
-    }
-
-    const sheets = await api.importAllSheetsFromLink(url)
-    const picked = findCircleSheet(sheets, loginCircle, loginCircleNumber)
-    if (!picked) {
-      throw new Error(`Couldn't find a sheet matching your Circle ("${loginCircle}") in that monitoring format link.`)
-    }
-    const monitoringTable = buildTableFromGrid(picked.grid, guessHeaderRow(picked.grid), {
-      id: 'monitoring',
-      name: picked.sheetName,
-      path: ''
-    })
-    if (monitoringTable.rows.length === 0) {
-      throw new Error(`The "${picked.sheetName}" sheet has no usable rows.`)
-    }
-
-    let embeddings: { labelVectors: number[][]; columnVectors: number[][] } | undefined
-    try {
-      const [labelVectors, columnVectors] = await Promise.all([
-        api.embedTexts(table.headers),
-        api.embedTexts(monitoringTable.headers)
-      ])
-      embeddings = { labelVectors, columnVectors }
-    } catch {
-      // Neural matching unavailable — matchPlaceholdersToColumns falls back
-      // to plain token overlap automatically when no embeddings are passed.
-      embeddings = undefined
-    }
-    // uniqueColumns: each monitoring column feeds at most one Works List
-    // column (see importFromGoogleLink) — fixes "Name of the Agency" and
-    // "Address of the agency" both mapping to one "Agency Details" column.
-    const mapping = matchPlaceholdersToColumns(table.headers, monitoringTable.headers, embeddings, {
-      uniqueColumns: true
-    })
-    const result = mergeMonitoringRows(table, monitoringTable.rows, mapping)
-
-    setTables([fillCircleNumber(result.table, loginCircleNumber), ...tables.slice(1)])
-    return {
-      matched: result.matchedCount,
-      added: result.addedCount,
-      filled: result.filledCount,
-      sheetName: picked.sheetName
-    }
   }
 
   // Re-pull the Works List from whichever Google link it was last filled
@@ -604,7 +573,62 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
   // Live auto-fill for the Works List grid: as a work name (or Circle) is typed,
   // derive that row's blank Zone / Circle / Circle number from it.
   const autofillWorksRowForLogin = (row: Record<string, string>) =>
-    autofillWorksRow(row, { zone: loginZone, circle: loginCircle, circleNumber: loginCircleNumber })
+    autofillWorksRow(row, {
+      corporation: loginCorporation,
+      zone: loginZone,
+      circle: loginCircle,
+      circleNumber: loginCircleNumber
+    })
+
+  // Changing the office changes which Works List applies — each circle (or a
+  // zonal office's zone) has its own database — so when the Zone/Circle/
+  // Corporation actually changes, prompt the user to import that office's Works
+  // List link. Cleared once they import (see importFromGoogleLink).
+  function changeOffice(next: Office) {
+    const changed =
+      next.corporation !== office.corporation || next.zone !== office.zone || next.circle !== office.circle
+    onOfficeChange(next)
+    if (changed && next.corporation && next.zone) {
+      // The old office's Works List no longer applies — reset the database so
+      // stale rows from the previous circle don't linger.
+      setTables([])
+      setLastGoogleLink(null)
+      setBlockedWorksList(null)
+      withheldTablesRef.current = null
+      setTab('data')
+
+      const savedLink = worksListLinks[officeKey(next) ?? '']
+      if (savedLink) {
+        // This office already has a remembered link — reload its database
+        // automatically. Deferred to an effect so the import validates against
+        // the now-updated office (see below).
+        setOfficeImportPrompt(null)
+        setPendingOfficeImport(savedLink)
+      } else {
+        // First time for this office — ask the user for its link.
+        setPendingOfficeImport(null)
+        setOfficeImportPrompt(next.circle || next.zone)
+      }
+    }
+  }
+
+  // Run a queued office switch's remembered-link import once the office prop has
+  // updated to the new office, so importFromGoogleLink validates against it. If
+  // the remembered link fails (revoked/renamed), fall back to prompting. The ref
+  // dedupes StrictMode's double-invoke so it imports once.
+  const officeImportRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!pendingOfficeImport || officeImportRef.current === pendingOfficeImport) return
+    officeImportRef.current = pendingOfficeImport
+    const url = pendingOfficeImport
+    setPendingOfficeImport(null)
+    void importFromGoogleLink(url).catch(() => {
+      setTables([])
+      setLastGoogleLink(null)
+      setOfficeImportPrompt(office.circle || office.zone || null)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingOfficeImport, office])
 
   return (
     <>
@@ -618,8 +642,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
         tableCount={tables.length}
         unresolved={unresolved.length}
         createdDocCount={createdDocuments.length}
-        zone={loginZone || tables[0]?.rows[0]?.['Zone'] || undefined}
-        circle={loginCircle || tables[0]?.rows[0]?.['Circle'] || undefined}
+        office={office}
       />
 
       <main className="workspace">
@@ -634,7 +657,12 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
                 <p>Telangana Government holiday calendar for 2026.</p>
               </div>
               <div className="page-head-action">
-                <TenderNoticeButton tables={tables} onGenerated={addTenderReminder} onBidBatch={addBidBatch} />
+                <TenderNoticeButton
+                  tables={tables}
+                  office={office}
+                  onGenerated={addTenderReminder}
+                  onBidBatch={addBidBatch}
+                />
               </div>
             </div>
             <Dashboard cached={calendar} onData={setCalendar} />
@@ -664,11 +692,17 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
                 )}
               </div>
             </div>
+            <OfficeSelector office={office} onChange={changeOffice} />
+            {officeImportPrompt && (
+              <div className="notice warn">
+                <IconWarn /> You changed your office to <strong>{officeImportPrompt}</strong>. Paste that office's Works
+                List link below and Import to load its database.
+              </div>
+            )}
             {refreshError && <div className="notice error">{refreshError}</div>}
             {tenderSyncStatus && <div className="notice">{tenderSyncStatus}</div>}
             {tenderSyncSummary && <div className="notice ok">{tenderSyncSummary}</div>}
             <GoogleLinkImport onImport={importFromGoogleLink} />
-            {loginCircle && <MonitoringLinkImport onImport={importFromMonitoringLink} />}
             {currentTable ? (
               <>
                 <ExcelInline
@@ -704,7 +738,7 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
                 <IconPrint />
               </div>
               <div className="page-head-text">
-                <h1>Issue other Documents</h1>
+                <h1>Issue Documents</h1>
                 <p>
                   Pick a saved document and a Works List row, then create the filled output —
                   matched to your columns by the neural model, not exact name matching.
@@ -742,9 +776,12 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
                 <IconCheck />
               </div>
               <div className="page-head-text">
-                <h1>Give Technical Sanction</h1>
+                <h1>Give Technical Sanction (Experimental)</h1>
                 <p>Upload the Data Sheet and an Estimate to auto-fill rates from the Data Sheet.</p>
               </div>
+            </div>
+            <div className="notice warn">
+              <IconWarn /> This is still an experimental feature and may not work as intended.
             </div>
             <GiveTechnicalSanctionTab />
           </section>
@@ -776,7 +813,12 @@ export default function App({ onLogout, loginZone, loginCircle, loginCircleNumbe
                 <p>Fill the Work Order and Agreement for a work, and generate its Schedule A from the estimate / BOQ.</p>
               </div>
             </div>
-            <WorkOrderAgreementTab tables={tables} onChange={updateTable} />
+            <WorkOrderAgreementTab
+              tables={tables}
+              onChange={updateTable}
+              zoneLogin={!!loginZone && !loginCircle}
+              office={office}
+            />
           </section>
         )}
 

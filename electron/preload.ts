@@ -24,6 +24,11 @@ const api: DocuGenApi = {
     ipcRenderer.invoke(IPC.exportBoq, table, suggestedName, workName),
   exportBoqBatch: (entries) => ipcRenderer.invoke(IPC.exportBoqBatch, entries),
   splitExcelSheets: () => ipcRenderer.invoke(IPC.splitExcelSheets),
+  onSplitProgress: (callback) => {
+    const listener = (_e: unknown, progress: import('./ipc-contract').SplitProgress) => callback(progress)
+    ipcRenderer.on(IPC.splitProgress, listener)
+    return () => ipcRenderer.removeListener(IPC.splitProgress, listener)
+  },
   exportDeviation: (items, meta, suggestedName) =>
     ipcRenderer.invoke(IPC.exportDeviation, items, meta, suggestedName),
   exportDetailedEstimate: (items, meta, suggestedName) =>
@@ -62,6 +67,7 @@ const api: DocuGenApi = {
   intimationTemplate: () => ipcRenderer.invoke(IPC.intimationTemplate),
   workOrderTemplate: () => ipcRenderer.invoke(IPC.workOrderTemplate),
   agreementTemplate: () => ipcRenderer.invoke(IPC.agreementTemplate),
+  forwardingSlipTemplate: () => ipcRenderer.invoke(IPC.forwardingSlipTemplate),
   loadState: () => ipcRenderer.invoke(IPC.loadState),
   saveState: (state) => ipcRenderer.invoke(IPC.saveState, state),
   onRemoteStateUpdate: (callback) => {

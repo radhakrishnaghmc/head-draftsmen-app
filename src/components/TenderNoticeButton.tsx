@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { renderAsync } from 'docx-preview'
 import { api } from '../ipc'
 import { IconDoc, IconWarn, IconCheck, IconEye } from './Icons'
@@ -6,9 +6,13 @@ import { base64ToUint8 } from './docPage'
 import type { ExcelTable } from '@core/types'
 import type { BidDocumentBatch } from '@core/types'
 import type { TenderNoticeInput } from '../../electron/ipc-contract'
+import { indianFinancialYear } from '@core/workOrderAgreement'
+import { type Office } from '../office'
 
 interface Props {
   tables: ExcelTable[]
+  /** The chosen office (Works List page) — the default NIT No is built from its Circle/CNO/Corporation. */
+  office?: Office
   /** Called with the NIT number once a notice has been generated and saved. */
   onGenerated?: (nitNo: string) => void
   /** Called once a notice has been generated, with one Bid Document entry per selected Win Code. */
@@ -47,7 +51,7 @@ function todayISO(): string {
  * P.M download start/end, 2:30 P.M price bid opening (same day as the
  * download end date).
  */
-export default function TenderNoticeButton({ tables, onGenerated, onBidBatch }: Props) {
+export default function TenderNoticeButton({ tables, office, onGenerated, onBidBatch }: Props) {
   const worksTable = tables[0] ?? null
   const winCodeHeader = worksTable ? findHeader(worksTable.headers, 'Wincode') : undefined
   const nameHeader = worksTable ? findHeader(worksTable.headers, 'Name of the work') : undefined
@@ -69,7 +73,18 @@ export default function TenderNoticeButton({ tables, onGenerated, onBidBatch }: 
 
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [nitNo, setNitNo] = useState('16/DB/EE/Gajularamaram Circle-57/CMC/2026-27')
+
+  // The NIT No default follows the chosen office — its Circle, Circle number
+  // and Corporation — so it's issued under the right circle/zone. The leading
+  // "16" is the office's own running serial (edited per notice).
+  const defaultNitNo = useMemo(() => {
+    if (office?.circle && office?.circleNumber && office?.corporation) {
+      return `16/DB/EE/${office.circle} Circle-${office.circleNumber}/${office.corporation}/${indianFinancialYear()}`
+    }
+    return '16/DB/EE/Gajularamaram Circle-57/CMC/2026-27'
+  }, [office])
+
+  const [nitNo, setNitNo] = useState(defaultNitNo)
   const [datedDate, setDatedDate] = useState(todayISO)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -78,6 +93,23 @@ export default function TenderNoticeButton({ tables, onGenerated, onBidBatch }: 
   const [saved, setSaved] = useState<string | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
+  const winListRef = useRef<HTMLDivElement>(null)
+
+  // New works are appended to the Works List, so their Win Codes land at the end
+  // of this list — scroll to the bottom when the dialog opens so the latest ones
+  // are in view by default.
+  useEffect(() => {
+    if (open && !previewing && winListRef.current) {
+      winListRef.current.scrollTop = winListRef.current.scrollHeight
+    }
+  }, [open, previewing, winCodes.length])
+
+  // Reset the NIT No to the current office's default each time the dialog opens,
+  // so it always reflects the chosen Circle/Corporation.
+  useEffect(() => {
+    if (open) setNitNo(defaultNitNo)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const items = useMemo(() => {
     if (!worksTable || !winCodeHeader || !nameHeader || !amountHeader) return []
@@ -264,7 +296,7 @@ export default function TenderNoticeButton({ tables, onGenerated, onBidBatch }: 
                 {winCodes.length > 0 ? (
                   <div className="tender-field">
                     <span>Win Code(s)</span>
-                    <div className="tender-wincode-list">
+                    <div className="tender-wincode-list" ref={winListRef}>
                       {winCodes.map((code) => (
                         <label key={code} className="tender-wincode-item">
                           <input

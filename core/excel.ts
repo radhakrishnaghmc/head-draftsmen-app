@@ -73,9 +73,12 @@ export function readExcelGrid(filePath: string): SheetGrid {
  */
 export function allSheetGridsFromBuffer(buffer: Buffer, name: string, filePath: string): SheetGrid[] {
   const workbook = XLSX.read(buffer, { type: 'buffer' })
-  return workbook.SheetNames.map((sheetName) => {
+  // Per-sheet visibility metadata (Hidden: 0 = visible, 1 = hidden, 2 = very
+  // hidden), indexed by sheet position — so callers can flag hidden sheets.
+  const meta = workbook.Workbook?.Sheets
+  return workbook.SheetNames.map((sheetName, i) => {
     const { grid, startRow } = gridFromSheet(workbook.Sheets[sheetName])
-    return { id: nextId('xls'), name, path: filePath, sheetName, grid, startRow }
+    return { id: nextId('xls'), name, path: filePath, sheetName, grid, startRow, hidden: !!meta?.[i]?.Hidden }
   })
 }
 
