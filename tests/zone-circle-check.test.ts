@@ -44,7 +44,7 @@ describe('enforceZoneCircle', () => {
     expect(result.table.rows[0].Circle).toBe('Gajularamaram Circle-57')
   })
 
-  // The whole list is the logged-in Head Draftsman's own circle, so a blank row
+  // The whole list is the logged-in Head Draughtsman's own circle, so a blank row
   // whose name mentions no other circle is stamped with the login identity —
   // work names usually mention neither their circle nor their zone.
   it('fills blank Zone/Circle with the login identity when the name names no other circle', () => {

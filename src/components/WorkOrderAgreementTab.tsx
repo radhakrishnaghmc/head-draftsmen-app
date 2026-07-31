@@ -13,7 +13,7 @@ import {
   standaloneRowFromSources,
   circleFromNit
 } from '@core/workOrderAgreement'
-import { corporationByName } from '../zoneCircleDirectory'
+import { corporationByName, resolveFromDirectory, entriesOf } from '../zoneCircleDirectory'
 import { type Office } from '../office'
 import { boqToScheduleA, buildBoqFromEstimate, extractWorkNameFromBoq } from '../boqTransform'
 import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
@@ -441,21 +441,27 @@ export default function WorkOrderAgreementTab({
   // is valid and we simply fill from the uploads (see deriveFromUploads).
   const workRowMismatch = !standalone && !zoneLogin && worksRowMatched === false
 
-  // Guard: the uploaded L-1 must belong to the office's own Circle. Its Circle
-  // is read from the NIT No ("…/EE/Gajularamaram Circle-57/…"); if that doesn't
-  // match the Circle chosen on the Works List page, an L-1 from another circle
-  // would fuzzy-match a row here and issue documents for the wrong work.
-  const l1Circle = useMemo(
-    () => circleFromNit(pdfEval?.noticeNo || notice?.nitNo || '').circle,
-    [pdfEval, notice]
-  )
-  const officeCircle = office?.circle ?? ''
+  // Guard: the uploaded L-1's Circle must match the Circle the documents will
+  // fill from. The L-1's Circle comes from its NIT No ("…/EE/Gajularamaram
+  // Circle-57/…"), with a fallback to inferring it from the L-1's work name via
+  // the directory. We compare it against the office's Circle (Works List page)
+  // when set, otherwise the matched Works List row's Circle — so an L-1 from
+  // another circle that fuzzy-matched a row here is caught and blocked (it would
+  // otherwise issue e.g. a Nizampet work's agreement under Gajularamaram).
+  const l1Circle = useMemo(() => {
+    const fromNit = circleFromNit(pdfEval?.noticeNo || notice?.nitNo || '').circle
+    if (fromNit) return fromNit
+    return resolveFromDirectory(pdfEval?.nameOfWork || '', entriesOf(office?.corporation)).circle ?? ''
+  }, [pdfEval, notice, office])
+  const officeCircle = (office?.circle ?? '').trim()
+  const rowCircle = (selectedRow?.['Circle'] ?? '').trim()
+  const targetCircle = officeCircle || rowCircle
   const sameCircleId = (a: string, b: string) => {
     const na = a.trim().toLowerCase()
     const nb = b.trim().toLowerCase()
     return !!na && !!nb && (na === nb || na.includes(nb) || nb.includes(na))
   }
-  const circleMismatch = !standalone && !!officeCircle && !!l1Circle && !sameCircleId(l1Circle, officeCircle)
+  const circleMismatch = !standalone && !!l1Circle && !!targetCircle && !sameCircleId(l1Circle, targetCircle)
 
   // Only build the documents once BOTH the Online Intimation and the L1
   // selection form are uploaded, they belong to the same work, the L1's work is
@@ -891,9 +897,10 @@ export default function WorkOrderAgreementTab({
       )}
       {circleMismatch && (
         <div className="notice error">
-          <IconWarn /> The uploaded L1 / Intimation is for <strong>{l1Circle}</strong> circle, but your selected office is{' '}
-          <strong>{officeCircle}</strong> circle. Documents are blocked — select the <strong>{l1Circle}</strong> office on
-          the Works List page, or upload this circle’s L1.
+          <IconWarn /> The uploaded L1 / Intimation is for <strong>{l1Circle}</strong> circle, but the documents would be
+          issued under <strong>{targetCircle}</strong> circle. Documents are blocked so a work isn’t issued under the wrong
+          circle — select the <strong>{l1Circle}</strong> office on the Works List page (and load its Works List), or upload
+          the correct circle’s L1.
         </div>
       )}
       {workRowMismatch && !circleMismatch && pdfEval && (

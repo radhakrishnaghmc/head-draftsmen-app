@@ -1,10 +1,10 @@
 import { cnoOf, corporationOf } from './zoneCircleDirectory'
 
 /**
- * The Head Draftsman's chosen office — Corporation → Zone → Circle — selected in
+ * The Head Draughtsman's chosen office — Corporation → Zone → Circle — selected in
  * the sidebar (not from the login). This is what drives which circle/zone the
  * documents and Works List validation are prepared for. Circle (and its number)
- * are optional so a zone-level Head Draftsman can pick just Corporation + Zone.
+ * are optional so a zone-level Head Draughtsman can pick just Corporation + Zone.
  */
 export interface Office {
   corporation?: string
@@ -80,7 +80,7 @@ export function officeKey(office: Office): string | undefined {
 
 /**
  * Whether an office has been chosen. A Corporation + Zone is enough — that's a
- * zonal office (a zone-level Head Draftsman, spanning every circle in the zone);
+ * zonal office (a zone-level Head Draughtsman, spanning every circle in the zone);
  * picking a Circle as well narrows it to a single circle office.
  */
 export function isOfficeReady(office: Office): boolean {

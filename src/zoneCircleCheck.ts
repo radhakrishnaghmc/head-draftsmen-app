@@ -33,8 +33,8 @@ const sameId = (a: string, b: string) => {
 
 /**
  * Enforce that every row of a Works List belongs to the logged-in Head
- * Draftsman's own Zone/Circle (from the login credentials sheet), filling in
- * the Zone/Circle columns as it goes. The whole list is one Head Draftsman's
+ * Draughtsman's own Zone/Circle (from the login credentials sheet), filling in
+ * the Zone/Circle columns as it goes. The whole list is one Head Draughtsman's
  * own circle, so the default is to stamp every row with the login identity —
  * the checks below only exist to catch a row that plainly belongs to someone
  * else and reject it rather than silently mixing lists:
@@ -131,7 +131,7 @@ const findCircleNumberHeader = (table: ExcelTable) =>
   })
 
 /**
- * Fill any blank Circle number cell with the logged-in Head Draftsman's own
+ * Fill any blank Circle number cell with the logged-in Head Draughtsman's own
  * circle number. Unlike Zone/Circle, a circle number isn't something a work's
  * name would ever mention, so there's no name-matching or mismatch check
  * here — just a direct fill of whatever's blank.

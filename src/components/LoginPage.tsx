@@ -56,7 +56,7 @@ export default function LoginPage({ onSuccess }: Props) {
     <div className="login-screen">
       <form className="login-card" onSubmit={submit}>
         <img src={appLogo} alt="" className="login-logo" />
-        <h1>Head Draftsman</h1>
+        <h1>Head Draughtsman</h1>
         <p className="hint">Sign in to continue.</p>
 
         <label className="tender-field">

@@ -1,5 +1,5 @@
 appId: com.headdraftsmen.app
-productName: Head Draftsman App
+productName: Head Draughtsman App
 directories:
   output: release
   buildResources: build

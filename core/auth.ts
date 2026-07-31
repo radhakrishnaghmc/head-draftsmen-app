@@ -19,7 +19,7 @@ export interface LoginResult {
  * never the password, any other column, or the sheet's contents/URL.
  *
  * The login no longer carries any office identity: Zone/Circle/Corporation are
- * chosen by the Head Draftsman in the app itself (sidebar) and drive document
+ * chosen by the Head Draughtsman in the app itself (sidebar) and drive document
  * preparation there, so the credentials sheet only needs a Login ID + Password.
  */
 export async function validateLogin(loginId: string, password: string): Promise<LoginResult> {

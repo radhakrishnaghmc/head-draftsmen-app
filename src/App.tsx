@@ -99,7 +99,7 @@ function assignMissingSerialNos(items: MBScrutinyItem[]): MBScrutinyItem[] {
 
 interface Props {
   onLogout: () => void
-  /** The Head Draftsman's chosen office (Corporation/Zone/Circle), selected in the sidebar — drives document prep and Works List validation. */
+  /** The Head Draughtsman's chosen office (Corporation/Zone/Circle), selected in the sidebar — drives document prep and Works List validation. */
   office: Office
   onOfficeChange: (office: Office) => void
 }
@@ -107,7 +107,7 @@ interface Props {
 export default function App({ onLogout, office, onOfficeChange }: Props) {
   // The office identity drives every Zone/Circle behaviour below. Kept as local
   // aliases so the rest of the app reads the same as when these came from the
-  // login (Circle is optional — a zone-level Head Draftsman picks just a Zone).
+  // login (Circle is optional — a zone-level Head Draughtsman picks just a Zone).
   const loginCorporation = office.corporation
   const loginZone = office.zone
   const loginCircle = office.circle
@@ -406,7 +406,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       })
     )
 
-    // Only a works list belonging to the logged-in Head Draftsman's own
+    // Only a works list belonging to the logged-in Head Draughtsman's own
     // Zone/Circle is accepted — a row explicitly tagged with a different
     // Zone/Circle, or whose "Name of the work" names a different one,
     // rejects the whole import rather than silently mixing works lists.

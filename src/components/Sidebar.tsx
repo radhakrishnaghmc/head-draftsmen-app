@@ -157,7 +157,7 @@ export default function Sidebar(props: Props) {
       <div className="side-brand">
         <img src={appLogo} alt="" className="logo" />
         <div>
-          <h1>Head Draftsman</h1>
+          <h1>Head Draughtsman</h1>
           {isOfficeReady(props.office) ? (
             <p>
               {[props.office.corporation, props.office.zone, props.office.circle, props.office.circleNumber]

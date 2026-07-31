@@ -52,7 +52,7 @@ export const CMC_ZONE_CIRCLES: ZoneCircleEntry[] = [
 ]
 
 /**
- * Every corporation the app can prepare documents for. The Head Draftsman
+ * Every corporation the app can prepare documents for. The Head Draughtsman
  * picks Corporation → Zone → Circle in the sidebar, and that choice (not the
  * login) drives which circle/zone the documents and Works List validation use.
  *
