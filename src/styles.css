@@ -3675,6 +3675,30 @@ table.sheet td {
   padding: 0;
   border-bottom: 1px solid var(--border);
 }
+
+/* "Update from L1" feedback: blink the just-updated row(s), then settle to a
+   soft highlight, with a confirmation line right under each row so the user can
+   verify the exact row that changed. */
+@keyframes rowFlashBlink {
+  0%, 100% { background: transparent; }
+  15%, 45%, 75% { background: var(--green-200, #bbf7d0); }
+  30%, 60%, 90% { background: transparent; }
+}
+table.sheet tr.row-flash td {
+  animation: rowFlashBlink 2.4s ease-in-out 1;
+  background: var(--green-50, #f0fdf4);
+}
+table.sheet tr.row-flash td input {
+  font-weight: 600;
+}
+table.sheet tr.row-flash-msg td {
+  background: var(--green-50, #f0fdf4);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--green-700, #15803d);
+  border-bottom: 2px solid var(--green-200, #bbf7d0);
+}
 table.sheet td input {
   width: 100%;
   border: none;

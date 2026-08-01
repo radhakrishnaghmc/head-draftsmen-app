@@ -57,6 +57,9 @@ function valuesFor(ev: TenderEvaluation, notice?: IntimationNotice): Record<stri
   if (ev.tenderPercentage != null) out['Tender Percentage'] = String(ev.tenderPercentage)
   const contract = ev.contractRupees ?? notice?.contractRupees
   if (contract != null) out['Contract Amount'] = rupeesToCell(contract)
+  // Reservation flag: "Yes" when the work name carries a "reserved for …" tag,
+  // else "No" (the document flows still read SC/ST from the name itself).
+  out['Reservation'] = /reserved\s+(?:to|for)\b/i.test(ev.nameOfWork ?? '') ? 'Yes' : 'No'
   return out
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { IconPlus, IconTrash, IconSearch } from './Icons'
 import type { ExcelTable } from '@core/types'
 
@@ -11,6 +11,10 @@ interface Props {
    * edited row as an object, returns it with those blanks filled.
    */
   autofillRow?: (row: Record<string, string>) => Record<string, string>
+  /** Row indices (in table order) to briefly blink after an external update, e.g. "Update from L1". */
+  flashRows?: number[]
+  /** Message shown under each flashed row so the user can verify the right row was updated. */
+  flashMessage?: string
 }
 
 const WIN_RE = /win/
@@ -41,13 +45,27 @@ function orderHeaders(hs: string[]): string[] {
  * Rename headers, edit cells, and add/delete rows & columns — every valid edit
  * is committed straight back to the workspace (and persisted).
  */
-export default function ExcelInline({ table, onChange, autofillRow }: Props) {
+export default function ExcelInline({ table, onChange, autofillRow, flashRows, flashMessage }: Props) {
   const orderedHeaders = orderHeaders(table.headers)
   const [headers, setHeaders] = useState<string[]>(() => orderedHeaders)
   const [matrix, setMatrix] = useState<string[][]>(() =>
     table.rows.map((r) => orderedHeaders.map((h) => r[h] ?? ''))
   )
   const [query, setQuery] = useState('')
+
+  // Blink the just-updated rows, then settle: the "Updated from L1" message and
+  // highlight clear after a few seconds so they don't linger over later edits.
+  const flashSet = useMemo(() => new Set(flashRows ?? []), [flashRows])
+  const firstFlashIndex = flashSet.size > 0 ? Math.min(...flashSet) : -1
+  const firstFlashRef = useRef<HTMLTableRowElement | null>(null)
+  const [flashing, setFlashing] = useState(flashSet.size > 0)
+  useEffect(() => {
+    if (flashSet.size === 0) return
+    setFlashing(true)
+    firstFlashRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const t = setTimeout(() => setFlashing(false), 12000)
+    return () => clearTimeout(t)
+  }, [flashSet])
 
   // Persist the reordered column layout (WIN CODE → second) once on mount.
   useEffect(() => {
@@ -214,21 +232,34 @@ export default function ExcelInline({ table, onChange, autofillRow }: Props) {
             </tr>
           </thead>
           <tbody>
-            {visible.map(({ row, ri }) => (
-              <tr key={ri}>
-                <td className="rownum">{ri + 1}</td>
-                {headers.map((_, ci) => (
-                  <td key={ci}>
-                    <input value={row[ci] ?? ''} onChange={(e) => setCell(ri, ci, e.target.value)} />
-                  </td>
-                ))}
-                <td className="rowdel">
-                  <button className="danger-ghost" title="Delete row" onClick={() => deleteRow(ri)}>
-                    <IconTrash />
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {visible.map(({ row, ri }) => {
+              const flashed = flashing && flashSet.has(ri)
+              return (
+                <Fragment key={ri}>
+                  <tr
+                    ref={ri === firstFlashIndex ? firstFlashRef : undefined}
+                    className={flashed ? 'row-flash' : ''}
+                  >
+                    <td className="rownum">{ri + 1}</td>
+                    {headers.map((_, ci) => (
+                      <td key={ci}>
+                        <input value={row[ci] ?? ''} onChange={(e) => setCell(ri, ci, e.target.value)} />
+                      </td>
+                    ))}
+                    <td className="rowdel">
+                      <button className="danger-ghost" title="Delete row" onClick={() => deleteRow(ri)}>
+                        <IconTrash />
+                      </button>
+                    </td>
+                  </tr>
+                  {flashed && flashMessage && (
+                    <tr className="row-flash-msg">
+                      <td colSpan={headers.length + 2}>✓ {flashMessage}</td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })}
             {visible.length === 0 && (
               <tr>
                 <td className="sheet-empty" colSpan={headers.length + 2}>

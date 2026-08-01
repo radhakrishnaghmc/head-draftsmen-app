@@ -331,25 +331,24 @@ export default function WorkOrderAgreementTab({
         embeddings = undefined
       }
     }
-    const { table: updated, matchedCount, matchedRowIndices } = updateWorksListFromEvaluations(
+    // Match only — the Works List database is updated solely from the Works List
+    // page ("Update from L1"), never here. We just find the row so its supporting
+    // details fill the documents and select it (an embedding match has no exact
+    // name to re-derive from, so without this it would stay on row 0).
+    const { matchedCount, matchedRowIndices } = updateWorksListFromEvaluations(
       table,
       [ev],
       embeddings,
       noticeVal ?? undefined
     )
     if (matchedCount > 0) {
-      onChange(updated)
       const idx = matchedRowIndices[0]
       if (idx != null && idx >= 0) setRowIndex(idx)
       setWorksRowMatched(true)
-      setPdfStatus(
-        `Updated "${ev.nameOfWork}" in the Works List (Tender ID, Notice No/Date, ECV, EMD, ASD, Agency, Address, Tender %, Contract Amount).`
-      )
+      setPdfStatus(`Matched "${ev.nameOfWork}" to a Works List row — its details fill the documents.`)
     } else {
       setWorksRowMatched(false)
-      setPdfStatus(
-        `Read the PDF, but no Works List row matched "${ev.nameOfWork}" — add this work to the Works List so the Work Order and Agreement fill the correct row.`
-      )
+      setPdfStatus(`Read the PDF. "${ev.nameOfWork}" isn't in the Works List — the documents fill from the uploaded L1 / Intimation.`)
     }
   }
 

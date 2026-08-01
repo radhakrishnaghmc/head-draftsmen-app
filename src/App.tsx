@@ -28,6 +28,7 @@ import UpdateBanner from './components/UpdateBanner'
 import TenderNoticeButton from './components/TenderNoticeButton'
 import BidDocumentsPanel from './components/BidDocumentsPanel'
 import GoogleLinkImport from './components/GoogleLinkImport'
+import WorksListL1Update from './components/WorksListL1Update'
 import EstimateWorkspaceTab from './components/EstimateWorkspaceTab'
 import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
 import GiveIntimationTab from './components/GiveIntimationTab'
@@ -125,6 +126,10 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   const [lastGoogleLink, setLastGoogleLink] = useState<string | null>(null)
   const [refreshingWorks, setRefreshingWorks] = useState(false)
   const [refreshError, setRefreshError] = useState<string | null>(null)
+  // After an "Update from L1", the matched Works List row indices to flash (with
+  // a message under them). `token` remounts ExcelInline so it re-reads the just-
+  // updated rows (it holds its own grid copy and doesn't otherwise re-sync).
+  const [worksFlash, setWorksFlash] = useState<{ token: number; rows: number[]; message: string } | null>(null)
   // Set when the office (Zone/Circle) was just changed — each circle has its own
   // Works List, so we prompt the user to import that circle's database link. The
   // stored label is the new office's Circle (or Zone) shown in the notice.
@@ -681,6 +686,13 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               </div>
               <div className="page-head-action">
                 {currentTable && (
+                  <WorksListL1Update
+                    table={currentTable}
+                    onChange={updateTable}
+                    onUpdated={(rows, message) => setWorksFlash({ token: Date.now(), rows, message })}
+                  />
+                )}
+                {currentTable && (
                   <button className="ghost" onClick={exportWorksList} title="Download as Excel">
                     <IconDownload /> Download
                   </button>
@@ -706,10 +718,12 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
             {currentTable ? (
               <>
                 <ExcelInline
-                  key={currentTable.id}
+                  key={`${currentTable.id}:${worksFlash?.token ?? 0}`}
                   table={currentTable}
                   onChange={updateTable}
                   autofillRow={autofillWorksRowForLogin}
+                  flashRows={worksFlash?.rows}
+                  flashMessage={worksFlash?.message}
                 />
               </>
             ) : (

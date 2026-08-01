@@ -432,20 +432,20 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
             embeddings = undefined
           }
         }
-        const { table: updated, matchedCount, matchedRowIndices } = updateWorksListFromEvaluations(table, [ev], embeddings)
+        // Match only — the Works List database is updated solely from the Works
+        // List page ("Update from L1"), never here. We just find the row so its
+        // supporting details fill the letter and select it (an embedding /
+        // wording-drift match has no exact name to re-derive from, so without
+        // this the selection would stay on row 0 and fill a different work).
+        const { matchedCount, matchedRowIndices } = updateWorksListFromEvaluations(table, [ev], embeddings)
         if (matchedCount > 0) {
-          onChange(updated)
-          // Select the row that was actually matched — including an embedding
-          // (wording-drift) match, which has no exact name to re-derive from.
-          // Without this the selection stays on row 0 and the letter fills from
-          // a completely different work.
           const idx = matchedRowIndices[0]
           if (idx != null && idx >= 0) setRowIndex(idx)
           setWorksRowMatched(true)
-          setPdfStatus(`Updated "${ev.nameOfWork}" in the Works List (Tender ID, Notice No/Date, ECV, Agency, Tender %, Contract Amount).`)
+          setPdfStatus(`Matched "${ev.nameOfWork}" to a Works List row — its details fill the letter.`)
         } else {
           setWorksRowMatched(false)
-          setPdfStatus(`Read the PDF, but no Works List row matched "${ev.nameOfWork}" — add this work to the Works List so the Intimation letter fills the correct row.`)
+          setPdfStatus(`Read the PDF. "${ev.nameOfWork}" isn't in the Works List — the letter fills from the uploaded L1 / Intimation.`)
         }
       }
     } catch (e) {
