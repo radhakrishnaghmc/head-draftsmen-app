@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
 import type { ExcelTable } from './types'
-import { computeWorkAmounts, indianDigitGroups } from './worksAmounts'
+import { computeWorkAmounts, indianDigitGroups, tenderPercentFromRow } from './worksAmounts'
 import { rankByEmbedding } from './embeddingMatch'
 
 // A match below this score is treated as "no real match" — same threshold
@@ -61,7 +61,7 @@ export function metaFromWorksRow(row: Record<string, string>): ScheduleAMeta {
     ecvAmount: c.ecv !== null ? `${indianDigitGroups(c.ecv)}/-` : undefined,
     contractAmount: c.contractAmount !== null ? `${indianDigitGroups(c.contractAmount)}/-` : undefined,
     contractorName: row['Name of the Agency'],
-    tenderPercentage: row['Tender Percentage'],
+    tenderPercentage: tenderPercentFromRow(row) || undefined,
     circle,
     zone: (row['Zone'] ?? '').trim() || undefined
   }

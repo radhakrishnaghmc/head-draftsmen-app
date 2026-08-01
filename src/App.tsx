@@ -10,7 +10,6 @@ import {
   ECV_RUPEES_STATE_VERSION,
   WORKS_COLUMNS
 } from './worksSchema'
-import { syncWorksListFromTenderPortal } from './worksListTenderSync'
 import { autofillWorksRow, enforceZoneCircle, fillCircleNumber, splitCircleColumn } from './zoneCircleCheck'
 import { entriesOf } from './zoneCircleDirectory'
 import { type Office, officeKey } from './office'
@@ -145,10 +144,8 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // A remembered link queued to auto-import once the office prop has updated to
   // the newly-selected office (so the import validates against the new office).
   const [pendingOfficeImport, setPendingOfficeImport] = useState<string | null>(null)
-  // Progress/outcome of the tender-portal sync that follows the Google-link
-  // refresh — see refreshWorksList and src/worksListTenderSync.ts.
-  const [tenderSyncStatus, setTenderSyncStatus] = useState<string | null>(null)
-  const [tenderSyncSummary, setTenderSyncSummary] = useState<string | null>(null)
+  // Outcome of the Google-link refresh (a plain re-import of the Works List).
+  const [refreshSummary, setRefreshSummary] = useState<string | null>(null)
   const [tenderReminders, setTenderReminders] = useState<TenderReminder[]>([])
   const [refreshingReminderId, setRefreshingReminderId] = useState<string | null>(null)
   const [createdDocuments, setCreatedDocuments] = useState<CreatedDocument[]>([])
@@ -368,9 +365,15 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   }
 
   // Save the current Works List as an .xlsx (native save dialog in main).
+  // Download the Works List as .xlsx. When it was imported from a Google sheet,
+  // the file reproduces exactly that sheet's columns in the sheet's own order
+  // (currentTable.sourceHeaders) — not the app's internal schema order, and
+  // without the app-only columns the sheet didn't have — so the download mirrors
+  // the source sheet. The built-in database (no sourceHeaders) exports as-is.
   async function exportWorksList() {
     if (!currentTable) return
-    await api.exportTable(currentTable, currentTable.name || 'Works List')
+    const headers = currentTable.sourceHeaders?.length ? currentTable.sourceHeaders : currentTable.headers
+    await api.exportTable({ ...currentTable, headers }, currentTable.name || 'Works List')
   }
 
   // Flatten the MB Scrutiny register into a table and save it as an .xlsx.
@@ -491,44 +494,26 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     return { added: rows.length, table: result }
   }
 
-  // Re-pull the Works List from whichever Google link it was last filled
-  // from, so the user doesn't have to re-paste the URL to get fresh data —
-  // then, against that freshly-pulled table, search the tender portal by
-  // each of its Circles and fill ECV/Tender Notice No/Tender ID from
-  // whichever tender matches each work by name (src/worksListTenderSync.ts).
-  // Uses the table importFromGoogleLink itself just produced, not the
-  // `tables` state variable — that state update hasn't necessarily been
-  // committed yet by the time this line runs.
+  // Re-pull the Works List from whichever Google link it was last filled from,
+  // so the user doesn't have to re-paste the URL to get fresh data. The sheet is
+  // the single source of truth, each work identified by its own Wincode. (This
+  // used to also search the tender portal by Circle and stamp ECV/Tender ID/
+  // Notice No onto rows by matching work name — but the portal carries no
+  // Wincode, so it could only match by near-identical work name, which collapsed
+  // many distinct works onto one tender and overwrote their ECVs. That sync is
+  // gone; award data comes from the sheet itself or the "Update from L1" button.)
   async function refreshWorksList() {
     if (!lastGoogleLink) return
     setRefreshingWorks(true)
     setRefreshError(null)
-    setTenderSyncSummary(null)
+    setRefreshSummary(null)
     try {
-      const { table } = await importFromGoogleLink(lastGoogleLink)
-      try {
-        const { table: synced, matchedCount, tenderCount, circleCount } = await syncWorksListFromTenderPortal(
-          table,
-          (p) => setTenderSyncStatus(`Searching tenders for ${p.circle} (${p.circleIndex + 1} of ${p.circleCount})…`)
-        )
-        setTables([synced])
-        setTenderSyncSummary(
-          circleCount === 0
-            ? 'Refreshed from the Google link — no Circle values on the Works List to search tenders for.'
-            : `Refreshed from the Google link, then matched ${matchedCount} work${matchedCount === 1 ? '' : 's'} against ${tenderCount} tender${tenderCount === 1 ? '' : 's'} found across ${circleCount} circle${circleCount === 1 ? '' : 's'}.`
-        )
-      } catch (e) {
-        // The Google-link refresh itself already succeeded — a failed tender
-        // sync on top of it is a partial-success notice, not a full error.
-        setTenderSyncSummary(
-          `Refreshed from the Google link, but the tender-portal search failed: ${e instanceof Error ? e.message : String(e)}`
-        )
-      }
+      const { added } = await importFromGoogleLink(lastGoogleLink)
+      setRefreshSummary(`Refreshed from the Google link — ${added} work${added === 1 ? '' : 's'} imported.`)
     } catch (e) {
       setRefreshError(e instanceof Error ? e.message : String(e))
     } finally {
       setRefreshingWorks(false)
-      setTenderSyncStatus(null)
     }
   }
 
@@ -775,8 +760,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               </div>
             )}
             {refreshError && <div className="notice error">{refreshError}</div>}
-            {tenderSyncStatus && <div className="notice">{tenderSyncStatus}</div>}
-            {tenderSyncSummary && <div className="notice ok">{tenderSyncSummary}</div>}
+            {refreshSummary && <div className="notice ok">{refreshSummary}</div>}
             <GoogleLinkImport onImport={importFromGoogleLink} />
             {currentTable ? (
               <>

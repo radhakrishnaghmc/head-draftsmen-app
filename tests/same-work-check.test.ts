@@ -72,4 +72,21 @@ describe('checkSameWork', () => {
     expect(checkSameWork(notice({}), pdf({ nameOfWork: 'W' })).status).toBe('unknown')
     expect(checkSameWork(notice({ agencyName: 'A' }), pdf({ noticeNo: '1' })).status).toBe('unknown')
   })
+
+  it("matches when the Intimation's NIT No carries a trailing 'Dated …' the L-1's omits", () => {
+    const r = checkSameWork(
+      notice({ nitNo: '13/DB/EE/Nizampet Circle-58/CMC/2026-27 Dated 24.07.2026' }),
+      pdf({ noticeNo: '13/DB/EE/Nizampet Circle-58/CMC/2026-27', nameOfWork: 'W' })
+    )
+    expect(r.status).toBe('match')
+    expect(r.by).toBe('nit')
+
+    // A genuinely different NIT No is still a mismatch.
+    const diff = checkSameWork(
+      notice({ nitNo: '12/DB/EE/Kompally Circle-56/CMC/2026-27 Dated 24.07.2026' }),
+      pdf({ noticeNo: '13/DB/EE/Nizampet Circle-58/CMC/2026-27', nameOfWork: 'W' })
+    )
+    expect(diff.status).toBe('mismatch')
+    expect(diff.by).toBe('nit')
+  })
 })

@@ -18,6 +18,10 @@ export interface TenderEvaluation {
   tenderPercentage?: number
   /** L-1's quoted amount (the awarded contract value), in rupees. */
   contractRupees?: number
+  /** "Bid Submission Start Date & Time" from the sheet (e.g. "25/07/2026 06:02 PM") — the bid-document downloading start. */
+  bidStart?: string
+  /** "Bid Submission Closing Date" from the sheet (e.g. "01/08/2026 04:00 PM") — the downloading end / last date for receipt of bids. */
+  bidClose?: string
 }
 
 function toNumber(s: string): number | undefined {
@@ -192,6 +196,18 @@ export function parseTenderEvaluation(lines: string[]): TenderEvaluation {
   // dates. Used as the Note Submitted's Intimation date.
   const server = /Server\s*(?:Time|Date)[^0-9]{0,20}(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})/i.exec(joined)
   if (server) result.serverDate = `${server[1]}.${server[2]}.${server[3]}`
+
+  // Bid Submission Start / Closing dates. On the sheet both labels ("Bid
+  // Submission Start", "Bid Submission Closing") sit on one line and both
+  // date-times ("25/07/2026 06:02 PM", "01/08/2026 04:00 PM") on the next, in
+  // that order — so capture the first two date-times after the "Start" label.
+  const bid = /Bid\s*Submission\s*Start[\s\S]{0,140}?(\d{1,2}\/\d{1,2}\/\d{2,4}\s+\d{1,2}:\d{2}\s*[AP]M)[\s\S]{0,80}?(\d{1,2}\/\d{1,2}\/\d{2,4}\s+\d{1,2}:\d{2}\s*[AP]M)/i.exec(
+    joined
+  )
+  if (bid) {
+    result.bidStart = bid[1].replace(/\s+/g, ' ').trim()
+    result.bidClose = bid[2].replace(/\s+/g, ' ').trim()
+  }
 
   result.nameOfWork = extractNameOfWork(lines)
   if (!result.nameOfWork) {

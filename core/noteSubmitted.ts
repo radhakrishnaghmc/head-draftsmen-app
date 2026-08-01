@@ -5,7 +5,7 @@
 // Works List row plus the bidder comparison (from the evaluation PDF), then
 // converted to .docx for export via core/htmlToDocx.ts. See the plan in
 // project memory (project_note_submitted_doc) for the field mapping.
-import { computeWorkAmounts } from './worksAmounts'
+import { computeWorkAmounts, tenderPercentFromRow } from './worksAmounts'
 
 /** One row of the tender comparison table (display strings, echoed as-is). */
 export interface NoteBidder {
@@ -244,7 +244,7 @@ export function buildNoteSubmittedHtml(d: NoteSubmittedData): string {
 export function noteSubmittedFromRow(row: Record<string, string>, defaultCircle = ''): NoteSubmittedData {
   const amounts = computeWorkAmounts(row)
   const reservation = (row['Reservation'] ?? '').trim() || (row['Name of the work'] ?? '').match(/reserved\s+for\s+([A-Za-z]+)/i)?.[1] || ''
-  const pctRaw = (row['Tender Percentage'] ?? '').replace(/[%,\s]/g, '')
+  const pctRaw = tenderPercentFromRow(row).replace(/[%,\s]/g, '')
   const pctNum = pctRaw === '' ? null : Number(pctRaw)
   const l1Pct = pctNum == null || !Number.isFinite(pctNum) ? '' : pctNum > 0 ? `(-)${pctNum}` : String(pctNum)
   const ecv = amounts.ecv

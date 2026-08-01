@@ -5,7 +5,7 @@ import { rankByEmbedding } from './embeddingMatch'
 import { rupeesToCell } from './worksAmounts'
 
 // A match below this score is treated as "no real match" — same threshold
-// used for work-name matching elsewhere (core/tenderMatch.ts, core/scheduleA.ts).
+// used for work-name matching elsewhere (core/scheduleA.ts).
 const EMBEDDING_THRESHOLD = 0.5
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')

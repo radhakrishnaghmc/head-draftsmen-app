@@ -43,6 +43,24 @@ function normId(s: string | undefined): string {
 }
 
 /**
+ * Normalize a NIT / tender-notice number for comparison. Beyond normId, drop the
+ * trailing "Dated …" / "Dt …" / "Item …" tail: the Online Intimation prints the
+ * NIT No with a "Dated 24.07.2026" suffix that the L-1 sheet's NIT No omits, so
+ * the two would otherwise look like different works though the number is the same.
+ */
+function normNit(s: string | undefined): string {
+  return normId(s)
+    .replace(/\s*\b(dated?|dt\.?|item)\b.*$/i, '')
+    .replace(/[\s,;()/-]+$/, '')
+    .trim()
+}
+
+/** Two NIT numbers agree when equal after normalisation, or one is a prefix of the other (a trailing date/item on one side). */
+function sameNit(a: string, b: string): boolean {
+  return a === b || a.startsWith(b) || b.startsWith(a)
+}
+
+/**
  * Normalize a party/agency name for comparison: drop a leading "M/s"/"Messrs"
  * honorific, strip punctuation, collapse spaces, lowercase. Single-letter
  * tokens are kept — they're often a firm's real initials (e.g. "M V S
@@ -75,8 +93,8 @@ function sameAgency(noticeName: string, l1Name: string): boolean {
 }
 
 export function checkSameWork(notice: IntimationNotice, pdf: TenderEvaluation): SameWorkResult {
-  const noticeNit = normId(notice.nitNo)
-  const pdfNit = normId(pdf.noticeNo)
+  const noticeNit = normNit(notice.nitNo)
+  const pdfNit = normNit(pdf.noticeNo)
   const noticeAgency = normName(notice.agencyName)
   const pdfAgency = normName(pdf.l1AgencyName)
 
@@ -98,9 +116,10 @@ export function checkSameWork(notice: IntimationNotice, pdf: TenderEvaluation): 
     return { ...base, status: 'mismatch', by: 'agency' }
   }
 
-  // Then the NIT No — when present on both sides and different, also a mismatch
-  // (same agency can win more than one tender, so the NIT still has to agree).
-  if (nitKnown && noticeNit !== pdfNit) {
+  // Then the NIT No — when present on both sides and genuinely different, also a
+  // mismatch (same agency can win more than one tender, so the NIT still has to
+  // agree). A trailing "Dated …"/"Item …" on one side is not a difference.
+  if (nitKnown && !sameNit(noticeNit, pdfNit)) {
     return { ...base, status: 'mismatch', by: 'nit' }
   }
 

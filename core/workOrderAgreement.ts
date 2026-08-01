@@ -7,8 +7,9 @@
 // its date out in words. Sources, in priority order, mirror Give Intimation:
 // the portal "View Intimation Notice" HTML -> the L-1 selection / evaluation
 // PDF -> the picked Works List row.
-import { computeWorkAmounts, indianDigitGroups } from './worksAmounts'
+import { computeWorkAmounts, indianDigitGroups, tenderPercentFromRow } from './worksAmounts'
 import { amountToWords, dateToWords } from './numberToWords'
+import { zoneAbbr } from './loaSe'
 import type { IntimationNotice } from './intimationNotice'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
 
@@ -166,7 +167,7 @@ export function deriveFields(
 ): WorkOrderAgreementFields {
   const est = computeWorkAmounts(row)
   const ecv = notice.ecvRupees ?? pdf.ecvRupees ?? est.ecv ?? null
-  const tenderPct = pdf.tenderPercentage ?? num(row['Tender Percentage'])
+  const tenderPct = pdf.tenderPercentage ?? num(tenderPercentFromRow(row))
   // Keep paise: the office prints the contract value to 2 decimals
   // ("Rs.14,45,983.17"), so the computed fallback is rounded to paise, not
   // to whole rupees the way the Works List's Contract Amount column is.
@@ -219,6 +220,9 @@ export function workOrderPlaceholders(f: WorkOrderAgreementFields): Record<strin
     'Address of the agency': wrapAgencyAddress(f.address),
     'Phone no.': f.phone,
     Zone: f.zone,
+    // Zone abbreviation for the Work Order number / Zonal-Commissioner ref (was a
+    // hard-coded "QBZ" in the template — now reflects the work's actual zone).
+    ZoneAbbr: zoneAbbr(f.zone),
     'Name of the work': f.nameOfWork,
     'Administrative Sanction date': f.adminSanctionDate,
     Wincode: f.wincode,
@@ -281,5 +285,98 @@ export function forwardingSlipPlaceholders(f: WorkOrderAgreementFields): Record<
     'EMD 1.5 percent': reserved ? EXEMPT : ecv != null ? groupedRupees(ecv * 0.015) : '',
     // ASD applies only when the tender % exceeds 25 (at (%-25)% of ECV); else "-".
     'ASD Details': !reserved && pct != null && pct > 25 && ecv != null ? groupedRupees(ecv * ((pct - 25) / 100)) : '-'
+  }
+}
+
+/**
+ * Placeholders for the full Civil Tender Document (the 41-page NIT/tender
+ * document, page 1 = the Forwarding Slip). Work fields come from `f` (Works List
+ * row + L-1); the NIT No, the four bid dates (Downloading Start/End, Receipt of
+ * Bids, Price Bid Opening) and the L-1 agency come from the uploaded L-1 sheet
+ * (`pdf`); "No. of pages of Agreement" and "No. of items in Schedule 'A'" the
+ * office hand-enters (`extras`).
+ */
+export function civilTenderPlaceholders(
+  f: WorkOrderAgreementFields,
+  pdf: TenderEvaluation,
+  extras: { pagesOfAgreement?: string; scheduleAItems?: string }
+): Record<string, string> {
+  const estLakhs = num(f.estimateLakhs)
+  const ecv = num(f.ecvRupees)
+  const contract = num(f.contractRupees)
+  const contractor = [f.agencyName, f.address].map((s) => (s ?? '').trim()).filter(Boolean).join('\n')
+  return {
+    'Name of the work': f.nameOfWork,
+    'Estimate Amount': estLakhs != null ? groupedRupees(estLakhs * 100000) : '',
+    Contractor: contractor,
+    'Contract Amount': contract != null ? groupedRupees(contract) : '',
+    ECV: ecv != null ? groupedRupees(ecv) : '',
+    EMD: ecv != null ? groupedRupees(Math.round(ecv * 0.01)) : '',
+    'NIT No': pdf.noticeNo ?? '',
+    Period: f.completionMonths.trim(),
+    // Bid document downloading start/end; receipt of bids = closing.
+    'Bid Start': pdf.bidStart ?? '',
+    'Bid End': pdf.bidClose ?? '',
+    'Bid Receipt': pdf.bidClose ?? '',
+    // Price bid opening = the sheet's Server Time (when the price bid was opened).
+    'Price Bid Open': pdf.serverDate ?? '',
+    'Pages Of Agreement': extras.pagesOfAgreement ?? '',
+    'Schedule A Items': extras.scheduleAItems ?? ''
+  }
+}
+
+/** Indian-grouped rupees with paise, WITHOUT the "Rs." prefix (the zonal templates print "Rs." themselves). */
+function groupedAmount(n: number): string {
+  const [whole, frac] = n.toFixed(2).split('.')
+  return `${indianDigitGroups(Number(whole))}.${frac}`
+}
+
+/**
+ * Placeholders for the three Zone-level (SE office) documents — the Work Order,
+ * the Memo Concluding Agreement, and the Memo forwarding the Agreement Bond to
+ * the EE. One combined map serves all three: each template's fill only consumes
+ * the labels it actually contains.
+ *
+ * The office is a Zone (no Circle of its own), so the Executive Engineer /
+ * "{{EE Circle}}" named throughout is the *work's* own Circle, taken from the
+ * derived fields (NIT / directory), never the office. Serial numbers, dates,
+ * page counts and the EMD receipt/UTR/CMS references are left blank in the
+ * templates for the office to hand-write; only the EMD 1.5% / 1% *amounts* are
+ * filled here (derived from ECV), per the office's convention.
+ */
+export function zonalDocsPlaceholders(
+  f: WorkOrderAgreementFields,
+  notice: IntimationNotice,
+  pdf: TenderEvaluation
+): Record<string, string> {
+  const ecv = num(f.ecvRupees)
+  const contract = num(f.contractRupees)
+  const zone = (f.zone ?? '').trim()
+  const eeCircle = f.circle ? `${f.circle} Circle${f.cno ? `-${f.cno}` : ''}` : ''
+  return {
+    Zone: zone,
+    'Zone Caps': zone ? `${zone.toUpperCase()} ZONE` : '',
+    ZoneAbbr: zoneAbbr(zone),
+    Corp: f.corporation,
+    'Corp Full': (f.corporationFullName ?? '').toUpperCase(),
+    FY: f.financialYear,
+    'EE Circle': eeCircle,
+    'Agency Name': f.agencyName,
+    // Wrap the address across lines (as the circle-level Work Order does) so it
+    // doesn't run off in one long line — the fill turns the \n into hard breaks.
+    'Agency Address': wrapAgencyAddress(f.address),
+    'Agency Phone': f.phone,
+    'Name of Work': f.nameOfWork,
+    'NIT No': notice.nitNo || pdf.noticeNo || '',
+    'NIT Date': pdf.noticeDate ?? '',
+    // The agency's tender date isn't carried by either upload — left blank to hand-write.
+    'Tender Date': '',
+    'Estimate Lakhs': num(f.estimateLakhs) != null ? num(f.estimateLakhs)!.toFixed(2) : f.estimateLakhs,
+    ECV: ecv != null ? groupedAmount(ecv) : '',
+    Contract: contract != null ? groupedAmount(contract) : '',
+    'Tender Percent': f.tenderPercent,
+    Period: f.completionMonths.trim(),
+    'EMD 1.5%': ecv != null ? indianDigitGroups(Math.round(ecv * 0.015)) : '',
+    'EMD 1%': ecv != null ? indianDigitGroups(Math.round(ecv * 0.01)) : ''
   }
 }

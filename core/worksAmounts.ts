@@ -16,6 +16,25 @@ export function lakhsToRupees(lakhs: string): number {
 }
 
 /**
+ * The tender percentage cell from a Works List row. It's the standard "Tender
+ * Percentage" column, but the same figure is sometimes headed "TP" or "Quoted
+ * Commission" (e.g. on an imported sheet), so those aliases are read as
+ * fallbacks — the standard column wins when both are present and filled.
+ */
+export function tenderPercentFromRow(row: Record<string, string>): string {
+  const std = (row['Tender Percentage'] ?? '').trim()
+  if (std) return std
+  for (const key of Object.keys(row)) {
+    const k = key.trim().toLowerCase()
+    if (k === 'tp' || k === 'quoted commission') {
+      const v = (row[key] ?? '').trim()
+      if (v) return v
+    }
+  }
+  return ''
+}
+
+/**
  * Parse a rupee-denominated Works List cell to a whole number of rupees.
  * ECV and Contract Amount are stored on the Works List in rupees (the tender
  * portal reports them that way), unlike "Amount of estimate" which is in
@@ -89,7 +108,7 @@ export function computeWorkAmounts(row: Record<string, string>): ComputedAmounts
   const ecvRaw = row['ECV']
   // ECV is stored in rupees (unlike Amount of estimate, in Lakhs).
   const ecv = ecvRaw?.trim() ? rupeesFromCell(ecvRaw) : null
-  const tenderPercent = parsePercent(row['Tender Percentage'])
+  const tenderPercent = parsePercent(tenderPercentFromRow(row))
 
   const emd1 = ecv !== null ? Math.round(ecv * 0.01) : null
   const emd1_5 = ecv !== null ? Math.round(ecv * 0.015) : null

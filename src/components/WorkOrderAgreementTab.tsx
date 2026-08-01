@@ -10,6 +10,8 @@ import {
   workOrderPlaceholders,
   agreementPlaceholders,
   forwardingSlipPlaceholders,
+  civilTenderPlaceholders,
+  zonalDocsPlaceholders,
   standaloneRowFromSources,
   circleFromNit
 } from '@core/workOrderAgreement'
@@ -111,15 +113,45 @@ function dmyToIso(dmy: string): string {
   return `${year}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
 }
 
-type DocKind = 'workOrder' | 'agreement' | 'forwardingSlip'
+type DocKind =
+  | 'workOrder'
+  | 'agreement'
+  | 'forwardingSlip'
+  | 'civilTender'
+  | 'zonalWorkOrder'
+  | 'zonalConcludingAgreement'
+  | 'zonalMemoEe'
 type Output = DocKind | 'scheduleA' | 'note'
+
+// The three Zone-level (SE office) documents, shown in place of the circle-level
+// docs when the chosen office is a Zone with no Circle of its own.
+const ZONAL_KINDS = ['zonalWorkOrder', 'zonalConcludingAgreement', 'zonalMemoEe'] as const
 
 const DOC_LABEL: Record<Output, string> = {
   forwardingSlip: 'Forwarding Slip',
+  civilTender: 'Tender Document',
   workOrder: 'Work Order',
   agreement: 'Agreement Bond',
+  zonalWorkOrder: 'Work Order',
+  zonalConcludingAgreement: 'Concluding Agreement',
+  zonalMemoEe: 'Memo to EE',
   scheduleA: 'Schedule A',
   note: 'Note Submitted'
+}
+
+const DOC_KINDS: DocKind[] = [
+  'workOrder',
+  'agreement',
+  'forwardingSlip',
+  'civilTender',
+  'zonalWorkOrder',
+  'zonalConcludingAgreement',
+  'zonalMemoEe'
+]
+
+/** Whether an Output is one of the docx documents (previewable/fillable), vs Schedule A / Note. */
+function isDocKind(o: Output | null): o is DocKind {
+  return o != null && (DOC_KINDS as string[]).includes(o)
 }
 
 /**
@@ -147,16 +179,31 @@ export default function WorkOrderAgreementTab({
   const standalone = standaloneProp || scheduleAOnly || !!only
   const table = tables[0] ?? null
 
+  // Zone-level (SE office) mode: a Zone chosen with no Circle of its own. The
+  // page then produces the three SE documents (Work Order, Concluding Agreement,
+  // Memo to EE) instead of the circle-level Work Order / Agreement / Forwarding
+  // Slip / Tender Document. Mirrors GiveIntimationTab's `seMode`. Never in the
+  // Tools single-document (`only`) panels.
+  const seMode = !only && !!office?.zone?.trim() && !office?.circle?.trim()
+
   const [workOrderB64, setWorkOrderB64] = useState<string | null>(null)
   const [agreementB64, setAgreementB64] = useState<string | null>(null)
   const [forwardingSlipB64, setForwardingSlipB64] = useState<string | null>(null)
+  const [civilTenderB64, setCivilTenderB64] = useState<string | null>(null)
   const [workOrderLabels, setWorkOrderLabels] = useState<string[]>([])
   const [agreementLabels, setAgreementLabels] = useState<string[]>([])
   const [forwardingSlipLabels, setForwardingSlipLabels] = useState<string[]>([])
+  const [civilTenderLabels, setCivilTenderLabels] = useState<string[]>([])
+  // The three Zone-level (SE) templates + their placeholder labels, keyed by DocKind.
+  const [zonalB64, setZonalB64] = useState<Record<string, string>>({})
+  const [zonalLabels, setZonalLabels] = useState<Record<string, string[]>>({})
   const [loadError, setLoadError] = useState<string | null>(null)
   // Forwarding Slip fields the office hand-enters (not on the Works List / L-1).
   const [tsNoDate, setTsNoDate] = useState('')
   const [completionMonths, setCompletionMonths] = useState('')
+  // Tender Document fields the office hand-enters.
+  const [pagesOfAgreement, setPagesOfAgreement] = useState('')
+  const [scheduleAItems, setScheduleAItems] = useState('')
 
   const [rowIndex, setRowIndex] = useState(0)
   const [notice, setNotice] = useState<IntimationNotice | null>(null)
@@ -190,6 +237,12 @@ export default function WorkOrderAgreementTab({
   const [agreementDate, setAgreementDate] = useState('')
   const [datePromptOpen, setDatePromptOpen] = useState(false)
   const [promptDate, setPromptDate] = useState('')
+  // Tools/standalone: when the uploaded L-1's name of work / NIT carries no Zone
+  // or Circle to derive them from, the office block and Work Order number would
+  // come out blank — so the same prompt collects them by hand.
+  const [manualCircle, setManualCircle] = useState('')
+  const [manualCno, setManualCno] = useState('')
+  const [manualZone, setManualZone] = useState('')
   // Which document to open once the shared date has been entered in the prompt.
   const [pendingDoc, setPendingDoc] = useState<DocKind>('agreement')
 
@@ -205,6 +258,10 @@ export default function WorkOrderAgreementTab({
   const woTileRef = useRef<HTMLDivElement>(null)
   const agTileRef = useRef<HTMLDivElement>(null)
   const fsTileRef = useRef<HTMLDivElement>(null)
+  const ctTileRef = useRef<HTMLDivElement>(null)
+  const zwoTileRef = useRef<HTMLDivElement>(null)
+  const zcaTileRef = useRef<HTMLDivElement>(null)
+  const zmeTileRef = useRef<HTMLDivElement>(null)
   const expandedRef = useRef<HTMLDivElement>(null)
   const printScratchRef = useRef<HTMLDivElement>(null)
 
@@ -245,23 +302,27 @@ export default function WorkOrderAgreementTab({
     let cancelled = false
     void (async () => {
       try {
-        const [woB64, agB64, fsB64] = await Promise.all([
+        const [woB64, agB64, fsB64, ctB64] = await Promise.all([
           api.workOrderTemplate(),
           api.agreementTemplate(),
-          api.forwardingSlipTemplate()
+          api.forwardingSlipTemplate(),
+          api.civilTenderTemplate()
         ])
-        const [woLabels, agLabels, fsLabels] = await Promise.all([
+        const [woLabels, agLabels, fsLabels, ctLabels] = await Promise.all([
           api.findPlaceholdersInDocument(woB64),
           api.findPlaceholdersInDocument(agB64),
-          api.findPlaceholdersInDocument(fsB64)
+          api.findPlaceholdersInDocument(fsB64),
+          api.findPlaceholdersInDocument(ctB64)
         ])
         if (cancelled) return
         setWorkOrderB64(woB64)
         setAgreementB64(agB64)
         setForwardingSlipB64(fsB64)
+        setCivilTenderB64(ctB64)
         setWorkOrderLabels(woLabels)
         setAgreementLabels(agLabels)
         setForwardingSlipLabels(fsLabels)
+        setCivilTenderLabels(ctLabels)
       } catch (e) {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
       }
@@ -270,6 +331,34 @@ export default function WorkOrderAgreementTab({
       cancelled = true
     }
   }, [])
+
+  // Load the three Zone-level (SE) templates once, when the office is zone-level.
+  useEffect(() => {
+    if (!seMode) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const [woB64, caB64, meB64] = await Promise.all([
+          api.zonalWorkOrderTemplate(),
+          api.zonalConcludingAgreementTemplate(),
+          api.zonalMemoEeTemplate()
+        ])
+        const [woL, caL, meL] = await Promise.all([
+          api.findPlaceholdersInDocument(woB64),
+          api.findPlaceholdersInDocument(caB64),
+          api.findPlaceholdersInDocument(meB64)
+        ])
+        if (cancelled) return
+        setZonalB64({ zonalWorkOrder: woB64, zonalConcludingAgreement: caB64, zonalMemoEe: meB64 })
+        setZonalLabels({ zonalWorkOrder: woL, zonalConcludingAgreement: caL, zonalMemoEe: meL })
+      } catch (e) {
+        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [seMode])
 
   // Everything the two documents print, resolved from the uploaded Online
   // Intimation + L-1 selection form + the matched Works List row.
@@ -283,16 +372,27 @@ export default function WorkOrderAgreementTab({
       agreementDate: dmy,
       workOrderDate: dmy,
       // Corporation / Circle / Zone come from the chosen office (Works List page)
-      // when set, so the Forwarding Slip works for any circle/corporation.
-      circle: office?.circle || f.circle,
-      cno: office?.circleNumber || f.cno,
-      zone: office?.zone || f.zone,
+      // when set, else the L-1/NIT-derived value, else the hand-entered fallback
+      // (Tools mode, when the name of work carried no circle/zone).
+      circle: office?.circle || f.circle || manualCircle,
+      cno: office?.circleNumber || f.cno || manualCno,
+      zone: office?.zone || f.zone || manualZone,
       corporation: office?.corporation ?? '',
       corporationFullName: corporationByName(office?.corporation)?.fullName ?? '',
       tsNoDate,
       completionMonths
     }
-  }, [notice, pdfEval, selectedRow, agreementDate, office, tsNoDate, completionMonths])
+  }, [notice, pdfEval, selectedRow, agreementDate, office, tsNoDate, completionMonths, manualCircle, manualCno, manualZone])
+
+  // Tools/standalone: the uploaded L-1 gave neither a Circle nor a Zone (and no
+  // office was chosen to supply them), so the prompt must collect them by hand.
+  const missingCircleZone = useMemo(() => {
+    if (!standalone) return false
+    const b = deriveFields(notice ?? {}, pdfEval ?? {}, selectedRow ?? {})
+    const circle = (office?.circle || b.circle || '').trim()
+    const zone = (office?.zone || b.zone || '').trim()
+    return !circle || !zone
+  }, [standalone, notice, pdfEval, selectedRow, office])
 
   // Opening either the Work Order or the Agreement Bond preview requires a date
   // — both documents print the same date, so prompt for it when none has been
@@ -300,8 +400,10 @@ export default function WorkOrderAgreementTab({
   // which document the user was opening so we return to it once the date's in.
   function openDoc(kind: DocKind) {
     // The Forwarding Slip is hand-dated (blank Date line), so it doesn't need
-    // the shared agreement date — only the Work Order / Agreement do.
-    if ((kind === 'workOrder' || kind === 'agreement') && !agreementDate) {
+    // the shared agreement date — only the Work Order / Agreement do. The same
+    // prompt also collects the Circle/Zone when the L-1 didn't carry them.
+    const needsCircleZone = missingCircleZone && (!manualCircle.trim() || !manualZone.trim())
+    if ((kind === 'workOrder' || kind === 'agreement') && (!agreementDate || needsCircleZone)) {
       setPendingDoc(kind)
       setPromptDate(dmyToIso(fields.agreementDate))
       setDatePromptOpen(true)
@@ -403,16 +505,24 @@ export default function WorkOrderAgreementTab({
   }
 
   async function fillDoc(kind: DocKind): Promise<string> {
-    const b64 = kind === 'workOrder' ? workOrderB64 : kind === 'agreement' ? agreementB64 : forwardingSlipB64
+    const b64 =
+      { workOrder: workOrderB64, agreement: agreementB64, forwardingSlip: forwardingSlipB64, civilTender: civilTenderB64 }[
+        kind as 'workOrder' | 'agreement' | 'forwardingSlip' | 'civilTender'
+      ] ?? zonalB64[kind]
     const labels =
-      kind === 'workOrder' ? workOrderLabels : kind === 'agreement' ? agreementLabels : forwardingSlipLabels
+      { workOrder: workOrderLabels, agreement: agreementLabels, forwardingSlip: forwardingSlipLabels, civilTender: civilTenderLabels }[
+        kind as 'workOrder' | 'agreement' | 'forwardingSlip' | 'civilTender'
+      ] ?? zonalLabels[kind] ?? []
     if (!b64) throw new Error('Format not loaded yet.')
-    const values =
-      kind === 'workOrder'
+    const values = ZONAL_KINDS.includes(kind as (typeof ZONAL_KINDS)[number])
+      ? zonalDocsPlaceholders(fields, notice ?? {}, pdfEval ?? {})
+      : kind === 'workOrder'
         ? workOrderPlaceholders(fields)
         : kind === 'agreement'
           ? agreementPlaceholders(fields)
-          : forwardingSlipPlaceholders(fields)
+          : kind === 'forwardingSlip'
+            ? forwardingSlipPlaceholders(fields)
+            : civilTenderPlaceholders(fields, pdfEval ?? {}, { pagesOfAgreement, scheduleAItems })
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
     return api.fillPlaceholdersInDocument(b64, resolved, values)
   }
@@ -473,7 +583,9 @@ export default function WorkOrderAgreementTab({
   // actually in the Works List, and it's this office's own Circle — no tiles are
   // shown before that.
   const bothUploaded = !!notice && !!pdfEval && !workMismatch && !circleMismatch
-  const templatesReady = !!workOrderB64 && !!agreementB64 && !!forwardingSlipB64
+  const templatesReady = seMode
+    ? ZONAL_KINDS.every((k) => !!zonalB64[k])
+    : !!workOrderB64 && !!agreementB64 && !!forwardingSlipB64 && !!civilTenderB64
   const docsReady = templatesReady && bothUploaded
 
   // Live thumbnails in the document tiles, refreshed whenever the filled values
@@ -481,16 +593,23 @@ export default function WorkOrderAgreementTab({
   // single-document panels).
   useEffect(() => {
     if (!docsReady) return
+    if (seMode) {
+      if (zwoTileRef.current) void renderDocInto('zonalWorkOrder', zwoTileRef.current).catch(() => {})
+      if (zcaTileRef.current) void renderDocInto('zonalConcludingAgreement', zcaTileRef.current).catch(() => {})
+      if (zmeTileRef.current) void renderDocInto('zonalMemoEe', zmeTileRef.current).catch(() => {})
+      return
+    }
     if (woTileRef.current) void renderDocInto('workOrder', woTileRef.current).catch(() => {})
     if (agTileRef.current) void renderDocInto('agreement', agTileRef.current).catch(() => {})
     if (fsTileRef.current) void renderDocInto('forwardingSlip', fsTileRef.current).catch(() => {})
+    if (ctTileRef.current) void renderDocInto('civilTender', ctTileRef.current).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docsReady, fields])
+  }, [docsReady, seMode, fields, pagesOfAgreement, scheduleAItems])
 
   // The full-size preview inside the expanded modal (documents only — Schedule
   // A renders its table as JSX below).
   useEffect(() => {
-    if (expanded !== 'workOrder' && expanded !== 'agreement' && expanded !== 'forwardingSlip') return
+    if (!isDocKind(expanded)) return
     const container = expandedRef.current
     if (!container) return
     setActionError(null)
@@ -498,7 +617,7 @@ export default function WorkOrderAgreementTab({
       .then((pages) => setExpandedPages(pages))
       .catch((e) => setActionError(e instanceof Error ? e.message : String(e)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, fields])
+  }, [expanded, fields, pagesOfAgreement, scheduleAItems])
 
   function docName(kind: DocKind): string {
     const agency = fields.agencyName ? ` - ${fields.agencyName}` : ''
@@ -874,7 +993,25 @@ export default function WorkOrderAgreementTab({
                 onChange={(e) => setCompletionMonths(e.target.value)}
               />
             </label>
-            <span className="estimate-hint">For the Forwarding Slip.</span>
+            <label className="wo-date-field">
+              <span>No. of pages of Agreement</span>
+              <input
+                type="text"
+                placeholder="12"
+                value={pagesOfAgreement}
+                onChange={(e) => setPagesOfAgreement(e.target.value)}
+              />
+            </label>
+            <label className="wo-date-field">
+              <span>No. of items in Schedule ‘A’</span>
+              <input
+                type="text"
+                placeholder="8"
+                value={scheduleAItems}
+                onChange={(e) => setScheduleAItems(e.target.value)}
+              />
+            </label>
+            <span className="estimate-hint">For the Forwarding Slip &amp; Tender Document.</span>
           </div>
         )}
         {!only && noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
@@ -926,7 +1063,32 @@ export default function WorkOrderAgreementTab({
         <div className="notice">Add works to the Works List first — the outputs are filled from a work's row.</div>
       ) : anyOutput ? (
         <div className="wo-tiles">
-          {docsReady && !only && (
+          {docsReady && seMode && (
+            <>
+              <button className="wo-tile" onClick={() => openDoc('zonalWorkOrder')}>
+                <div className="wo-tile-preview">
+                  <div ref={zwoTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.zonalWorkOrder}</div>
+              </button>
+              <button className="wo-tile" onClick={() => openDoc('zonalConcludingAgreement')}>
+                <div className="wo-tile-preview">
+                  <div ref={zcaTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.zonalConcludingAgreement}</div>
+              </button>
+              <button className="wo-tile" onClick={() => openDoc('zonalMemoEe')}>
+                <div className="wo-tile-preview">
+                  <div ref={zmeTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.zonalMemoEe}</div>
+              </button>
+            </>
+          )}
+          {docsReady && !only && !seMode && (
             <button className="wo-tile" onClick={() => openDoc('forwardingSlip')}>
               <div className="wo-tile-preview">
                 <div ref={fsTileRef} className="wo-tile-doc" />
@@ -935,7 +1097,16 @@ export default function WorkOrderAgreementTab({
               <div className="wo-tile-foot">{DOC_LABEL.forwardingSlip}</div>
             </button>
           )}
-          {docsReady && (!only || only === 'agreement') && (
+          {docsReady && !only && !seMode && (
+            <button className="wo-tile" onClick={() => openDoc('civilTender')}>
+              <div className="wo-tile-preview">
+                <div ref={ctTileRef} className="wo-tile-doc" />
+                <span className="wo-tile-open">Click to preview</span>
+              </div>
+              <div className="wo-tile-foot">{DOC_LABEL.civilTender}</div>
+            </button>
+          )}
+          {docsReady && !seMode && (!only || only === 'agreement') && (
             <button className="wo-tile" onClick={() => openDoc('agreement')}>
               <div className="wo-tile-preview">
                 <div ref={agTileRef} className="wo-tile-doc" />
@@ -971,7 +1142,7 @@ export default function WorkOrderAgreementTab({
               <div className="wo-tile-foot">{DOC_LABEL.scheduleA}</div>
             </button>
           )}
-          {docsReady && (!only || only === 'workOrder') && (
+          {docsReady && !seMode && (!only || only === 'workOrder') && (
             <button className="wo-tile" onClick={() => openDoc('workOrder')}>
               <div className="wo-tile-preview">
                 <div ref={woTileRef} className="wo-tile-doc" />
@@ -996,12 +1167,49 @@ export default function WorkOrderAgreementTab({
         <div className="wo-modal-overlay" onClick={() => setDatePromptOpen(false)}>
           <div className="wo-modal wo-date-modal" onClick={(e) => e.stopPropagation()}>
             <div className="wo-modal-head">
-              <span className="wo-modal-title">Enter the agreement date</span>
+              <span className="wo-modal-title">
+                {missingCircleZone ? 'Enter the Circle, Zone and agreement date' : 'Enter the agreement date'}
+              </span>
               <button className="wo-modal-close" onClick={() => setDatePromptOpen(false)} title="Close" aria-label="Close">
                 ×
               </button>
             </div>
             <div className="wo-modal-body wo-date-body">
+              {missingCircleZone && (
+                <>
+                  <p>
+                    The uploaded L-1’s name of work doesn’t name a Circle or Zone, so the office block and the Work Order
+                    number would be blank. Enter them here — they fill both documents.
+                  </p>
+                  <label className="wo-date-field">
+                    <span>Circle</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. Gajularamaram"
+                      value={manualCircle}
+                      onChange={(e) => setManualCircle(e.target.value)}
+                    />
+                  </label>
+                  <label className="wo-date-field">
+                    <span>Circle number</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. 57"
+                      value={manualCno}
+                      onChange={(e) => setManualCno(e.target.value)}
+                    />
+                  </label>
+                  <label className="wo-date-field">
+                    <span>Zone</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. Quthbullapur"
+                      value={manualZone}
+                      onChange={(e) => setManualZone(e.target.value)}
+                    />
+                  </label>
+                </>
+              )}
               <p>
                 This date fills the Agreement Bond — the <strong>A.B.No line</strong> (as dd.mm.yyyy) and the{' '}
                 <strong>“…day of…”</strong> wording (in words) — and the Work Order date.
@@ -1017,7 +1225,7 @@ export default function WorkOrderAgreementTab({
             <div className="wo-modal-foot">
               <button
                 className="primary"
-                disabled={!promptDate}
+                disabled={!promptDate || (missingCircleZone && (!manualCircle.trim() || !manualZone.trim()))}
                 onClick={() => {
                   setAgreementDate(promptDate)
                   setDatePromptOpen(false)
@@ -1037,10 +1245,7 @@ export default function WorkOrderAgreementTab({
             <div className="wo-modal-head">
               <span className="wo-modal-title">
                 {DOC_LABEL[expanded]}
-                {(expanded === 'workOrder' || expanded === 'agreement' || expanded === 'forwardingSlip') &&
-                expandedPages > 1
-                  ? ` — ${expandedPages} pages`
-                  : ''}
+                {isDocKind(expanded) && expandedPages > 1 ? ` — ${expandedPages} pages` : ''}
               </span>
               <button className="wo-modal-close" onClick={() => setExpanded(null)} title="Close" aria-label="Close">
                 ×

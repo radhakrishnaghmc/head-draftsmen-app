@@ -197,7 +197,8 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       worksListLinks: m.worksListLinks ?? {},
       tenderReminders: m.tenderReminders ?? [],
       createdDocuments,
-      bidDocumentBatches: m.bidDocumentBatches ?? []
+      bidDocumentBatches: m.bidDocumentBatches ?? [],
+      mbScrutiny: m.mbScrutiny ?? []
     }
   } catch (e) {
     console.error('pullRemoteState failed', e)
@@ -252,7 +253,8 @@ function subscribeRemote(
         lastGoogleLink: data.lastGoogleLink ?? undefined,
         worksListLinks: data.worksListLinks ?? {},
         tenderReminders: data.tenderReminders ?? [],
-        bidDocumentBatches: data.bidDocumentBatches ?? []
+        bidDocumentBatches: data.bidDocumentBatches ?? [],
+        mbScrutiny: data.mbScrutiny ?? []
       })
     })
   )
@@ -303,6 +305,7 @@ export async function pushState(state: PersistedState): Promise<void> {
       worksListLinks: state.worksListLinks ?? {},
       tenderReminders: state.tenderReminders ?? [],
       bidDocumentBatches: state.bidDocumentBatches ?? [],
+      mbScrutiny: state.mbScrutiny ?? [],
       updatedAt: serverTimestamp(),
       lastWriter: sessionId
     })

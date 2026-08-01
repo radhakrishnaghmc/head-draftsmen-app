@@ -72,10 +72,22 @@ const LEGACY_CNO_COLUMN = 'CNO'
 export function applyWorksSchema(table: ExcelTable): ExcelTable {
   const hasEcv = table.headers.includes('ECV')
   const hasCircleNumber = table.headers.includes('Circle number')
-  const extraHeaders = table.headers.filter(
-    (h) => !WORKS_COLUMNS.includes(h) && h !== LEGACY_ECV_COLUMN && h !== LEGACY_CNO_COLUMN
-  )
-  const headers = [...WORKS_COLUMNS, ...extraHeaders]
+  // Preserve the table's own column arrangement (e.g. the order of the Google
+  // sheet it was imported from, so a re-normalize on load never reshuffles it) —
+  // rename any legacy column in place, then only *append* standard columns the
+  // table is missing. Never reorder what's already there.
+  const headers: string[] = []
+  const seen = new Set<string>()
+  const push = (h: string): void => {
+    if (!seen.has(h)) {
+      seen.add(h)
+      headers.push(h)
+    }
+  }
+  for (const h of table.headers) {
+    push(h === LEGACY_ECV_COLUMN ? 'ECV' : h === LEGACY_CNO_COLUMN ? 'Circle number' : h)
+  }
+  for (const h of WORKS_COLUMNS) push(h)
   const rows = (table.rows.length > 0 ? table.rows : [{}]).map((row) => {
     const next: Record<string, string> = {}
     for (const h of headers) {
@@ -170,8 +182,14 @@ export function repairInflatedRupees(table: ExcelTable): ExcelTable {
  *
  * Any imported column the mapping didn't claim for a standard column (e.g.
  * "Eoffice", "Download start time" — real fields the app doesn't already
- * track) is kept too, appended after the standard columns under its own
- * original name, rather than discarded.
+ * track) is kept too, under its own original name, rather than discarded.
+ *
+ * The output columns follow the *imported sheet's own order*, so a download of
+ * the Works List mirrors the arrangement of the Google sheet it came from: each
+ * mapped column appears under its standard (app) name at the sheet's position,
+ * each unclaimed column keeps its own name in place, and any standard column the
+ * sheet didn't carry is appended afterwards so the app never loses a field it
+ * relies on.
  */
 export function applyWorksSchemaWithMapping(
   importedHeaders: string[],
@@ -180,11 +198,32 @@ export function applyWorksSchemaWithMapping(
   meta: { id: string; name: string; path: string }
 ): ExcelTable {
   const columnFor = new Map(mapping.map((m) => [m.label, m.column]))
-  const claimed = new Set(mapping.map((m) => m.column).filter((c): c is string => c !== null))
-  // A sheet still using "CNO" is folded into "Circle number" rather than kept
-  // as a separate extra column (they're the same thing).
-  const extraHeaders = importedHeaders.filter((h) => !claimed.has(h) && h !== LEGACY_CNO_COLUMN)
-  const headers = [...WORKS_COLUMNS, ...extraHeaders]
+  // Reverse of columnFor: which standard column an imported header satisfies.
+  const labelForImported = new Map<string, string>()
+  for (const m of mapping) if (m.column) labelForImported.set(m.column, m.label)
+
+  const seen = new Set<string>()
+  // The sheet's own columns in the sheet's order (mapped to standard names) —
+  // exactly what a download reproduces. A "CNO" column folds into "Circle
+  // number" (they're the same thing) rather than kept as a separate extra.
+  const sourceHeaders: string[] = []
+  for (const h of importedHeaders) {
+    const name = labelForImported.get(h) ?? (h === LEGACY_CNO_COLUMN ? 'Circle number' : h)
+    if (!seen.has(name)) {
+      seen.add(name)
+      sourceHeaders.push(name)
+    }
+  }
+  // The full column set the app works with: the sheet's columns, then any
+  // standard column the sheet didn't include, appended so the app never loses a
+  // field it relies on. (Those appended columns aren't part of the download.)
+  const headers = [...sourceHeaders]
+  for (const h of WORKS_COLUMNS) {
+    if (!seen.has(h)) {
+      seen.add(h)
+      headers.push(h)
+    }
+  }
 
   const rows = (importedRows.length > 0 ? importedRows : [{}]).map((row) => {
     const next: Record<string, string> = {}
@@ -193,10 +232,9 @@ export function applyWorksSchemaWithMapping(
       const legacy = h === 'Circle number' ? row[LEGACY_CNO_COLUMN] : undefined
       next[h] = (matchedCol ? row[matchedCol] : undefined) ?? row[h] ?? legacy ?? ''
     }
-    for (const h of extraHeaders) {
-      next[h] = row[h] ?? ''
-    }
+    // Any remaining (non-standard) column keeps its own value.
+    for (const h of headers) if (!(h in next)) next[h] = row[h] ?? ''
     return next
   })
-  return { ...meta, headers, rows }
+  return { ...meta, headers, sourceHeaders: sourceHeaders.length > 0 ? sourceHeaders : undefined, rows }
 }

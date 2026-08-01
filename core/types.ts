@@ -31,6 +31,14 @@ export interface ExcelTable {
   name: string
   path: string
   headers: string[]
+  /**
+   * When the table was imported from a sheet: that sheet's own columns, in the
+   * sheet's original order (each mapped to its standard app name). A download of
+   * the Works List reproduces exactly these columns in this order, so the file
+   * mirrors the source Google sheet's arrangement rather than the app's internal
+   * schema order. Absent for the built-in database (which exports its headers).
+   */
+  sourceHeaders?: string[]
   rows: Record<string, string>[]
 }
 

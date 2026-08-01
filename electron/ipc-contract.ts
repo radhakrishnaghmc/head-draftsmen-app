@@ -81,6 +81,10 @@ export const IPC = {
   workOrderTemplate: 'doc:workOrderTemplate',
   agreementTemplate: 'doc:agreementTemplate',
   forwardingSlipTemplate: 'doc:forwardingSlipTemplate',
+  civilTenderTemplate: 'doc:civilTenderTemplate',
+  zonalWorkOrderTemplate: 'doc:zonalWorkOrderTemplate',
+  zonalConcludingAgreementTemplate: 'doc:zonalConcludingAgreementTemplate',
+  zonalMemoEeTemplate: 'doc:zonalMemoEeTemplate',
   loaSeTemplate: 'doc:loaSeTemplate',
   loadState: 'state:load',
   saveState: 'state:save',
@@ -184,6 +188,14 @@ export interface DocuGenApi {
   agreementTemplate(): Promise<string>
   /** Reads the bundled Forwarding Slip format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
   forwardingSlipTemplate(): Promise<string>
+  /** Reads the bundled full Civil Tender Document (.docx) — the 41-page NIT/tender document whose page 1 is the Forwarding Slip — returns it base64-encoded for filling its {{placeholders}}. */
+  civilTenderTemplate(): Promise<string>
+  /** Reads the bundled Zone-level (SE office) Work Order format (.docx), for the Work Order/Agreement page when the office is a Zone with no Circle. Base64-encoded, for filling its {{placeholders}}. */
+  zonalWorkOrderTemplate(): Promise<string>
+  /** Reads the bundled Zone-level (SE office) Memo Concluding Agreement format (.docx). Base64-encoded, for filling its {{placeholders}}. */
+  zonalConcludingAgreementTemplate(): Promise<string>
+  /** Reads the bundled Zone-level (SE office) Memo forwarding the Agreement Bond to the EE (.docx). Base64-encoded, for filling its {{placeholders}}. */
+  zonalMemoEeTemplate(): Promise<string>
   /** Reads the bundled Superintending-Engineer LOA format (.docx) — used for the Give Intimation letter when the office is zone-level (a Zone with no Circle). `reserved` picks the SC/ST-reserved variant (no EMD balance item). Returns it base64-encoded, for filling its {{placeholders}}. */
   loaSeTemplate(reserved: boolean): Promise<string>
   loadState(): Promise<PersistedState | null>

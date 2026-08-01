@@ -689,6 +689,30 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
+  ipcMain.handle(IPC.civilTenderTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('civil-tender-template.docx')
+    if (!templatePath) throw new Error('Civil Tender Document format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
+  ipcMain.handle(IPC.zonalWorkOrderTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('zonal-work-order-template.docx')
+    if (!templatePath) throw new Error('Zonal (SE) Work Order format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
+  ipcMain.handle(IPC.zonalConcludingAgreementTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('zonal-concluding-agreement-template.docx')
+    if (!templatePath) throw new Error('Zonal (SE) Concluding Agreement format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
+  ipcMain.handle(IPC.zonalMemoEeTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('zonal-memo-ee-template.docx')
+    if (!templatePath) throw new Error('Zonal (SE) Memo to EE format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
   ipcMain.handle(IPC.loaSeTemplate, async (_e, reserved: boolean): Promise<string> => {
     const file = reserved ? 'loa-se-reserved-template.docx' : 'loa-se-template.docx'
     const templatePath = bundledResourceFile(file)

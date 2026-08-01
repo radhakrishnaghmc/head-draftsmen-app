@@ -5,7 +5,7 @@ import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice
 import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
-import { computeWorkAmounts } from '@core/worksAmounts'
+import { computeWorkAmounts, tenderPercentFromRow } from '@core/worksAmounts'
 import { wrapAgencyAddress } from '@core/workOrderAgreement'
 import {
   zoneAbbr,
@@ -95,7 +95,7 @@ function resolveValue(
 ): string {
   const est = computeWorkAmounts(row)
   const ecv = notice.ecvRupees ?? pdf.ecvRupees ?? est.ecv ?? null
-  const tenderPct = pdf.tenderPercentage ?? parsePct(row['Tender Percentage'])
+  const tenderPct = pdf.tenderPercentage ?? parsePct(tenderPercentFromRow(row))
   const contract =
     notice.contractRupees ??
     pdf.contractRupees ??
@@ -110,7 +110,9 @@ function resolveValue(
   const reserved = isEmdExempt(workName)
 
   const key = norm(label)
-  if (PRICE_BID_DATE_LABELS.has(key)) return pdf.noticeDate ?? ''
+  // Price bid opening date = the L-1 sheet's "Server Time" (bottom-right footer),
+  // i.e. when the price bid was opened — not the NIT date.
+  if (PRICE_BID_DATE_LABELS.has(key)) return pdf.serverDate || pdf.noticeDate || ''
 
   switch (key) {
     case 'agency name':
@@ -222,7 +224,7 @@ function resolveLoaValue(
 ): string {
   const est = computeWorkAmounts(row)
   const ecv = notice.ecvRupees ?? pdf.ecvRupees ?? est.ecv ?? null
-  const tenderPct = pdf.tenderPercentage ?? parsePct(row['Tender Percentage'])
+  const tenderPct = pdf.tenderPercentage ?? parsePct(tenderPercentFromRow(row))
   const contract =
     notice.contractRupees ??
     pdf.contractRupees ??
@@ -238,7 +240,9 @@ function resolveLoaValue(
     case 'financial year':
       return financialYearFromDate(pdf.noticeDate)
     case 'loa date':
-      return manual.loaDate
+      // Date of issuance = the L-1 sheet's "Server Time" (bottom-right footer),
+      // falling back to a hand-entered date only when the sheet has none.
+      return pdf.serverDate || manual.loaDate
     case 'agency name':
       return notice.agencyName ?? pdf.l1AgencyName ?? row['Name of the Agency'] ?? ''
     case 'address of the agency':
@@ -264,7 +268,9 @@ function resolveLoaValue(
     case 'tender id':
       return pdf.tenderId ?? ''
     case 'price bid opening date':
-      return pdf.noticeDate ?? ''
+      // The "Server Time" from the L-1 sheet's bottom-right footer (when the
+      // price bid was opened), not the NIT date.
+      return pdf.serverDate || pdf.noticeDate || ''
     case 'admin sanction value': {
       const raw = manual.adminSanction.trim()
       if (!raw) return ''
