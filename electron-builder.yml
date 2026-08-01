@@ -30,6 +30,10 @@ extraResources:
     to: agreement-template.docx
   - from: resources/forwarding-slip-template.docx
     to: forwarding-slip-template.docx
+  - from: resources/loa-se-template.docx
+    to: loa-se-template.docx
+  - from: resources/loa-se-reserved-template.docx
+    to: loa-se-reserved-template.docx
   - from: resources/boq-template.xlsx
     to: boq-template.xlsx
   - from: resources/deviation-template.xlsx

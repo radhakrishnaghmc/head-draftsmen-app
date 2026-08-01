@@ -689,6 +689,13 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
+  ipcMain.handle(IPC.loaSeTemplate, async (_e, reserved: boolean): Promise<string> => {
+    const file = reserved ? 'loa-se-reserved-template.docx' : 'loa-se-template.docx'
+    const templatePath = bundledResourceFile(file)
+    if (!templatePath) throw new Error('Superintending Engineer LOA format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
   const stateFile = () => path.join(app.getPath('userData'), 'state.json')
 
   const seedStateFile = () => {

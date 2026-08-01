@@ -798,7 +798,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 <p>Upload a PDF (or photos) plus an existing Intimation format to auto-fill it from what's in the document.</p>
               </div>
             </div>
-            <GiveIntimationTab tables={tables} onChange={updateTable} />
+            <GiveIntimationTab tables={tables} onChange={updateTable} office={office} />
           </section>
         )}
 

@@ -175,12 +175,15 @@ export function deriveFields(
     pdf.contractRupees ??
     (ecv != null && tenderPct != null ? Math.round(ecv * (1 - tenderPct / 100) * 100) / 100 : null)
   const loaDate = pdf.noticeDate ?? ''
+  // The name of work comes from the uploaded L-1 sheet — the Works List row only
+  // supplies supporting details (Circle/CNO/estimate/…) when its name matched.
+  const workName = pdf.nameOfWork || row['Name of the work'] || ''
 
   return {
     circle: row['Circle'] ?? '',
     cno: row['Circle number'] ?? row['CNO'] ?? '',
     zone: row['Zone'] ?? '',
-    nameOfWork: row['Name of the work'] ?? '',
+    nameOfWork: workName,
     agencyName: notice.agencyName ?? pdf.l1AgencyName ?? row['Name of the Agency'] ?? '',
     address: notice.address ?? row['Address of the agency'] ?? '',
     phone: row['Phone number of the agency'] ?? '',
@@ -197,7 +200,7 @@ export function deriveFields(
     corporationFullName: '',
     tsNoDate: '',
     completionMonths: '',
-    reservation: reservationFromRow(row)
+    reservation: reservationFromRow({ ...row, 'Name of the work': workName })
   }
 }
 

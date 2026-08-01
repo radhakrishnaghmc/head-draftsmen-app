@@ -81,6 +81,7 @@ export const IPC = {
   workOrderTemplate: 'doc:workOrderTemplate',
   agreementTemplate: 'doc:agreementTemplate',
   forwardingSlipTemplate: 'doc:forwardingSlipTemplate',
+  loaSeTemplate: 'doc:loaSeTemplate',
   loadState: 'state:load',
   saveState: 'state:save',
   remoteStateUpdate: 'state:remoteUpdate',
@@ -183,6 +184,8 @@ export interface DocuGenApi {
   agreementTemplate(): Promise<string>
   /** Reads the bundled Forwarding Slip format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
   forwardingSlipTemplate(): Promise<string>
+  /** Reads the bundled Superintending-Engineer LOA format (.docx) — used for the Give Intimation letter when the office is zone-level (a Zone with no Circle). `reserved` picks the SC/ST-reserved variant (no EMD balance item). Returns it base64-encoded, for filling its {{placeholders}}. */
+  loaSeTemplate(reserved: boolean): Promise<string>
   loadState(): Promise<PersistedState | null>
   saveState(state: PersistedState): Promise<void>
   /** Fires when the other signed-in device changes the workspace, so this one can merge it in live. Returns an unsubscribe function. */

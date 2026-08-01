@@ -225,7 +225,12 @@ export default function WorkOrderAgreementTab({
   // whenever the uploaded L-1's work matched no Works List row (a work from
   // another circle the Zone still owns). Circle/CNO then come from the NIT and
   // the work name from the L-1, exactly as the Tools flow does.
-  const deriveFromUploads = standalone || (zoneLogin && worksRowMatched === false)
+  // The name of work (and agency/amounts) always come from the uploaded L-1 +
+  // Online Intimation. When the L-1's work matched no Works List row — in ANY
+  // office, not just a Zone login — there's no row to draw supporting details
+  // from, so fill everything from the uploads (Circle/CNO from the NIT No). A
+  // matched row is still used for the extra Works-List-only columns.
+  const deriveFromUploads = standalone || worksRowMatched === false
 
   const selectedRow = deriveFromUploads
     ? notice || pdfEval
@@ -436,10 +441,11 @@ export default function WorkOrderAgreementTab({
   // (and everything the documents fill from it — name of work, Circle, CNO,
   // estimate…) belongs to a different work. Gate the tiles until the work is
   // added to the Works List.
-  // Tools mode isn't tied to the Works List, so a "no matching row" never gates;
-  // nor does a Zone login — it owns every circle, so an L-1 from another circle
-  // is valid and we simply fill from the uploads (see deriveFromUploads).
-  const workRowMismatch = !standalone && !zoneLogin && worksRowMatched === false
+  // A "no matching row" never blocks — the documents fill their name of work and
+  // amounts from the uploaded L-1 / Intimation, and only borrow supporting
+  // details from a row when one matched (see deriveFromUploads). It's shown as a
+  // soft note so the user knows the Works-List-only columns will be blank.
+  const noWorksRowMatch = !standalone && worksRowMatched === false
 
   // Guard: the uploaded L-1's Circle must match the Circle the documents will
   // fill from. The L-1's Circle comes from its NIT No ("…/EE/Gajularamaram
@@ -467,7 +473,7 @@ export default function WorkOrderAgreementTab({
   // selection form are uploaded, they belong to the same work, the L1's work is
   // actually in the Works List, and it's this office's own Circle — no tiles are
   // shown before that.
-  const bothUploaded = !!notice && !!pdfEval && !workMismatch && !workRowMismatch && !circleMismatch
+  const bothUploaded = !!notice && !!pdfEval && !workMismatch && !circleMismatch
   const templatesReady = !!workOrderB64 && !!agreementB64 && !!forwardingSlipB64
   const docsReady = templatesReady && bothUploaded
 
@@ -563,7 +569,7 @@ export default function WorkOrderAgreementTab({
   // Submitted while the Online Intimation and L1 selection form disagree on the
   // work/agency, or the L1's work isn't in the Works List (the note is seeded
   // from the selected row) — otherwise it would show the wrong work/agency.
-  const noteReady = !!noteData && !!pdfEval && !workMismatch && !workRowMismatch
+  const noteReady = !!noteData && !!pdfEval && !workMismatch
 
   // Optional non-responsiveness statement — pre-fills the note's rejection line.
   async function handleNonRespFile(file: File) {
@@ -687,7 +693,8 @@ export default function WorkOrderAgreementTab({
     // blank against a not-yet-updated (or mis-selected) row.
     return {
       ...base,
-      nameOfWork: base.nameOfWork?.trim() || fields.nameOfWork,
+      // Name of work comes from the uploaded L-1 (via `fields`), not the row.
+      nameOfWork: fields.nameOfWork || base.nameOfWork?.trim() || '',
       contractorName: base.contractorName?.trim() || fields.agencyName,
       tenderPercentage: fields.tenderPercent || base.tenderPercentage
     }
@@ -903,11 +910,11 @@ export default function WorkOrderAgreementTab({
           the correct circle’s L1.
         </div>
       )}
-      {workRowMismatch && !circleMismatch && pdfEval && (
-        <div className="notice error">
-          <IconWarn /> The uploaded L1 selection form is for “{pdfEval.nameOfWork}”, which doesn’t match any work in your
-          Works List. Add that work to the Works List first — otherwise the Work Order and Agreement Bond would fill the
-          name of work and all details from a different work’s row.
+      {noWorksRowMatch && !circleMismatch && pdfEval && (
+        <div className="notice">
+          <IconWarn /> “{pdfEval.nameOfWork}” isn’t in your Works List, so the documents fill the name of work, agency and
+          amounts from the uploaded L1 / Intimation (Circle/CNO from the NIT No). Add it to the Works List if you want its
+          extra columns (Wincode, estimate, TS No/date, …) filled in automatically.
         </div>
       )}
       {actionSaved && !expanded && (

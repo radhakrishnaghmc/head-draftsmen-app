@@ -7,6 +7,13 @@ import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
 import { computeWorkAmounts } from '@core/worksAmounts'
 import { wrapAgencyAddress } from '@core/workOrderAgreement'
+import {
+  zoneAbbr,
+  financialYearFromDate,
+  formatIndianAmount,
+  amountInWords
+} from '@core/loaSe'
+import type { Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLines } from '../pdfToText'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH, normalizeDocxTextboxes } from './docPage'
@@ -16,7 +23,19 @@ import type { ExcelTable } from '@core/types'
 interface Props {
   tables: ExcelTable[]
   onChange: (table: ExcelTable) => void
+  /** The chosen office. A Zone with no Circle = Superintending Engineer (zonal) office → the LOA format. */
+  office: Office
 }
+
+/** Fields the SE LOA needs that no source (Works List / notice / L-1) can supply — the user types them. */
+interface LoaManualFields {
+  adminSanction: string
+  period: string
+  itemNo: string
+  loaDate: string
+}
+
+const LOA_MANUAL_DEFAULTS: LoaManualFields = { adminSanction: '', period: '3 Months', itemNo: '', loaDate: '' }
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
 
@@ -71,7 +90,8 @@ function resolveValue(
   label: string,
   notice: IntimationNotice,
   pdf: TenderEvaluation,
-  row: Record<string, string>
+  row: Record<string, string>,
+  office?: Office
 ): string {
   const est = computeWorkAmounts(row)
   const ecv = notice.ecvRupees ?? pdf.ecvRupees ?? est.ecv ?? null
@@ -84,7 +104,10 @@ function resolveValue(
   const emd = ecv != null ? Math.floor(ecv * 0.015) : null
   const asd =
     ecv == null ? null : tenderPct != null && tenderPct > 25 ? Math.floor((ecv * (tenderPct - 25)) / 100) : 0
-  const reserved = isEmdExempt(row['Name of the work'] ?? '')
+  // The name of work comes from the uploaded L-1 sheet (see Give Intimation) —
+  // the Works List row only supplies supporting details when its name matched.
+  const workName = pdf.nameOfWork || row['Name of the work'] || ''
+  const reserved = isEmdExempt(workName)
 
   const key = norm(label)
   if (PRICE_BID_DATE_LABELS.has(key)) return pdf.noticeDate ?? ''
@@ -99,15 +122,15 @@ function resolveValue(
     case 'phone number of the agency':
       return row['Phone number of the agency'] ?? ''
     case 'circle':
-      return row['Circle'] ?? ''
+      return row['Circle'] || office?.circle || ''
     case 'cno':
-      return row['CNO'] ?? ''
+      return row['CNO'] || office?.circleNumber || ''
     case 'zone':
-      return row['Zone'] ?? ''
+      return row['Zone'] || office?.zone || ''
     case 'financial year':
       return indianFinancialYear()
     case 'name of the work':
-      return row['Name of the work'] ?? ''
+      return workName
     case 'nit no':
     case 'tender notice no':
       return notice.nitNo ?? pdf.noticeNo ?? row['Tender Notice No'] ?? ''
@@ -137,6 +160,140 @@ function resolveValue(
   }
 }
 
+const NOT_RESERVED = /^(no|none|general|open|nil|n\/?a|-|not\s+reserved)$/i
+
+/**
+ * Works out a work's clean name (for the Sub / acceptance paragraph), its
+ * "(Reserved for X only)" tag, and whether it's reserved. The reserved category
+ * comes from the Works List "Reservation" column when set, otherwise from a
+ * "(Reserved for …)" tag embedded in the name. The name is read from the row
+ * with a fallback to the L-1 PDF's work name (so an empty row cell still fills),
+ * always stripped of any inline reserved tag.
+ */
+function reservedInfo(
+  row: Record<string, string>,
+  pdf: TenderEvaluation
+): { name: string; tag: string; isReserved: boolean } {
+  // The name of work comes from the uploaded L-1 sheet ONLY (the specific work
+  // being issued — the agency/amounts come from the uploads too). The Works List
+  // is only used to fill supporting details (Circle, etc.) when the L-1's work
+  // name matches a row; it is never the source of the name shown here.
+  const rawName = (pdf.nameOfWork || '').trim()
+  // Clean name + any tag embedded in the name text.
+  const paren = /\(\s*reserved\s+for\s+(.+?)\s*\)/i.exec(rawName)
+  const bare = paren ? null : /reserved\s+for\s+([A-Za-z/&]+)/i.exec(rawName)
+  const name = paren || bare
+    ? rawName
+        .replace(/\(?\s*reserved\s+for[^)]*\)?/i, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/\s+([,).])/g, '$1')
+        .trim()
+    : rawName
+  // Category: prefer the Reservation column, else the tag parsed from the name.
+  const col = (row['Reservation'] ?? '').trim()
+  let cat = col && !NOT_RESERVED.test(col)
+    ? col.replace(/reserved\s*(for)?/i, '').replace(/\bonly\b/i, '').replace(/[()]/g, '').trim()
+    : ''
+  if (!cat) cat = (paren?.[1] ?? bare?.[1] ?? '').replace(/\bonly\b/i, '').trim()
+  return { name, tag: cat ? `(Reserved for ${cat} only)` : '', isReserved: !!cat }
+}
+
+/** Whether a work is SC/ST-reserved (picks the LOA variant that omits the EMD line). */
+function isReservedWork(row: Record<string, string>, pdf: TenderEvaluation): boolean {
+  return reservedInfo(row, pdf).isReserved
+}
+
+/**
+ * Resolves one Superintending-Engineer LOA placeholder. Shares the amount
+ * sources with {@link resolveValue} (ECV / contract / tender %), formats money
+ * the SE way (Indian grouping), and derives the LOA-only figures: the balance
+ * EMD clause (1.5% of ECV, plus ASD = (tender%−25)% when the quote is >25%
+ * below), E-Corpus @ 0.04% of ECV, the amount in words, the zone code, the
+ * "(Reserved for …)" tag and the Copy-to circle line. The three fields no
+ * source can supply (Admin Sanction Value, Period, Item No) come from `manual`.
+ */
+function resolveLoaValue(
+  label: string,
+  notice: IntimationNotice,
+  pdf: TenderEvaluation,
+  row: Record<string, string>,
+  office: Office,
+  manual: LoaManualFields
+): string {
+  const est = computeWorkAmounts(row)
+  const ecv = notice.ecvRupees ?? pdf.ecvRupees ?? est.ecv ?? null
+  const tenderPct = pdf.tenderPercentage ?? parsePct(row['Tender Percentage'])
+  const contract =
+    notice.contractRupees ??
+    pdf.contractRupees ??
+    (ecv != null && tenderPct != null ? ecv * (1 - tenderPct / 100) : null)
+  const work = reservedInfo(row, pdf)
+
+  const key = norm(label)
+  switch (key) {
+    case 'zone abbr':
+      return zoneAbbr(office.zone)
+    case 'zone':
+      return office.zone ?? row['Zone'] ?? ''
+    case 'financial year':
+      return financialYearFromDate(pdf.noticeDate)
+    case 'loa date':
+      return manual.loaDate
+    case 'agency name':
+      return notice.agencyName ?? pdf.l1AgencyName ?? row['Name of the Agency'] ?? ''
+    case 'address of the agency':
+      return wrapAgencyAddress(notice.address ?? row['Address of the agency'] ?? '')
+    case 'agency phone number':
+      return row['Phone number of the agency'] ?? ''
+    case 'item no':
+      return manual.itemNo
+    case 'name of the work':
+      return work.name
+    case 'reserved tag':
+      return work.tag
+    case 'circle line': {
+      const circle = (row['Circle'] ?? '').trim()
+      const cno = (row['CNO'] ?? '').trim()
+      if (!circle) return ''
+      return cno ? `${circle} Circle-${cno}` : `${circle} Circle`
+    }
+    case 'nit no':
+      return notice.nitNo ?? pdf.noticeNo ?? row['Tender Notice No'] ?? ''
+    case 'nit date':
+      return pdf.noticeDate ?? ''
+    case 'tender id':
+      return pdf.tenderId ?? ''
+    case 'price bid opening date':
+      return pdf.noticeDate ?? ''
+    case 'admin sanction value': {
+      const raw = manual.adminSanction.trim()
+      if (!raw) return ''
+      const n = Number(raw.replace(/[,\s₹]/g, '').replace(/rs\.?/i, ''))
+      return Number.isFinite(n) && /\d/.test(raw) ? formatIndianAmount(n, 2) : raw
+    }
+    case 'ecv':
+      return formatIndianAmount(ecv, 2)
+    case 'tender percentage':
+      return tenderPct != null ? String(tenderPct) : ''
+    case 'contract amount':
+      return formatIndianAmount(contract, 2)
+    case 'period of completion':
+      return manual.period.trim() || (row['Completion Period'] ?? '').trim()
+    case 'contract in words':
+      return amountInWords(contract)
+    case 'emd clause': {
+      if (ecv == null) return ''
+      const emd = formatIndianAmount(Math.round(ecv * 0.015), 0)
+      const asd = tenderPct != null && tenderPct > 25 ? Math.round((ecv * (tenderPct - 25)) / 100) : 0
+      return asd > 0 ? `Rs. ${emd}/- & ASD amount of Rs.${formatIndianAmount(asd, 0)}/-` : `Rs. ${emd}/-`
+    }
+    case 'e-corpus':
+      return ecv != null ? formatIndianAmount(Math.round(ecv * 0.0004), 0) : ''
+    default:
+      return ''
+  }
+}
+
 /**
  * Give Intimation — fills the bundled Intimation format (a .docx mail-merge
  * template with {{placeholders}}) for a Works List work: most fields come from
@@ -146,12 +303,17 @@ function resolveValue(
  * docx-preview of the filled letter with Word / PDF / Print. (Note Submitted
  * lives on the Agreement & Work Order tab.)
  */
-export default function GiveIntimationTab({ tables, onChange }: Props) {
+export default function GiveIntimationTab({ tables, onChange, office }: Props) {
   const table = tables[0] ?? null
+
+  // A Zone chosen with no Circle is the Superintending Engineer (zonal) office,
+  // which issues the "Letter of Acceptance" format instead of the EE Intimation.
+  const seMode = !!office.zone?.trim() && !office.circle?.trim()
 
   const [templateB64, setTemplateB64] = useState<string | null>(null)
   const [labels, setLabels] = useState<string[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [manual, setManual] = useState<LoaManualFields>(LOA_MANUAL_DEFAULTS)
 
   const [rowIndex, setRowIndex] = useState(0)
   const [notice, setNotice] = useState<IntimationNotice | null>(null)
@@ -177,13 +339,25 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
   const printScratchRef = useRef<HTMLDivElement>(null)
 
   const selectedRow = table && table.rows.length > 0 ? table.rows[Math.min(rowIndex, table.rows.length - 1)] : null
+  // The row whose details (Circle, Reservation, …) support the letter. When the
+  // uploaded L-1 matched no Works List row, `selectedRow` is just row 0 (a
+  // different work), so ignore it — the SE LOA fills those details blank rather
+  // than borrowing another work's. A matched L-1 sets rowIndex to that row.
+  const detailsRow = worksRowMatched === false ? {} : (selectedRow ?? {})
 
-  // Load the bundled Intimation format once, and read its placeholders.
+  // A reserved (SC/ST) work uses the LOA variant that omits the EMD balance item.
+  const seReserved = seMode && isReservedWork(detailsRow, pdfEval ?? {})
+
+  // Load the bundled format for this office/work (SE LOA — reserved or not —
+  // when zone-level, otherwise the EE Intimation) and read its placeholders.
+  // Reloads if the office kind flips or the selected work's reserved status does.
   useEffect(() => {
     let cancelled = false
+    setTemplateB64(null)
+    setLabels([])
     void (async () => {
       try {
-        const b64 = await api.intimationTemplate()
+        const b64 = seMode ? await api.loaSeTemplate(seReserved) : await api.intimationTemplate()
         const found = await api.findPlaceholdersInDocument(b64)
         if (cancelled) return
         setTemplateB64(b64)
@@ -195,18 +369,21 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [seMode, seReserved])
 
-  // Re-fill every placeholder whenever the row / notice / PDF change.
+  // Re-fill every placeholder whenever the row / notice / PDF / manual fields change.
   useEffect(() => {
     if (labels.length === 0) return
     setValues(() => {
       const next: Record<string, string> = {}
-      for (const label of labels) next[label] = resolveValue(label, notice ?? {}, pdfEval ?? {}, selectedRow ?? {})
+      for (const label of labels)
+        next[label] = seMode
+          ? resolveLoaValue(label, notice ?? {}, pdfEval ?? {}, detailsRow, office, manual)
+          : resolveValue(label, notice ?? {}, pdfEval ?? {}, detailsRow, office)
       return next
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [labels, rowIndex, notice, pdfEval, table])
+  }, [labels, rowIndex, notice, pdfEval, table, seMode, office, manual, worksRowMatched])
 
   // The Online Intimation can be uploaded as either the portal "View Intimation
   // Notice" .html page or the printed Intimation / LOA .pdf — both carry the
@@ -288,10 +465,12 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
   // same work (matched by NIT No, or agency name when the NIT No is absent).
   const workMatch = useMemo(() => (notice && pdfEval ? checkSameWork(notice, pdfEval) : null), [notice, pdfEval])
   const workMismatch = workMatch?.status === 'mismatch'
-  // The uploaded L1 form's work matched no Works List row, so the selected row
-  // (and everything the letter fills from it) belongs to a different work.
-  const workRowMismatch = worksRowMatched === false
-  const bothUploaded = !!templateB64 && !!notice && !!pdfEval && !workMismatch && !workRowMismatch
+  // The uploaded L1 form's work matched no Works List row. The letter takes its
+  // name of work (and amounts, agency) from the uploads themselves — not the row
+  // — so a no-match never blocks the letter; the Works List is only used to fill
+  // supporting details when its name matched. It's surfaced as a soft note only.
+  const noWorksRowMatch = worksRowMatched === false
+  const bothUploaded = !!templateB64 && !!notice && !!pdfEval && !workMismatch
 
   // Live docx preview of the filled letter — refreshed whenever the values change.
   useEffect(() => {
@@ -323,7 +502,8 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
     setActionSaved(null)
     try {
       const filled = await fillTemplate()
-      const name = `Intimation${selectedRow?.['Name of the Agency'] ? ` - ${selectedRow['Name of the Agency']}` : ''}`
+      const agencyName = notice?.agencyName ?? selectedRow?.['Name of the Agency']
+      const name = `${seMode ? 'Letter of Acceptance' : 'Intimation'}${agencyName ? ` - ${agencyName}` : ''}`
       const res = await api.exportCreatedDocument(filled, name, formats)
       setActionSaved(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
     } catch (e) {
@@ -417,11 +597,11 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
           <IconWarn /> {sameWorkMismatchMessage(workMatch)}
         </div>
       )}
-      {workRowMismatch && pdfEval && (
-        <div className="notice error">
-          <IconWarn /> The uploaded L1 selection form is for “{pdfEval.nameOfWork}”, which doesn’t match any work in your
-          Works List. Add that work to the Works List first — otherwise the Intimation letter would fill the name of work
-          and all details from a different work’s row.
+      {noWorksRowMatch && pdfEval && (
+        <div className="notice">
+          <IconWarn /> “{pdfEval.nameOfWork}” isn’t in your Works List, so its supporting details (Circle, etc.) are left
+          blank — the letter still fills the name of work and amounts from the uploaded L1 / Intimation. Add it to the
+          Works List if you want those details filled in automatically.
         </div>
       )}
 
@@ -429,6 +609,51 @@ export default function GiveIntimationTab({ tables, onChange }: Props) {
         <div className="notice">Add works to the Works List first — the Intimation letter is filled from a work's row.</div>
       ) : bothUploaded ? (
         <div className="estimate-body">
+          {seMode && (
+            <div className="loa-manual-fields">
+              <span className="estimate-preview-title">
+                Superintending Engineer (LOA) — fields to fill in
+              </span>
+              <div className="loa-manual-grid">
+                <label>
+                  Admin. Sanction Value
+                  <input
+                    type="text"
+                    placeholder="e.g. 16850000"
+                    value={manual.adminSanction}
+                    onChange={(e) => setManual((m) => ({ ...m, adminSanction: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Period of Completion
+                  <input
+                    type="text"
+                    placeholder="e.g. 3 Months"
+                    value={manual.period}
+                    onChange={(e) => setManual((m) => ({ ...m, period: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Item No
+                  <input
+                    type="text"
+                    placeholder="e.g. 01"
+                    value={manual.itemNo}
+                    onChange={(e) => setManual((m) => ({ ...m, itemNo: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  LOA Date
+                  <input
+                    type="text"
+                    placeholder="e.g. 20.03.2026"
+                    value={manual.loaDate}
+                    onChange={(e) => setManual((m) => ({ ...m, loaDate: e.target.value }))}
+                  />
+                </label>
+              </div>
+            </div>
+          )}
           <div className="estimate-preview">
             <span className="estimate-preview-title">Live Preview{previewPages > 1 ? ` — ${previewPages} pages` : ''}</span>
             <div className="estimate-preview-scroll">

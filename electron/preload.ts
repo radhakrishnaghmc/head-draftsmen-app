@@ -68,6 +68,7 @@ const api: DocuGenApi = {
   workOrderTemplate: () => ipcRenderer.invoke(IPC.workOrderTemplate),
   agreementTemplate: () => ipcRenderer.invoke(IPC.agreementTemplate),
   forwardingSlipTemplate: () => ipcRenderer.invoke(IPC.forwardingSlipTemplate),
+  loaSeTemplate: (reserved) => ipcRenderer.invoke(IPC.loaSeTemplate, reserved),
   loadState: () => ipcRenderer.invoke(IPC.loadState),
   saveState: (state) => ipcRenderer.invoke(IPC.saveState, state),
   onRemoteStateUpdate: (callback) => {
