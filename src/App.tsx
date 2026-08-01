@@ -119,6 +119,11 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   const [calendar, setCalendar] = useState<CalendarData | null>(null)
 
   const [tables, setTables] = useState<ExcelTable[]>([])
+  // Each office's Works List, kept so switching offices restores the office's own
+  // data instead of erasing it and re-importing. `tables` mirrors the current
+  // office's entry. Key: officeKey(office).
+  const [tablesByOffice, setTablesByOffice] = useState<Record<string, ExcelTable[]>>({})
+  const currentOfficeKey = officeKey(office) ?? ''
   const [resolution, setResolution] = useState<CollisionResolution>({})
 
   const [todos, setTodos] = useState<TodoItem[]>([])
@@ -201,12 +206,22 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
           // storage is converted once here (Lakhs -> rupees), keyed on the
           // persisted schema version so it never double-converts.
           const needsEcvRupeeMigration = (s.version ?? 1) < ECV_RUPEES_STATE_VERSION
-          const loadedTables = (s.tables ?? [])
-            .map(applyWorksSchema)
-            .map((t) => (needsEcvRupeeMigration ? migrateEcvContractToRupees(t) : t))
-            // Always heal any ECV/Contract Amount left absurdly inflated by an
-            // earlier over-migration (idempotent — see repairInflatedRupees).
-            .map(repairInflatedRupees)
+          const migrate = (ts: ExcelTable[]): ExcelTable[] =>
+            ts
+              .map(applyWorksSchema)
+              .map((t) => (needsEcvRupeeMigration ? migrateEcvContractToRupees(t) : t))
+              // Always heal any ECV/Contract Amount left absurdly inflated by an
+              // earlier over-migration (idempotent — see repairInflatedRupees).
+              .map(repairInflatedRupees)
+
+          // Restore each office's own Works List. Legacy states stored only a
+          // single top-level `tables` (the last office in use) — migrate it into
+          // this office's slot so switching away and back no longer loses it.
+          const byOffice: Record<string, ExcelTable[]> = {}
+          for (const [k, v] of Object.entries(s.tablesByOffice ?? {})) byOffice[k] = migrate(v)
+          const loadedTables = byOffice[currentOfficeKey] ?? migrate(s.tables ?? [])
+          if (!byOffice[currentOfficeKey] && loadedTables.length > 0) byOffice[currentOfficeKey] = loadedTables
+          setTablesByOffice(byOffice)
 
           // A previously-saved Works List belonging to a different Zone/Circle
           // than the one logged in now must not be shown — same rule as a
@@ -249,7 +264,21 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   useEffect(() => {
     if (!hydrated) return
     return api.onRemoteStateUpdate(async (partial) => {
-      if (partial.tables) {
+      // Merge the offices the other session changed into our per-office store,
+      // keeping every office it didn't touch — so a session working on another
+      // office never wipes ours.
+      if (partial.tablesByOffice) {
+        const incoming: Record<string, ExcelTable[]> = {}
+        for (const [k, v] of Object.entries(partial.tablesByOffice)) incoming[k] = v.map(applyWorksSchema)
+        setTablesByOffice((prev) => ({ ...prev, ...incoming }))
+        // Reflect it on screen only when it's this office's own data.
+        const mine = incoming[currentOfficeKey]
+        if (mine) {
+          if (blockedWorksList) withheldTablesRef.current = mine
+          else setTables(mine)
+        }
+      } else if (partial.tables) {
+        // Legacy remote (older client) sends only the flat `tables`.
         const loadedTables = partial.tables.map(applyWorksSchema)
         // Keep the same Zone/Circle withholding behaviour as the initial
         // load: don't surface a Works List for a different office.
@@ -269,7 +298,15 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       if (partial.createdDocuments) setCreatedDocuments(await bakeLoginPlaceholders(partial.createdDocuments))
       if (partial.bidDocumentBatches) setBidDocumentBatches(partial.bidDocumentBatches)
     })
-  }, [hydrated, blockedWorksList])
+  }, [hydrated, blockedWorksList, currentOfficeKey])
+
+  // Keep the current office's slot in the per-office store in step with what's
+  // on screen, so switching away and back restores exactly this. Skipped while
+  // the list is withheld for a Zone/Circle mismatch (tables is empty then).
+  useEffect(() => {
+    if (!hydrated || !currentOfficeKey || blockedWorksList) return
+    setTablesByOffice((prev) => (prev[currentOfficeKey] === tables ? prev : { ...prev, [currentOfficeKey]: tables }))
+  }, [tables, currentOfficeKey, hydrated, blockedWorksList])
 
   // ── Persistence: save the workspace whenever it changes (debounced) ─
   // While a Works List is withheld for a Zone/Circle mismatch
@@ -280,9 +317,16 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   useEffect(() => {
     if (!hydrated) return
     const handle = setTimeout(() => {
+      const currentTables = blockedWorksList ? (withheldTablesRef.current ?? tables) : tables
+      // Persist every office's data, with this office's slot reflecting the
+      // (possibly withheld) real data. currentOfficeKey routes the cloud sync so
+      // only this office's entry is updated — other offices stay put.
+      const byOffice = currentOfficeKey ? { ...tablesByOffice, [currentOfficeKey]: currentTables } : tablesByOffice
       api.saveState({
         version: ECV_RUPEES_STATE_VERSION,
-        tables: blockedWorksList ? (withheldTablesRef.current ?? tables) : tables,
+        tables: currentTables,
+        tablesByOffice: byOffice,
+        currentOfficeKey: currentOfficeKey || undefined,
         resolution,
         todos,
         lastGoogleLink: lastGoogleLink ?? undefined,
@@ -298,6 +342,8 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     hydrated,
     blockedWorksList,
     tables,
+    tablesByOffice,
+    currentOfficeKey,
     resolution,
     todos,
     lastGoogleLink,
@@ -586,31 +632,48 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     })
 
   // Changing the office changes which Works List applies — each circle (or a
-  // zonal office's zone) has its own database — so when the Zone/Circle/
-  // Corporation actually changes, prompt the user to import that office's Works
-  // List link. Cleared once they import (see importFromGoogleLink).
+  // zonal office's zone) has its own database. We save the office we're leaving
+  // and RESTORE the office we're switching to from its own saved data, so its
+  // database (including local edits) is never erased. Only an office we've never
+  // loaded before falls back to importing its link / prompting for one.
   function changeOffice(next: Office) {
     const changed =
       next.corporation !== office.corporation || next.zone !== office.zone || next.circle !== office.circle
+    const prevKey = currentOfficeKey
     onOfficeChange(next)
     if (changed && next.corporation && next.zone) {
-      // The old office's Works List no longer applies — reset the database so
-      // stale rows from the previous circle don't linger.
-      setTables([])
-      setLastGoogleLink(null)
+      const nextKey = officeKey(next) ?? ''
+      // Preserve the office we're leaving (unless it's withheld, in which case
+      // its real data already lives in withheldTablesRef / tablesByOffice).
+      if (prevKey && !blockedWorksList) {
+        setTablesByOffice((prev) => ({ ...prev, [prevKey]: tables }))
+      }
       setBlockedWorksList(null)
       withheldTablesRef.current = null
       setTab('data')
 
-      const savedLink = worksListLinks[officeKey(next) ?? '']
+      const stored = tablesByOffice[nextKey]
+      if (stored && stored.length > 0) {
+        // We already have this office's database — restore it, don't re-import.
+        setTables(stored)
+        setLastGoogleLink(worksListLinks[nextKey] ?? null)
+        setOfficeImportPrompt(null)
+        setPendingOfficeImport(null)
+        return
+      }
+
+      // First time for this office in this session — clear and import/prompt.
+      setTables([])
+      setLastGoogleLink(null)
+      const savedLink = worksListLinks[nextKey]
       if (savedLink) {
-        // This office already has a remembered link — reload its database
-        // automatically. Deferred to an effect so the import validates against
-        // the now-updated office (see below).
+        // This office has a remembered link — reload its database automatically.
+        // Deferred to an effect so the import validates against the now-updated
+        // office (see below).
         setOfficeImportPrompt(null)
         setPendingOfficeImport(savedLink)
       } else {
-        // First time for this office — ask the user for its link.
+        // No data and no link yet — ask the user for its link.
         setPendingOfficeImport(null)
         setOfficeImportPrompt(next.circle || next.zone)
       }

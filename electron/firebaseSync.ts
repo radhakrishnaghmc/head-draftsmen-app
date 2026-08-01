@@ -190,6 +190,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       // (each is separately guarded against re-inflating already-migrated data).
       version: typeof m.version === 'number' ? m.version : 1,
       tables: t.tables ?? [],
+      tablesByOffice: t.tablesByOffice ?? undefined,
       resolution: m.resolution ?? {},
       todos: m.todos ?? [],
       lastGoogleLink: m.lastGoogleLink ?? undefined,
@@ -236,7 +237,7 @@ function subscribeRemote(
       if (snap.metadata.hasPendingWrites) return
       const data = snap.data()
       if (!data || data.lastWriter === sessionId) return
-      safeUpdate({ tables: data.tables ?? [] })
+      safeUpdate({ tables: data.tables ?? [], tablesByOffice: data.tablesByOffice ?? undefined })
     })
   )
 
@@ -276,11 +277,22 @@ export async function pushState(state: PersistedState): Promise<void> {
   const { loginId, sessionId } = active
   try {
     await ensureAuth()
-    await setDoc(doc(db!, 'users', loginId, 'meta', 'tables'), {
-      tables: state.tables ?? [],
-      updatedAt: serverTimestamp(),
-      lastWriter: sessionId
-    })
+    // Update ONLY the office this session is on (state.currentOfficeKey) inside
+    // the tablesByOffice map, merging so a concurrent session working on another
+    // office keeps its own entry. `tables` stays for backward-compat with older
+    // clients (the current office's data). `merge: true` deep-merges the map.
+    const officeK = state.currentOfficeKey
+    const officeEntry = officeK ? state.tablesByOffice?.[officeK] ?? state.tables ?? [] : null
+    await setDoc(
+      doc(db!, 'users', loginId, 'meta', 'tables'),
+      {
+        tables: state.tables ?? [],
+        ...(officeK ? { tablesByOffice: { [officeK]: officeEntry } } : {}),
+        updatedAt: serverTimestamp(),
+        lastWriter: sessionId
+      },
+      { merge: true }
+    )
     await setDoc(doc(db!, 'users', loginId, 'meta', 'misc'), {
       // Round-trip the schema version so one-time migrations run only once (see
       // pullRemoteState) instead of re-running — and compounding — every launch.

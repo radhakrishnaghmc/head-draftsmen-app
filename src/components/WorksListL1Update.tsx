@@ -190,9 +190,9 @@ export default function WorksListL1Update({ table, onChange, onUpdated }: Props)
         className="ghost"
         onClick={() => inputRef.current?.click()}
         disabled={busy !== null}
-        title="Pick the L-1 selection sheet(s) (and, optionally, the Online Intimation) to fold tender details into the Works List by Name of Work"
+        title="Pick the L-1 selection sheet(s) together with the LOA / Online Intimation, to fold tender details (and the matched work's address & agency from the LOA) into the Works List by Name of Work"
       >
-        <IconFolder /> {busy === 'l1' ? 'Updating…' : 'Update from L1'}
+        <IconFolder /> {busy === 'l1' ? 'Updating…' : 'Update from L1/LOA'}
       </button>
       <button
         className="ghost"

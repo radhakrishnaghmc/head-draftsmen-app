@@ -150,6 +150,15 @@ export interface BidDocumentBatch {
 export interface PersistedState {
   version: number
   tables: ExcelTable[]
+  /**
+   * The Works List data kept per office (key: "Corporation|Zone|Circle"), so
+   * switching offices preserves each office's own database instead of erasing it
+   * and re-importing from the link. Each office's entry syncs independently, so
+   * concurrent sessions working on different offices never overwrite each other.
+   */
+  tablesByOffice?: Record<string, ExcelTable[]>
+  /** Transient (not stored on disk): which office `tables` belongs to, so the cloud sync updates only that office's entry. */
+  currentOfficeKey?: string
   resolution: CollisionResolution
   todos?: TodoItem[]
   /** The last Google Sheets/Drive link used to fill the Works List, so it can be refreshed later. */
