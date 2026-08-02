@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../ipc'
 import appLogo from '../assets/app-logo.png'
-import { type Office, isOfficeReady } from '../office'
+import { type Office, isOfficeReady, normalizeOffice } from '../office'
+import { CORPORATIONS, zonesOf, circlesOf } from '../zoneCircleDirectory'
 import {
   IconTable,
   IconPrint,
@@ -38,8 +39,10 @@ interface Props {
   tableCount: number
   unresolved: number
   createdDocCount: number
-  /** The chosen office (Corporation/Zone/Circle) — shown under the app name; picked in the Works List. */
+  /** The chosen office (Corporation/Zone/Circle) — shown under the app name; also picked here and in the Works List. */
   office: Office
+  /** Change the office — lets the sidebar's own picker set it, same as the Works List one. */
+  onOfficeChange: (office: Office) => void
 }
 
 interface Item {
@@ -60,6 +63,9 @@ const UPDATE_STATUS_TEXT: Record<string, string> = {
 }
 
 export default function Sidebar(props: Props) {
+  // The office picker opens as a popup (kept out of the way of the clean brand
+  // header); it opens itself when no office is chosen yet.
+  const [officeOpen, setOfficeOpen] = useState(!isOfficeReady(props.office))
   const [version, setVersion] = useState<string | null>(null)
   useEffect(() => {
     api.getAppVersion().then(setVersion)
@@ -156,7 +162,7 @@ export default function Sidebar(props: Props) {
     <aside className="sidebar">
       <div className="side-brand">
         <img src={appLogo} alt="" className="logo" />
-        <div>
+        <div className="side-brand-text">
           <h1>Head Draughtsman</h1>
           {isOfficeReady(props.office) ? (
             <p>
@@ -165,8 +171,11 @@ export default function Sidebar(props: Props) {
                 .join(' · ')}
             </p>
           ) : (
-            <p className="warn">Select your office in Works List</p>
+            <p className="warn">Select your office</p>
           )}
+          <button className="side-office-change" onClick={() => setOfficeOpen(true)}>
+            Change office
+          </button>
         </div>
       </div>
 
@@ -221,6 +230,94 @@ export default function Sidebar(props: Props) {
         </div>
         {updateStatus && <span className="side-update-status">{updateStatus}</span>}
       </div>
+
+      {officeOpen && (
+        <div className="editor-overlay" onClick={() => setOfficeOpen(false)}>
+          <div className="confirm-modal office-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <h3>Your office</h3>
+            <div className="office-fields">
+              <div className="office-field">
+                <span className="office-field-label">Corporation</span>
+                <div className="office-chips">
+                  {CORPORATIONS.map((c) => (
+                    <button
+                      key={c.name}
+                      className={`office-chip ${props.office.corporation === c.name ? 'on' : ''}`}
+                      title={c.fullName}
+                      onClick={() =>
+                        props.onOfficeChange(
+                          normalizeOffice({ corporation: c.name === props.office.corporation ? undefined : c.name })
+                        )
+                      }
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {props.office.corporation && (
+                <div className="office-field">
+                  <span className="office-field-label">Zone</span>
+                  <div className="office-chips">
+                    {zonesOf(props.office.corporation).length === 0 ? (
+                      <span className="office-empty">No zones listed for {props.office.corporation} yet.</span>
+                    ) : (
+                      zonesOf(props.office.corporation).map((z) => (
+                        <button
+                          key={z}
+                          className={`office-chip ${props.office.zone === z ? 'on' : ''}`}
+                          onClick={() =>
+                            props.onOfficeChange(
+                              normalizeOffice({
+                                corporation: props.office.corporation,
+                                zone: z === props.office.zone ? undefined : z
+                              })
+                            )
+                          }
+                        >
+                          {z}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {props.office.zone && circlesOf(props.office.corporation, props.office.zone).length > 0 && (
+                <div className="office-field">
+                  <span className="office-field-label">Circle · leave blank for a zonal office</span>
+                  <div className="office-chips">
+                    {circlesOf(props.office.corporation, props.office.zone).map((c) => (
+                      <button
+                        key={c.circle}
+                        className={`office-chip ${props.office.circle === c.circle ? 'on' : ''}`}
+                        onClick={() =>
+                          props.onOfficeChange(
+                            normalizeOffice({
+                              corporation: props.office.corporation,
+                              zone: props.office.zone,
+                              circle: c.circle === props.office.circle ? undefined : c.circle
+                            })
+                          )
+                        }
+                      >
+                        {c.circle}
+                        <span className="office-chip-cno">{c.cno}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="confirm-actions">
+              <button className="primary" onClick={() => setOfficeOpen(false)}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   )
 }

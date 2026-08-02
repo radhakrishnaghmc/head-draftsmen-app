@@ -8,7 +8,8 @@ import { extractEstimateItemsWithAi } from '../aiEstimateColumns'
 import { extractEstimateAmountLakhs } from '@core/deviation'
 import { computeEcvFromItems, buildBoqFromEstimate, boqToItems, extractWorkNameFromBoq } from '../boqTransform'
 import { formatRupees } from '@core/worksAmounts'
-import { findWorksRowByName, metaFromWorksRow } from '@core/scheduleA'
+import { metaFromWorksRow } from '@core/scheduleA'
+import type { WorksRowMatch } from '@core/scheduleA'
 import { computeMaterialTotals } from '@core/materialEstimate'
 import type { MaterialTotals } from '@core/materialEstimate'
 import {
@@ -60,6 +61,13 @@ interface Entry {
    * sanctioned estimate amount of its own, so its total is the ECV alone. */
   isBoq?: boolean
   workName?: string
+  /** The Works List row this work matched (exact name, else AI/embedding),
+   * resolved once at upload so the preview's estimate/ECV/agency come from the
+   * Works List rather than being recomputed. null = searched but not found. */
+  worksMatch: WorksRowMatch | null
+  /** True when a Works List lookup was actually attempted (a work name and a
+   * loaded Works List both existed) — drives the "not found" note. */
+  worksSearched: boolean
   ecvRupees: number
   estimateAmountLakhs: number
   /** Sanctioned Grand Total in lakhs (bottom of the estimate) — used in the BOQ file name. */
@@ -89,6 +97,19 @@ function stripExt(name: string): string {
 
 function nextId(): string {
   return `est-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+// The contractor/agency named on a matched Works List row — pre-fills the
+// Deviation's "Name of the Agency" (stays editable). Empty when nothing matched.
+function agencyFromMatch(match: WorksRowMatch | null): string {
+  return (match?.row['Name of the Agency'] ?? '').trim()
+}
+
+// A blank sheet — no cell holds anything but whitespace. A workbook often
+// carries such empty tabs alongside its real estimates; they'd otherwise land
+// in the list as "no work items found" errors, so they're skipped up front.
+function isSheetEmpty(grid: string[][]): boolean {
+  return grid.every((row) => row.every((cell) => cell.trim() === ''))
 }
 
 // Total Qty × Rate of the un-costed items — how far the BOQ's total runs above
@@ -136,14 +157,21 @@ function boqBaseName(e: Entry): string {
  * so switching tabs shows what that specific download will actually look
  * like rather than one generic items grid.
  */
-function DocumentPreview({ entry, worksTable }: { entry: Entry; worksTable: ExcelTable | null }) {
-  const matchedRow = useMemo(
-    () => (entry.workName && worksTable ? findWorksRowByName(worksTable, entry.workName)?.row : undefined),
-    [entry.workName, worksTable]
-  )
+function DocumentPreview({ entry }: { entry: Entry }) {
+  const matchedRow = entry.worksMatch?.row
   const scheduleAMeta = useMemo(() => (matchedRow ? metaFromWorksRow(matchedRow) : undefined), [matchedRow])
   const materialTotals = useMemo(() => computeMaterialTotals(entry.items).totals, [entry.items])
   const total = itemsTotal(entry.items)
+
+  // Estimate Amount fallback when this work isn't on the Works List: the
+  // estimate's own sanctioned Grand Total (Lakhs → rupees), NOT the bare
+  // Σ(qty×rate) item-sum — that sum is the ECV, and showing it here made the
+  // two fields identical. Only drops back to the item-sum if no Grand Total
+  // was found at all.
+  const estimateLakhs = entry.grandTotalLakhs ?? entry.estimateAmountLakhs
+  const estimateFallback = estimateLakhs
+    ? `${indianDigitGroups(Math.round(estimateLakhs * 100000))}/-`
+    : `${total.toFixed(2)}/-`
 
   const itemTable = (
     <table className="doc-sheet-table">
@@ -178,19 +206,30 @@ function DocumentPreview({ entry, worksTable }: { entry: Entry; worksTable: Exce
     </table>
   )
 
+  // Item count + ECV shown right in the sheet's title band (rather than as
+  // separate chips above the preview).
+  const titleStats = (
+    <span className="doc-sheet-title-stats">
+      {entry.items.length} items · ECV {formatRupees(entry.ecvRupees)}
+    </span>
+  )
+
   if (entry.previewDoc === 'scheduleA') {
     return (
       <div className="doc-sheet">
-        <div className="doc-sheet-title">SCHEDULE-A · BILL OF QUANTITIES</div>
+        <div className="doc-sheet-title">
+          <span>SCHEDULE-A · BILL OF QUANTITIES</span>
+          {titleStats}
+        </div>
         <div className="doc-sheet-meta">
           <div>
             <span>Name of work</span>
-            <strong>{entry.workName || '—'}</strong>
+            <strong className="doc-sheet-work-name">{entry.workName || '—'}</strong>
           </div>
           <div>
             <span>Estimate Amount</span>
             {/* A BOQ has no sanctioned estimate amount of its own — only the ECV. */}
-            <strong>{entry.isBoq ? '—' : `Rs. ${scheduleAMeta?.estimateAmount ?? `${total.toFixed(2)}/-`}`}</strong>
+            <strong>{entry.isBoq ? '—' : `Rs. ${scheduleAMeta?.estimateAmount ?? estimateFallback}`}</strong>
           </div>
           <div>
             <span>ECV Amount</span>
@@ -198,7 +237,7 @@ function DocumentPreview({ entry, worksTable }: { entry: Entry; worksTable: Exce
               {scheduleAMeta?.ecvAmount
                 ? `Rs. ${scheduleAMeta.ecvAmount}`
                 : entry.ecvRupees
-                  ? `Rs. ${indianDigitGroups(entry.ecvRupees)}/-`
+                  ? `Rs. ${indianDigitGroups(entry.ecvRupees)}/- (computed)`
                   : 'Not on the Works List yet'}
             </strong>
           </div>
@@ -219,7 +258,10 @@ function DocumentPreview({ entry, worksTable }: { entry: Entry; worksTable: Exce
   if (entry.previewDoc === 'deviation') {
     return (
       <div className="doc-sheet">
-        <div className="doc-sheet-title">DEVIATION STATEMENT</div>
+        <div className="doc-sheet-title">
+          <span>DEVIATION STATEMENT</span>
+          {titleStats}
+        </div>
         <div className="doc-sheet-meta">
           <div>
             <span>Circle</span>
@@ -227,7 +269,7 @@ function DocumentPreview({ entry, worksTable }: { entry: Entry; worksTable: Exce
           </div>
           <div>
             <span>Name of Work</span>
-            <strong>{entry.workName || '—'}</strong>
+            <strong className="doc-sheet-work-name">{entry.workName || '—'}</strong>
           </div>
           <div>
             <span>Agency</span>
@@ -246,11 +288,14 @@ function DocumentPreview({ entry, worksTable }: { entry: Entry; worksTable: Exce
   if (entry.previewDoc === 'material') {
     return (
       <div className="doc-sheet">
-        <div className="doc-sheet-title">MATERIAL ESTIMATION</div>
+        <div className="doc-sheet-title">
+          <span>MATERIAL ESTIMATION</span>
+          {titleStats}
+        </div>
         <div className="doc-sheet-meta">
           <div>
             <span>Name of work</span>
-            <strong>{entry.workName || '—'}</strong>
+            <strong className="doc-sheet-work-name">{entry.workName || '—'}</strong>
           </div>
           <div>
             <span>Department</span>
@@ -289,7 +334,10 @@ function DocumentPreview({ entry, worksTable }: { entry: Entry; worksTable: Exce
 
   return (
     <div className="doc-sheet">
-      <div className="doc-sheet-title">BILL OF QUANTITIES</div>
+      <div className="doc-sheet-title">
+        <span>BILL OF QUANTITIES</span>
+        {titleStats}
+      </div>
       {itemTable}
     </div>
   )
@@ -351,6 +399,14 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
     let grids = await api.pickExcelGrids()
     if (grids.length === 0) return
 
+    // Ignore blank sheets entirely — don't generate a BOQ (or a "no items"
+    // error) for a tab that has no data at all.
+    grids = grids.filter((g) => !isSheetEmpty(g.grid))
+    if (grids.length === 0) {
+      setPickError('No data found — every sheet in the selected workbook is empty.')
+      return
+    }
+
     // A workbook may keep extra estimates on hidden sheets. Only process those
     // when the user opts in — otherwise generate for the visible sheet(s) only.
     // (Skip the prompt when every sheet is hidden: there'd be nothing to fall
@@ -368,6 +424,19 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
     }
 
     const added: Entry[] = []
+    const worksTable = tables[0] ?? null
+
+    // Resolve a work to its Works List row once, up front — exact name match
+    // first, then the same AI/embedding fallback the Schedule A tab uses, so a
+    // slightly-reworded name still finds its row. The estimate/ECV amounts and
+    // the agency in the preview all read from this match.
+    async function resolveWorksMatch(
+      workName: string | undefined
+    ): Promise<{ match: WorksRowMatch | null; searched: boolean }> {
+      if (!workName || !worksTable) return { match: null, searched: false }
+      const match = (await matchWorksRow(workName, worksTable)) ?? null
+      return { match, searched: true }
+    }
 
     // Each grid is one sheet; a sheet may itself stack several complete
     // estimates, so split it into per-estimate blocks and process each.
@@ -382,17 +451,21 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
         try {
           const { items, aiAssisted } = await extractEstimateItemsWithAi(grid, headerRow)
           if (items.length > 0) {
+            const workName = extractWorkName(grid, headerRow)
+            const { match, searched } = await resolveWorksMatch(workName)
             added.push({
               id: nextId(),
               fileName: g.name,
               sheetName,
               items,
-              workName: extractWorkName(grid, headerRow),
+              workName,
+              worksMatch: match,
+              worksSearched: searched,
               ecvRupees: computeEcvFromItems(items),
               estimateAmountLakhs: extractEstimateAmountLakhs(grid, headerRow, items),
               grandTotalLakhs: extractGrandTotalLakhs(grid, headerRow),
               uncostedItems: itemsMissingEstimateAmount(items),
-              agencyName: '',
+              agencyName: agencyFromMatch(match),
               departmentName: '',
               district: '',
               aiAssisted,
@@ -411,17 +484,21 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
             if (boqItems.length === 0) {
               throw new Error('No work items with a quantity, rate, and unit were found in that estimate or BOQ.')
             }
+            const boqWorkName = extractWorkNameFromBoq(boqTable)
+            const { match, searched } = await resolveWorksMatch(boqWorkName)
             added.push({
               id: nextId(),
               fileName: g.name,
               sheetName,
               items: boqItems,
               isBoq: true,
-              workName: extractWorkNameFromBoq(boqTable),
+              workName: boqWorkName,
+              worksMatch: match,
+              worksSearched: searched,
               ecvRupees: computeEcvFromItems(boqItems),
               estimateAmountLakhs: 0,
               uncostedItems: [],
-              agencyName: '',
+              agencyName: agencyFromMatch(match),
               departmentName: '',
               district: '',
               aiAssisted: [],
@@ -439,6 +516,8 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
             fileName: g.name,
             sheetName,
             items: [],
+            worksMatch: null,
+            worksSearched: false,
             ecvRupees: 0,
             estimateAmountLakhs: 0,
             uncostedItems: [],
@@ -456,6 +535,14 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
     }
 
     setEntries((prev) => [...prev, ...added])
+
+    // Once a BOQ is uploaded here, switch the whole UI over to Verdana by
+    // overriding the --font design token on the document root (body and the
+    // rest of the chrome all read font-family from var(--font)).
+    if (added.some((e) => e.isBoq && !e.error)) {
+      document.documentElement.style.setProperty('--font', 'Verdana, Geneva, Tahoma, sans-serif')
+      document.body.style.fontSize = '16px'
+    }
   }
 
   function removeEntry(id: string) {
@@ -581,41 +668,38 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
           {entries.map((e) => (
             <li key={e.id} className="estimate-entry">
               <div className="estimate-entry-head">
-                <span className="estimate-entry-name">
-                  {e.sheetName ? `${e.fileName} · ${e.sheetName}` : e.fileName}
-                </span>
+                <div className="estimate-entry-titles">
+                  <span className="estimate-entry-file">
+                    {e.sheetName ? `${e.fileName} · ${e.sheetName}` : e.fileName}
+                  </span>
+                  {e.workName && <h3 className="estimate-work-name">{e.workName}</h3>}
+                </div>
                 <button className="danger-ghost" title="Remove" onClick={() => removeEntry(e.id)}>
                   <IconTrash />
                 </button>
               </div>
 
-              {e.error ? (
+              {e.error && (
                 <p className="estimate-entry-error">
                   <IconWarn /> {e.error}
                 </p>
-              ) : (
-                <div className="live-tiles">
-                  <div className="live-tile">
-                    <span className="live-tile-label">Items</span>
-                    <span className="live-tile-value">{e.items.length}</span>
-                  </div>
-                  <div className="live-tile">
-                    <span className="live-tile-label">ECV</span>
-                    <span className="live-tile-value">{formatRupees(e.ecvRupees)}</span>
-                  </div>
-                  {e.workName && (
-                    <div className="live-tile live-tile-wide">
-                      <span className="live-tile-label">Name of the work</span>
-                      <span className="live-tile-value live-tile-value-text">{e.workName}</span>
-                    </div>
-                  )}
-                </div>
               )}
 
               {e.aiAssisted.length > 0 && (
                 <p className="estimate-hint">
                   {e.aiAssisted.join(', ')} column{e.aiAssisted.length === 1 ? '' : 's'} matched by AI — please
                   double-check.
+                </p>
+              )}
+              {e.worksSearched && !e.worksMatch && (
+                <p className="estimate-hint estimate-warning">
+                  "{e.workName}" wasn't found on the Works List — Estimate Amount, ECV and Name of the Agency were
+                  computed from the file, not read from the Works List.
+                </p>
+              )}
+              {e.worksMatch?.matchedViaAi && (
+                <p className="estimate-hint">
+                  Matched to the Works List by AI (the name differs) — please verify the agency and amounts.
                 </p>
               )}
               {e.uncostedItems.length > 0 && (
@@ -630,40 +714,22 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
               {e.saved && <p className="estimate-hint">Saved to {e.saved}</p>}
 
               {e.items.length > 0 && (
-                <div className="estimate-body">
-                  <div className="estimate-preview">
-                    <div className="doc-tabs">
-                      {DOC_TABS.map((t) => (
-                        <button
-                          key={t.key}
-                          className={`doc-tab${e.previewDoc === t.key ? ' active' : ''}`}
-                          onClick={() => updateEntry(e.id, { previewDoc: t.key })}
-                        >
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="estimate-preview-scroll">
-                      <DocumentPreview entry={e} worksTable={tables[0] ?? null} />
-                    </div>
-                    <div className="doc-sheet-footer">
-                      <span className="estimate-hint">
-                        Live preview of the {DOC_TABS.find((t) => t.key === e.previewDoc)?.label} — updates as you
-                        fill in the details.
-                      </span>
-                      <button className="primary" onClick={() => downloadActive(e)} disabled={e.busyAction !== null}>
-                        <IconDownload />{' '}
-                        {e.busyAction === e.previewDoc
-                          ? 'Saving…'
-                          : `Download ${DOC_TABS.find((t) => t.key === e.previewDoc)?.label}`}
+                <div className="estimate-workspace">
+                  <div className="doc-tabs">
+                    {DOC_TABS.map((t) => (
+                      <button
+                        key={t.key}
+                        className={`doc-tab${e.previewDoc === t.key ? ' active' : ''}`}
+                        onClick={() => updateEntry(e.id, { previewDoc: t.key })}
+                      >
+                        {t.label}
                       </button>
-                    </div>
+                    ))}
                   </div>
 
-                  <div className="estimate-details">
-                    <span className="estimate-preview-title">Details needed</span>
+                  <div className="estimate-fields">
                     <label className="estimate-details-field">
-                      Name of the Agency <span className="estimate-hint">— for Deviation Statement</span>
+                      Name of the Agency <span className="estimate-hint">— Deviation</span>
                       <input
                         className="editor-name"
                         placeholder="Name of the Agency"
@@ -672,7 +738,7 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
                       />
                     </label>
                     <label className="estimate-details-field">
-                      Department Name <span className="estimate-hint">— for Material Quantity</span>
+                      Department Name <span className="estimate-hint">— Material Quantity</span>
                       <input
                         className="editor-name"
                         placeholder="Department Name"
@@ -681,7 +747,7 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
                       />
                     </label>
                     <label className="estimate-details-field">
-                      District <span className="estimate-hint">— for Material Quantity</span>
+                      District <span className="estimate-hint">— Material Quantity</span>
                       <input
                         className="editor-name"
                         placeholder="District"
@@ -689,6 +755,23 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
                         onChange={(ev) => updateEntry(e.id, { district: ev.target.value })}
                       />
                     </label>
+                  </div>
+
+                  <div className="estimate-preview-scroll">
+                    <DocumentPreview entry={e} />
+                  </div>
+
+                  <div className="doc-sheet-footer">
+                    <span className="estimate-hint">
+                      Live preview of the {DOC_TABS.find((t) => t.key === e.previewDoc)?.label} — updates as you fill
+                      in the details.
+                    </span>
+                    <button className="primary" onClick={() => downloadActive(e)} disabled={e.busyAction !== null}>
+                      <IconDownload />{' '}
+                      {e.busyAction === e.previewDoc
+                        ? 'Saving…'
+                        : `Download ${DOC_TABS.find((t) => t.key === e.previewDoc)?.label}`}
+                    </button>
                   </div>
                 </div>
               )}

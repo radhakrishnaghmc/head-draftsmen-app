@@ -196,6 +196,17 @@ export async function fillDeviationTemplate(
     }
   }
 
+  // Capture the template's cell merges before resizing the item table: ExcelJS
+  // drops every merge in and below a spliced/duplicated region, which would
+  // otherwise expose the abstract rows' triplicated labels ("Add Labour Cess"
+  // sitting in C, D and E, normally hidden under a C:E merge) — the labels then
+  // read three times across three columns. Re-applied (shifted) after the
+  // resize below. Only the cascade's own merges (at/below the Sub Total row)
+  // are captured; the header merges above it survive the resize untouched.
+  const cascadeMerges = [...(ws.model.merges ?? [])]
+    .map((ref) => /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(ref))
+    .filter((m): m is RegExpExecArray => m !== null && parseInt(m[2], 10) >= oldSubTotalRow)
+
   // Resize the item table to match the uploaded estimate, using the
   // template's own first item row as the formatting reference — same
   // approach as core/boqTemplate.ts.
@@ -253,6 +264,28 @@ export async function fillDeviationTemplate(
   const totalOfAdditionsRow = newSubTotalRow + TOTAL_OF_ADDITIONS_OFFSET
   ws.getCell(newSubTotalRow + GST_ESTIMATE_SIDE_OFFSET, GST_ESTIMATE_SIDE_COL).value = {
     formula: `ROUND(F${totalOfAdditionsRow}*18%,0)`
+  }
+
+  // Restore the cascade's merges at their shifted positions (see capture above)
+  // and centre the abstract label spans — estimate-side C:E and work-done-side
+  // G:I, which the template left right-aligned. Centring runs whether or not the
+  // merge had to be recreated, so the labels read once, centred, at any item
+  // count; every other restored merge keeps its own alignment.
+  for (const [, startCol, startRowStr, endCol, endRowStr] of cascadeMerges) {
+    const r1 = parseInt(startRowStr, 10) + delta
+    const r2 = parseInt(endRowStr, 10) + delta
+    try {
+      ws.mergeCells(`${startCol}${r1}:${endCol}${r2}`)
+    } catch {
+      // Already merged (survived the resize, or delta === 0) — the merge stands.
+    }
+    const c1 = colLetterToNum(startCol)
+    const c2 = colLetterToNum(endCol)
+    const isLabelSpan = (c1 === UNIT_EST_COL && c2 === RATE_EST_COL) || (c1 === UNIT_WD_COL && c2 === RATE_WD_COL)
+    if (isLabelSpan) {
+      const anchor = ws.getCell(r1, c1)
+      anchor.alignment = { ...anchor.alignment, horizontal: 'center', vertical: 'middle' }
+    }
   }
 
   trimToContent(ws, lastRow + delta, 14)

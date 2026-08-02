@@ -1023,7 +1023,7 @@ function registerHandlers(): void {
   // seededDocVersion. Keyed by a stable id so a document already present isn't
   // duplicated, and version-gated so one the user later deletes is never
   // re-added.
-  const CURRENT_DEFAULT_DOC_VERSION = 8
+  const CURRENT_DEFAULT_DOC_VERSION = 10
   const DEFAULT_DOCUMENTS: { id: string; name: string; file: string; officeScope?: 'zonal' | 'circle' }[] = [
     { id: 'doc_public_participation', name: 'Public Participation Log Book', file: 'public-participation-book-template.docx' },
     { id: 'doc_action_taken_report', name: 'Action Taken Report', file: 'action-taken-report-template.docx' },

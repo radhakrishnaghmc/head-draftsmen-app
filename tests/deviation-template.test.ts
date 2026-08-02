@@ -140,4 +140,29 @@ describe('fillDeviationTemplate', () => {
     expect(ws.getCell(9 + 29, 2).value).toBe('Item 30')
     expect(formulaAt(ws, 9 + 29, 6)).toBe('ROUND(D38*E38,0)')
   })
+
+  // The abstract labels (Add Labour Cess / QCC / NAC / … / GST) sit in three
+  // cells each (C,D,E and G,H,I); a C:E / G:I merge hides the duplicates so the
+  // label reads once. Resizing the item table used to drop those merges,
+  // leaving the label repeated across three columns.
+  it('keeps the abstract labels merged across C:E / G:I and centred at any item count', async () => {
+    for (const n of [3, 25, 30]) {
+      const items = Array.from({ length: n }, (_, i) => item(`Item ${i + 1}`, 'Cum', '10', '100'))
+      const out = await fillDeviationTemplate(templateBuffer, items, { estimateAmountLakhs: 5 })
+      const ws = await loadSheet(out)
+      const merges = ws.model.merges as string[]
+
+      const subTotalRow = 9 + n
+      const labourCessRow = subTotalRow + 5 // estimate-side label span C:E
+      const gstRow = subTotalRow + 13 // work-done-side label span G:I
+
+      expect(ws.getCell(labourCessRow, 3).value).toBe('Add Labour Cess @ 1%')
+      expect(merges).toContain(`C${labourCessRow}:E${labourCessRow}`)
+      expect(ws.getCell(labourCessRow, 3).alignment?.horizontal).toBe('center')
+
+      expect(ws.getCell(gstRow, 7).value).toBe('Add GST @ 18%')
+      expect(merges).toContain(`G${gstRow}:I${gstRow}`)
+      expect(ws.getCell(gstRow, 7).alignment?.horizontal).toBe('center')
+    }
+  })
 })

@@ -414,6 +414,10 @@ function extractEstimateItemsFromColumns(
     // read into this work's Schedule A, so the total no longer matches the
     // estimate's own item total.
     if (isItemListEnd(row, snoCol, descCol, qtyCol)) break
+    // Skip the "1 2 3 … 9" column-legend row printed under the header — its
+    // integers would otherwise be read as a phantom item (Description "2",
+    // Qty "7", Rate "8") and carried into the BOQ/Schedule A.
+    if (isColumnLegendRow(row)) continue
     const sno = norm(row[snoCol])
     const desc = norm(row[descCol])
     // A new item opens on any serial-numbered, described row — or on a row
@@ -463,6 +467,31 @@ function isItemListEnd(row: string[], snoCol: number, descCol: number, qtyCol: n
 function looksNumeric(s: string): boolean {
   const t = s.trim().replace(/,/g, '')
   return t !== '' && Number.isFinite(Number(t))
+}
+
+/**
+ * A departmental "column legend" row — the 1 2 3 … 9 line these estimate
+ * templates print directly under the text header to number each column. Its
+ * cells land in the Serial/Description/Qty/Rate/Amount columns just like a real
+ * item's would (Description="2", Qty="7", Rate="8"…), so without skipping it the
+ * extractor emits a phantom item that then shows up in the BOQ/Schedule A.
+ *
+ * Detected structurally, not by position: every non-empty cell is a plain
+ * positive integer and they run strictly left-to-right ascending (a genuine
+ * item row always carries text in its description, and a measurement row carries
+ * an "x"/unit token or a blank description — so neither looks like this).
+ */
+function isColumnLegendRow(row: string[]): boolean {
+  const nums: number[] = []
+  for (const cell of row) {
+    const t = norm(cell)
+    if (t === '') continue
+    if (!/^\d+$/.test(t)) return false // any non-integer cell → not a legend
+    nums.push(Number(t))
+  }
+  if (nums.length < 3) return false
+  for (let i = 1; i < nums.length; i++) if (nums[i] <= nums[i - 1]) return false
+  return true
 }
 
 /**

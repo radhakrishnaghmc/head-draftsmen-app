@@ -746,6 +746,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
         unresolved={unresolved.length}
         createdDocCount={createdDocuments.length}
         office={office}
+        onOfficeChange={changeOffice}
       />
 
       <main className="workspace">

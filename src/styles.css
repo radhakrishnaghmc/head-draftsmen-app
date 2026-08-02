@@ -320,6 +320,34 @@ code {
 .side-brand p.warn {
   color: var(--amber-600, #b45309);
 }
+/* "Change office" — a quiet link under the office line, revealed on hover so it
+   doesn't clutter the clean brand header; always visible when no office is set. */
+.side-office-change {
+  display: inline-block;
+  margin: 3px 0 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--indigo-500);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 650;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.14s var(--ease);
+}
+.side-brand:hover .side-office-change,
+.side-office-change:focus-visible,
+.side-brand p.warn ~ .side-office-change {
+  opacity: 1;
+}
+.office-modal {
+  width: min(460px, 94vw);
+  text-align: left;
+}
+.office-modal .office-fields {
+  margin-top: 4px;
+}
 
 /* ---------- Office picker (Corporation / Zone / Circle) ---------- */
 .office-picker {
@@ -1630,6 +1658,43 @@ button.danger-ghost:hover:not(:disabled) {
   font-weight: 550;
   white-space: normal;
 }
+
+/* ── Estimate workspace (redesigned): the file name is a small kicker, the work
+   name is the title, Items/ECV are chips, and the live preview runs full-width
+   under a compact "details" row instead of being squeezed beside it. ── */
+.estimate-entry-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.estimate-entry-file {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  word-break: break-word;
+}
+.estimate-work-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--text);
+  word-break: break-word;
+}
+.estimate-workspace {
+  margin: 14px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--border);
+}
+.estimate-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px 14px;
+  margin-bottom: 12px;
+}
 .estimate-hint {
   font-size: 12.5px;
   color: var(--muted);
@@ -1773,12 +1838,25 @@ button.danger-ghost:hover:not(:disabled) {
   position: sticky;
   top: 0;
   z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   background: linear-gradient(90deg, var(--indigo-500), var(--violet-500));
   color: #fff;
   font-size: 12.5px;
   font-weight: 700;
   letter-spacing: 0.06em;
   padding: 10px 14px;
+}
+/* Item count + ECV, sitting at the right of the sheet's title band. */
+.doc-sheet-title-stats {
+  flex: none;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
 }
 .doc-sheet-meta {
   display: grid;
@@ -1808,6 +1886,9 @@ button.danger-ghost:hover:not(:disabled) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.doc-sheet-meta strong.doc-sheet-work-name {
+  font-weight: 700;
 }
 .doc-sheet-table {
   width: 100%;

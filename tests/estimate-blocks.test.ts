@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { splitEstimateBlocks, extractGrandTotalLakhs, extractWorkName } from '../core/estimateExtract'
+import { splitEstimateBlocks, extractGrandTotalLakhs, extractWorkName, extractEstimateItems } from '../core/estimateExtract'
 
 // A minimal estimate block: title, Name of Work, header row, one item, totals.
 function estimate(work: string, grandTotal: string): string[][] {
@@ -56,5 +56,25 @@ describe('extractGrandTotalLakhs', () => {
   it('returns undefined when there is no Grand Total row', () => {
     const grid = [['Sl. No', 'Description', 'Amount'], ['1', 'item', '100']]
     expect(extractGrandTotalLakhs(grid, 0)).toBeUndefined()
+  })
+})
+
+describe('extractEstimateItems — column-legend row', () => {
+  // Departmental templates print a "1 2 3 … 9" column-number row directly under
+  // the header; it must not be read as a work item (it once surfaced as a
+  // phantom BOQ line with Description "2", Qty "7", Rate "8").
+  it('skips the numbered column-legend row under the header', () => {
+    const grid: string[][] = [
+      ['Sl. No.', 'Description of work', 'No', '', '', 'L', 'B', 'D', 'Qty', 'Rate/per', 'per', 'Amount'],
+      ['1', '2', '3', '', '', '4', '5', '6', '7', '8', '', '9'],
+      ['1', 'Providing Series lights to the Temples', '', '', '', '', '', '', '884', '30', 'Rmt', '26520'],
+      ['2', 'Mic System 400 Watts', '', '', '', '', '', '', '19', '4200', 'Day', '79800'],
+      ['', 'Grand Total', '', '', '', '', '', '', '', '', '', '500000']
+    ]
+    const items = extractEstimateItems(grid, 0)
+    expect(items).toHaveLength(2)
+    expect(items[0].description).toContain('Series lights')
+    expect(items[1].description).toContain('Mic System')
+    expect(items.some((it) => it.description === '2')).toBe(false)
   })
 })
