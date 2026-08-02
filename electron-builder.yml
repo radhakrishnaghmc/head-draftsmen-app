@@ -42,6 +42,16 @@ extraResources:
     to: loa-se-template.docx
   - from: resources/loa-se-reserved-template.docx
     to: loa-se-reserved-template.docx
+  - from: resources/public-participation-book-template.docx
+    to: public-participation-book-template.docx
+  - from: resources/action-taken-report-template.docx
+    to: action-taken-report-template.docx
+  - from: resources/completion-report-template.docx
+    to: completion-report-template.docx
+  - from: resources/eot-se-template.docx
+    to: eot-se-template.docx
+  - from: resources/eot-ee-template.docx
+    to: eot-ee-template.docx
   - from: resources/boq-template.xlsx
     to: boq-template.xlsx
   - from: resources/deviation-template.xlsx

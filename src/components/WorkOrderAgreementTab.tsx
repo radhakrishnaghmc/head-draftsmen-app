@@ -864,25 +864,9 @@ export default function WorkOrderAgreementTab({
     // the same work — otherwise this file's Schedule A would silently belong to
     // a different work than the Work Order / Agreement. Block the upload and
     // ask for the same work's details.
-    const expected = pdfEval?.nameOfWork?.trim() || (selectedRow?.['Name of the work'] ?? '').trim()
-    // Tools mode does no work-name verification — it Schedule-A's exactly what
-    // was uploaded, for any circle/zone.
-    if (!standalone && detected && expected) {
-      let embeddings: { aVector: number[]; bVector: number[] } | undefined
-      try {
-        const [aVector, bVector] = await api.embedTexts([detected, expected])
-        embeddings = { aVector, bVector }
-      } catch {
-        embeddings = undefined
-      }
-      if (compareWorkNames(detected, expected, embeddings).status === 'mismatch') {
-        setBoq(null)
-        setScheduleA(null)
-        setScheduleAError(workNameMismatchMessage(detected, expected))
-        return
-      }
-    }
-
+    // Whether the uploaded file is the right work's estimate is verified
+    // reactively (see the scheduleAMismatch effect) so it re-checks whenever the
+    // L-1 / selected work changes too — not only at upload time.
     setBoq(t)
     try {
       // A detailed CMC/departmental estimate (multi-row No.s/L/B/D measurement
@@ -960,6 +944,54 @@ export default function WorkOrderAgreementTab({
     () => (scheduleA ? buildScheduleARows(rowsToScheduleAItems(scheduleA), scheduleAMeta) : null),
     [scheduleA, scheduleAMeta]
   )
+
+  // Guard the Schedule A against a WRONG estimate: the uploaded file's own work
+  // name must match the work this page is building for (the L-1's / selected
+  // row's name). Runs reactively — so it re-checks when the L-1 is uploaded after
+  // the estimate — and uses a stricter threshold than the lenient shared 0.5,
+  // because two different road works are worded almost identically and would
+  // otherwise pass. On a mismatch the message is set and the Schedule A tile is
+  // withheld, so the wrong estimate's items never masquerade under this work.
+  const [scheduleAMismatch, setScheduleAMismatch] = useState<string | null>(null)
+  useEffect(() => {
+    if (standalone || !boq) {
+      setScheduleAMismatch(null)
+      return
+    }
+    const expected = (pdfEval?.nameOfWork ?? '').trim() || (selectedRow?.['Name of the work'] ?? '').trim()
+    if (!expected) {
+      setScheduleAMismatch(null)
+      return
+    }
+    const det = (detectedWorkName ?? '').trim()
+    if (!det) {
+      setScheduleAMismatch(
+        `Couldn't read a work name from the uploaded estimate to confirm it's for “${expected}”. ` +
+          `Please check you uploaded the correct estimate for this work.`
+      )
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      let embeddings: { aVector: number[]; bVector: number[] } | undefined
+      try {
+        const [aVector, bVector] = await api.embedTexts([det, expected])
+        embeddings = { aVector, bVector }
+      } catch {
+        embeddings = undefined
+      }
+      const cmp = compareWorkNames(det, expected, embeddings)
+      // With the embedding model available, use a stricter line than
+      // compareWorkNames' own 0.5 — a different-but-similarly-worded road work
+      // still scores well above 0.5. Without embeddings, fall back to its normal
+      // token-overlap verdict (0.82 overlap would false-flag legit wording drift).
+      const ok = embeddings ? (cmp.score ?? 1) >= 0.82 : cmp.status !== 'mismatch'
+      if (!cancelled) setScheduleAMismatch(ok ? null : workNameMismatchMessage(det, expected))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [standalone, boq, detectedWorkName, pdfEval, selectedRow])
 
   // Schedule-A Tools tile: report whether an estimate/BOQ has been picked yet —
   // before paint, so the panel gets its full-width row without a one-frame flash.
@@ -1283,6 +1315,11 @@ export default function WorkOrderAgreementTab({
           <IconWarn /> {scheduleAError}
         </div>
       )}
+      {scheduleAMismatch && (
+        <div className="notice error">
+          <IconWarn /> {scheduleAMismatch}
+        </div>
+      )}
       {workMismatch && workMatch && (
         <div className="notice error">
           <IconWarn /> {sameWorkMismatchMessage(workMatch)}
@@ -1365,7 +1402,7 @@ export default function WorkOrderAgreementTab({
               <div className="wo-tile-foot">{DOC_LABEL.agreement}</div>
             </button>
           )}
-          {scheduleAPreview && !only && (
+          {scheduleAPreview && !only && !scheduleAMismatch && (
             <button className="wo-tile" onClick={() => setExpanded('scheduleA')}>
               <div className="wo-tile-preview sched">
                 <table className="sa-preview-table">

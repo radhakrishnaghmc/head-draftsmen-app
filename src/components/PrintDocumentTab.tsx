@@ -5,7 +5,8 @@ import { matchPlaceholdersToColumns } from '@core/createDocument'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { withComputedAmounts } from '@core/worksAmounts'
 import type { CreatedDocument, ExcelTable } from '@core/types'
-import { IconDoc, IconTrash, IconEye, IconPrint, IconDownload, IconCheck, IconWarn, IconPlus } from './Icons'
+import type { Office } from '../office'
+import { IconDoc, IconTrash, IconEye, IconPrint, IconDownload, IconCheck, IconWarn, IconPlus, IconSearch } from './Icons'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
 import DocThumbnail from './DocThumbnail'
 
@@ -15,6 +16,19 @@ interface Props {
   onChange: (docs: CreatedDocument[]) => void
   /** Switches to the Works List tab — offered when there are no rows to pick from. */
   onGoToWorksList: () => void
+  /** The chosen office — some documents are offered only for a zonal (SE) or circle (EE) office. */
+  office: Office
+}
+
+/**
+ * Whether a document is offered for the current office. Unscoped documents show
+ * everywhere; 'zonal' ones only for a Zone-level office (no circle picked), and
+ * 'circle' ones only once a circle is selected. See CreatedDocument.officeScope.
+ */
+function isDocForOffice(doc: CreatedDocument, office: Office): boolean {
+  if (!doc.officeScope) return true
+  if (doc.officeScope === 'zonal') return !!office.zone && !office.circle
+  return !!office.circle
 }
 
 function rowLabel(row: Record<string, string>, headers: string[], index: number): string {
@@ -25,8 +39,11 @@ function rowLabel(row: Record<string, string>, headers: string[], index: number)
 
 const TILE_TONES = ['tone-indigo', 'tone-sky', 'tone-rose', 'tone-amber', 'tone-teal', 'tone-green']
 
-export default function PrintDocumentTab({ tables, documents, onChange, onGoToWorksList }: Props) {
+export default function PrintDocumentTab({ tables, documents, onChange, onGoToWorksList, office }: Props) {
   const table = tables[0] ?? null
+
+  // Reorder/delete still act on the full synced list; only display is filtered.
+  const visibleCount = useMemo(() => documents.filter((d) => isDocForOffice(d, office)).length, [documents, office])
 
   const [pendingDelete, setPendingDelete] = useState<CreatedDocument | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -34,6 +51,31 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [rowIndex, setRowIndex] = useState(0)
+  // Page-level work picker: the chosen Works List row every document is issued
+  // against, found by typing part of its name rather than scrolling all rows.
+  const [workSearch, setWorkSearch] = useState('')
+  const nameCol = useMemo(
+    () => (table ? table.headers.find((h) => /name of (the )?work/i.test(h)) ?? table.headers[0] : undefined),
+    [table]
+  )
+  const workNameOf = (row: Record<string, string>) => (nameCol ? row[nameCol] ?? '' : '')
+  const filteredRows = useMemo(() => {
+    if (!table) return [] as { row: Record<string, string>; i: number }[]
+    const q = workSearch.trim().toLowerCase()
+    const all = table.rows.map((row, i) => ({ row, i }))
+    return q ? all.filter(({ row }) => workNameOf(row).toLowerCase().includes(q)) : all
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [table, workSearch, nameCol])
+
+  // Keep the selected row valid as the filter narrows: if the current pick falls
+  // outside the matches, jump to the first match so Preview/Create stay in sync.
+  function onWorkSearch(v: string) {
+    setWorkSearch(v)
+    if (!table) return
+    const q = v.trim().toLowerCase()
+    const matches = table.rows.map((row, i) => ({ row, i })).filter(({ row }) => !q || workNameOf(row).toLowerCase().includes(q))
+    if (matches.length > 0 && !matches.some((m) => m.i === rowIndex)) setRowIndex(matches[0].i)
+  }
   const [wantDocx, setWantDocx] = useState(true)
   const [wantPdf, setWantPdf] = useState(false)
   const [genBusy, setGenBusy] = useState(false)
@@ -88,7 +130,6 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
     setGenNotice(null)
     setPreview(null)
     setExpandedId((id) => (id === doc.id ? null : doc.id))
-    setRowIndex(0)
   }
 
   async function resolveForRow(doc: CreatedDocument): Promise<{ docx: string; resolved: PlaceholderMatch[] }> {
@@ -196,14 +237,48 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
           </div>
         </div>
 
-        {documents.length === 0 ? (
+        {table && table.rows.length > 0 && (
+          <div className="doc-work-picker">
+            <span className="doc-work-picker-label">Work</span>
+            <div className="doc-work-search">
+              <IconSearch />
+              <input
+                type="text"
+                placeholder="Search work by name…"
+                value={workSearch}
+                onChange={(e) => onWorkSearch(e.target.value)}
+              />
+              {workSearch && (
+                <button className="tsearch-clear" onClick={() => onWorkSearch('')}>
+                  Clear
+                </button>
+              )}
+            </div>
+            <select className="doc-work-select" value={rowIndex} onChange={(e) => setRowIndex(Number(e.target.value))}>
+              {filteredRows.length === 0 ? (
+                <option value={rowIndex} disabled>
+                  No work matches “{workSearch}”
+                </option>
+              ) : (
+                filteredRows.map(({ row, i }) => (
+                  <option value={i} key={i}>
+                    {rowLabel(row, table.headers, i)}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+        )}
+
+        {visibleCount === 0 ? (
           <div className="empty">
             <IconDoc />
             <p>No document templates available yet.</p>
           </div>
         ) : (
           <div className="doc-tile-grid">
-            {documents.map((doc, i) => (
+            {documents.map((doc, i) =>
+              !isDocForOffice(doc, office) ? null : (
               <div
                 className={[
                   'doc-tile-card',

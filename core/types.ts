@@ -119,6 +119,14 @@ export interface CreatedDocument {
   name: string
   docx: string
   createdDate: string
+  /**
+   * Restricts which office this document is offered for on the Issue Documents
+   * tab. Undefined = shown for every office. 'zonal' = only a Zone-level office
+   * (no circle picked, e.g. the Superintending Engineer's office); 'circle' =
+   * only a Circle-level (Executive Engineer's) office. Display-only filter — the
+   * document still lives in the synced list regardless of the current office.
+   */
+  officeScope?: 'zonal' | 'circle'
 }
 
 /** One work item within a Bid Document batch — mirrors core/bidDocument.ts's BidDocumentWorkItem. */
@@ -180,6 +188,14 @@ export interface PersistedState {
   worksListLinks?: Record<string, string>
   tenderReminders?: TenderReminder[]
   createdDocuments?: CreatedDocument[]
+  /**
+   * Highest version of the bundled default documents already merged into this
+   * state. New standard documents (e.g. the Public Participation Log Book) are
+   * injected once when this trails the current version — see
+   * injectDefaultDocuments in electron/main.ts. Persisted so the injection runs
+   * exactly once and a document the user later deletes is never re-added.
+   */
+  seededDocVersion?: number
   bidDocumentBatches?: BidDocumentBatch[]
   mbScrutiny?: MBScrutinyItem[]
 }

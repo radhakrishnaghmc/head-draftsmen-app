@@ -149,6 +149,10 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   const [tenderReminders, setTenderReminders] = useState<TenderReminder[]>([])
   const [refreshingReminderId, setRefreshingReminderId] = useState<string | null>(null)
   const [createdDocuments, setCreatedDocuments] = useState<CreatedDocument[]>([])
+  // Highest bundled-default-documents version merged into this workspace. Set
+  // by the main process's one-time injection on load; persisted here so the
+  // injection never repeats (and a default the user deletes stays deleted).
+  const [seededDocVersion, setSeededDocVersion] = useState(0)
   const [bidDocumentBatches, setBidDocumentBatches] = useState<BidDocumentBatch[]>([])
   // Set when the previously-saved Works List belongs to a different
   // Zone/Circle than the one logged in — that data is withheld (never
@@ -244,6 +248,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
           setWorksListLinks(s.worksListLinks ?? {})
           setTenderReminders((s.tenderReminders ?? []).map(migrateTenderReminder))
           setCreatedDocuments(await bakeLoginPlaceholders(s.createdDocuments ?? []))
+          setSeededDocVersion(s.seededDocVersion ?? 0)
           setBidDocumentBatches(s.bidDocumentBatches ?? [])
         }
       } finally {
@@ -293,6 +298,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       if (partial.worksListLinks) setWorksListLinks(partial.worksListLinks)
       if (partial.tenderReminders) setTenderReminders(partial.tenderReminders.map(migrateTenderReminder))
       if (partial.createdDocuments) setCreatedDocuments(await bakeLoginPlaceholders(partial.createdDocuments))
+      if (partial.seededDocVersion !== undefined) setSeededDocVersion(partial.seededDocVersion)
       if (partial.bidDocumentBatches) setBidDocumentBatches(partial.bidDocumentBatches)
     })
   }, [hydrated, blockedWorksList, currentOfficeKey])
@@ -330,6 +336,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
         worksListLinks,
         tenderReminders,
         createdDocuments,
+        seededDocVersion,
         bidDocumentBatches,
         mbScrutiny
       })
@@ -347,6 +354,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     worksListLinks,
     tenderReminders,
     createdDocuments,
+    seededDocVersion,
     bidDocumentBatches,
     mbScrutiny
   ])
@@ -811,6 +819,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               documents={createdDocuments}
               onChange={setCreatedDocuments}
               onGoToWorksList={() => setTab('data')}
+              office={office}
             />
           </section>
         )}

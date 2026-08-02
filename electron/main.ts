@@ -1016,6 +1016,44 @@ function registerHandlers(): void {
     return { ...state, createdDocuments: migrated as unknown as PersistedState['createdDocuments'] }
   }
 
+  // Standard documents bundled with the app that every workspace should carry.
+  // Unlike the first-run seed (which only fills a brand-new install), these are
+  // merged into an *existing* state too — once — the first time it's opened by a
+  // build whose CURRENT_DEFAULT_DOC_VERSION exceeds the state's own
+  // seededDocVersion. Keyed by a stable id so a document already present isn't
+  // duplicated, and version-gated so one the user later deletes is never
+  // re-added.
+  const CURRENT_DEFAULT_DOC_VERSION = 2
+  const DEFAULT_DOCUMENTS: { id: string; name: string; file: string; officeScope?: 'zonal' | 'circle' }[] = [
+    { id: 'doc_public_participation', name: 'Public Participation Log Book', file: 'public-participation-book-template.docx' },
+    { id: 'doc_action_taken_report', name: 'Action Taken Report', file: 'action-taken-report-template.docx' },
+    { id: 'doc_completion_report', name: 'Completion Report', file: 'completion-report-template.docx' },
+    // The Superintending Engineer's EOT proposal belongs to the zone (SE) office;
+    // the Executive Engineer's variant to a circle (EE) office. Scoped so each
+    // shows only where it applies — see CreatedDocument.officeScope.
+    { id: 'doc_eot_se', name: 'EOT Proposal (SE Office)', file: 'eot-se-template.docx', officeScope: 'zonal' },
+    { id: 'doc_eot_ee', name: 'EOT Proposal (EE Office)', file: 'eot-ee-template.docx', officeScope: 'circle' }
+  ]
+
+  function injectDefaultDocuments(state: PersistedState): PersistedState {
+    if ((state.seededDocVersion ?? 0) >= CURRENT_DEFAULT_DOC_VERSION) return state
+    const docs = [...(state.createdDocuments ?? [])]
+    const createdDate = new Date().toISOString().slice(0, 10)
+    for (const def of DEFAULT_DOCUMENTS) {
+      if (docs.some((d) => d.id === def.id)) continue
+      const templatePath = bundledResourceFile(def.file)
+      if (!templatePath) continue // best-effort: a missing bundle file doesn't block loading
+      docs.push({
+        id: def.id,
+        name: def.name,
+        docx: fs.readFileSync(templatePath).toString('base64'),
+        createdDate,
+        ...(def.officeScope ? { officeScope: def.officeScope } : {})
+      })
+    }
+    return { ...state, createdDocuments: docs, seededDocVersion: CURRENT_DEFAULT_DOC_VERSION }
+  }
+
   ipcMain.handle(IPC.loadState, async (): Promise<PersistedState | null> => {
     let state: PersistedState | null = null
     try {
@@ -1029,7 +1067,7 @@ function registerHandlers(): void {
         // fall through
       }
     }
-    return state && (await migrateCreatedDocuments(state))
+    return state && injectDefaultDocuments(await migrateCreatedDocuments(state))
   })
 
   ipcMain.handle(IPC.saveState, async (_e, state: PersistedState): Promise<void> => {

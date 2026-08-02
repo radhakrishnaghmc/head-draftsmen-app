@@ -6,31 +6,31 @@
      onto the old indigo/violet token names) is India Saffron #FF9933; its
      gradient partner is India Green #138808; the Ashoka-Chakra navy #1a237e
      carries the "in-progress" accent. White is the neutral third band. */
-  --indigo-50: #fff4e6; /* lightest saffron tint (chip/pill backgrounds) */
-  --indigo-100: #ffe1bf;
-  --indigo-200: #ffce99;
-  --indigo-500: #ff9933; /* India saffron — primary accent */
-  --indigo-600: #ef7d1a; /* deep saffron — solid fills / accent text */
-  --indigo-700: #b45309; /* burnt saffron — accent text / hairlines */
-  --violet-500: #138808; /* India green — gradient partner */
-  --chakra: #1a237e; /* Ashoka-Chakra navy */
-  --sky-100: #d7f0cf;
-  --sky-500: #138808;
-  --teal-500: #0d9488;
-  --teal-100: #ccfbf1;
-  --rose-500: #e11d48;
-  --rose-100: #ffe4e6;
-  --amber-500: #d97706;
-  --amber-100: #fef3c7;
-  --green-bg: #dcfce7;
-  --orange-bg: #ffedd5;
+  --indigo-50: #fff9f2; /* lightest saffron tint (chip/pill backgrounds) */
+  --indigo-100: #ffecd9;
+  --indigo-200: #ffdcb3;
+  --indigo-500: #ffab54; /* India saffron — primary accent (lightened) */
+  --indigo-600: #f7943a; /* deep saffron — solid fills / accent text */
+  --indigo-700: #c26313; /* burnt saffron — accent text / hairlines */
+  --violet-500: #1aa30f; /* India green — gradient partner (lightened) */
+  --chakra: #283593; /* Ashoka-Chakra navy */
+  --sky-100: #e3f5dd;
+  --sky-500: #1aa30f;
+  --teal-500: #12a89b;
+  --teal-100: #ddfcf5;
+  --rose-500: #ec3a60;
+  --rose-100: #ffeef0;
+  --amber-500: #ee8a1a;
+  --amber-100: #fef7db;
+  --green-bg: #e8fdf0;
+  --orange-bg: #fff3e3;
 
   /* Mica (matte glass) material: soft neutral base, fairly opaque translucent
      surfaces, and a big low-saturation blur so it reads matte, not glossy. */
-  --bg-grad-a: #f3f4f7;
-  --bg-grad-b: #e9ebef;
-  --surface: rgba(252, 252, 253, 0.72);
-  --surface-2: rgba(250, 250, 252, 0.55);
+  --bg-grad-a: #f8f9fb;
+  --bg-grad-b: #f0f1f4;
+  --surface: rgba(253, 253, 254, 0.8);
+  --surface-2: rgba(252, 252, 253, 0.66);
   --border: rgba(255, 255, 255, 0.7);
   --border-strong: rgba(255, 255, 255, 0.9);
   --glass-blur: blur(40px) saturate(115%);
@@ -39,12 +39,12 @@
   --text-2: #444650;
   --muted: #7f8290;
 
-  --ok: #059669;
-  --ok-bg: #ecfdf5;
-  --warn: #b45309;
-  --warn-bg: #fffbeb;
-  --danger: #c42b1c;
-  --danger-bg: #fef2f2;
+  --ok: #0aa77b;
+  --ok-bg: #f2fef9;
+  --warn: #c26313;
+  --warn-bg: #fffdf5;
+  --danger: #d63a2b;
+  --danger-bg: #fff6f6;
 
   /* Fluent-style soft, diffuse shadows */
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
@@ -483,23 +483,23 @@ code {
 }
 .nav-item.tone-green {
   --tone-a: var(--ok);
-  --tone-b: #34d399;
+  --tone-b: #55dda9;
 }
 .nav-item.tone-sky {
   --tone-a: var(--sky-500);
-  --tone-b: #38bdf8;
+  --tone-b: #5fcbfa;
 }
 .nav-item.tone-rose {
   --tone-a: var(--rose-500);
-  --tone-b: #fb7185;
+  --tone-b: #fc8b9b;
 }
 .nav-item.tone-amber {
   --tone-a: var(--amber-500);
-  --tone-b: #f59e0b;
+  --tone-b: #f7b03a;
 }
 .nav-item.tone-teal {
   --tone-a: var(--teal-500);
-  --tone-b: #2dd4bf;
+  --tone-b: #52ddcc;
 }
 
 .nav-ic {
@@ -3109,7 +3109,7 @@ button.danger:disabled {
   padding: 6px 11px;
   border-radius: 8px;
   border: 1px solid var(--indigo-100);
-  background: linear-gradient(135deg, var(--indigo-50), #ffe9d1);
+  background: linear-gradient(135deg, var(--indigo-50), #fff0e0);
   color: var(--indigo-700);
   font-weight: 600;
   font-size: 12.5px;
@@ -3222,6 +3222,62 @@ button.danger:disabled {
   border-bottom: 1px solid var(--border);
 }
 
+/* ---------- Print Document: page-level work picker ---------- */
+.doc-work-picker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.doc-work-picker-label {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-2);
+  flex: none;
+}
+.doc-work-search {
+  flex: 1 1 260px;
+  min-width: 220px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+.doc-work-search:focus-within {
+  border-color: var(--indigo-500);
+  box-shadow: 0 0 0 3px var(--indigo-100);
+}
+.doc-work-search svg {
+  width: 17px;
+  height: 17px;
+  color: var(--muted);
+  flex: none;
+}
+.doc-work-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+}
+.doc-work-select {
+  flex: 1 1 260px;
+  min-width: 220px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- Print Document: saved documents as tiles ---------- */
 .doc-tile-grid {
   display: grid;
@@ -3325,23 +3381,23 @@ button.danger:disabled {
 }
 .doc-tile-card.tone-sky {
   --tone-a: var(--sky-500);
-  --tone-b: #38bdf8;
+  --tone-b: #5fcbfa;
 }
 .doc-tile-card.tone-rose {
   --tone-a: var(--rose-500);
-  --tone-b: #fb7185;
+  --tone-b: #fc8b9b;
 }
 .doc-tile-card.tone-amber {
   --tone-a: var(--amber-500);
-  --tone-b: #f59e0b;
+  --tone-b: #f7b03a;
 }
 .doc-tile-card.tone-teal {
   --tone-a: var(--teal-500);
-  --tone-b: #2dd4bf;
+  --tone-b: #52ddcc;
 }
 .doc-tile-card.tone-green {
   --tone-a: var(--ok);
-  --tone-b: #34d399;
+  --tone-b: #55dda9;
 }
 .doc-tile-card:hover {
   border-color: rgba(255, 255, 255, 0.8);
@@ -3402,7 +3458,7 @@ button.danger:disabled {
   display: grid;
   place-items: center;
   border-radius: var(--radius-pill);
-  background: linear-gradient(135deg, var(--rose-500), #fb7185);
+  background: linear-gradient(135deg, var(--rose-500), #fc8b9b);
   color: #fff;
   font-size: 12px;
   font-weight: 700;
