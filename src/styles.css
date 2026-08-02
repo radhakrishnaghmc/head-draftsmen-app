@@ -670,7 +670,9 @@ code {
 }
 
 .page {
-  max-width: 860px;
+  /* No width cap: every tab fills the workspace to its 44px side padding, so the
+     left/right gap is uniform across all tabs (page and page.wide alike). */
+  max-width: none;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -6483,6 +6485,44 @@ tr.on .rp-box span {
   outline: none;
   border-color: var(--indigo-500);
 }
+/* Tools "Fill details manually" form: a responsive grid of stacked label+input
+   fields (some spanning the full row). */
+.wo-manual-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px 16px;
+  margin-top: 14px;
+}
+.wo-manual-form .wo-date-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+}
+.wo-manual-form .wo-date-field > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.wo-manual-form input,
+.wo-manual-form select {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  width: 100%;
+}
+.wo-manual-form input:focus,
+.wo-manual-form select:focus {
+  outline: none;
+  border-color: var(--indigo-500);
+}
+.wo-manual-wide {
+  grid-column: 1 / -1;
+}
 .wo-date-modal {
   width: min(460px, 100%);
 }
@@ -6512,13 +6552,26 @@ tr.on .rp-box span {
 }
 
 /* Tools tab — reuses the frosted-glass .doc-tile-card, made clickable. */
+/* Tools tab: larger tiles than the shared doc-tile grid (which PrintDocumentTab
+   also uses) — wider columns and a bit more breathing room per tile. */
+.tools-grid {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 20px;
+}
 .tool-card {
   font: inherit;
   cursor: pointer;
   width: 100%;
   /* Uniform tile height (grid is top-aligned, so cards no longer auto-stretch
      to match their row). */
-  min-height: 172px;
+  min-height: 220px;
+  padding: 42px 20px 22px;
+}
+.tool-card .doc-tile-card-name {
+  font-size: 15.5px;
+}
+.tool-card .doc-tile-card-meta {
+  font-size: 12.5px;
 }
 /* Hover pops the tile a little larger and swaps its caption for an upload
    action — reveal happens in place (the caption fades out, the pill fades in
@@ -6558,6 +6611,41 @@ tr.on .rp-box span {
 /* Separator outcome notice below the grid — spaced off the tiles. */
 .tool-outcome {
   margin-top: 16px;
+}
+/* Excel Separator sheet chooser: pick one sheet or separate all. */
+.split-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 18px;
+}
+.split-picker-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.split-picker-count {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.split-picker-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.split-picker-row select {
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.7);
+  font: inherit;
+  max-width: 320px;
+}
+.split-picker-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 .tool-card-cta {
   position: absolute;
@@ -6601,16 +6689,16 @@ tr.on .rp-box span {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 13px;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
   /* Follow the tile's own tone (falls back to teal for tone-less tiles). */
   color: var(--tone-a, var(--teal-500));
   background: color-mix(in srgb, var(--tone-a, var(--teal-500)) 14%, transparent);
 }
 .tool-card-ic svg {
-  width: 24px;
-  height: 24px;
+  width: 29px;
+  height: 29px;
 }
 .tool-result {
   display: flex;

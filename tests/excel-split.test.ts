@@ -23,7 +23,7 @@ async function makeWorkbook(file: string, sheetNames: string[]): Promise<void> {
 }
 
 describe('splitWorkbookSheets', () => {
-  it('writes one file per sheet, named after the tab, keeping formulas and merges', async () => {
+  it('writes one file per sheet (named after the tab), flattening formulas to values and keeping merges', async () => {
     const src = path.join(tmp, 'multi.xlsx')
     await makeWorkbook(src, ['peddamma', 'kamalamma'])
     const out = path.join(tmp, 'out1')
@@ -37,7 +37,10 @@ describe('splitWorkbookSheets', () => {
     expect(wb.worksheets).toHaveLength(1)
     const ws = wb.worksheets[0]
     expect(ws.name).toBe('peddamma')
-    expect(ws.getCell('C2').formula).toBe('A2*B2')
+    // Formulas are pasted as values so a separated sheet never loses data to a
+    // now-broken cross-sheet/external reference: C2 keeps its cached 50, no formula.
+    expect(ws.getCell('C2').formula).toBeUndefined()
+    expect(ws.getCell('C2').value).toBe(50)
     expect((ws.model.merges || []).length).toBe(1)
   })
 

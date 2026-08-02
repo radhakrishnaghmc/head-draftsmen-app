@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
 import { api } from '../ipc'
-import { guessHeaderRow } from '@core/sheet'
+import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
+import { indianDigitGroups } from '@core/worksAmounts'
 import { extractWorkName, splitEstimateBlocks, extractGrandTotalLakhs, itemsMissingEstimateAmount } from '@core/estimateExtract'
 import type { EstimateWorkItem } from '@core/estimateExtract'
 import { extractEstimateItemsWithAi } from '../aiEstimateColumns'
 import { extractEstimateAmountLakhs } from '@core/deviation'
-import { computeEcvFromItems, buildBoqFromEstimate } from '../boqTransform'
+import { computeEcvFromItems, buildBoqFromEstimate, boqToItems, extractWorkNameFromBoq } from '../boqTransform'
 import { formatRupees } from '@core/worksAmounts'
 import { findWorksRowByName, metaFromWorksRow } from '@core/scheduleA'
 import { computeMaterialTotals } from '@core/materialEstimate'
@@ -55,6 +56,9 @@ interface Entry {
   /** The workbook sheet/tab this estimate came from — the BOQ's name descriptor. */
   sheetName?: string
   items: EstimateWorkItem[]
+  /** True when the upload was a flat BOQ, not a detailed estimate — a BOQ has no
+   * sanctioned estimate amount of its own, so its total is the ECV alone. */
+  isBoq?: boolean
   workName?: string
   ecvRupees: number
   estimateAmountLakhs: number
@@ -185,11 +189,18 @@ function DocumentPreview({ entry, worksTable }: { entry: Entry; worksTable: Exce
           </div>
           <div>
             <span>Estimate Amount</span>
-            <strong>Rs. {scheduleAMeta?.estimateAmount ?? `${total.toFixed(2)}/-`}</strong>
+            {/* A BOQ has no sanctioned estimate amount of its own — only the ECV. */}
+            <strong>{entry.isBoq ? '—' : `Rs. ${scheduleAMeta?.estimateAmount ?? `${total.toFixed(2)}/-`}`}</strong>
           </div>
           <div>
             <span>ECV Amount</span>
-            <strong>{scheduleAMeta?.ecvAmount ? `Rs. ${scheduleAMeta.ecvAmount}` : 'Not on the Works List yet'}</strong>
+            <strong>
+              {scheduleAMeta?.ecvAmount
+                ? `Rs. ${scheduleAMeta.ecvAmount}`
+                : entry.ecvRupees
+                  ? `Rs. ${indianDigitGroups(entry.ecvRupees)}/-`
+                  : 'Not on the Works List yet'}
+            </strong>
           </div>
           <div>
             <span>Contract Amount</span>
@@ -370,28 +381,56 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
         const headerRow = guessHeaderRow(grid)
         try {
           const { items, aiAssisted } = await extractEstimateItemsWithAi(grid, headerRow)
-          if (items.length === 0) {
-            throw new Error('No work items with a quantity, rate, and unit were found in that estimate.')
+          if (items.length > 0) {
+            added.push({
+              id: nextId(),
+              fileName: g.name,
+              sheetName,
+              items,
+              workName: extractWorkName(grid, headerRow),
+              ecvRupees: computeEcvFromItems(items),
+              estimateAmountLakhs: extractEstimateAmountLakhs(grid, headerRow, items),
+              grandTotalLakhs: extractGrandTotalLakhs(grid, headerRow),
+              uncostedItems: itemsMissingEstimateAmount(items),
+              agencyName: '',
+              departmentName: '',
+              district: '',
+              aiAssisted,
+              busyAction: null,
+              error: null,
+              saved: null,
+              previewDoc: 'boq'
+            })
+          } else {
+            // Not a detailed estimate — try it as a flat BOQ, so an existing BOQ
+            // (from outside the app) can drive the same BOQ / Schedule A / Material
+            // outputs. A BOQ has no sanctioned estimate amount of its own, so its
+            // items total is the ECV alone (estimateAmountLakhs stays 0).
+            const boqTable = buildTableFromGrid(grid, headerRow, { id: `boq-${nextId()}`, name: g.name, path: g.path })
+            const boqItems = boqToItems(boqTable)
+            if (boqItems.length === 0) {
+              throw new Error('No work items with a quantity, rate, and unit were found in that estimate or BOQ.')
+            }
+            added.push({
+              id: nextId(),
+              fileName: g.name,
+              sheetName,
+              items: boqItems,
+              isBoq: true,
+              workName: extractWorkNameFromBoq(boqTable),
+              ecvRupees: computeEcvFromItems(boqItems),
+              estimateAmountLakhs: 0,
+              uncostedItems: [],
+              agencyName: '',
+              departmentName: '',
+              district: '',
+              aiAssisted: [],
+              busyAction: null,
+              error: null,
+              saved: null,
+              previewDoc: 'boq'
+            })
           }
-          added.push({
-            id: nextId(),
-            fileName: g.name,
-            sheetName,
-            items,
-            workName: extractWorkName(grid, headerRow),
-            ecvRupees: computeEcvFromItems(items),
-            estimateAmountLakhs: extractEstimateAmountLakhs(grid, headerRow, items),
-            grandTotalLakhs: extractGrandTotalLakhs(grid, headerRow),
-            uncostedItems: itemsMissingEstimateAmount(items),
-            agencyName: '',
-            departmentName: '',
-            district: '',
-            aiAssisted,
-            busyAction: null,
-            error: null,
-            saved: null,
-            previewDoc: 'boq'
-          })
         } catch (e) {
           const hint = mismatchHint(grid[headerRow] ?? [], 'estimate')
           const message = (e instanceof Error ? e.message : String(e)) + (hint ? ` ${hint}` : '')
@@ -515,7 +554,7 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
         </p>
         <div className="boq-actions">
           <button className="primary upload-btn" onClick={uploadEstimates}>
-            <IconFolder /> Add Estimate(s)
+            <IconFolder /> Add estimates/BOQs
           </button>
           {boqReadyEntries.length > 1 && (
             <button className="ghost upload-btn" onClick={downloadAllBoqs} disabled={downloadingAllBoqs}>

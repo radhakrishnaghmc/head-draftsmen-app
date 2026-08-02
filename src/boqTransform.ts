@@ -259,3 +259,22 @@ export function extractWorkNameFromBoq(table: ExcelTable): string | undefined {
   }
   return undefined
 }
+
+/**
+ * Parse a flat BOQ (a Bill of Quantities uploaded directly, not re-derived from
+ * an estimate) into the same EstimateWorkItem shape the estimate extractor
+ * produces — so a BOQ can drive the very same BOQ / Schedule A / Material
+ * outputs. Reuses boqToScheduleA's column resolution and item-row filtering, so
+ * it accepts the same range of BOQ layouts. Returns [] when no line items
+ * resolve (the caller then treats the file as neither an estimate nor a BOQ).
+ */
+export function boqToItems(boq: ExcelTable, embeddings?: ColumnEmbeddings): EstimateWorkItem[] {
+  const sched = boqToScheduleA(boq, embeddings)
+  return sched.rows.map((r) => ({
+    description: r['Description of item'] ?? '',
+    quantity: r['Probable Quantity'] ?? '',
+    rate: r['Estimated Rate in Rs. & Ps.'] ?? '',
+    unit: r['Units'] ?? '',
+    estimateAmount: r['Estimated Amount in Rs'] ?? ''
+  }))
+}

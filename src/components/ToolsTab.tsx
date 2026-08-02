@@ -5,6 +5,7 @@ import UploadPhotosTab from './UploadPhotosTab'
 import WorkOrderAgreementTab from './WorkOrderAgreementTab'
 import ElectricalEstimateTab from './ElectricalEstimateTab'
 import type { ExcelTable } from '@core/types'
+import type { Office } from '../office'
 
 interface SplitState {
   busy: boolean
@@ -26,6 +27,8 @@ interface Props {
   /** The Works List database — passed through to the photo-estimate tool for ECV write-back and Circle/Agency lookups. */
   tables: ExcelTable[]
   onChange: (table: ExcelTable) => void
+  /** The chosen office — so the Work Order / Agreement "Fill details manually" form can take Circle/Zone/Corporation from it instead of re-asking. */
+  office?: Office
 }
 
 /**
@@ -34,10 +37,14 @@ interface Props {
  * panels below. Today: the Excel Sheet Separator, and reading an estimate from
  * photos / a scanned PDF. New tools slot in as additional tiles or panels.
  */
-export default function ToolsTab({ tables, onChange }: Props) {
+export default function ToolsTab({ tables, onChange, office }: Props) {
   const [split, setSplit] = useState<SplitState>({ busy: false, result: null, error: null })
   // Live per-sheet progress pushed from the main process while a split runs.
   const [progress, setProgress] = useState<SplitProgress | null>(null)
+  // A workbook the user picked but hasn't split yet — while set, a small chooser
+  // (this sheet, or all) is shown so they can separate one sheet or every sheet.
+  const [splitPick, setSplitPick] = useState<{ path: string; name: string; sheets: string[] } | null>(null)
+  const [splitChoice, setSplitChoice] = useState<string>('all')
   // Which tool's panel is expanded, if any. One at a time (accordion): opening a
   // tile reveals its panel directly beneath that tile and closes any other, so
   // the workspace stays focused on the one tool the user picked. Each tile is
@@ -57,6 +64,7 @@ export default function ToolsTab({ tables, onChange }: Props) {
     setPanelFilled(false)
     setSplit({ busy: false, result: null, error: null })
     setProgress(null)
+    setSplitPick(null)
   }
 
   // Subscribe once to the main process's per-sheet progress events; the split
@@ -64,17 +72,36 @@ export default function ToolsTab({ tables, onChange }: Props) {
   // stays usable while it works.
   useEffect(() => api.onSplitProgress(setProgress), [])
 
-  async function runSeparator() {
+  // Step 1 — pick a workbook and read its sheet names, then show the chooser
+  // (which sheet, or all) below. Picking the separator is a switch to a
+  // different tool, so any open tool panel is closed.
+  async function chooseWorkbook() {
     if (split.busy) return
-    // Close any open tool panel (e.g. Work Order / Agreement) — picking the
-    // separator is a switch to a different tool, so its panel shouldn't linger.
     setOpen(null)
     setPanelFilled(false)
+    setSplit({ busy: false, result: null, error: null })
+    setProgress(null)
+    try {
+      const picked = await api.pickWorkbookForSplit() // null when the user cancels
+      if (!picked) return
+      setSplitPick(picked)
+      setSplitChoice('all')
+    } catch (e) {
+      setSplit({ busy: false, result: null, error: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
+  // Step 2 — separate the chosen sheet (or all sheets) into the folder the user
+  // then picks.
+  async function doSplit() {
+    if (!splitPick || split.busy) return
+    const srcPath = splitPick.path
+    const sheetNames = splitChoice === 'all' ? null : [splitChoice]
+    setSplitPick(null)
     setSplit({ busy: true, result: null, error: null })
     setProgress(null)
     try {
-      // null when the user cancels either dialog — leave the tile idle.
-      const result = await api.splitExcelSheets()
+      const result = await api.splitWorkbook(srcPath, sheetNames) // null when the folder dialog is cancelled
       setSplit({ busy: false, result, error: null })
     } catch (e) {
       setSplit({ busy: false, result: null, error: e instanceof Error ? e.message : String(e) })
@@ -85,10 +112,10 @@ export default function ToolsTab({ tables, onChange }: Props) {
 
   return (
     <div className="card">
-      <div className="doc-tile-grid">
+      <div className="doc-tile-grid tools-grid">
         <button
-          className="doc-tile-card tone-teal tool-card"
-          onClick={runSeparator}
+          className={`doc-tile-card tone-teal tool-card ${splitPick ? 'on' : ''}`}
+          onClick={chooseWorkbook}
           disabled={split.busy}
         >
           <span className="tool-card-ic">
@@ -100,7 +127,9 @@ export default function ToolsTab({ tables, onChange }: Props) {
               ? progress
                 ? `Splitting ${progress.done} / ${progress.total} sheets…`
                 : 'Reading workbook…'
-              : 'One file per sheet, named after each tab'}
+              : splitPick
+                ? 'Choose a sheet below — or all'
+                : 'One sheet, or all — one file per tab'}
           </span>
           <span className="tool-card-cta">
             <IconFolder /> Choose workbook
@@ -162,7 +191,7 @@ export default function ToolsTab({ tables, onChange }: Props) {
           </button>
           {open === 'workOrder' && (
             <div className="tool-inline-panel">
-              <WorkOrderAgreementTab standalone only="workOrder" tables={[]} onChange={() => {}} />
+              <WorkOrderAgreementTab standalone only="workOrder" tables={[]} onChange={() => {}} office={office} />
             </div>
           )}
         </div>
@@ -186,7 +215,7 @@ export default function ToolsTab({ tables, onChange }: Props) {
           </button>
           {open === 'agreement' && (
             <div className="tool-inline-panel">
-              <WorkOrderAgreementTab standalone only="agreement" tables={[]} onChange={() => {}} />
+              <WorkOrderAgreementTab standalone only="agreement" tables={[]} onChange={() => {}} office={office} />
             </div>
           )}
         </div>
@@ -212,7 +241,7 @@ export default function ToolsTab({ tables, onChange }: Props) {
             className={panelFilled ? 'tool-panel-row workspace-section' : ''}
             style={panelFilled ? undefined : { display: 'contents' }}
           >
-            <WorkOrderAgreementTab scheduleAOnly autoOpen onContent={setPanelFilled} tables={[]} onChange={() => {}} />
+            <WorkOrderAgreementTab scheduleAOnly autoOpen onContent={setPanelFilled} tables={tables} onChange={() => {}} />
           </div>
         )}
 
@@ -241,6 +270,38 @@ export default function ToolsTab({ tables, onChange }: Props) {
           </div>
         )}
       </div>
+
+      {/* Sheet chooser for the Excel Separator: pick one sheet or separate all. */}
+      {splitPick && (
+        <div className="notice split-picker tool-outcome">
+          <div className="split-picker-head">
+            <IconTable />
+            <strong>{splitPick.name}</strong>
+            <span className="split-picker-count">
+              {splitPick.sheets.length} sheet{splitPick.sheets.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <label className="split-picker-row">
+            <span>Separate</span>
+            <select value={splitChoice} onChange={(e) => setSplitChoice(e.target.value)}>
+              <option value="all">All sheets ({splitPick.sheets.length})</option>
+              {splitPick.sheets.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="split-picker-actions">
+            <button className="ghost" onClick={() => setSplitPick(null)}>
+              Cancel
+            </button>
+            <button className="primary" onClick={doSplit}>
+              <IconFolder /> {splitChoice === 'all' ? 'Separate all' : 'Separate sheet'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Separator outcome sits below the whole grid, so it never pushes the
           tiles around. Progress itself shows in the tile (above). */}

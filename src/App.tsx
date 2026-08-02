@@ -955,7 +955,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 <p>Handy utilities that sit outside the main workflow.</p>
               </div>
             </div>
-            <ToolsTab tables={tables} onChange={updateTable} />
+            <ToolsTab tables={tables} onChange={updateTable} office={office} />
           </section>
         )}
       </main>

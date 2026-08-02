@@ -56,7 +56,8 @@ export const IPC = {
   exportScheduleA: 'data:exportScheduleA',
   exportBoq: 'data:exportBoq',
   exportBoqBatch: 'data:exportBoqBatch',
-  splitExcelSheets: 'tools:splitExcelSheets',
+  pickWorkbookForSplit: 'tools:pickWorkbookForSplit',
+  splitWorkbook: 'tools:splitWorkbook',
   splitProgress: 'tools:splitProgress',
   exportDeviation: 'data:exportDeviation',
   exportDetailedEstimate: 'data:exportDetailedEstimate',
@@ -121,9 +122,11 @@ export interface DocuGenApi {
   exportBoqBatch(
     entries: { table: ExcelTable; suggestedName: string; workName?: string }[]
   ): Promise<string[] | null>
-  /** Tool: pick a multi-sheet workbook and split every sheet into its own .xlsx (named after the tab) in a chosen folder. Returns the folder and saved file paths, or null if cancelled. */
-  splitExcelSheets(): Promise<{ dir: string; files: string[] } | null>
-  /** Fires as each sheet is written while splitExcelSheets runs, so the UI can show a progress bar. Returns an unsubscribe function. */
+  /** Tool: pick a multi-sheet workbook to split; returns its path and worksheet names (so the user can choose a specific sheet or all), or null if cancelled. */
+  pickWorkbookForSplit(): Promise<{ path: string; name: string; sheets: string[] } | null>
+  /** Tool: split the chosen workbook into one .xlsx per sheet (named after the tab) in a folder the user picks. `sheetNames` limits it to those sheets; null/empty separates all. Returns the folder and saved file paths, or null if cancelled. */
+  splitWorkbook(srcPath: string, sheetNames: string[] | null): Promise<{ dir: string; files: string[] } | null>
+  /** Fires as each sheet is written while splitWorkbook runs, so the UI can show a progress bar. Returns an unsubscribe function. */
   onSplitProgress(callback: (progress: SplitProgress) => void): () => void
   exportDeviation(items: DeviationItem[], meta: DeviationMeta, suggestedName: string): Promise<string | null>
   /** Builds and saves a full "Detailed and Abstract Estimate" workbook (letterhead, item table, standard surcharge cascade, signature block) from scratch — not a bare Sl No/Description/Qty/Rate/Amount table. */

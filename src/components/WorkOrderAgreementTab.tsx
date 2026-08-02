@@ -13,14 +13,17 @@ import {
   civilTenderPlaceholders,
   zonalDocsPlaceholders,
   standaloneRowFromSources,
-  circleFromNit
+  circleFromNit,
+  indianFinancialYear
 } from '@core/workOrderAgreement'
+import type { WorkOrderAgreementFields } from '@core/workOrderAgreement'
 import { corporationByName, resolveFromDirectory, entriesOf } from '../zoneCircleDirectory'
 import { type Office } from '../office'
 import { boqToScheduleA, buildBoqFromEstimate, extractWorkNameFromBoq } from '../boqTransform'
 import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
 import { extractEstimateItems, extractWorkName } from '@core/estimateExtract'
 import { buildScheduleARows, rowsToScheduleAItems, metaFromWorksRow, findWorksRowByName } from '@core/scheduleA'
+import { indianDigitGroups } from '@core/worksAmounts'
 import { compareWorkNames, workNameMismatchMessage } from '@core/workNameMatch'
 import {
   buildNoteSubmittedHtml,
@@ -154,6 +157,78 @@ function isDocKind(o: Output | null): o is DocKind {
   return o != null && (DOC_KINDS as string[]).includes(o)
 }
 
+// Tools "Fill details manually" mode: every Work Order / Agreement field the
+// office types in by hand instead of uploading the L1 + Intimation. Dates are
+// held as the date-input's ISO value and converted to dd.mm.yyyy for the docs.
+interface ManualEntry {
+  nameOfWork: string
+  agencyName: string
+  address: string
+  phone: string
+  zone: string
+  circle: string
+  cno: string
+  wincode: string
+  corporation: string
+  financialYear: string
+  estimateLakhs: string
+  ecvRupees: string
+  tenderPercent: string
+  contractRupees: string
+  agreementDate: string
+  adminSanctionDate: string
+  completionMonths: string
+  reservation: string
+}
+const MANUAL_DEFAULTS: ManualEntry = {
+  nameOfWork: '',
+  agencyName: '',
+  address: '',
+  phone: '',
+  zone: '',
+  circle: '',
+  cno: '',
+  wincode: '',
+  corporation: 'CMC',
+  financialYear: indianFinancialYear(),
+  estimateLakhs: '',
+  ecvRupees: '',
+  tenderPercent: '',
+  contractRupees: '',
+  agreementDate: '',
+  adminSanctionDate: '',
+  completionMonths: '',
+  reservation: ''
+}
+
+// The fields the two documents fill, built straight from the hand-entered values.
+function fieldsFromManual(m: ManualEntry): WorkOrderAgreementFields {
+  const dmy = m.agreementDate ? isoToDmy(m.agreementDate) : ''
+  return {
+    circle: m.circle.trim(),
+    cno: m.cno.trim(),
+    zone: m.zone.trim(),
+    nameOfWork: m.nameOfWork.trim(),
+    agencyName: m.agencyName.trim(),
+    address: m.address.trim(),
+    phone: m.phone.trim(),
+    wincode: m.wincode.trim(),
+    financialYear: m.financialYear.trim() || indianFinancialYear(),
+    estimateLakhs: m.estimateLakhs.trim(),
+    ecvRupees: m.ecvRupees.trim(),
+    tenderPercent: m.tenderPercent.trim(),
+    contractRupees: m.contractRupees.trim(),
+    workOrderDate: dmy,
+    agreementDate: dmy,
+    adminSanctionDate: m.adminSanctionDate ? isoToDmy(m.adminSanctionDate) : '',
+    corporation: m.corporation.trim(),
+    corporationFullName: corporationByName(m.corporation.trim())?.fullName ?? '',
+    tsNoDate: '',
+    completionMonths: m.completionMonths.trim(),
+    reservation: m.reservation.trim()
+  }
+}
+
 /**
  * Work order and agreement — produces this work's three outputs (Work Order,
  * Agreement Bond, Schedule A) as a gallery of tiles, each showing a live
@@ -226,6 +301,12 @@ export default function WorkOrderAgreementTab({
 
   // Schedule A (from an uploaded technical-sanctioned estimate / BOQ).
   const [boq, setBoq] = useState<ExcelTable | null>(null)
+  // The work name read from the uploaded estimate/BOQ itself — drives the
+  // Tools (scheduleAOnly) Schedule A's name of work and its Works-List lookup.
+  const [detectedWorkName, setDetectedWorkName] = useState<string | null>(null)
+  // Whether the uploaded file was a detailed estimate (true) or a flat BOQ
+  // (false). A BOQ's total is the ECV alone; an estimate fills both figures.
+  const [uploadedIsEstimate, setUploadedIsEstimate] = useState(false)
   const [scheduleA, setScheduleA] = useState<ExcelTable | null>(null)
   const [scheduleAError, setScheduleAError] = useState<string | null>(null)
   const [scheduleABusy, setScheduleABusy] = useState(false)
@@ -243,6 +324,10 @@ export default function WorkOrderAgreementTab({
   const [manualCircle, setManualCircle] = useState('')
   const [manualCno, setManualCno] = useState('')
   const [manualZone, setManualZone] = useState('')
+  // Tools "Fill details manually": skip the L1/Intimation uploads and type every
+  // field in by hand. Only offered in the single-document Tools panels (`only`).
+  const [manualMode, setManualMode] = useState(false)
+  const [manual, setManual] = useState<ManualEntry>(MANUAL_DEFAULTS)
   // Which document to open once the shared date has been entered in the prompt.
   const [pendingDoc, setPendingDoc] = useState<DocKind>('agreement')
 
@@ -363,6 +448,20 @@ export default function WorkOrderAgreementTab({
   // Everything the two documents print, resolved from the uploaded Online
   // Intimation + L-1 selection form + the matched Works List row.
   const fields = useMemo(() => {
+    // "Fill details manually": build from the hand-entered values, but let a
+    // chosen office supply Circle / Zone / Corporation so they aren't re-asked.
+    if (manualMode) {
+      const f = fieldsFromManual(manual)
+      const corp = office?.corporation || f.corporation
+      return {
+        ...f,
+        circle: office?.circle || f.circle,
+        cno: office?.circleNumber || f.cno,
+        zone: office?.zone || f.zone,
+        corporation: corp,
+        corporationFullName: corporationByName(corp)?.fullName ?? f.corporationFullName
+      }
+    }
     const f = deriveFields(notice ?? {}, pdfEval ?? {}, selectedRow ?? {})
     // The user-entered agreement date wins for both documents (kept identical);
     // fall back to the LOA/selection date derived from the PDF when unset.
@@ -372,17 +471,19 @@ export default function WorkOrderAgreementTab({
       agreementDate: dmy,
       workOrderDate: dmy,
       // Corporation / Circle / Zone come from the chosen office (Works List page)
-      // when set, else the L-1/NIT-derived value, else the hand-entered fallback
-      // (Tools mode, when the name of work carried no circle/zone).
-      circle: office?.circle || f.circle || manualCircle,
-      cno: office?.circleNumber || f.cno || manualCno,
-      zone: office?.zone || f.zone || manualZone,
-      corporation: office?.corporation ?? '',
-      corporationFullName: corporationByName(office?.corporation)?.fullName ?? '',
+      // when set, else the L-1/NIT-derived value, else the hand-entered fallback.
+      // In the Tools single-document panels (`only`) the office is ignored for
+      // the *uploaded* flow — those are "any circle/zone" and take the L-1's own
+      // circle — so an L-1 for a different circle isn't relabelled to the office.
+      circle: (only ? '' : office?.circle) || f.circle || manualCircle,
+      cno: (only ? '' : office?.circleNumber) || f.cno || manualCno,
+      zone: (only ? '' : office?.zone) || f.zone || manualZone,
+      corporation: (only ? '' : office?.corporation) ?? '',
+      corporationFullName: (only ? '' : corporationByName(office?.corporation)?.fullName) ?? '',
       tsNoDate,
       completionMonths
     }
-  }, [notice, pdfEval, selectedRow, agreementDate, office, tsNoDate, completionMonths, manualCircle, manualCno, manualZone])
+  }, [manualMode, manual, notice, pdfEval, selectedRow, agreementDate, office, tsNoDate, completionMonths, manualCircle, manualCno, manualZone])
 
   // Tools/standalone: the uploaded L-1 gave neither a Circle nor a Zone (and no
   // office was chosen to supply them), so the prompt must collect them by hand.
@@ -403,7 +504,8 @@ export default function WorkOrderAgreementTab({
     // the shared agreement date — only the Work Order / Agreement do. The same
     // prompt also collects the Circle/Zone when the L-1 didn't carry them.
     const needsCircleZone = missingCircleZone && (!manualCircle.trim() || !manualZone.trim())
-    if ((kind === 'workOrder' || kind === 'agreement') && (!agreementDate || needsCircleZone)) {
+    // In manual mode the date (and everything else) is already in the form, so no prompt.
+    if (!manualMode && (kind === 'workOrder' || kind === 'agreement') && (!agreementDate || needsCircleZone)) {
       setPendingDoc(kind)
       setPromptDate(dmyToIso(fields.agreementDate))
       setDatePromptOpen(true)
@@ -582,7 +684,12 @@ export default function WorkOrderAgreementTab({
   // selection form are uploaded, they belong to the same work, the L1's work is
   // actually in the Works List, and it's this office's own Circle — no tiles are
   // shown before that.
-  const bothUploaded = !!notice && !!pdfEval && !workMismatch && !circleMismatch
+  // "Fill details manually" is ready once the name of work is typed in — the
+  // other fields are optional (blank prints blank). Otherwise both files must be
+  // uploaded (and pass the same-work / circle checks).
+  const bothUploaded = manualMode
+    ? !!manual.nameOfWork.trim()
+    : !!notice && !!pdfEval && !workMismatch && !circleMismatch
   const templatesReady = seMode
     ? ZONAL_KINDS.every((k) => !!zonalB64[k])
     : !!workOrderB64 && !!agreementB64 && !!forwardingSlipB64 && !!civilTenderB64
@@ -749,6 +856,7 @@ export default function WorkOrderAgreementTab({
     // flat BOQ's header — used both to guard against mixing works and to hop
     // the Works List selection to the matching row.
     const detected = extractWorkName(g.grid, headerRow) ?? extractWorkNameFromBoq(t)
+    setDetectedWorkName(detected ?? null)
 
     // The work this workspace is currently building for: the L-1 selection
     // form's Name of Work when it's been uploaded, else the picked Works List
@@ -783,6 +891,7 @@ export default function WorkOrderAgreementTab({
       // and only fall back to the flat-BOQ column mapping when it finds no
       // items (i.e. the file really is a plain BOQ). Both yield a Schedule A.
       const items = extractEstimateItems(g.grid, headerRow)
+      setUploadedIsEstimate(items.length > 0)
       setScheduleA(items.length > 0 ? boqToScheduleA(buildBoqFromEstimate(items)) : boqToScheduleA(t))
 
       // If the source names its own work and it matches a Works List row, hop
@@ -802,6 +911,35 @@ export default function WorkOrderAgreementTab({
   }
 
   const scheduleAMeta: ScheduleAMeta | undefined = useMemo(() => {
+    // Tools Schedule A (scheduleAOnly): no picked row — works for any zone/circle.
+    // The name of work comes from the uploaded estimate/BOQ itself; the estimate
+    // amount (and the other figures) are looked up from the Works List by that
+    // name when it's present there, and left blank otherwise — never shown as the
+    // ECV or the BOQ total. Returning a (non-undefined) meta object is what keeps
+    // the blanks blank rather than falling back to the item total.
+    if (scheduleAOnly) {
+      const name = (detectedWorkName ?? '').trim()
+      if (!name && !boq) return undefined
+      // If this work is in the loaded Works List, its own figures win.
+      const match = name && table ? findWorksRowByName(table, name) : undefined
+      if (match) return { ...metaFromWorksRow(match.row), nameOfWork: name }
+      // Otherwise the amounts come from the uploaded file itself: a flat BOQ's
+      // total is the ECV alone; a detailed estimate fills both the Estimate
+      // Amount and the ECV. With neither a Works List match nor a total, both
+      // stay blank.
+      const total = scheduleA
+        ? rowsToScheduleAItems(scheduleA).reduce(
+            (sum, it) => sum + (Number(String(it.amount).replace(/,/g, '')) || 0),
+            0
+          )
+        : 0
+      const amt = total > 0 ? `${indianDigitGroups(total)}/-` : undefined
+      return {
+        nameOfWork: name,
+        estimateAmount: uploadedIsEstimate ? amt : undefined,
+        ecvAmount: amt
+      }
+    }
     if (!selectedRow) return undefined
     const base = metaFromWorksRow(selectedRow)
     // The tender % (and contractor / work name) are frequently known only from
@@ -816,7 +954,7 @@ export default function WorkOrderAgreementTab({
       contractorName: base.contractorName?.trim() || fields.agencyName,
       tenderPercentage: fields.tenderPercent || base.tenderPercentage
     }
-  }, [selectedRow, fields])
+  }, [scheduleAOnly, detectedWorkName, boq, scheduleA, uploadedIsEstimate, table, selectedRow, fields])
 
   const scheduleAPreview = useMemo(
     () => (scheduleA ? buildScheduleARows(rowsToScheduleAItems(scheduleA), scheduleAMeta) : null),
@@ -910,12 +1048,17 @@ export default function WorkOrderAgreementTab({
           </p>
         )}
         <div className={only ? 'wo-compact-actions' : 'boq-actions boq-actions--grid'}>
-          {!scheduleAOnly && (
+          {only && !scheduleAOnly && (
+            <button className="ghost upload-btn" onClick={() => setManualMode((m) => !m)}>
+              <IconClipboard /> {manualMode ? 'Upload L1 + Intimation instead' : 'Fill details manually'}
+            </button>
+          )}
+          {!scheduleAOnly && !(only && manualMode) && (
             <button className="primary upload-btn" onClick={() => noticeInputRef.current?.click()} disabled={!templatesReady}>
               <IconFolder /> {notice ? 'Change Online Intimation' : 'Upload Online Intimation'}
             </button>
           )}
-          {!scheduleAOnly && (
+          {!scheduleAOnly && !(only && manualMode) && (
             <button className="primary upload-btn" onClick={() => pdfInputRef.current?.click()} disabled={!templatesReady || busy === 'pdf'}>
               <IconFolder /> {busy === 'pdf' ? 'Reading PDF…' : pdfEval ? 'Change L1 selection form' : 'Upload L1 selection form'}
             </button>
@@ -964,6 +1107,113 @@ export default function WorkOrderAgreementTab({
             }}
           />
         </div>
+        {only && manualMode && (
+          <div className="wo-manual-form">
+            <label className="wo-date-field wo-manual-wide">
+              <span>Name of the work *</span>
+              <input
+                type="text"
+                value={manual.nameOfWork}
+                placeholder="Laying of CC road from … in ward no … , … Circle-…, … Zone, CMC"
+                onChange={(e) => setManual((p) => ({ ...p, nameOfWork: e.target.value }))}
+              />
+            </label>
+            <label className="wo-date-field">
+              <span>Name of the agency</span>
+              <input type="text" value={manual.agencyName} onChange={(e) => setManual((p) => ({ ...p, agencyName: e.target.value }))} />
+            </label>
+            <label className="wo-date-field">
+              <span>Agency phone</span>
+              <input type="text" value={manual.phone} onChange={(e) => setManual((p) => ({ ...p, phone: e.target.value }))} />
+            </label>
+            <label className="wo-date-field wo-manual-wide">
+              <span>Agency address</span>
+              <input type="text" value={manual.address} onChange={(e) => setManual((p) => ({ ...p, address: e.target.value }))} />
+            </label>
+            {(office?.corporation || office?.zone || office?.circle) && (
+              <span className="estimate-hint wo-manual-wide">
+                Using office:{' '}
+                {[office?.corporation, office?.zone && `${office.zone} Zone`, office?.circle && `${office.circle} Circle${office?.circleNumber ? `-${office.circleNumber}` : ''}`]
+                  .filter(Boolean)
+                  .join(' · ')}{' '}
+                — Circle / Zone aren’t asked below.
+              </span>
+            )}
+            {!(office?.zone ?? '').trim() && (
+              <label className="wo-date-field">
+                <span>Zone</span>
+                <input type="text" placeholder="Quthbullapur" value={manual.zone} onChange={(e) => setManual((p) => ({ ...p, zone: e.target.value }))} />
+              </label>
+            )}
+            {!(office?.circle ?? '').trim() && (
+              <label className="wo-date-field">
+                <span>Circle</span>
+                <input type="text" placeholder="Gajularamaram" value={manual.circle} onChange={(e) => setManual((p) => ({ ...p, circle: e.target.value }))} />
+              </label>
+            )}
+            {!(office?.circle ?? '').trim() && (
+              <label className="wo-date-field">
+                <span>Circle number</span>
+                <input type="text" placeholder="57" value={manual.cno} onChange={(e) => setManual((p) => ({ ...p, cno: e.target.value }))} />
+              </label>
+            )}
+            {!(office?.corporation ?? '').trim() && (
+              <label className="wo-date-field">
+                <span>Corporation</span>
+                <input type="text" placeholder="CMC" value={manual.corporation} onChange={(e) => setManual((p) => ({ ...p, corporation: e.target.value }))} />
+              </label>
+            )}
+            <label className="wo-date-field">
+              <span>Financial year</span>
+              <input type="text" placeholder="2026-27" value={manual.financialYear} onChange={(e) => setManual((p) => ({ ...p, financialYear: e.target.value }))} />
+            </label>
+            <label className="wo-date-field">
+              <span>Wincode</span>
+              <input type="text" value={manual.wincode} onChange={(e) => setManual((p) => ({ ...p, wincode: e.target.value }))} />
+            </label>
+            <label className="wo-date-field">
+              <span>Amount of estimate (Lakhs)</span>
+              <input type="text" placeholder="45.00" value={manual.estimateLakhs} onChange={(e) => setManual((p) => ({ ...p, estimateLakhs: e.target.value }))} />
+            </label>
+            <label className="wo-date-field">
+              <span>ECV (₹)</span>
+              <input type="text" placeholder="4149409" value={manual.ecvRupees} onChange={(e) => setManual((p) => ({ ...p, ecvRupees: e.target.value }))} />
+            </label>
+            <label className="wo-date-field">
+              <span>Contract amount (₹)</span>
+              <input type="text" placeholder="3114647.29" value={manual.contractRupees} onChange={(e) => setManual((p) => ({ ...p, contractRupees: e.target.value }))} />
+            </label>
+            <label className="wo-date-field">
+              <span>Tender %</span>
+              <input type="text" placeholder="25.01" value={manual.tenderPercent} onChange={(e) => setManual((p) => ({ ...p, tenderPercent: e.target.value }))} />
+            </label>
+            <label className="wo-date-field">
+              <span>Agreement date</span>
+              <input type="date" value={manual.agreementDate} onChange={(e) => setManual((p) => ({ ...p, agreementDate: e.target.value }))} />
+            </label>
+            <label className="wo-date-field">
+              <span>Admin sanction date</span>
+              <input type="date" value={manual.adminSanctionDate} onChange={(e) => setManual((p) => ({ ...p, adminSanctionDate: e.target.value }))} />
+            </label>
+            <label className="wo-date-field">
+              <span>Period of completion (months)</span>
+              <input type="text" placeholder="03" value={manual.completionMonths} onChange={(e) => setManual((p) => ({ ...p, completionMonths: e.target.value }))} />
+            </label>
+            <label className="wo-date-field">
+              <span>Reservation</span>
+              <select value={manual.reservation} onChange={(e) => setManual((p) => ({ ...p, reservation: e.target.value }))}>
+                <option value="">None</option>
+                <option value="SC">SC</option>
+                <option value="ST">ST</option>
+                <option value="BC">BC</option>
+              </select>
+            </label>
+            <span className="estimate-hint wo-manual-wide">
+              Enter the details, then click the {only === 'agreement' ? 'Agreement Bond' : 'Work Order'} tile below to preview. Blank
+              fields print blank.
+            </span>
+          </div>
+        )}
         {!scheduleAOnly && !only && (
           <div className="wo-date-row">
             <label className="wo-date-field">

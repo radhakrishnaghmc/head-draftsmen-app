@@ -9,7 +9,8 @@ import { IPC } from './ipc-contract'
 import type { ManualCheckResult } from './ipc-contract'
 import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer } from '../core/excel'
 import { recognizeImage } from './ocr'
-import { splitWorkbookSheets } from './excelSplit'
+import { readWorkbookSheetNames } from './excelSplit'
+import { runSplitInWorker } from './splitRunner'
 import { applyTechnicalSanctionEdits } from '../core/technicalSanctionOutput'
 import type { CellEdit } from '../core/technicalSanction'
 import { embedTexts } from './embeddings'
@@ -380,32 +381,45 @@ function registerHandlers(): void {
     }
   )
 
-  ipcMain.handle(IPC.splitExcelSheets, async (): Promise<{ dir: string; files: string[] } | null> => {
-    const pick = await dialog.showOpenDialog(mainWindow!, {
-      title: 'Select an Excel workbook to split into separate sheets',
-      filters: [{ name: 'Excel workbook', extensions: ['xlsx'] }],
-      properties: ['openFile']
-    })
-    if (pick.canceled || pick.filePaths.length === 0) return null
-    const srcPath = pick.filePaths[0]
+  ipcMain.handle(
+    IPC.pickWorkbookForSplit,
+    async (): Promise<{ path: string; name: string; sheets: string[] } | null> => {
+      const pick = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Select an Excel workbook to split into separate sheets',
+        filters: [{ name: 'Excel workbook', extensions: ['xlsx'] }],
+        properties: ['openFile']
+      })
+      if (pick.canceled || pick.filePaths.length === 0) return null
+      const srcPath = pick.filePaths[0]
+      const sheets = await readWorkbookSheetNames(srcPath)
+      return { path: srcPath, name: path.basename(srcPath), sheets }
+    }
+  )
 
-    // Prompt for the destination folder. buttonLabel + a defaultPath in the
-    // source workbook's own folder make it clear this dialog is asking *where
-    // to save the split sheets*, not to re-pick a file.
-    const folder = await dialog.showOpenDialog(mainWindow!, {
-      title: 'Choose where to save the separated sheets',
-      buttonLabel: 'Save sheets here',
-      defaultPath: path.dirname(srcPath),
-      properties: ['openDirectory', 'createDirectory']
-    })
-    if (folder.canceled || folder.filePaths.length === 0) return null
-    const dir = folder.filePaths[0]
+  ipcMain.handle(
+    IPC.splitWorkbook,
+    async (_e, srcPath: string, sheetNames: string[] | null): Promise<{ dir: string; files: string[] } | null> => {
+      // Prompt for the destination folder. buttonLabel + a defaultPath in the
+      // source workbook's own folder make it clear this dialog is asking *where
+      // to save the split sheets*, not to re-pick a file.
+      const folder = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Choose where to save the separated sheets',
+        buttonLabel: 'Save sheets here',
+        defaultPath: path.dirname(srcPath),
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (folder.canceled || folder.filePaths.length === 0) return null
+      const dir = folder.filePaths[0]
 
-    const files = await splitWorkbookSheets(srcPath, dir, (done, total, sheet) => {
-      mainWindow?.webContents.send(IPC.splitProgress, { done, total, sheet })
-    })
-    return { dir, files }
-  })
+      // Run the split in an isolated child process (raised heap): a large
+      // workbook that would OOM is failed gracefully here rather than crashing
+      // the whole app.
+      const files = await runSplitInWorker(srcPath, dir, sheetNames, (done, total, sheet) => {
+        mainWindow?.webContents.send(IPC.splitProgress, { done, total, sheet })
+      })
+      return { dir, files }
+    }
+  )
 
   ipcMain.handle(
     IPC.exportDeviation,
