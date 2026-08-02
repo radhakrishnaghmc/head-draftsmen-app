@@ -285,7 +285,7 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
                     Back to edit
                   </button>
                   <button className="primary" onClick={generate} disabled={busy}>
-                    {busy ? 'Generating…' : 'Generate'}
+                    {busy ? 'Issuing…' : 'Issue'}
                   </button>
                 </div>
               </>
@@ -358,7 +358,7 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
                     <IconEye /> {busy ? 'Loading…' : 'Preview'}
                   </button>
                   <button className="primary" onClick={generate} disabled={busy}>
-                    {busy ? 'Generating…' : 'Generate'}
+                    {busy ? 'Issuing…' : 'Issue'}
                   </button>
                 </div>
               </>

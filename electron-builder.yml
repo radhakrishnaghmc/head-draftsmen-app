@@ -52,6 +52,10 @@ extraResources:
     to: eot-se-template.docx
   - from: resources/eot-ee-template.docx
     to: eot-ee-template.docx
+  - from: resources/dy-ee-forwarding-note-template.docx
+    to: dy-ee-forwarding-note-template.docx
+  - from: resources/bill-forwarding-note-template.docx
+    to: bill-forwarding-note-template.docx
   - from: resources/boq-template.xlsx
     to: boq-template.xlsx
   - from: resources/deviation-template.xlsx

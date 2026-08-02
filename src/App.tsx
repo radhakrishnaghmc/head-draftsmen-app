@@ -11,7 +11,7 @@ import {
   WORKS_COLUMNS
 } from './worksSchema'
 import { autofillWorksRow, enforceZoneCircle, fillCircleNumber, splitCircleColumn } from './zoneCircleCheck'
-import { entriesOf } from './zoneCircleDirectory'
+import { entriesOf, corporationByName } from './zoneCircleDirectory'
 import { type Office, officeKey } from './office'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import { mergeTables } from '@core/merge'
@@ -148,7 +148,12 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   const [refreshSummary, setRefreshSummary] = useState<string | null>(null)
   const [tenderReminders, setTenderReminders] = useState<TenderReminder[]>([])
   const [refreshingReminderId, setRefreshingReminderId] = useState<string | null>(null)
+  // The raw, unbaked templates (office placeholders like {{circle}} still intact)
+  // — the source of truth that persists. `bakedDocuments` derives from these with
+  // the *current* office stamped in, recomputed whenever the office changes so a
+  // document never keeps a stale circle after the office is switched.
   const [createdDocuments, setCreatedDocuments] = useState<CreatedDocument[]>([])
+  const [bakedDocuments, setBakedDocuments] = useState<CreatedDocument[]>([])
   // Highest bundled-default-documents version merged into this workspace. Set
   // by the main process's one-time injection on load; persisted here so the
   // injection never repeats (and a default the user deletes stays deleted).
@@ -185,9 +190,46 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     if (!loginZone || !loginCircle) return docs
     const values: Record<string, string> = { zone: loginZone, circle: loginCircle }
     if (loginCircleNumber) values.cno = loginCircleNumber
+    // Corporation is part of the office too: {{Corporation}} (abbreviation) and
+    // {{Corporation Full Name}} (uppercase title) so a document's letterhead
+    // follows the chosen corporation, not a hard-coded one.
+    if (loginCorporation) {
+      values.corporation = loginCorporation
+      const full = corporationByName(loginCorporation)?.fullName
+      if (full) values['corporation full name'] = full.toUpperCase()
+    }
     return Promise.all(
       docs.map(async (d) => ({ ...d, docx: await api.bakeFixedPlaceholdersInDocument(d.docx, values) }))
     )
+  }
+
+  // Re-bake the raw templates with the current office whenever either changes, so
+  // every document (Issue Documents tab and the Tools blank forms) always shows
+  // the office in use — switching Circle updates them instead of keeping the old
+  // one baked in. A zone-only office leaves the placeholders for print-time.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const baked = await bakeLoginPlaceholders(createdDocuments)
+      if (!cancelled) setBakedDocuments(baked)
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createdDocuments, loginZone, loginCircle, loginCircleNumber, loginCorporation])
+
+  // Reorder acts on the raw list: the tabs show `bakedDocuments`, so a drag hands
+  // back the baked docs in the new order — map that id order onto the raw list.
+  function reorderDocuments(reordered: CreatedDocument[]) {
+    const order = reordered.map((d) => d.id)
+    setCreatedDocuments((prev) => {
+      const byId = new Map(prev.map((d) => [d.id, d]))
+      const next = order.map((id) => byId.get(id)).filter((d): d is CreatedDocument => !!d)
+      // Keep any raw doc that wasn't in the reordered (baked) view, just in case.
+      for (const d of prev) if (!order.includes(d.id)) next.push(d)
+      return next
+    })
   }
 
   // ── Persistence: load the saved workspace once on startup ──────────
@@ -247,7 +289,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
           setLastGoogleLink(s.lastGoogleLink ?? null)
           setWorksListLinks(s.worksListLinks ?? {})
           setTenderReminders((s.tenderReminders ?? []).map(migrateTenderReminder))
-          setCreatedDocuments(await bakeLoginPlaceholders(s.createdDocuments ?? []))
+          setCreatedDocuments(s.createdDocuments ?? [])
           setSeededDocVersion(s.seededDocVersion ?? 0)
           setBidDocumentBatches(s.bidDocumentBatches ?? [])
         }
@@ -297,7 +339,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       if (partial.lastGoogleLink !== undefined) setLastGoogleLink(partial.lastGoogleLink ?? null)
       if (partial.worksListLinks) setWorksListLinks(partial.worksListLinks)
       if (partial.tenderReminders) setTenderReminders(partial.tenderReminders.map(migrateTenderReminder))
-      if (partial.createdDocuments) setCreatedDocuments(await bakeLoginPlaceholders(partial.createdDocuments))
+      if (partial.createdDocuments) setCreatedDocuments(partial.createdDocuments)
       if (partial.seededDocVersion !== undefined) setSeededDocVersion(partial.seededDocVersion)
       if (partial.bidDocumentBatches) setBidDocumentBatches(partial.bidDocumentBatches)
     })
@@ -808,16 +850,12 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               </div>
               <div className="page-head-text">
                 <h1>Issue Documents</h1>
-                <p>
-                  Pick a saved document and a Works List row, then create the filled output —
-                  matched to your columns by the neural model, not exact name matching.
-                </p>
               </div>
             </div>
             <PrintDocumentTab
               tables={tables}
-              documents={createdDocuments}
-              onChange={setCreatedDocuments}
+              documents={bakedDocuments}
+              onChange={reorderDocuments}
               onGoToWorksList={() => setTab('data')}
               office={office}
             />
@@ -961,10 +999,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               </div>
               <div className="page-head-text">
                 <h1>Tools</h1>
-                <p>Handy utilities that sit outside the main workflow.</p>
               </div>
             </div>
-            <ToolsTab tables={tables} onChange={updateTable} office={office} />
+            <ToolsTab tables={tables} onChange={updateTable} office={office} documents={bakedDocuments} />
           </section>
         )}
       </main>

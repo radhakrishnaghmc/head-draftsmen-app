@@ -2,12 +2,12 @@ import { useEffect, useRef } from 'react'
 import { renderAsync } from 'docx-preview'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH, PAGE_HEIGHT } from './docPage'
 
-const THUMB_WIDTH = 110
-const SCALE = THUMB_WIDTH / PAGE_WIDTH
-const THUMB_HEIGHT = Math.round(PAGE_HEIGHT * SCALE)
+const DEFAULT_THUMB_WIDTH = 110
 
 interface Props {
   docx: string
+  /** Thumbnail width in px (height derives from the page ratio). Defaults to 110. */
+  width?: number
 }
 
 /**
@@ -17,8 +17,10 @@ interface Props {
  * worth by the fixed-size, overflow:hidden .doc-thumb-box around it. Purely
  * decorative (not interactive), so pointer events are switched off.
  */
-export default function DocThumbnail({ docx }: Props) {
+export default function DocThumbnail({ docx, width = DEFAULT_THUMB_WIDTH }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const scale = width / PAGE_WIDTH
+  const thumbHeight = Math.round(PAGE_HEIGHT * scale)
 
   useEffect(() => {
     let cancelled = false
@@ -40,11 +42,11 @@ export default function DocThumbnail({ docx }: Props) {
   }, [docx])
 
   return (
-    <div className="doc-thumb-box" style={{ width: THUMB_WIDTH, height: THUMB_HEIGHT }}>
+    <div className="doc-thumb-box" style={{ width, height: thumbHeight }}>
       <div
         ref={containerRef}
         className="doc-thumb-frame"
-        style={{ width: PAGE_WIDTH, height: PAGE_HEIGHT, transform: `scale(${SCALE})` }}
+        style={{ width: PAGE_WIDTH, height: PAGE_HEIGHT, transform: `scale(${scale})` }}
       />
     </div>
   )

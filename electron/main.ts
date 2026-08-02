@@ -1023,7 +1023,7 @@ function registerHandlers(): void {
   // seededDocVersion. Keyed by a stable id so a document already present isn't
   // duplicated, and version-gated so one the user later deletes is never
   // re-added.
-  const CURRENT_DEFAULT_DOC_VERSION = 2
+  const CURRENT_DEFAULT_DOC_VERSION = 7
   const DEFAULT_DOCUMENTS: { id: string; name: string; file: string; officeScope?: 'zonal' | 'circle' }[] = [
     { id: 'doc_public_participation', name: 'Public Participation Log Book', file: 'public-participation-book-template.docx' },
     { id: 'doc_action_taken_report', name: 'Action Taken Report', file: 'action-taken-report-template.docx' },
@@ -1032,7 +1032,13 @@ function registerHandlers(): void {
     // the Executive Engineer's variant to a circle (EE) office. Scoped so each
     // shows only where it applies — see CreatedDocument.officeScope.
     { id: 'doc_eot_se', name: 'EOT Proposal (SE Office)', file: 'eot-se-template.docx', officeScope: 'zonal' },
-    { id: 'doc_eot_ee', name: 'EOT Proposal (EE Office)', file: 'eot-ee-template.docx', officeScope: 'circle' }
+    { id: 'doc_eot_ee', name: 'EOT Proposal (EE Office)', file: 'eot-ee-template.docx', officeScope: 'circle' },
+    // Bill-stage forwarding notes at the Executive Engineer (circle) office: the
+    // Dy.EE's covering letter forwarding the AE's bill, and the office note that
+    // tabulates the bill for approval. Both circle-scoped on the Issue Documents
+    // tab; the Tools tab shows them (and every doc) regardless of office.
+    { id: 'doc_dy_ee_forwarding_note', name: 'Dy. EE Forwarding Note', file: 'dy-ee-forwarding-note-template.docx', officeScope: 'circle' },
+    { id: 'doc_bill_forwarding_note', name: 'Bill Forwarding Note', file: 'bill-forwarding-note-template.docx', officeScope: 'circle' }
   ]
 
   function injectDefaultDocuments(state: PersistedState): PersistedState {
@@ -1040,16 +1046,30 @@ function registerHandlers(): void {
     const docs = [...(state.createdDocuments ?? [])]
     const createdDate = new Date().toISOString().slice(0, 10)
     for (const def of DEFAULT_DOCUMENTS) {
-      if (docs.some((d) => d.id === def.id)) continue
       const templatePath = bundledResourceFile(def.file)
       if (!templatePath) continue // best-effort: a missing bundle file doesn't block loading
-      docs.push({
-        id: def.id,
-        name: def.name,
-        docx: fs.readFileSync(templatePath).toString('base64'),
-        createdDate,
-        ...(def.officeScope ? { officeScope: def.officeScope } : {})
-      })
+      const docx = fs.readFileSync(templatePath).toString('base64')
+      const existing = docs.findIndex((d) => d.id === def.id)
+      if (existing >= 0) {
+        // Already present: refresh the bundled template's content (and name /
+        // scope) in place — a version bump also ships template fixes to an
+        // existing workspace — while keeping the user's own ordering. Documents
+        // can't be edited or deleted in-app, so nothing hand-changed is lost.
+        docs[existing] = {
+          ...docs[existing],
+          name: def.name,
+          docx,
+          ...(def.officeScope ? { officeScope: def.officeScope } : {})
+        }
+      } else {
+        docs.push({
+          id: def.id,
+          name: def.name,
+          docx,
+          createdDate,
+          ...(def.officeScope ? { officeScope: def.officeScope } : {})
+        })
+      }
     }
     return { ...state, createdDocuments: docs, seededDocVersion: CURRENT_DEFAULT_DOC_VERSION }
   }

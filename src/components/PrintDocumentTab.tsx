@@ -6,7 +6,7 @@ import type { PlaceholderMatch } from '@core/createDocument'
 import { withComputedAmounts } from '@core/worksAmounts'
 import type { CreatedDocument, ExcelTable } from '@core/types'
 import type { Office } from '../office'
-import { IconDoc, IconTrash, IconEye, IconPrint, IconDownload, IconCheck, IconWarn, IconPlus, IconSearch } from './Icons'
+import { IconDoc, IconEye, IconPrint, IconDownload, IconCheck, IconWarn, IconPlus, IconSearch } from './Icons'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
 import DocThumbnail from './DocThumbnail'
 
@@ -45,7 +45,6 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
   // Reorder/delete still act on the full synced list; only display is filtered.
   const visibleCount = useMemo(() => documents.filter((d) => isDocForOffice(d, office)).length, [documents, office])
 
-  const [pendingDelete, setPendingDelete] = useState<CreatedDocument | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
 
@@ -89,13 +88,6 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
   // a docx buffer, since printing goes through the OS print dialog against
   // a temp HTML file rather than requiring LibreOffice the way PDF export does.
   const printScratchRef = useRef<HTMLDivElement>(null)
-
-  function confirmDelete() {
-    if (!pendingDelete) return
-    onChange(documents.filter((d) => d.id !== pendingDelete.id))
-    if (expandedId === pendingDelete.id) setExpandedId(null)
-    setPendingDelete(null)
-  }
 
   function handleDragStart(e: React.DragEvent, index: number) {
     setDragIndex(index)
@@ -282,6 +274,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
               <div
                 className={[
                   'doc-tile-card',
+                  'tool-card',
                   TILE_TONES[i % TILE_TONES.length],
                   dragIndex === i ? 'dragging' : '',
                   overIndex === i && dragIndex !== null && dragIndex !== i ? 'drag-over' : ''
@@ -289,6 +282,16 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                   .filter(Boolean)
                   .join(' ')}
                 key={doc.id}
+                role="button"
+                tabIndex={0}
+                title={`Issue ${doc.name}`}
+                onClick={() => toggleExpand(doc)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    toggleExpand(doc)
+                  }
+                }}
                 draggable
                 onDragStart={(e) => handleDragStart(e, i)}
                 onDragOver={(e) => handleDragOver(e, i)}
@@ -296,22 +299,11 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                 onDragEnd={handleDragEnd}
               >
                 <DocThumbnail docx={doc.docx} />
-                <div className="doc-tile-card-name" title={doc.name}>
-                  {doc.name}
-                </div>
-                <div className="doc-tile-card-meta">Added {doc.createdDate}</div>
-                <div className="doc-tile-card-actions">
-                  <button
-                    className="doc-tile-issue-btn"
-                    title={`Issue ${doc.name}`}
-                    onClick={() => toggleExpand(doc)}
-                  >
-                    Issue {doc.name}
-                  </button>
-                  <button className="danger-ghost" title="Remove" onClick={() => setPendingDelete(doc)}>
-                    <IconTrash />
-                  </button>
-                </div>
+                <span className="doc-tile-card-name">{doc.name}</span>
+                <span className="doc-tile-card-meta">Added {doc.createdDate}</span>
+                <span className="tool-card-cta">
+                  <IconDoc /> Issue {doc.name}
+                </span>
               </div>
             ))}
           </div>
@@ -401,29 +393,6 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                 <div ref={previewRef} className="docx-editor-canvas" />
                 {previewPages > 1 && <span className="doc-page-badge">{previewPages} pages</span>}
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {pendingDelete && (
-        <div className="editor-overlay" onClick={() => setPendingDelete(null)}>
-          <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-            <div className="confirm-ic">
-              <IconTrash />
-            </div>
-            <h3>Delete this document?</h3>
-            <p className="confirm-warn">
-              You're about to permanently remove <strong>{pendingDelete.name}</strong>.
-            </p>
-            <p className="confirm-hint">Once deleted, this cannot be recovered.</p>
-            <div className="confirm-actions">
-              <button className="ghost" onClick={() => setPendingDelete(null)}>
-                Cancel
-              </button>
-              <button className="danger" onClick={confirmDelete}>
-                Delete
-              </button>
             </div>
           </div>
         </div>
