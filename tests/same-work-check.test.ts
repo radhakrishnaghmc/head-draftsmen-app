@@ -73,6 +73,25 @@ describe('checkSameWork', () => {
     expect(checkSameWork(notice({ agencyName: 'A' }), pdf({ noticeNo: '1' })).status).toBe('unknown')
   })
 
+  it("matches when the Tender Document threads 'Enquiry/IFB/Tender' through the NIT No the Intimation omits", () => {
+    // Same work: the Online Intimation prints ".../C-55/..." while the full
+    // Tender Document prints ".../C-Enquiry/IFB/Tender 55/...".
+    const r = checkSameWork(
+      notice({ nitNo: '05/DB/EE-III/JDM/C-55/QBZ/CMC/2026-27' }),
+      pdf({ noticeNo: '05/DB/EE-III/JDM/C-Enquiry/IFB/Tender 55/QBZ/CMC/2026-27', nameOfWork: 'X' })
+    )
+    expect(r.status).toBe('match')
+    expect(r.by).toBe('nit')
+
+    // The serial still has to agree — a different number is not the same work.
+    const diff = checkSameWork(
+      notice({ nitNo: '05/DB/EE-III/JDM/C-55/QBZ/CMC/2026-27' }),
+      pdf({ noticeNo: '05/DB/EE-III/JDM/C-Enquiry/IFB/Tender 56/QBZ/CMC/2026-27', nameOfWork: 'X' })
+    )
+    expect(diff.status).toBe('mismatch')
+    expect(diff.by).toBe('nit')
+  })
+
   it("matches when the Intimation's NIT No carries a trailing 'Dated …' the L-1's omits", () => {
     const r = checkSameWork(
       notice({ nitNo: '13/DB/EE/Nizampet Circle-58/CMC/2026-27 Dated 24.07.2026' }),

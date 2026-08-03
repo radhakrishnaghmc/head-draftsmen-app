@@ -23,6 +23,8 @@ import {
 import { mismatchHint } from '../docClassify'
 import { IconFolder, IconDownload, IconWarn, IconTrash, IconTable } from './Icons'
 import type { ExcelTable } from '@core/types'
+import type { Office } from '../office'
+import { corporationByName } from '../zoneCircleDirectory'
 
 type ActionKey = 'boq' | 'scheduleA' | 'deviation' | 'material'
 
@@ -89,6 +91,18 @@ interface Props {
   /** The Works List database — tables[0], by the app's own convention. */
   tables: ExcelTable[]
   onChange: (table: ExcelTable) => void
+  /** The chosen office — its corporation is the default Department name. */
+  office: Office
+}
+
+/**
+ * The default "Department" for a new estimate — the chosen corporation's full
+ * name (e.g. "Cyberabad Municipal Corporation"), falling back to its short code.
+ * Blank when no office/corporation is set. Stays editable per entry.
+ */
+function defaultDepartmentName(office: Office): string {
+  if (!office.corporation) return ''
+  return corporationByName(office.corporation)?.fullName ?? office.corporation
 }
 
 function stripExt(name: string): string {
@@ -358,8 +372,9 @@ interface EcvConfirmState {
   matchedName: string
 }
 
-export default function EstimateUploadTab({ tables, onChange }: Props) {
+export default function EstimateUploadTab({ tables, onChange, office }: Props) {
   const [entries, setEntries] = useState<Entry[]>([])
+  const deptDefault = defaultDepartmentName(office)
   const [pickError, setPickError] = useState<string | null>(null)
   const [ecvConfirm, setEcvConfirm] = useState<EcvConfirmState | null>(null)
   const [downloadingAllBoqs, setDownloadingAllBoqs] = useState(false)
@@ -466,7 +481,7 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
               grandTotalLakhs: extractGrandTotalLakhs(grid, headerRow),
               uncostedItems: itemsMissingEstimateAmount(items),
               agencyName: agencyFromMatch(match),
-              departmentName: '',
+              departmentName: deptDefault,
               district: '',
               aiAssisted,
               busyAction: null,
@@ -499,7 +514,7 @@ export default function EstimateUploadTab({ tables, onChange }: Props) {
               estimateAmountLakhs: 0,
               uncostedItems: [],
               agencyName: agencyFromMatch(match),
-              departmentName: '',
+              departmentName: deptDefault,
               district: '',
               aiAssisted: [],
               busyAction: null,

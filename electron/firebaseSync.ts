@@ -21,6 +21,7 @@ import {
 } from 'firebase/firestore'
 import { canClaimSlot, claimSlot, releaseSlot, touchSlot, type SessionSlot } from '../core/sessionSlots'
 import type { PersistedState, CreatedDocument } from '../core/types'
+import { LEGACY_SEED_DOC_IDS, pruneLegacyDocuments } from '../core/types'
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBBoysv9uaHzJmeptn97Ms73AOGauEn0DU',
@@ -53,7 +54,7 @@ function ensureAuth(): Promise<void> {
   return authReady
 }
 
-function normalizeId(loginId: string): string {
+export function normalizeId(loginId: string): string {
   return loginId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'unknown'
 }
 
@@ -110,6 +111,17 @@ export async function startSession(
 
     const remoteState = await pullRemoteState(id)
     if (remoteState) active.knownDocIds = new Set((remoteState.createdDocuments ?? []).map((d) => d.id))
+
+    // One-time cloud cleanup: permanently delete the superseded legacy example
+    // documents from Firestore (best-effort, fire-and-forget). pullRemoteState
+    // already hides them from the UI; this removes the underlying records so
+    // they don't linger for other devices. Idempotent — deleting an absent doc
+    // is a harmless no-op — so after the first login it costs a few tiny writes.
+    if (remoteState) {
+      void Promise.allSettled(
+        LEGACY_SEED_DOC_IDS.map((legacyId) => deleteDoc(doc(db!, 'users', id, 'documents', legacyId)))
+      )
+    }
 
     subscribeRemote(id, sessionId, onRemoteUpdate)
 
@@ -175,10 +187,16 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
     ])
     if (!tablesSnap.exists() && !miscSnap.exists()) return null
 
-    const createdDocuments: CreatedDocument[] = docsSnap.docs
-      .map((d) => d.data() as CreatedDocument & { order?: number })
-      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-      .map((v) => ({ id: v.id, name: v.name, docx: v.docx, createdDate: v.createdDate }))
+    // Strip the superseded legacy example documents here so a cloud collection
+    // that still holds them (an older workspace whose local prune hasn't yet
+    // pushed) can never re-surface them on screen via the live snapshot. The
+    // physical Firestore records are cleaned up separately — see startSession.
+    const createdDocuments: CreatedDocument[] = pruneLegacyDocuments(
+      docsSnap.docs
+        .map((d) => d.data() as CreatedDocument & { order?: number })
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        .map((v) => ({ id: v.id, name: v.name, docx: v.docx, createdDate: v.createdDate }))
+    )
 
     const t = tablesSnap.exists() ? tablesSnap.data() : {}
     const m = miscSnap.exists() ? miscSnap.data() : {}
@@ -267,7 +285,18 @@ function subscribeRemote(
       // write in the same snapshot. The collection is small, so just
       // re-pull the full set instead of reconstructing it from the diff.
       void pullRemoteState(id).then((full) => {
-        if (full) safeUpdate({ createdDocuments: full.createdDocuments })
+        // Never let an EMPTY cloud documents collection overwrite what's on
+        // screen. On a fresh system the app injects the bundled default
+        // documents (and seeds the examples) during load, then this snapshot
+        // fires; if the cloud collection is still empty (a workspace whose
+        // works data synced but whose documents never did) sending [] here
+        // would wipe those freshly-injected defaults — and because the local
+        // seededDocVersion is now current, the injection never re-runs, so the
+        // Tools/Issue-Documents tabs stay permanently blank. The just-injected
+        // documents get pushed up moments later, after which real snapshots
+        // carry them. A genuine "user deleted every document" is not worth
+        // reintroducing that whole-workspace wipe for.
+        if (full && (full.createdDocuments?.length ?? 0) > 0) safeUpdate({ createdDocuments: full.createdDocuments })
       })
     })
   )

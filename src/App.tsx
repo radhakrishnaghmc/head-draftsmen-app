@@ -171,6 +171,13 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // clobbered with `[]` the moment anything else changes.
   const withheldTablesRef = useRef<ExcelTable[] | null>(null)
 
+  // Set for exactly the next autosave whenever state was just applied FROM a
+  // remote sync — so that save persists locally but is NOT pushed back to the
+  // cloud. Without this, receiving a remote change re-pushes it, the other
+  // sessions re-push it in turn, and the resulting write storm lets a stale
+  // copy overwrite (e.g.) a To Do task another session just added.
+  const savedFromRemoteRef = useRef(false)
+
   // The current Excel shown on the Data tab (single-workbook workflow).
   const currentTable = tables[0] ?? null
 
@@ -308,6 +315,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   useEffect(() => {
     if (!hydrated) return
     return api.onRemoteStateUpdate(async (partial) => {
+      // This state came from the cloud — mark the autosave it triggers as
+      // local-only so we don't echo it straight back (see savedFromRemoteRef).
+      savedFromRemoteRef.current = true
       // Merge the offices the other session changed into our per-office store,
       // keeping every office it didn't touch — so a session working on another
       // office never wipes ours.
@@ -361,27 +371,37 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // saves from live state, so it's never paused or lost.
   useEffect(() => {
     if (!hydrated) return
+    // If this state change was applied from a remote sync, save it to disk but
+    // don't push it back to the cloud (which already has it) — otherwise the
+    // echo storms across concurrent sessions. Consume the flag now, at effect
+    // time: a genuinely local change landing before the debounce fires re-runs
+    // this effect with the flag cleared, so it pushes normally.
+    const skipCloud = savedFromRemoteRef.current
+    savedFromRemoteRef.current = false
     const handle = setTimeout(() => {
       const currentTables = blockedWorksList ? (withheldTablesRef.current ?? tables) : tables
       // Persist every office's data, with this office's slot reflecting the
       // (possibly withheld) real data. currentOfficeKey routes the cloud sync so
       // only this office's entry is updated — other offices stay put.
       const byOffice = currentOfficeKey ? { ...tablesByOffice, [currentOfficeKey]: currentTables } : tablesByOffice
-      api.saveState({
-        version: ECV_RUPEES_STATE_VERSION,
-        tables: currentTables,
-        tablesByOffice: byOffice,
-        currentOfficeKey: currentOfficeKey || undefined,
-        resolution,
-        todos,
-        lastGoogleLink: lastGoogleLink ?? undefined,
-        worksListLinks,
-        tenderReminders,
-        createdDocuments,
-        seededDocVersion,
-        bidDocumentBatches,
-        mbScrutiny
-      })
+      api.saveState(
+        {
+          version: ECV_RUPEES_STATE_VERSION,
+          tables: currentTables,
+          tablesByOffice: byOffice,
+          currentOfficeKey: currentOfficeKey || undefined,
+          resolution,
+          todos,
+          lastGoogleLink: lastGoogleLink ?? undefined,
+          worksListLinks,
+          tenderReminders,
+          createdDocuments,
+          seededDocVersion,
+          bidDocumentBatches,
+          mbScrutiny
+        },
+        skipCloud
+      )
     }, 400)
     return () => clearTimeout(handle)
   }, [
@@ -874,7 +894,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 <p>Upload an estimate once to download its BOQ, Schedule A, Deviation Statement, and Material Quantity.</p>
               </div>
             </div>
-            <EstimateWorkspaceTab tables={tables} onChange={updateTable} />
+            <EstimateWorkspaceTab tables={tables} onChange={updateTable} office={office} />
           </section>
         )}
 

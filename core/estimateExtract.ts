@@ -182,10 +182,12 @@ export function extractGrandTotalLakhs(grid: string[][], headerRowIndex: number)
   return undefined
 }
 
-// Serial number header varies ("S.No", "S.No.", "Sl.No", "Sl No", "Serial No"…);
-// unit header reads "Unit"/"Units", "UOM", or "Per" across different templates.
+// Serial number header varies ("S.No", "S.No.", "Sl.No", "Sl No", "Serial No",
+// "Sr.No", and the bare-abbreviation form "S.N." / "S. N." where the second
+// token is just "N" for Number rather than the fuller "No"); unit header reads
+// "Unit"/"Units", "UOM", or "Per" across different templates.
 export const ESTIMATE_COLUMN_SPECS: ColumnSpec[] = [
-  { label: 'Serial Number', patterns: [/^sl?\.?\s*no\.?$|serial/i] },
+  { label: 'Serial Number', patterns: [/^s[lr]?\.?\s*(no?|num|number)\.?$|serial/i] },
   // A "Total Qty" column is the item's final quantity — preferred over an
   // intermediate "Qty per Day" / "Qty per unit" column that a day-rate estimate
   // also carries (and leaves blank on most rows), which the plain /qty/ pattern

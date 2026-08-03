@@ -37,6 +37,7 @@ import type { BidDocumentInput } from '../core/bidDocument'
 import type { CalendarData } from '../core/calendar'
 import { convertHtmlToDocx } from '../core/htmlToDocx'
 import { convertDocxToPdf } from '../core/docxToPdf'
+import { sanitizeDocxForWord2007 } from '../core/word2007Compat'
 import {
   listParagraphs,
   applyParagraphEdits,
@@ -51,6 +52,7 @@ import type {
   TenderResult,
   PersistedState
 } from '../core/types'
+import { pruneLegacyDocuments } from '../core/types'
 import type { SheetGrid } from '../core/sheet'
 
 let mainWindow: BrowserWindow | null = null
@@ -109,6 +111,12 @@ app.on('before-quit', () => {
 })
 
 function registerHandlers(): void {
+  // The login whose workspace this machine is currently holding. The local
+  // state cache (state.json) is namespaced by this, so on a SHARED computer a
+  // different login never loads — and never leaks — the previous user's data.
+  // Null only before any login (i.e. dev, where the login screen is skipped).
+  let currentLoginId: string | null = null
+
   ipcMain.handle(IPC.pickExcels, async (): Promise<ExcelTable[]> => {
     const result = await dialog.showOpenDialog(mainWindow!, {
       title: 'Select Excel data files',
@@ -263,6 +271,11 @@ function registerHandlers(): void {
     const result = await validateLogin(loginId, password)
     if (!result.ok) return result
 
+    // Point the local cache at THIS login's own file before anything reads or
+    // writes it, so we never load the previous user's state and never write
+    // this user's over theirs.
+    currentLoginId = firebaseSync.normalizeId(loginId)
+
     const { claim, remoteState } = await firebaseSync.startSession(loginId, os.hostname(), (partial) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send(IPC.remoteStateUpdate, partial)
@@ -282,6 +295,9 @@ function registerHandlers(): void {
 
   ipcMain.handle(IPC.logout, async (): Promise<void> => {
     await firebaseSync.endSession()
+    // Forget which login's cache we were pointing at, so nothing can read or
+    // write it until the next login re-establishes identity.
+    currentLoginId = null
   })
 
   ipcMain.on(IPC.restartToUpdate, () => {
@@ -550,7 +566,10 @@ function registerHandlers(): void {
       formats: ('docx' | 'pdf')[]
     ): Promise<{ file: string; format: 'docx' | 'pdf' }[] | null> => {
       if (formats.length === 0) return null
-      const docxBuffer = Buffer.from(docxBase64, 'base64')
+      // Rewrite any Word-2007-incompatible border elements before the file
+      // leaves the app — the single choke point every exported .docx and PDF
+      // passes through, so every document type is covered in one place.
+      const docxBuffer = sanitizeDocxForWord2007(Buffer.from(docxBase64, 'base64'))
       const written: { file: string; format: 'docx' | 'pdf' }[] = []
 
       if (formats.includes('docx')) {
@@ -697,6 +716,12 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
+  ipcMain.handle(IPC.qccIntimationTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('qcc-intimation-template.docx')
+    if (!templatePath) throw new Error('QCC Intimation format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
   ipcMain.handle(IPC.forwardingSlipTemplate, async (): Promise<string> => {
     const templatePath = bundledResourceFile('forwarding-slip-template.docx')
     if (!templatePath) throw new Error('Forwarding Slip format is missing from the app bundle.')
@@ -734,7 +759,12 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  const stateFile = () => path.join(app.getPath('userData'), 'state.json')
+  // Per-login local cache: state-<loginId>.json once someone has logged in, so
+  // two logins on the same computer keep entirely separate on-disk workspaces
+  // and one can never read the other's. Falls back to the legacy shared
+  // state.json only when no login has happened yet (dev, login screen skipped).
+  const stateFile = () =>
+    path.join(app.getPath('userData'), currentLoginId ? `state-${currentLoginId}.json` : 'state.json')
 
   const seedStateFile = () => {
     // Bundled default state (works database + default Issue Document set) used on first run.
@@ -1023,7 +1053,19 @@ function registerHandlers(): void {
   // seededDocVersion. Keyed by a stable id so a document already present isn't
   // duplicated, and version-gated so one the user later deletes is never
   // re-added.
-  const CURRENT_DEFAULT_DOC_VERSION = 10
+  // v11: drop the 8 legacy example documents (LEGACY_SEED_DOC_IDS) that early
+  // builds seeded — they lingered on Issue Documents because injection only ever
+  // added, never removed. Bumping the gate re-runs injection once on every
+  // existing workspace so the prune below reaches installs already at v10.
+  // v12: add the two QCC (Quality Control Cell) letters — the Intimation (before
+  // work starts) and Completion (after work is done), both circle-scoped.
+  // v13: fixed the QCC detail-table layout (fixed column grid — the value column
+  // was starved and the work name wrapped into a giant cell); the bump re-runs
+  // injection so the corrected template replaces the one already in a workspace.
+  // v14: moved the QCC "To" recipient block (Quality Control Division) to the
+  // right of the page (fixed From/To grid) — another in-place template refresh.
+  // v15: dropped the "20" century-stub from the QCC date fields (Lr.No + Ref Dt).
+  const CURRENT_DEFAULT_DOC_VERSION = 15
   const DEFAULT_DOCUMENTS: { id: string; name: string; file: string; officeScope?: 'zonal' | 'circle' }[] = [
     { id: 'doc_public_participation', name: 'Public Participation Log Book', file: 'public-participation-book-template.docx' },
     { id: 'doc_action_taken_report', name: 'Action Taken Report', file: 'action-taken-report-template.docx' },
@@ -1038,12 +1080,19 @@ function registerHandlers(): void {
     // tabulates the bill for approval. Both circle-scoped on the Issue Documents
     // tab; the Tools tab shows them (and every doc) regardless of office.
     { id: 'doc_dy_ee_forwarding_note', name: 'Dy. EE Forwarding Note', file: 'dy-ee-forwarding-note-template.docx', officeScope: 'circle' },
-    { id: 'doc_bill_forwarding_note', name: 'Bill Forwarding Note', file: 'bill-forwarding-note-template.docx', officeScope: 'circle' }
+    { id: 'doc_bill_forwarding_note', name: 'Bill Forwarding Note', file: 'bill-forwarding-note-template.docx', officeScope: 'circle' },
+    // QCC (Quality Control Cell) letters to the Quality Control Division: the
+    // Dy.EE's Intimation before a work starts, and the EE's Completion letter
+    // once it's done. Both circle-scoped (EE office). The Intimation is also
+    // offered on the Work Order/Agreement tab — same bundled template.
+    { id: 'doc_qcc_intimation', name: 'QCC Intimation', file: 'qcc-intimation-template.docx', officeScope: 'circle' },
+    { id: 'doc_qcc_completion', name: 'QCC Completion', file: 'qcc-completion-template.docx', officeScope: 'circle' }
   ]
 
   function injectDefaultDocuments(state: PersistedState): PersistedState {
     if ((state.seededDocVersion ?? 0) >= CURRENT_DEFAULT_DOC_VERSION) return state
-    const docs = [...(state.createdDocuments ?? [])]
+    // Remove the superseded legacy example documents before (re)adding defaults.
+    const docs = pruneLegacyDocuments([...(state.createdDocuments ?? [])])
     const createdDate = new Date().toISOString().slice(0, 10)
     for (const def of DEFAULT_DOCUMENTS) {
       const templatePath = bundledResourceFile(def.file)
@@ -1090,15 +1139,19 @@ function registerHandlers(): void {
     return state && injectDefaultDocuments(await migrateCreatedDocuments(state))
   })
 
-  ipcMain.handle(IPC.saveState, async (_e, state: PersistedState): Promise<void> => {
+  ipcMain.handle(IPC.saveState, async (_e, state: PersistedState, skipCloud?: boolean): Promise<void> => {
     try {
       fs.writeFileSync(stateFile(), JSON.stringify(state), 'utf8')
     } catch {
       // Non-fatal: persistence is best-effort.
     }
     // Don't block the local save on network latency — the cloud push is
-    // itself best-effort and swallows its own errors.
-    void firebaseSync.pushState(state)
+    // itself best-effort and swallows its own errors. When this save merely
+    // reflects a change we just received FROM the cloud (skipCloud), pushing it
+    // straight back would echo it to the other sessions, which echo it back
+    // again — a write storm in which a slightly-stale copy can clobber a task
+    // another session just added. So persist locally but don't re-push.
+    if (!skipCloud) void firebaseSync.pushState(state)
   })
 }
 

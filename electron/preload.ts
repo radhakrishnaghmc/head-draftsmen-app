@@ -68,6 +68,7 @@ const api: DocuGenApi = {
   intimationTemplate: () => ipcRenderer.invoke(IPC.intimationTemplate),
   workOrderTemplate: () => ipcRenderer.invoke(IPC.workOrderTemplate),
   agreementTemplate: () => ipcRenderer.invoke(IPC.agreementTemplate),
+  qccIntimationTemplate: () => ipcRenderer.invoke(IPC.qccIntimationTemplate),
   forwardingSlipTemplate: () => ipcRenderer.invoke(IPC.forwardingSlipTemplate),
   civilTenderTemplate: () => ipcRenderer.invoke(IPC.civilTenderTemplate),
   zonalWorkOrderTemplate: () => ipcRenderer.invoke(IPC.zonalWorkOrderTemplate),
@@ -75,7 +76,7 @@ const api: DocuGenApi = {
   zonalMemoEeTemplate: () => ipcRenderer.invoke(IPC.zonalMemoEeTemplate),
   loaSeTemplate: (reserved) => ipcRenderer.invoke(IPC.loaSeTemplate, reserved),
   loadState: () => ipcRenderer.invoke(IPC.loadState),
-  saveState: (state) => ipcRenderer.invoke(IPC.saveState, state),
+  saveState: (state, skipCloud) => ipcRenderer.invoke(IPC.saveState, state, skipCloud),
   onRemoteStateUpdate: (callback) => {
     const listener = (_e: unknown, partial: import('../core/types').PersistedState) => callback(partial)
     ipcRenderer.on(IPC.remoteStateUpdate, listener)

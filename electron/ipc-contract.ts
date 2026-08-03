@@ -81,6 +81,7 @@ export const IPC = {
   intimationTemplate: 'doc:intimationTemplate',
   workOrderTemplate: 'doc:workOrderTemplate',
   agreementTemplate: 'doc:agreementTemplate',
+  qccIntimationTemplate: 'doc:qccIntimationTemplate',
   forwardingSlipTemplate: 'doc:forwardingSlipTemplate',
   civilTenderTemplate: 'doc:civilTenderTemplate',
   zonalWorkOrderTemplate: 'doc:zonalWorkOrderTemplate',
@@ -189,6 +190,8 @@ export interface DocuGenApi {
   workOrderTemplate(): Promise<string>
   /** Reads the bundled Agreement format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
   agreementTemplate(): Promise<string>
+  /** Reads the bundled QCC Intimation letter (.docx) — the Dy.EE's request to Quality Control to inspect a starting work — base64-encoded for filling its {{placeholders}}. */
+  qccIntimationTemplate(): Promise<string>
   /** Reads the bundled Forwarding Slip format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
   forwardingSlipTemplate(): Promise<string>
   /** Reads the bundled full Civil Tender Document (.docx) — the 41-page NIT/tender document whose page 1 is the Forwarding Slip — returns it base64-encoded for filling its {{placeholders}}. */
@@ -202,7 +205,8 @@ export interface DocuGenApi {
   /** Reads the bundled Superintending-Engineer LOA format (.docx) — used for the Give Intimation letter when the office is zone-level (a Zone with no Circle). `reserved` picks the SC/ST-reserved variant (no EMD balance item). Returns it base64-encoded, for filling its {{placeholders}}. */
   loaSeTemplate(reserved: boolean): Promise<string>
   loadState(): Promise<PersistedState | null>
-  saveState(state: PersistedState): Promise<void>
+  /** Persist the workspace. `skipCloud` writes only to local disk and does NOT push to the cloud — used when the change being saved *came from* a remote sync, so it isn't echoed straight back and made to ping-pong between concurrent sessions. */
+  saveState(state: PersistedState, skipCloud?: boolean): Promise<void>
   /** Fires when the other signed-in device changes the workspace, so this one can merge it in live. Returns an unsubscribe function. */
   onRemoteStateUpdate(callback: (partial: Partial<PersistedState>) => void): () => void
   /** Fires once a new version has finished downloading in the background and is ready to install. Returns an unsubscribe function. */

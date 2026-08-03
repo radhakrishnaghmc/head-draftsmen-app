@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { IconPlus, IconTrash, IconCheck } from './Icons'
+import { IconPlus, IconTrash, IconCheck, IconEdit } from './Icons'
 import type { TodoItem } from '@core/types'
 
 interface Props {
@@ -32,6 +32,9 @@ export default function TodoList({ todos, onChange }: Props) {
   const today = todayISO()
   const [text, setText] = useState('')
   const [targetDate, setTargetDate] = useState('')
+  // The task currently being edited inline, and its working text. null = none.
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
 
   const visible = useMemo(
     () => todos.filter((t) => !t.done || t.completedDate === today),
@@ -60,6 +63,27 @@ export default function TodoList({ todos, onChange }: Props) {
 
   function setItemTarget(id: string, value: string) {
     onChange(todos.map((t) => (t.id === id ? { ...t, targetDate: value } : t)))
+  }
+
+  function startEdit(item: TodoItem) {
+    setEditingId(item.id)
+    setEditText(item.text)
+  }
+
+  // Save the edited text (unless blank — an empty task makes no sense, so a
+  // blank edit just cancels), then leave edit mode.
+  function commitEdit() {
+    const trimmed = editText.trim()
+    if (editingId && trimmed) {
+      onChange(todos.map((t) => (t.id === editingId ? { ...t, text: trimmed } : t)))
+    }
+    setEditingId(null)
+    setEditText('')
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setEditText('')
   }
 
   function removeItem(id: string) {
@@ -102,7 +126,21 @@ export default function TodoList({ todos, onChange }: Props) {
                 onChange={() => toggleDone(t.id)}
               />
               <div className="todo-body">
-                <span className="todo-text">{t.text}</span>
+                {editingId === t.id ? (
+                  <input
+                    className="todo-edit-input"
+                    value={editText}
+                    autoFocus
+                    onChange={(e) => setEditText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitEdit()
+                      else if (e.key === 'Escape') cancelEdit()
+                    }}
+                    onBlur={commitEdit}
+                  />
+                ) : (
+                  <span className="todo-text">{t.text}</span>
+                )}
                 <span className="todo-dates">
                   Added {formatDDMMYYYY(t.createdDate)}
                   {t.targetDate && ` · Target ${formatDDMMYYYY(t.targetDate)}`}
@@ -115,6 +153,15 @@ export default function TodoList({ todos, onChange }: Props) {
                 onChange={(e) => setItemTarget(t.id, e.target.value)}
                 title="Target completion date"
               />
+              {editingId === t.id ? (
+                <button className="ghost" title="Save" onClick={commitEdit}>
+                  <IconCheck />
+                </button>
+              ) : (
+                <button className="ghost" title="Edit task" onClick={() => startEdit(t)}>
+                  <IconEdit />
+                </button>
+              )}
               <button className="danger-ghost" title="Delete" onClick={() => removeItem(t.id)}>
                 <IconTrash />
               </button>

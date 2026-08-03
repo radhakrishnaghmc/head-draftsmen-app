@@ -1,9 +1,12 @@
 import EstimateUploadTab from './EstimateUploadTab'
 import type { ExcelTable } from '@core/types'
+import type { Office } from '../office'
 
 interface Props {
   tables: ExcelTable[]
   onChange: (table: ExcelTable) => void
+  /** The chosen office — its corporation is the default Department name on Material Quantity. */
+  office: Office
 }
 
 /**
@@ -14,6 +17,6 @@ interface Props {
  * its Schedule A / Material Quantity, with no estimate to re-derive from).
  * Reading an estimate from photos / a scanned PDF lives on the Tools page.
  */
-export default function EstimateWorkspaceTab({ tables, onChange }: Props) {
-  return <EstimateUploadTab tables={tables} onChange={onChange} />
+export default function EstimateWorkspaceTab({ tables, onChange, office }: Props) {
+  return <EstimateUploadTab tables={tables} onChange={onChange} office={office} />
 }

@@ -43,21 +43,47 @@ function normId(s: string | undefined): string {
 }
 
 /**
- * Normalize a NIT / tender-notice number for comparison. Beyond normId, drop the
+ * Procurement-process boilerplate that one document threads through the middle
+ * of a NIT number while the other omits it: the full Tender Document prints the
+ * number as ".../C-Enquiry/IFB/Tender 55/QBZ/CMC/2026-27" where the Online
+ * Intimation prints the very same number as ".../C-55/QBZ/CMC/2026-27". These
+ * words ("Enquiry", "e-Enquiry", "Tender", "e-Tender", "IFB") name the tendering
+ * process, not the work, so they're dropped before the two are compared.
+ */
+function stripNitBoilerplate(s: string): string {
+  return s.replace(/\b(?:e[-\s]?tenders?|e[-\s]?enquir(?:y|ies)|enquir(?:y|ies)|tenders?|ifb)\b/gi, '')
+}
+
+/**
+ * Normalize a NIT / tender-notice number for comparison. Beyond normId, strip
+ * the tendering-process boilerplate (see stripNitBoilerplate) and drop the
  * trailing "Dated …" / "Dt …" / "Item …" tail: the Online Intimation prints the
  * NIT No with a "Dated 24.07.2026" suffix that the L-1 sheet's NIT No omits, so
  * the two would otherwise look like different works though the number is the same.
  */
 function normNit(s: string | undefined): string {
-  return normId(s)
+  return stripNitBoilerplate(normId(s))
     .replace(/\s*\b(dated?|dt\.?|item)\b.*$/i, '')
     .replace(/[\s,;()/-]+$/, '')
     .trim()
 }
 
-/** Two NIT numbers agree when equal after normalisation, or one is a prefix of the other (a trailing date/item on one side). */
+/**
+ * The NIT number reduced to just its alphanumerics — once the boilerplate is
+ * stripped the two documents still place the separators (/, -, spaces)
+ * inconsistently around where it was (".../C-55/..." vs ".../C-/ 55/..."), and
+ * those punctuation-only differences must not read as different works.
+ */
+function nitKey(s: string): string {
+  return s.replace(/[^a-z0-9]/gi, '')
+}
+
+/** Two NIT numbers agree when their alphanumeric keys are equal, or one is a prefix of the other (a trailing date/item still on one side). */
 function sameNit(a: string, b: string): boolean {
-  return a === b || a.startsWith(b) || b.startsWith(a)
+  const ka = nitKey(a)
+  const kb = nitKey(b)
+  if (!ka || !kb) return a === b
+  return ka === kb || ka.startsWith(kb) || kb.startsWith(ka)
 }
 
 /**

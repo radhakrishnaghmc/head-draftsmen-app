@@ -129,6 +129,32 @@ export interface CreatedDocument {
   officeScope?: 'zonal' | 'circle'
 }
 
+/**
+ * Ids of the original hand-made example documents that early builds shipped in
+ * seed-state.json (and that never carried a stable, template-driven id). They
+ * predate the version-gated default-document injection and have all since been
+ * superseded by the bundled, template-refreshed defaults (doc_public_participation,
+ * doc_action_taken_report, …). They must be actively removed — from local state,
+ * from the seed, and from the cloud — because injection only ever adds/refreshes
+ * and would otherwise leave these 8 lingering on the Issue Documents tab forever.
+ * See pruneLegacyDocuments and injectDefaultDocuments (electron/main.ts).
+ */
+export const LEGACY_SEED_DOC_IDS: readonly string[] = [
+  'doc_mrxmtf35', // Intimation
+  'doc_mrxragvl', // Fowarding Slip for agreement
+  'doc_mrx6ybmq', // agreement
+  'doc_mrxcr44j', // work order
+  'doc_mrxmve28', // EOT
+  'doc_mrxqx32n', // Completion report
+  'doc_mrxr0i1s', // Action Taken Report
+  'doc_mrylcnwp' // note submitted
+]
+
+/** Drop any legacy example documents (see LEGACY_SEED_DOC_IDS) from a doc list. */
+export function pruneLegacyDocuments<T extends { id: string }>(docs: T[]): T[] {
+  return docs.filter((d) => !LEGACY_SEED_DOC_IDS.includes(d.id))
+}
+
 /** One work item within a Bid Document batch — mirrors core/bidDocument.ts's BidDocumentWorkItem. */
 export interface BidDocumentWork {
   /** Position within the tender notice's item table (1-based) — labels the row "BID Document N". */

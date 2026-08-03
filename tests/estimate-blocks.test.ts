@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { splitEstimateBlocks, extractGrandTotalLakhs, extractWorkName, extractEstimateItems } from '../core/estimateExtract'
+import { guessHeaderRow } from '../core/sheet'
 
 // A minimal estimate block: title, Name of Work, header row, one item, totals.
 function estimate(work: string, grandTotal: string): string[][] {
@@ -76,5 +77,34 @@ describe('extractEstimateItems — column-legend row', () => {
     expect(items[0].description).toContain('Series lights')
     expect(items[1].description).toContain('Mic System')
     expect(items.some((it) => it.description === '2')).toBe(false)
+  })
+})
+
+describe('extractEstimateItems — abbreviated serial header', () => {
+  // Open-gym / lump-sum "Repairs" estimates label the serial column "S.N."
+  // (S for Serial, N for Number) rather than "S.No", and use a two-row header
+  // ("MEASUREMENTS"/"Quantity"/"Per" spanning merged cells over an L/B/D +
+  // Qty + unit sub-row). "S.N." must still resolve as the serial column so the
+  // sheet isn't rejected with "Could not find S.No / Qty / Rate / Unit columns".
+  it('resolves an "S.N." serial header on a lump-sum equipment estimate', () => {
+    // The serial column is labelled "S.N." (S for Serial, N for Number) rather
+    // than "S.No" — the whole sheet was previously rejected with "Could not
+    // find S.No / Qty / Rate / Unit columns" because that abbreviation didn't
+    // match. It must resolve like any other serial header.
+    const grid: string[][] = [
+      ['S.N.', 'Description', 'Nos.', '', '', 'L', 'B', 'D', 'Quantity', 'Rate', 'Per', 'Amount'],
+      ['1', 'PULL UP STATION', '1', 'x', '1', '', '', '', '1', '60000', 'Nos', '60000'],
+      ['2', 'THAICHI SPINNER', '1', 'x', '1', '', '', '', '1', '83850', 'Nos', '83850'],
+      ['', 'Grand Total', '', '', '', '', '', '', '', '', '', '143850']
+    ]
+    const headerRow = guessHeaderRow(grid)
+    expect(headerRow).toBe(0)
+    const items = extractEstimateItems(grid, headerRow)
+    expect(items).toHaveLength(2)
+    expect(items[0].description).toContain('PULL UP STATION')
+    expect(Number(items[0].quantity)).toBe(1)
+    expect(Number(items[0].rate)).toBe(60000)
+    expect(items[0].unit).toBe('Nos')
+    expect(items[1].description).toContain('THAICHI SPINNER')
   })
 })

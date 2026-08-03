@@ -9,6 +9,7 @@ import {
   deriveFields,
   workOrderPlaceholders,
   agreementPlaceholders,
+  qccIntimationPlaceholders,
   forwardingSlipPlaceholders,
   civilTenderPlaceholders,
   zonalDocsPlaceholders,
@@ -119,6 +120,7 @@ function dmyToIso(dmy: string): string {
 type DocKind =
   | 'workOrder'
   | 'agreement'
+  | 'qccIntimation'
   | 'forwardingSlip'
   | 'civilTender'
   | 'zonalWorkOrder'
@@ -135,6 +137,7 @@ const DOC_LABEL: Record<Output, string> = {
   civilTender: 'Tender Document',
   workOrder: 'Work Order',
   agreement: 'Agreement Bond',
+  qccIntimation: 'QCC Intimation',
   zonalWorkOrder: 'Work Order',
   zonalConcludingAgreement: 'Concluding Agreement',
   zonalMemoEe: 'Memo to EE',
@@ -145,6 +148,7 @@ const DOC_LABEL: Record<Output, string> = {
 const DOC_KINDS: DocKind[] = [
   'workOrder',
   'agreement',
+  'qccIntimation',
   'forwardingSlip',
   'civilTender',
   'zonalWorkOrder',
@@ -263,10 +267,12 @@ export default function WorkOrderAgreementTab({
 
   const [workOrderB64, setWorkOrderB64] = useState<string | null>(null)
   const [agreementB64, setAgreementB64] = useState<string | null>(null)
+  const [qccIntimationB64, setQccIntimationB64] = useState<string | null>(null)
   const [forwardingSlipB64, setForwardingSlipB64] = useState<string | null>(null)
   const [civilTenderB64, setCivilTenderB64] = useState<string | null>(null)
   const [workOrderLabels, setWorkOrderLabels] = useState<string[]>([])
   const [agreementLabels, setAgreementLabels] = useState<string[]>([])
+  const [qccIntimationLabels, setQccIntimationLabels] = useState<string[]>([])
   const [forwardingSlipLabels, setForwardingSlipLabels] = useState<string[]>([])
   const [civilTenderLabels, setCivilTenderLabels] = useState<string[]>([])
   // The three Zone-level (SE) templates + their placeholder labels, keyed by DocKind.
@@ -342,6 +348,7 @@ export default function WorkOrderAgreementTab({
   const nonRespInputRef = useRef<HTMLInputElement>(null)
   const woTileRef = useRef<HTMLDivElement>(null)
   const agTileRef = useRef<HTMLDivElement>(null)
+  const qccIntTileRef = useRef<HTMLDivElement>(null)
   const fsTileRef = useRef<HTMLDivElement>(null)
   const ctTileRef = useRef<HTMLDivElement>(null)
   const zwoTileRef = useRef<HTMLDivElement>(null)
@@ -387,25 +394,29 @@ export default function WorkOrderAgreementTab({
     let cancelled = false
     void (async () => {
       try {
-        const [woB64, agB64, fsB64, ctB64] = await Promise.all([
+        const [woB64, agB64, qiB64, fsB64, ctB64] = await Promise.all([
           api.workOrderTemplate(),
           api.agreementTemplate(),
+          api.qccIntimationTemplate(),
           api.forwardingSlipTemplate(),
           api.civilTenderTemplate()
         ])
-        const [woLabels, agLabels, fsLabels, ctLabels] = await Promise.all([
+        const [woLabels, agLabels, qiLabels, fsLabels, ctLabels] = await Promise.all([
           api.findPlaceholdersInDocument(woB64),
           api.findPlaceholdersInDocument(agB64),
+          api.findPlaceholdersInDocument(qiB64),
           api.findPlaceholdersInDocument(fsB64),
           api.findPlaceholdersInDocument(ctB64)
         ])
         if (cancelled) return
         setWorkOrderB64(woB64)
         setAgreementB64(agB64)
+        setQccIntimationB64(qiB64)
         setForwardingSlipB64(fsB64)
         setCivilTenderB64(ctB64)
         setWorkOrderLabels(woLabels)
         setAgreementLabels(agLabels)
+        setQccIntimationLabels(qiLabels)
         setForwardingSlipLabels(fsLabels)
         setCivilTenderLabels(ctLabels)
       } catch (e) {
@@ -608,12 +619,12 @@ export default function WorkOrderAgreementTab({
 
   async function fillDoc(kind: DocKind): Promise<string> {
     const b64 =
-      { workOrder: workOrderB64, agreement: agreementB64, forwardingSlip: forwardingSlipB64, civilTender: civilTenderB64 }[
-        kind as 'workOrder' | 'agreement' | 'forwardingSlip' | 'civilTender'
+      { workOrder: workOrderB64, agreement: agreementB64, qccIntimation: qccIntimationB64, forwardingSlip: forwardingSlipB64, civilTender: civilTenderB64 }[
+        kind as 'workOrder' | 'agreement' | 'qccIntimation' | 'forwardingSlip' | 'civilTender'
       ] ?? zonalB64[kind]
     const labels =
-      { workOrder: workOrderLabels, agreement: agreementLabels, forwardingSlip: forwardingSlipLabels, civilTender: civilTenderLabels }[
-        kind as 'workOrder' | 'agreement' | 'forwardingSlip' | 'civilTender'
+      { workOrder: workOrderLabels, agreement: agreementLabels, qccIntimation: qccIntimationLabels, forwardingSlip: forwardingSlipLabels, civilTender: civilTenderLabels }[
+        kind as 'workOrder' | 'agreement' | 'qccIntimation' | 'forwardingSlip' | 'civilTender'
       ] ?? zonalLabels[kind] ?? []
     if (!b64) throw new Error('Format not loaded yet.')
     const values = ZONAL_KINDS.includes(kind as (typeof ZONAL_KINDS)[number])
@@ -622,9 +633,11 @@ export default function WorkOrderAgreementTab({
         ? workOrderPlaceholders(fields)
         : kind === 'agreement'
           ? agreementPlaceholders(fields)
-          : kind === 'forwardingSlip'
-            ? forwardingSlipPlaceholders(fields)
-            : civilTenderPlaceholders(fields, pdfEval ?? {}, { pagesOfAgreement, scheduleAItems })
+          : kind === 'qccIntimation'
+            ? qccIntimationPlaceholders(fields)
+            : kind === 'forwardingSlip'
+              ? forwardingSlipPlaceholders(fields)
+              : civilTenderPlaceholders(fields, pdfEval ?? {}, { pagesOfAgreement, scheduleAItems })
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
     return api.fillPlaceholdersInDocument(b64, resolved, values)
   }
@@ -708,6 +721,7 @@ export default function WorkOrderAgreementTab({
     }
     if (woTileRef.current) void renderDocInto('workOrder', woTileRef.current).catch(() => {})
     if (agTileRef.current) void renderDocInto('agreement', agTileRef.current).catch(() => {})
+    if (qccIntTileRef.current) void renderDocInto('qccIntimation', qccIntTileRef.current).catch(() => {})
     if (fsTileRef.current) void renderDocInto('forwardingSlip', fsTileRef.current).catch(() => {})
     if (ctTileRef.current) void renderDocInto('civilTender', ctTileRef.current).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1436,6 +1450,15 @@ export default function WorkOrderAgreementTab({
                 <span className="wo-tile-open">Click to preview</span>
               </div>
               <div className="wo-tile-foot">{DOC_LABEL.workOrder}</div>
+            </button>
+          )}
+          {docsReady && !only && !seMode && (
+            <button className="wo-tile" onClick={() => openDoc('qccIntimation')}>
+              <div className="wo-tile-preview">
+                <div ref={qccIntTileRef} className="wo-tile-doc" />
+                <span className="wo-tile-open">Click to preview</span>
+              </div>
+              <div className="wo-tile-foot">{DOC_LABEL.qccIntimation}</div>
             </button>
           )}
           {noteReady && !only && (

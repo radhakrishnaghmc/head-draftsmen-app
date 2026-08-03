@@ -68,4 +68,33 @@ export function trimToContent(worksheet: ExcelJS.Worksheet, lastRow: number, las
   if (worksheet.columnCount > lastCol) {
     worksheet.spliceColumns(lastCol + 1, worksheet.columnCount - lastCol)
   }
+  // spliceColumns() blanks the *values* of the cells past lastCol but leaves
+  // their now-empty cell objects sitting in each row's `_cells` array, and
+  // leaves the worksheet's per-column definition array (`_columns`) at its full
+  // width — for this app's templates that's all 16384 columns, each carrying
+  // the sheet's default column style. Two artefacts survive into the written
+  // file as a result:
+  //
+  //   * a phantom `<col min="9" max="16138" style="…"/>` run (from `_columns`), and
+  //   * a `<dimension>` stretched out to the last of those empty cell objects —
+  //     e.g. "A1:IT6", 254 columns wide for an 8-column BOQ, because the row
+  //     model derives its max column from every cell object present in `_cells`,
+  //     not just the ones that still hold a value.
+  //
+  // A strict server-side BOQ-upload validator reads that oversized used range as
+  // the sheet's real shape and rejects it, and Excel 2007 (far less tolerant of
+  // an oversized used range than modern Excel) flags the file. Truncating both
+  // arrays to the real last column drops the phantom `<col>` run and shrinks the
+  // written dimension to the actual content. Same `as unknown as` gap as `_rows`
+  // above — `_columns` and each row's `_cells` are plain arrays at runtime, just
+  // not in ExcelJS's own .d.ts.
+  const anyWs = worksheet as unknown as { _columns: unknown[]; _rows: { _cells?: unknown[] }[] }
+  if (anyWs._columns && anyWs._columns.length > lastCol) {
+    anyWs._columns.length = lastCol
+  }
+  for (const row of anyWs._rows) {
+    if (row && row._cells && row._cells.length > lastCol) {
+      row._cells.length = lastCol
+    }
+  }
 }

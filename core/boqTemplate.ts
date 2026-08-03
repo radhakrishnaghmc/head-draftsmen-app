@@ -54,6 +54,13 @@ function numOrStr(s: string | undefined): number | string {
   return Number.isFinite(n) && String(s).trim() !== '' ? n : s
 }
 
+/** Plain number from a possibly comma-grouped / blank cell string, else 0. */
+function num(s: string | undefined): number {
+  if (!s) return 0
+  const n = Number(String(s).replace(/,/g, '').trim())
+  return Number.isFinite(n) ? n : 0
+}
+
 /**
  * Force Verdana 12pt, center/middle alignment — keeping every other
  * font/alignment attribute (bold, wrapText, …) as the template set it.
@@ -141,6 +148,8 @@ export async function fillBoqTemplate(
     ws.spliceRows(firstItemRow + n, templateItemCount - n)
   }
 
+  // Running total of the item amounts, mirrored into the SUM's cached result.
+  let amountTotal = 0
   for (let i = 0; i < n; i++) {
     const r = firstItemRow + i
     const it = rows[i]
@@ -151,14 +160,23 @@ export async function fillBoqTemplate(
     ws.getCell(r, APSS_COL).value = it.apss || 'NA'
     ws.getCell(r, RATE_COL).value = numOrStr(it.rate)
     ws.getCell(r, UOM_COL).value = it.uom
-    ws.getCell(r, AMOUNT_COL).value = { formula: `ROUND(F${r}*A${r},0)` }
+    // The Amount stays a live formula (rate × qty), but also carries its
+    // computed value as the formula's cached `result`. ExcelJS otherwise
+    // writes a bare `<f>` with no `<v>`, so any reader that doesn't run a
+    // formula engine — a server-side BOQ-upload validator (Apache POI /
+    // openpyxl reading cached values), or Excel opened with manual
+    // calculation — sees the whole Amount column as blank/zero and rejects or
+    // mis-totals the sheet. Excel still recalculates the live formula on open.
+    const amount = Math.round(num(it.rate) * num(it.quantity))
+    amountTotal += amount
+    ws.getCell(r, AMOUNT_COL).value = { formula: `ROUND(F${r}*A${r},0)`, result: amount }
     for (let c = QTY_COL; c <= AMOUNT_COL; c++) styleCell(ws.getCell(r, c))
     autoFitRowHeight(ws, r)
   }
 
   const totalRow = firstItemRow + n
   ws.getCell(totalRow, AMOUNT_COL).value =
-    n > 0 ? { formula: `SUM(H${firstItemRow}:H${totalRow - 1})` } : 0
+    n > 0 ? { formula: `SUM(H${firstItemRow}:H${totalRow - 1})`, result: amountTotal } : 0
   styleCell(ws.getCell(totalRow, AMOUNT_COL))
   autoFitRowHeight(ws, totalRow)
 

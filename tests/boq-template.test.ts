@@ -118,4 +118,47 @@ describe('fillBoqTemplate', () => {
     const ws = workbook.worksheets[0]
     expect(ws.getCell(5, 2).value).toBeFalsy()
   }, 30000)
+
+  it('trims the used range to the real content (no phantom columns/dimension)', async () => {
+    // The template carries all 16384 columns styled and a dimension out to
+    // column IT (254). Left in, a strict server-side BOQ-upload validator reads
+    // that oversized used range as the sheet's shape and rejects the file, and
+    // Excel 2007 flags it. The written sheet must instead stop at the 8 real
+    // BOQ columns: no `<col>` run past column 8, and a dimension of A1:H<n>.
+    const buffer = readFileSync(TEMPLATE_PATH)
+    const out = await fillBoqTemplate(buffer, [
+      { quantity: '10', description: 'Test item one', workType: 'Earth Work', shortDescription: 'Test one', apss: 'NA', rate: '100', uom: 'Cum' }
+    ])
+
+    const zip = await JSZip.loadAsync(out as unknown as ArrayBuffer)
+    const sheet = await zip.file('xl/worksheets/sheet1.xml')!.async('string')
+    const dimension = sheet.match(/<dimension ref="([^"]*)"/)?.[1] ?? ''
+    expect(dimension).toMatch(/^A1:H\d+$/)
+    // No column definition may reach past the 8th BOQ column.
+    for (const m of sheet.matchAll(/<col\b[^>]*\bmax="(\d+)"/g)) {
+      expect(Number(m[1]), `col max ${m[1]}`).toBeLessThanOrEqual(8)
+    }
+  }, 30000)
+
+  it('carries each Amount formula\'s computed value as a cached result', async () => {
+    // ExcelJS otherwise writes a bare `<f>` with no `<v>`, so a reader that
+    // doesn't run a formula engine (a server-side upload validator, or Excel in
+    // manual-calc mode) sees the Amount column as blank and rejects/mis-totals
+    // the sheet. Every Amount cell — items and the SUM total — must carry its
+    // value: item = ROUND(rate*qty,0), total = the sum of those.
+    const buffer = readFileSync(TEMPLATE_PATH)
+    const out = await fillBoqTemplate(buffer, [
+      { quantity: '10', description: 'One', workType: 'Earth Work', shortDescription: 'One', apss: 'NA', rate: '100', uom: 'Cum' },
+      { quantity: '20', description: 'Two', workType: 'Concrete', shortDescription: 'Two', apss: 'NA', rate: '200.5', uom: 'Sqm' }
+    ])
+
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(out as unknown as ArrayBuffer)
+    const ws = workbook.worksheets[0]
+
+    // Amount col is 8; header row 1, items rows 2-3, total row 4.
+    expect((ws.getCell(2, 8).value as { result?: number }).result).toBe(1000)
+    expect((ws.getCell(3, 8).value as { result?: number }).result).toBe(4010)
+    expect((ws.getCell(4, 8).value as { result?: number }).result).toBe(5010)
+  }, 30000)
 })

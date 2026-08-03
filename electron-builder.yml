@@ -28,6 +28,10 @@ extraResources:
     to: work-order-template.docx
   - from: resources/agreement-template.docx
     to: agreement-template.docx
+  - from: resources/qcc-intimation-template.docx
+    to: qcc-intimation-template.docx
+  - from: resources/qcc-completion-template.docx
+    to: qcc-completion-template.docx
   - from: resources/forwarding-slip-template.docx
     to: forwarding-slip-template.docx
   - from: resources/civil-tender-template.docx

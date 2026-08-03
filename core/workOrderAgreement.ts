@@ -7,7 +7,7 @@
 // its date out in words. Sources, in priority order, mirror Give Intimation:
 // the portal "View Intimation Notice" HTML -> the L-1 selection / evaluation
 // PDF -> the picked Works List row.
-import { computeWorkAmounts, indianDigitGroups, tenderPercentFromRow } from './worksAmounts'
+import { computeWorkAmounts, formatRupees, indianDigitGroups, tenderPercentFromRow } from './worksAmounts'
 import { amountToWords, dateToWords } from './numberToWords'
 import { zoneAbbr } from './loaSe'
 import type { IntimationNotice } from './intimationNotice'
@@ -254,6 +254,37 @@ export function agreementPlaceholders(f: WorkOrderAgreementFields): Record<strin
     'Agreement date in words': dateToWords(f.agreementDate),
     'Agency Name': f.agencyName,
     'Contract value in rupees': contract != null ? amountToWords(contract) : ''
+  }
+}
+
+/**
+ * The {{Label}} -> value map for the QCC (Quality Control Cell) Intimation
+ * letter — the Dy.EE's request to the Quality Control Division to inspect a
+ * work about to start. Reuses the same office/work/agency/amount data as the
+ * Agreement; every other field on the form (Lr.No, dates, GST No., Date of Mark
+ * Out, Status of Work, and the four Yes/No document checks) is hand-filled and
+ * carries no placeholder. The same template is ALSO offered on the Issue
+ * Documents tab, where it's filled by column-header matching + office bake — so
+ * these placeholder names deliberately mirror the Works List column headers and
+ * the office tokens ({{Corporation Full Name}}/{{Corporation}}/{{Circle}}/{{CNO}}),
+ * and amounts use the same formatRupees "Rs …/-" form withComputedAmounts emits.
+ */
+export function qccIntimationPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
+  const estLakhs = num(f.estimateLakhs)
+  const ecv = num(f.ecvRupees)
+  const contract = num(f.contractRupees)
+  return {
+    'Corporation Full Name': f.corporationFullName.toUpperCase(),
+    Corporation: f.corporation,
+    Circle: f.circle,
+    CNO: f.cno,
+    'Name of the work': f.nameOfWork,
+    'Amount of estimate': estLakhs != null ? formatRupees(estLakhs * 100000) : '',
+    ECV: ecv != null ? formatRupees(ecv) : '',
+    'Contract Amount': contract != null ? formatRupees(contract) : '',
+    Wincode: f.wincode,
+    'Name of the Agency': f.agencyName,
+    'Completion Period': f.completionMonths.trim() ? `${f.completionMonths.trim()} Months` : ''
   }
 }
 
