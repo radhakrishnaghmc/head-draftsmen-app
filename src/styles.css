@@ -2036,6 +2036,27 @@ button.danger-ghost:hover:not(:disabled) {
   gap: 16px;
   margin: 18px 0 4px;
 }
+/* "Download all documents" bar above the document tiles. */
+.wo-download-all {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2, rgba(0, 0, 0, 0.02));
+}
+.wo-download-all .primary {
+  white-space: nowrap;
+}
+.wo-download-all-note {
+  flex: 1;
+  min-width: 220px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
 .wo-tile {
   display: flex;
   flex-direction: column;
@@ -3307,6 +3328,38 @@ button.danger:disabled {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+/* Output picker on the Issue dialog: Word / PDF / Print side by side; pick one, then Issue. */
+.gen-output-modes {
+  display: flex;
+  gap: 8px;
+}
+.gen-output-modes .seg {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-2);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gen-output-modes .seg svg {
+  width: 16px;
+  height: 16px;
+}
+.gen-output-modes .seg:hover {
+  border-color: var(--indigo-500);
+}
+.gen-output-modes .seg.active {
+  border-color: var(--indigo-500);
+  background: var(--indigo-500);
+  color: #fff;
 }
 /* Typed-in party-agency details for the 3rd/4th-party QC letters. */
 .gen-party-fields {

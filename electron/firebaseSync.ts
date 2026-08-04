@@ -20,7 +20,7 @@ import {
   type Unsubscribe
 } from 'firebase/firestore'
 import { canClaimSlot, claimSlot, releaseSlot, touchSlot, type SessionSlot } from '../core/sessionSlots'
-import type { PersistedState, CreatedDocument } from '../core/types'
+import type { PersistedState, CreatedDocument, TodoItem } from '../core/types'
 import { LEGACY_SEED_DOC_IDS, pruneLegacyDocuments } from '../core/types'
 
 const firebaseConfig = {
@@ -68,6 +68,9 @@ interface ActiveSession {
   loginId: string
   sessionId: string
   knownDocIds: Set<string>
+  /** Todo ids this session last saw in the cloud — so a delete removes only a
+   * todo it knew about, never one another device added since (see pushState). */
+  knownTodoIds: Set<string>
   unsubscribes: Unsubscribe[]
   heartbeatTimer: ReturnType<typeof setInterval> | null
 }
@@ -106,11 +109,14 @@ export async function startSession(
     })
     if (!claimed) return { claim: { ok: false, maxSessions: true }, remoteState: null }
 
-    active = { loginId: id, sessionId, knownDocIds: new Set(), unsubscribes: [], heartbeatTimer: null }
+    active = { loginId: id, sessionId, knownDocIds: new Set(), knownTodoIds: new Set(), unsubscribes: [], heartbeatTimer: null }
     active.heartbeatTimer = setInterval(() => void heartbeatTick(), 30_000)
 
     const remoteState = await pullRemoteState(id)
-    if (remoteState) active.knownDocIds = new Set((remoteState.createdDocuments ?? []).map((d) => d.id))
+    if (remoteState) {
+      active.knownDocIds = new Set((remoteState.createdDocuments ?? []).map((d) => d.id))
+      active.knownTodoIds = new Set((remoteState.todos ?? []).map((t) => t.id))
+    }
 
     // One-time cloud cleanup: permanently delete the superseded legacy example
     // documents from Firestore (best-effort, fire-and-forget). pullRemoteState
@@ -173,7 +179,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
     // These 3 reads are independent of one another — fetched in parallel
     // instead of one-after-another so login/sync only pays for the slowest
     // of the 3 round trips, not the sum of all 3.
-    const [tablesSnap, miscSnap, docsSnap] = await Promise.all([
+    const [tablesSnap, miscSnap, docsSnap, todosSnap] = await Promise.all([
       getDoc(doc(db!, 'users', id, 'meta', 'tables')),
       getDoc(doc(db!, 'users', id, 'meta', 'misc')),
       // A Firestore collection has no inherent array order — getDocs()
@@ -183,7 +189,11 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       // pushState) so the user's own ordering (e.g. dragging tiles on Issue
       // Document) survives a push/pull round trip instead of silently
       // resetting.
-      getDocs(collection(db!, 'users', id, 'documents'))
+      getDocs(collection(db!, 'users', id, 'documents')),
+      // Todos sync per-item (like documents), so one device's stale whole-blob
+      // write can't wipe a task another device just added. `order` preserves the
+      // user's arrangement across a round trip.
+      getDocs(collection(db!, 'users', id, 'todos'))
     ])
     if (!tablesSnap.exists() && !miscSnap.exists()) return null
 
@@ -200,6 +210,20 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
 
     const t = tablesSnap.exists() ? tablesSnap.data() : {}
     const m = miscSnap.exists() ? miscSnap.data() : {}
+    // Prefer the per-item todos collection; fall back to the legacy misc.todos
+    // blob for a workspace that predates per-item sync (migrated up on next push).
+    const todosFromCollection: TodoItem[] = todosSnap.docs
+      .map((d) => d.data() as TodoItem & { order?: number })
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((v) => ({
+        id: v.id,
+        text: v.text,
+        createdDate: v.createdDate,
+        targetDate: v.targetDate,
+        done: v.done,
+        ...(v.completedDate ? { completedDate: v.completedDate } : {})
+      }))
+    const todos = todosFromCollection.length > 0 ? todosFromCollection : (m.todos ?? [])
     return {
       // The persisted schema version must round-trip through Firebase, or the
       // caller's one-time migrations (e.g. Lakhs -> rupees ECV/Contract Amount)
@@ -210,7 +234,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       tables: t.tables ?? [],
       tablesByOffice: t.tablesByOffice ?? undefined,
       resolution: m.resolution ?? {},
-      todos: m.todos ?? [],
+      todos,
       lastGoogleLink: m.lastGoogleLink ?? undefined,
       worksListLinks: m.worksListLinks ?? {},
       qcParties: m.qcParties ?? undefined,
@@ -234,6 +258,7 @@ function subscribeRemote(
   const tablesRef = doc(db!, 'users', id, 'meta', 'tables')
   const miscRef = doc(db!, 'users', id, 'meta', 'misc')
   const docsRef = collection(db!, 'users', id, 'documents')
+  const todosRef = collection(db!, 'users', id, 'todos')
 
   // Firestore invokes onSnapshot callbacks from its own internal retry/
   // dispatch timers, outside any request this module's caller made — an
@@ -266,15 +291,32 @@ function subscribeRemote(
       if (snap.metadata.hasPendingWrites) return
       const data = snap.data()
       if (!data || data.lastWriter === sessionId) return
+      // NOTE: todos are intentionally NOT read from the misc blob here — they
+      // sync via the per-item todos collection below, so a stale whole-blob misc
+      // write can't clobber the task list.
       safeUpdate({
         resolution: data.resolution ?? {},
-        todos: data.todos ?? [],
         lastGoogleLink: data.lastGoogleLink ?? undefined,
         worksListLinks: data.worksListLinks ?? {},
         qcParties: data.qcParties ?? undefined,
         tenderReminders: data.tenderReminders ?? [],
         bidDocumentBatches: data.bidDocumentBatches ?? [],
         mbScrutiny: data.mbScrutiny ?? []
+      })
+    })
+  )
+
+  active.unsubscribes.push(
+    onSnapshot(todosRef, (snap) => {
+      if (snap.metadata.hasPendingWrites) return
+      // Re-pull the whole (small) set rather than reconstruct from the diff —
+      // same reasoning as documents. Never let an EMPTY cloud collection wipe
+      // the on-screen list: a workspace still on the legacy misc.todos blob has
+      // an empty todos collection until its first push migrates it, and applying
+      // [] here would erase those tasks. The migrated tasks get pushed up moments
+      // later; a genuine "deleted every task" reflects on the next full pull.
+      void pullRemoteState(id).then((full) => {
+        if (full && (full.todos?.length ?? 0) > 0) safeUpdate({ todos: full.todos })
       })
     })
   )
@@ -372,6 +414,37 @@ export async function pushState(state: PersistedState): Promise<void> {
         if (!currentIds.has(oldId)) await deleteDoc(doc(db!, 'users', loginId, 'documents', oldId))
       }
       active.knownDocIds = currentIds
+    }
+
+    // Todos: one Firestore doc per task (mirrors documents), so a stale
+    // whole-blob push can't wipe a task another device just added. Firestore
+    // rejects `undefined`, so completedDate is only written when present. The
+    // legacy misc.todos above stays dual-written for not-yet-updated clients.
+    const orderedTodos = state.todos ?? []
+    const currentTodoIds = new Set(orderedTodos.map((t) => t.id))
+    for (let i = 0; i < orderedTodos.length; i++) {
+      const t = orderedTodos[i]
+      try {
+        await setDoc(doc(db!, 'users', loginId, 'todos', t.id), {
+          id: t.id,
+          text: t.text,
+          createdDate: t.createdDate,
+          targetDate: t.targetDate,
+          done: t.done,
+          ...(t.completedDate ? { completedDate: t.completedDate } : {}),
+          order: i,
+          updatedAt: serverTimestamp(),
+          lastWriter: sessionId
+        })
+      } catch (e) {
+        console.error(`pushState: failed to sync todo "${t.text}"`, e)
+      }
+    }
+    if (active) {
+      for (const oldId of active.knownTodoIds) {
+        if (!currentTodoIds.has(oldId)) await deleteDoc(doc(db!, 'users', loginId, 'todos', oldId))
+      }
+      active.knownTodoIds = currentTodoIds
     }
   } catch (e) {
     console.error('pushState failed', e)

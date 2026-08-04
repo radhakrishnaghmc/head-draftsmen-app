@@ -20,6 +20,7 @@ const api: DocuGenApi = {
   exportTable: (table, suggestedName) => ipcRenderer.invoke(IPC.exportTable, table, suggestedName),
   exportScheduleA: (table, suggestedName, meta) =>
     ipcRenderer.invoke(IPC.exportScheduleA, table, suggestedName, meta),
+  exportAgreementBundle: (files) => ipcRenderer.invoke(IPC.exportAgreementBundle, files),
   exportBoq: (table, suggestedName, workName) =>
     ipcRenderer.invoke(IPC.exportBoq, table, suggestedName, workName),
   exportBoqBatch: (entries) => ipcRenderer.invoke(IPC.exportBoqBatch, entries),

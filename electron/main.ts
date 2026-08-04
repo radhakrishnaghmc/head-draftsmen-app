@@ -6,7 +6,7 @@ import * as os from 'os'
 import * as firebaseSync from './firebaseSync'
 import { initAutoUpdate, restartToUpdate, checkForUpdatesManually } from './autoUpdate'
 import { IPC } from './ipc-contract'
-import type { ManualCheckResult } from './ipc-contract'
+import type { ManualCheckResult, AgreementBundleFile } from './ipc-contract'
 import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer } from '../core/excel'
 import { recognizeImage } from './ocr'
 import { readWorkbookSheetNames } from './excelSplit'
@@ -340,6 +340,71 @@ function registerHandlers(): void {
 
       fs.writeFileSync(result.filePath, buffer)
       return result.filePath
+    }
+  )
+
+  async function buildScheduleABuffer(table: ExcelTable, meta?: ScheduleAMeta): Promise<Buffer> {
+    const items = rowsToScheduleAItems(table)
+    const templatePath = scheduleATemplateFile()
+    return templatePath
+      ? fillScheduleATemplate(fs.readFileSync(templatePath), items, meta)
+      : buildScheduleAWorkbook(items, meta)
+  }
+
+  // Save every agreement-workspace document into ONE folder the user picks —
+  // each in its requested format (docx as-is, pdf via LibreOffice, xlsx built
+  // from the Schedule A table). A unique-name guard avoids clobbering.
+  ipcMain.handle(
+    IPC.exportAgreementBundle,
+    async (_e, files: AgreementBundleFile[]): Promise<string[] | null> => {
+      if (!files || files.length === 0) return null
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Choose a folder to save all agreement documents into',
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (result.canceled || result.filePaths.length === 0) return null
+      const dir = result.filePaths[0]
+
+      const used = new Set<string>()
+      const uniquePath = (base: string, ext: string): string => {
+        let fileName = `${base}.${ext}`
+        let n = 2
+        while (used.has(fileName) || fs.existsSync(path.join(dir, fileName))) {
+          fileName = `${base} (${n}).${ext}`
+          n += 1
+        }
+        used.add(fileName)
+        return path.join(dir, fileName)
+      }
+
+      const written: string[] = []
+      for (const f of files) {
+        try {
+          if (f.format === 'xlsx') {
+            if (!f.scheduleATable) continue
+            const p = uniquePath(f.name, 'xlsx')
+            fs.writeFileSync(p, await buildScheduleABuffer(f.scheduleATable, f.scheduleAMeta))
+            written.push(p)
+          } else {
+            if (!f.docxBase64) continue
+            const docxBuffer = sanitizeDocxForWord2007(Buffer.from(f.docxBase64, 'base64'))
+            if (f.format === 'pdf') {
+              const p = uniquePath(f.name, 'pdf')
+              fs.writeFileSync(p, await convertDocxToPdf(docxBuffer))
+              written.push(p)
+            } else {
+              const p = uniquePath(f.name, 'docx')
+              fs.writeFileSync(p, docxBuffer)
+              written.push(p)
+            }
+          }
+        } catch (e) {
+          // Best-effort per file: one bad convert (e.g. LibreOffice missing for a
+          // pdf) shouldn't abort the whole bundle.
+          console.error(`exportAgreementBundle: failed to write "${f.name}" (${f.format})`, e)
+        }
+      }
+      return written.length > 0 ? written : null
     }
   )
 
@@ -1066,7 +1131,11 @@ function registerHandlers(): void {
   // right of the page (fixed From/To grid) — another in-place template refresh.
   // v15: dropped the "20" century-stub from the QCC date fields (Lr.No + Ref Dt).
   // v16: add the 3rd-party QC and 4th-party Intimation letters (circle-scoped).
-  const CURRENT_DEFAULT_DOC_VERSION = 16
+  // v17: Public Participation Log Book header on one line — Division = "{{circle}}
+  // circle", Sl. No. = {{cno}}.
+  // v18: Action Taken Report — removed the empty padding rows that left a big gap
+  // under Name of the Work; 4th-party letterhead uses "O/o Executive Engineer".
+  const CURRENT_DEFAULT_DOC_VERSION = 18
   const DEFAULT_DOCUMENTS: { id: string; name: string; file: string; officeScope?: 'zonal' | 'circle' }[] = [
     { id: 'doc_public_participation', name: 'Public Participation Log Book', file: 'public-participation-book-template.docx' },
     { id: 'doc_action_taken_report', name: 'Action Taken Report', file: 'action-taken-report-template.docx' },

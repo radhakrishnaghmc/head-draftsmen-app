@@ -36,7 +36,7 @@ import {
 import NoteSubmittedEditor from './NoteSubmittedEditor'
 import { mismatchHint } from '../docClassify'
 import type { PlaceholderMatch } from '@core/createDocument'
-import type { ScheduleAMeta } from '../../electron/ipc-contract'
+import type { ScheduleAMeta, AgreementBundleFile } from '../../electron/ipc-contract'
 import type { ExcelTable } from '@core/types'
 import { pdfToTextLines } from '../pdfToText'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH, normalizeDocxTextboxes } from './docPage'
@@ -300,7 +300,7 @@ export default function WorkOrderAgreementTab({
 
   // Which output's preview is expanded to the full-size modal, if any.
   const [expanded, setExpanded] = useState<Output | null>(null)
-  const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf'>(null)
+  const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf' | 'bundle'>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
   const [expandedPages, setExpandedPages] = useState(0)
@@ -771,6 +771,47 @@ export default function WorkOrderAgreementTab({
       await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
       normalizeDocxTextboxes(container)
       await api.printCreatedDocument(container.innerHTML)
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // Generate every agreement-workspace document at once, each in its preferred
+  // format, into one folder the user picks: Tender / QCC Intimation / Work Order
+  // as PDF, Schedule A as Excel, and the rest (Forwarding Slip / Agreement Bond
+  // / Note Submitted) as Word. Only the outputs that are ready are included.
+  async function downloadAll() {
+    setBusy('bundle')
+    setActionError(null)
+    setActionSaved(null)
+    try {
+      const files: AgreementBundleFile[] = []
+      if (civilTenderB64) files.push({ name: docName('civilTender'), format: 'pdf', docxBase64: await fillDoc('civilTender') })
+      if (scheduleA)
+        files.push({
+          name: `Schedule A${fields.agencyName ? ` - ${fields.agencyName}` : ''}`,
+          format: 'xlsx',
+          scheduleATable: scheduleA,
+          scheduleAMeta
+        })
+      if (forwardingSlipB64) files.push({ name: docName('forwardingSlip'), format: 'docx', docxBase64: await fillDoc('forwardingSlip') })
+      if (agreementB64) files.push({ name: docName('agreement'), format: 'docx', docxBase64: await fillDoc('agreement') })
+      if (qccIntimationB64) files.push({ name: docName('qccIntimation'), format: 'pdf', docxBase64: await fillDoc('qccIntimation') })
+      if (workOrderB64) files.push({ name: docName('workOrder'), format: 'pdf', docxBase64: await fillDoc('workOrder') })
+      if (noteReady)
+        files.push({
+          name: `Note Submitted${noteData?.workName ? ` - ${noteData.workName}` : ''}`,
+          format: 'docx',
+          docxBase64: await api.noteSubmittedDocx(notePreviewHtml)
+        })
+      if (files.length === 0) {
+        setActionError('No documents are ready to download yet.')
+        return
+      }
+      const res = await api.exportAgreementBundle(files)
+      setActionSaved(res && res.length > 0 ? `Saved ${res.length} document(s) to the chosen folder.` : 'Cancelled.')
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -1359,11 +1400,29 @@ export default function WorkOrderAgreementTab({
           <IconCheck /> {actionSaved}
         </div>
       )}
+      {actionError && !expanded && (
+        <div className="notice error">
+          <IconWarn /> {actionError}
+        </div>
+      )}
 
       {noWorks ? (
         <div className="notice">Add works to the Works List first — the outputs are filled from a work's row.</div>
       ) : anyOutput ? (
-        <div className="wo-tiles">
+        <>
+          {docsReady && !seMode && !only && (
+            <div className="wo-download-all">
+              <button className="primary" disabled={busy === 'bundle'} onClick={downloadAll}>
+                <IconDownload /> {busy === 'bundle' ? 'Preparing documents…' : 'Download all documents'}
+              </button>
+              <span className="wo-download-all-note">
+                Tender, QCC Intimation &amp; Work Order as PDF · Schedule A as Excel · Forwarding Slip, Agreement Bond &amp;
+                Note Submitted as Word — all into one folder you choose.
+              </span>
+              {busy === 'bundle' && <span className="wo-download-all-note">This can take a moment (PDF conversion).</span>}
+            </div>
+          )}
+          <div className="wo-tiles">
           {docsReady && seMode && (
             <>
               <button className="wo-tile" onClick={() => openDoc('zonalWorkOrder')}>
@@ -1470,7 +1529,8 @@ export default function WorkOrderAgreementTab({
               <div className="wo-tile-foot">{DOC_LABEL.note}</div>
             </button>
           )}
-        </div>
+          </div>
+        </>
       ) : null}
 
       {datePromptOpen && (

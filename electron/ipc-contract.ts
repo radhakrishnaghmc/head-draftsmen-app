@@ -54,6 +54,7 @@ export const IPC = {
   importAllSheetsFromLink: 'data:importAllSheetsFromLink',
   exportTable: 'data:exportTable',
   exportScheduleA: 'data:exportScheduleA',
+  exportAgreementBundle: 'doc:exportAgreementBundle',
   exportBoq: 'data:exportBoq',
   exportBoqBatch: 'data:exportBoqBatch',
   pickWorkbookForSplit: 'tools:pickWorkbookForSplit',
@@ -119,6 +120,8 @@ export interface DocuGenApi {
   importAllSheetsFromLink(url: string): Promise<SheetGrid[]>
   exportTable(table: ExcelTable, suggestedName: string): Promise<string | null>
   exportScheduleA(table: ExcelTable, suggestedName: string, meta?: ScheduleAMeta): Promise<string | null>
+  /** Save several agreement-workspace documents into ONE chosen folder, each in its given format (docx/pdf/xlsx). Returns the written paths, or null if cancelled. */
+  exportAgreementBundle(files: AgreementBundleFile[]): Promise<string[] | null>
   exportBoq(table: ExcelTable, suggestedName: string, workName?: string): Promise<string | null>
   exportBoqBatch(
     entries: { table: ExcelTable; suggestedName: string; workName?: string }[]
@@ -225,6 +228,18 @@ export type { ExcelTable }
 export type { SheetGrid }
 export type { TenderQuery, TenderResult, PersistedState }
 export type { ScheduleAMeta }
+
+/** One file in an agreement-workspace batch export (see exportAgreementBundle). */
+export interface AgreementBundleFile {
+  /** Base file name (no extension) — the format's extension is appended. */
+  name: string
+  format: 'docx' | 'pdf' | 'xlsx'
+  /** Filled .docx (base64) — required for 'docx' and 'pdf' (converted to PDF in main). */
+  docxBase64?: string
+  /** Schedule A source — required for 'xlsx' (the workbook is built in main). */
+  scheduleATable?: ExcelTable
+  scheduleAMeta?: ScheduleAMeta
+}
 export type { TenderNoticeInput }
 export type { CellEdit }
 export type { BidDocumentInput }

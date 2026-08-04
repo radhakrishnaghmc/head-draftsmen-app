@@ -6,7 +6,7 @@ import type { PlaceholderMatch } from '@core/createDocument'
 import { withComputedAmounts } from '@core/worksAmounts'
 import type { CreatedDocument, ExcelTable, QcOfficeParties } from '@core/types'
 import type { Office } from '../office'
-import { IconDoc, IconEye, IconPrint, IconDownload, IconCheck, IconWarn, IconPlus, IconSearch } from './Icons'
+import { IconDoc, IconEye, IconPrint, IconDownload, IconPlus, IconSearch } from './Icons'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
 import DocThumbnail from './DocThumbnail'
 
@@ -96,8 +96,9 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
     const matches = table.rows.map((row, i) => ({ row, i })).filter(({ row }) => !q || workNameOf(row).toLowerCase().includes(q))
     if (matches.length > 0 && !matches.some((m) => m.i === rowIndex)) setRowIndex(matches[0].i)
   }
-  const [wantDocx, setWantDocx] = useState(true)
-  const [wantPdf, setWantPdf] = useState(false)
+  // How the Issue button outputs: download Word, download PDF, or print. Pick
+  // one, then click Issue.
+  const [outputMode, setOutputMode] = useState<'word' | 'pdf' | 'print'>('word')
   const [genBusy, setGenBusy] = useState(false)
   const [genError, setGenError] = useState<string | null>(null)
   const [genNotice, setGenNotice] = useState<string | null>(null)
@@ -238,12 +239,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
     }
   }
 
-  async function handleCreate(doc: CreatedDocument) {
-    const formats: ('docx' | 'pdf')[] = [...(wantDocx ? (['docx'] as const) : []), ...(wantPdf ? (['pdf'] as const) : [])]
-    if (formats.length === 0) {
-      setGenError('Pick Word and/or PDF before creating the document.')
-      return
-    }
+  async function handleCreate(doc: CreatedDocument, formats: ('docx' | 'pdf')[]) {
     setGenBusy(true)
     setGenError(null)
     setGenNotice(null)
@@ -256,6 +252,12 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
     } finally {
       setGenBusy(false)
     }
+  }
+
+  // The Issue button: generate in whichever output mode is selected.
+  function handleIssue(doc: CreatedDocument) {
+    if (outputMode === 'print') return handlePrint(doc)
+    return handleCreate(doc, [outputMode === 'word' ? 'docx' : 'pdf'])
   }
 
   const expandedDoc = useMemo(() => documents.find((d) => d.id === expandedId) ?? null, [documents, expandedId])
@@ -399,26 +401,36 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                       )
                     })()}
 
-                  <div className="gen-formats">
-                    <label>
-                      <input type="checkbox" checked={wantDocx} onChange={(e) => setWantDocx(e.target.checked)} />{' '}
-                      Word (.docx)
-                    </label>
-                    <label>
-                      <input type="checkbox" checked={wantPdf} onChange={(e) => setWantPdf(e.target.checked)} />{' '}
-                      PDF
-                    </label>
+                  <div className="gen-output-modes" role="group" aria-label="Output">
+                    <button
+                      type="button"
+                      className={outputMode === 'word' ? 'seg active' : 'seg'}
+                      onClick={() => setOutputMode('word')}
+                    >
+                      <IconDownload /> Word
+                    </button>
+                    <button
+                      type="button"
+                      className={outputMode === 'pdf' ? 'seg active' : 'seg'}
+                      onClick={() => setOutputMode('pdf')}
+                    >
+                      <IconDownload /> PDF
+                    </button>
+                    <button
+                      type="button"
+                      className={outputMode === 'print' ? 'seg active' : 'seg'}
+                      onClick={() => setOutputMode('print')}
+                    >
+                      <IconPrint /> Print
+                    </button>
                   </div>
 
                   <div className="gen-actions">
                     <button className="ghost" disabled={genBusy} onClick={() => handlePreview(expandedDoc)}>
                       <IconEye /> Preview
                     </button>
-                    <button className="ghost" disabled={genBusy} onClick={() => handlePrint(expandedDoc)}>
-                      <IconPrint /> Print
-                    </button>
-                    <button className="primary" disabled={genBusy} onClick={() => handleCreate(expandedDoc)}>
-                      <IconDownload /> {genBusy ? 'Working…' : 'Create Document'}
+                    <button className="primary" disabled={genBusy} onClick={() => handleIssue(expandedDoc)}>
+                      <IconDownload /> {genBusy ? 'Working…' : `Issue ${expandedDoc.name}`}
                     </button>
                   </div>
 
@@ -446,14 +458,6 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                   Close
                 </button>
               </div>
-            </div>
-            <div className="gen-match-summary">
-              {preview.resolved.map((r) => (
-                <span className={`tag ${r.column ? 'green' : 'rose'}`} key={r.label}>
-                  {r.column ? <IconCheck /> : <IconWarn />} {'{{' + r.label + '}}'}
-                  {r.column ? ` → ${r.column}` : ' (unresolved)'}
-                </span>
-              ))}
             </div>
             <div className="doc-desk">
               <div className="doc-editor-wrap">
