@@ -3308,6 +3308,118 @@ button.danger:disabled {
   align-items: center;
   gap: 6px;
 }
+/* Typed-in party-agency details for the 3rd/4th-party QC letters. */
+.gen-party-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2, rgba(0, 0, 0, 0.02));
+}
+.gen-party-hint {
+  margin: 0 0 2px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.gen-party-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.gen-party-fields input,
+.gen-party-fields textarea {
+  font: inherit;
+  font-weight: 400;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  resize: vertical;
+}
+.gen-party-fields input:focus,
+.gen-party-fields textarea:focus {
+  outline: none;
+  border-color: var(--indigo-500);
+}
+
+/* Works List: enter the 3rd/4th-party QC agencies once, per office. */
+.qcp {
+  margin: 10px 0 0;
+  padding: 0;
+}
+.qcp > summary {
+  cursor: pointer;
+  padding: 12px 16px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  list-style: none;
+}
+.qcp > summary::-webkit-details-marker {
+  display: none;
+}
+.qcp > summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 8px;
+  color: var(--muted);
+}
+.qcp[open] > summary::before {
+  content: '▾';
+}
+.qcp-hint {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.qcp-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 4px 16px 16px;
+}
+@media (max-width: 720px) {
+  .qcp-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.qcp-block h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.qcp-block label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.qcp-block input,
+.qcp-block textarea {
+  font: inherit;
+  font-weight: 400;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  resize: vertical;
+}
+.qcp-block input:focus,
+.qcp-block textarea:focus {
+  outline: none;
+  border-color: var(--indigo-500);
+}
 .gen-actions {
   display: flex;
   gap: 8px;

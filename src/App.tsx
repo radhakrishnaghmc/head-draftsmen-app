@@ -17,6 +17,7 @@ import { matchPlaceholdersToColumns } from '@core/createDocument'
 import { mergeTables } from '@core/merge'
 import Sidebar, { type TabKey } from './components/Sidebar'
 import OfficeSelector from './components/OfficeSelector'
+import QcPartiesEditor from './components/QcPartiesEditor'
 import ExcelInline from './components/ExcelInline'
 import CollisionPanel from './components/CollisionPanel'
 import SearchTender from './components/SearchTender'
@@ -63,7 +64,8 @@ import type {
   TenderReminder,
   TenderReminderItem,
   CreatedDocument,
-  BidDocumentBatch
+  BidDocumentBatch,
+  QcOfficeParties
 } from '@core/types'
 import type { CalendarData } from '@core/calendar'
 
@@ -141,6 +143,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // Works List link remembered per office (key: officeKey) — synced, so a
   // circle's database reloads on return and follows the user across systems.
   const [worksListLinks, setWorksListLinks] = useState<Record<string, string>>({})
+  // 3rd/4th-party QC agencies remembered per office (key: officeKey) — entered
+  // once on the Works List page and reused by the 3rd/4th-party QC letters.
+  const [qcParties, setQcParties] = useState<Record<string, QcOfficeParties>>({})
   // A remembered link queued to auto-import once the office prop has updated to
   // the newly-selected office (so the import validates against the new office).
   const [pendingOfficeImport, setPendingOfficeImport] = useState<string | null>(null)
@@ -295,6 +300,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
           setMbScrutiny(assignMissingSerialNos((s.mbScrutiny ?? []).map(migrateMbScrutinyItem)))
           setLastGoogleLink(s.lastGoogleLink ?? null)
           setWorksListLinks(s.worksListLinks ?? {})
+          setQcParties(s.qcParties ?? {})
           setTenderReminders((s.tenderReminders ?? []).map(migrateTenderReminder))
           setCreatedDocuments(s.createdDocuments ?? [])
           setSeededDocVersion(s.seededDocVersion ?? 0)
@@ -348,6 +354,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
         setMbScrutiny(assignMissingSerialNos(partial.mbScrutiny.map(migrateMbScrutinyItem)))
       if (partial.lastGoogleLink !== undefined) setLastGoogleLink(partial.lastGoogleLink ?? null)
       if (partial.worksListLinks) setWorksListLinks(partial.worksListLinks)
+      if (partial.qcParties) setQcParties(partial.qcParties)
       if (partial.tenderReminders) setTenderReminders(partial.tenderReminders.map(migrateTenderReminder))
       if (partial.createdDocuments) setCreatedDocuments(partial.createdDocuments)
       if (partial.seededDocVersion !== undefined) setSeededDocVersion(partial.seededDocVersion)
@@ -394,6 +401,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
           todos,
           lastGoogleLink: lastGoogleLink ?? undefined,
           worksListLinks,
+          qcParties,
           tenderReminders,
           createdDocuments,
           seededDocVersion,
@@ -414,6 +422,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     todos,
     lastGoogleLink,
     worksListLinks,
+    qcParties,
     tenderReminders,
     createdDocuments,
     seededDocVersion,
@@ -824,6 +833,13 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               </div>
             </div>
             <OfficeSelector office={office} onChange={changeOffice} />
+            <QcPartiesEditor
+              parties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
+              circleSelected={!!office.circle}
+              onChange={(next) =>
+                currentOfficeKey && setQcParties((prev) => ({ ...prev, [currentOfficeKey]: next }))
+              }
+            />
             {officeImportPrompt && (
               <div className="notice warn">
                 <IconWarn /> You changed your office to <strong>{officeImportPrompt}</strong>. Paste that office's Works
@@ -879,6 +895,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               onChange={reorderDocuments}
               onGoToWorksList={() => setTab('data')}
               office={office}
+              qcParties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
             />
           </section>
         )}

@@ -4,7 +4,7 @@ import { api } from '../ipc'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { withComputedAmounts } from '@core/worksAmounts'
-import type { CreatedDocument, ExcelTable } from '@core/types'
+import type { CreatedDocument, ExcelTable, QcOfficeParties } from '@core/types'
 import type { Office } from '../office'
 import { IconDoc, IconEye, IconPrint, IconDownload, IconCheck, IconWarn, IconPlus, IconSearch } from './Icons'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
@@ -18,6 +18,8 @@ interface Props {
   onGoToWorksList: () => void
   /** The chosen office — some documents are offered only for a zonal (SE) or circle (EE) office. */
   office: Office
+  /** The current office's 3rd/4th-party QC agencies (set on the Works List page) — fills those letters' "To" block. */
+  qcParties?: QcOfficeParties
 }
 
 /**
@@ -39,7 +41,26 @@ function rowLabel(row: Record<string, string>, headers: string[], index: number)
 
 const TILE_TONES = ['tone-indigo', 'tone-sky', 'tone-rose', 'tone-amber', 'tone-teal', 'tone-green']
 
-export default function PrintDocumentTab({ tables, documents, onChange, onGoToWorksList, office }: Props) {
+// The 3rd/4th-party QC letters are addressed to an outside agency whose
+// name/address/phone (and, for the 4th party, the test type + AE contact) are
+// not on the Works List and change year to year — so they're typed in at issue
+// time. Their placeholders are filled from those inputs (and a computed Lakhs
+// estimate), never matched to a Works column. Keyed lowercase for matching.
+const PARTY_3RD_ID = 'doc_3rd_party_qc'
+const PARTY_4TH_ID = 'doc_4th_party_intimation'
+const MANUAL_LABELS = new Set([
+  'party name',
+  'party address',
+  'party phone',
+  'test type',
+  'ae name phone',
+  'estimate lakhs'
+])
+function isPartyDoc(doc: CreatedDocument | null): boolean {
+  return doc?.id === PARTY_3RD_ID || doc?.id === PARTY_4TH_ID
+}
+
+export default function PrintDocumentTab({ tables, documents, onChange, onGoToWorksList, office, qcParties }: Props) {
   const table = tables[0] ?? null
 
   // Reorder/delete still act on the full synced list; only display is filtered.
@@ -130,16 +151,41 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
     // 1%/1.5%, ASD, Contract Amount) resolve to their computed, Indian-
     // formatted "Rs 1,00,000/-" value rather than the raw spreadsheet figure
     // — see core/worksAmounts.ts.
-    const row = withComputedAmounts(table?.rows[rowIndex] ?? {})
+    const rawRow = table?.rows[rowIndex] ?? {}
+    const rawEstimate = (rawRow['Amount of estimate'] ?? '').trim()
+    // The 3rd/4th-party letters' "To" agency comes from the office's saved QC
+    // parties (set once on the Works List), not typed in per issue: the 3rd-party
+    // letter uses the QC college, the 4th-party the testing lab.
+    const party = doc.id === PARTY_3RD_ID ? qcParties?.third : doc.id === PARTY_4TH_ID ? qcParties?.fourth : undefined
+    // Manual/computed values for the party-letter placeholders. Keys equal their
+    // {{placeholder}} label so they self-resolve below. Test Type / AE contact
+    // stay blank (hand-filled per test); Estimate Lakhs is the plain Lakhs figure
+    // (the 4th-party table column is "Rs. in Lakhs", not the "Rs …/-" form).
+    const manualValues: Record<string, string> = {
+      'Party Name': party?.name ?? '',
+      'Party Address': party?.address ?? '',
+      'Party Phone': party?.phone ?? '',
+      'Test Type': '',
+      'AE Name Phone': '',
+      'Estimate Lakhs': rawEstimate && !Number.isNaN(Number(rawEstimate)) ? Number(rawEstimate).toFixed(2) : rawEstimate
+    }
+    const row = { ...withComputedAmounts(rawRow), ...manualValues }
     const columns = table?.headers ?? []
-    if (labels.length === 0 || columns.length === 0) {
-      const resolved = labels.map((label) => ({ label, column: null, score: 0 }))
+    // Split off the manual labels so they map to themselves (their value key)
+    // instead of being fuzzy-matched to a Works column (e.g. {{Party Name}}
+    // must NOT land on "Name of the Agency").
+    const manualResolved: PlaceholderMatch[] = labels
+      .filter((l) => MANUAL_LABELS.has(l.trim().toLowerCase()))
+      .map((label) => ({ label, column: label, score: 1 }))
+    const otherLabels = labels.filter((l) => !MANUAL_LABELS.has(l.trim().toLowerCase()))
+    if (otherLabels.length === 0 || columns.length === 0) {
+      const resolved = [...otherLabels.map((label) => ({ label, column: null, score: 0 })), ...manualResolved]
       return { docx: await api.fillPlaceholdersInDocument(doc.docx, resolved, row), resolved }
     }
     let embeddings: { labelVectors: number[][]; columnVectors: number[][] } | undefined
     try {
       const [labelVectors, columnVectors] = await Promise.all([
-        api.embedTexts(labels),
+        api.embedTexts(otherLabels),
         api.embedTexts(columns)
       ])
       embeddings = { labelVectors, columnVectors }
@@ -148,7 +194,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
       // to plain token overlap automatically when no embeddings are passed.
       embeddings = undefined
     }
-    const resolved = matchPlaceholdersToColumns(labels, columns, embeddings)
+    const resolved = [...matchPlaceholdersToColumns(otherLabels, columns, embeddings), ...manualResolved]
     return { docx: await api.fillPlaceholdersInDocument(doc.docx, resolved, row), resolved }
   }
 
@@ -331,6 +377,27 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                       ))}
                     </select>
                   </label>
+
+                  {isPartyDoc(expandedDoc) &&
+                    (() => {
+                      const p = expandedDoc.id === PARTY_3RD_ID ? qcParties?.third : qcParties?.fourth
+                      const which = expandedDoc.id === PARTY_3RD_ID ? '3rd-party QC agency' : '4th-party testing agency'
+                      return (
+                        <div className="gen-party-fields">
+                          {p?.name?.trim() ? (
+                            <p className="gen-party-hint">
+                              {which}: <strong>{p.name}</strong> — from the Works List. Change it there if the agency
+                              changed.
+                            </p>
+                          ) : (
+                            <p className="gen-party-hint">
+                              No {which} set yet. Add it once on the <strong>Works List</strong> page (below the office
+                              details) and it fills here automatically.
+                            </p>
+                          )}
+                        </div>
+                      )
+                    })()}
 
                   <div className="gen-formats">
                     <label>

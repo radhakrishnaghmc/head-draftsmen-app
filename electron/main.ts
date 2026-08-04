@@ -1065,7 +1065,8 @@ function registerHandlers(): void {
   // v14: moved the QCC "To" recipient block (Quality Control Division) to the
   // right of the page (fixed From/To grid) — another in-place template refresh.
   // v15: dropped the "20" century-stub from the QCC date fields (Lr.No + Ref Dt).
-  const CURRENT_DEFAULT_DOC_VERSION = 15
+  // v16: add the 3rd-party QC and 4th-party Intimation letters (circle-scoped).
+  const CURRENT_DEFAULT_DOC_VERSION = 16
   const DEFAULT_DOCUMENTS: { id: string; name: string; file: string; officeScope?: 'zonal' | 'circle' }[] = [
     { id: 'doc_public_participation', name: 'Public Participation Log Book', file: 'public-participation-book-template.docx' },
     { id: 'doc_action_taken_report', name: 'Action Taken Report', file: 'action-taken-report-template.docx' },
@@ -1086,7 +1087,13 @@ function registerHandlers(): void {
     // once it's done. Both circle-scoped (EE office). The Intimation is also
     // offered on the Work Order/Agreement tab — same bundled template.
     { id: 'doc_qcc_intimation', name: 'QCC Intimation', file: 'qcc-intimation-template.docx', officeScope: 'circle' },
-    { id: 'doc_qcc_completion', name: 'QCC Completion', file: 'qcc-completion-template.docx', officeScope: 'circle' }
+    { id: 'doc_qcc_completion', name: 'QCC Completion', file: 'qcc-completion-template.docx', officeScope: 'circle' },
+    // EE letters to the 3rd-party (QC college) and 4th-party (testing lab). The
+    // party agency (name/address/phone) changes yearly, so it's typed in at
+    // issue time on the Issue Documents tab (see PrintDocumentTab's party fields),
+    // not drawn from the Works List. Both circle-scoped.
+    { id: 'doc_3rd_party_qc', name: '3rd Party QC', file: 'qcc-3rd-party-template.docx', officeScope: 'circle' },
+    { id: 'doc_4th_party_intimation', name: '4th Party Intimation', file: 'qcc-4th-party-template.docx', officeScope: 'circle' }
   ]
 
   function injectDefaultDocuments(state: PersistedState): PersistedState {

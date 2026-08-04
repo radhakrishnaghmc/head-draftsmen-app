@@ -155,6 +155,23 @@ export function pruneLegacyDocuments<T extends { id: string }>(docs: T[]): T[] {
   return docs.filter((d) => !LEGACY_SEED_DOC_IDS.includes(d.id))
 }
 
+/** One outside QC agency's contact block (the "To" of a 3rd/4th-party letter). */
+export interface QcPartyDetails {
+  name: string
+  address: string
+  phone: string
+}
+
+/**
+ * The 3rd-party (QC college) and 4th-party (testing lab) agencies for one
+ * office. Entered once on the Works List page and reused by the 3rd/4th-party
+ * QC letters, since these agencies change year to year but not work to work.
+ */
+export interface QcOfficeParties {
+  third: QcPartyDetails
+  fourth: QcPartyDetails
+}
+
 /** One work item within a Bid Document batch — mirrors core/bidDocument.ts's BidDocumentWorkItem. */
 export interface BidDocumentWork {
   /** Position within the tender notice's item table (1-based) — labels the row "BID Document N". */
@@ -212,6 +229,12 @@ export interface PersistedState {
    * system they log in from.
    */
   worksListLinks?: Record<string, string>
+  /**
+   * The 3rd/4th-party QC agencies remembered per office (key:
+   * "Corporation|Zone|Circle"), entered once on the Works List page and reused
+   * by the 3rd/4th-party QC letters. Synced like worksListLinks.
+   */
+  qcParties?: Record<string, QcOfficeParties>
   tenderReminders?: TenderReminder[]
   createdDocuments?: CreatedDocument[]
   /**

@@ -32,6 +32,10 @@ extraResources:
     to: qcc-intimation-template.docx
   - from: resources/qcc-completion-template.docx
     to: qcc-completion-template.docx
+  - from: resources/qcc-3rd-party-template.docx
+    to: qcc-3rd-party-template.docx
+  - from: resources/qcc-4th-party-template.docx
+    to: qcc-4th-party-template.docx
   - from: resources/forwarding-slip-template.docx
     to: forwarding-slip-template.docx
   - from: resources/civil-tender-template.docx
