@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { renderAsync } from 'docx-preview'
+import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
 import { IconDoc, IconEye, IconDownload, IconTrash, IconCheck, IconWarn } from './Icons'
 import { base64ToUint8 } from './docPage'

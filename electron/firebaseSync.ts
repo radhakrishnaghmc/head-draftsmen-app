@@ -71,6 +71,12 @@ interface ActiveSession {
   /** Todo ids this session last saw in the cloud — so a delete removes only a
    * todo it knew about, never one another device added since (see pushState). */
   knownTodoIds: Set<string>
+  /**
+   * Signature (order|name|docx) of each document as last written to the cloud,
+   * so pushState re-uploads only the documents that actually changed instead of
+   * every ~100KB base64 .docx on every autosave — the biggest cloud-push cost.
+   */
+  pushedDocSig: Map<string, string>
   unsubscribes: Unsubscribe[]
   heartbeatTimer: ReturnType<typeof setInterval> | null
 }
@@ -109,13 +115,18 @@ export async function startSession(
     })
     if (!claimed) return { claim: { ok: false, maxSessions: true }, remoteState: null }
 
-    active = { loginId: id, sessionId, knownDocIds: new Set(), knownTodoIds: new Set(), unsubscribes: [], heartbeatTimer: null }
+    active = { loginId: id, sessionId, knownDocIds: new Set(), knownTodoIds: new Set(), pushedDocSig: new Map(), unsubscribes: [], heartbeatTimer: null }
     active.heartbeatTimer = setInterval(() => void heartbeatTick(), 30_000)
 
     const remoteState = await pullRemoteState(id)
     if (remoteState) {
       active.knownDocIds = new Set((remoteState.createdDocuments ?? []).map((d) => d.id))
       active.knownTodoIds = new Set((remoteState.todos ?? []).map((t) => t.id))
+      // Seed the doc signatures from what the cloud already has, so the first
+      // push after login doesn't needlessly re-upload documents that match.
+      active.pushedDocSig = new Map(
+        (remoteState.createdDocuments ?? []).map((d, i) => [d.id, `${i}|${d.name}|${d.docx}`])
+      )
     }
 
     // One-time cloud cleanup: permanently delete the superseded legacy example
@@ -388,6 +399,14 @@ export async function pushState(state: PersistedState): Promise<void> {
     const orderedDocs = state.createdDocuments ?? []
     for (let i = 0; i < orderedDocs.length; i++) {
       const d = orderedDocs[i]
+      // Skip documents that haven't changed since we last pushed them (same
+      // order, name and .docx content). The documents are the same 9-11 default
+      // templates on nearly every save, so this turns a ~1MB upload on every
+      // autosave into (usually) zero document writes — only the edited data
+      // (tables/todos) actually syncs. A reorder or template refresh changes the
+      // signature and re-uploads just that doc.
+      const sig = `${i}|${d.name}|${d.docx}`
+      if (active?.pushedDocSig.get(d.id) === sig) continue
       try {
         // Firestore caps a single document at 1 MiB — a base64 .docx is
         // larger than the plain HTML this field used to hold, though real
@@ -405,13 +424,17 @@ export async function pushState(state: PersistedState): Promise<void> {
           updatedAt: serverTimestamp(),
           lastWriter: sessionId
         })
+        active?.pushedDocSig.set(d.id, sig)
       } catch (e) {
         console.error(`pushState: failed to sync document "${d.name}"`, e)
       }
     }
     if (active) {
       for (const oldId of active.knownDocIds) {
-        if (!currentIds.has(oldId)) await deleteDoc(doc(db!, 'users', loginId, 'documents', oldId))
+        if (!currentIds.has(oldId)) {
+          await deleteDoc(doc(db!, 'users', loginId, 'documents', oldId))
+          active.pushedDocSig.delete(oldId)
+        }
       }
       active.knownDocIds = currentIds
     }

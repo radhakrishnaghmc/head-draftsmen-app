@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { renderAsync } from 'docx-preview'
+import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import type { PlaceholderMatch } from '@core/createDocument'

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { renderAsync } from 'docx-preview'
+import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
 import { IconTable, IconFolder, IconWarn, IconOpen, IconImage, IconClipboard, IconBolt, IconPrint, IconDownload } from './Icons'
 import UploadPhotosTab from './UploadPhotosTab'

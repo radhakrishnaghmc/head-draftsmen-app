@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { renderAsync } from 'docx-preview'
+import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
 import { IconDoc, IconWarn, IconCheck, IconEye } from './Icons'
 import { base64ToUint8 } from './docPage'

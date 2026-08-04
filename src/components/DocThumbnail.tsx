@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { renderAsync } from 'docx-preview'
+import { renderAsync } from '../lazyDocxPreview'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH, PAGE_HEIGHT } from './docPage'
 
 const DEFAULT_THUMB_WIDTH = 110

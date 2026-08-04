@@ -1215,11 +1215,25 @@ function registerHandlers(): void {
     return state && injectDefaultDocuments(await migrateCreatedDocuments(state))
   })
 
+  // Content of the last state.json written, keyed by its path — so a debounced
+  // autosave that fires with unchanged content (e.g. after applying a remote
+  // echo) doesn't re-serialize and rewrite ~1MB to disk for nothing.
+  let lastWrittenJson: string | null = null
+  let lastWrittenPath: string | null = null
   ipcMain.handle(IPC.saveState, async (_e, state: PersistedState, skipCloud?: boolean): Promise<void> => {
-    try {
-      fs.writeFileSync(stateFile(), JSON.stringify(state), 'utf8')
-    } catch {
-      // Non-fatal: persistence is best-effort.
+    const file = stateFile()
+    const json = JSON.stringify(state)
+    if (json !== lastWrittenJson || file !== lastWrittenPath) {
+      try {
+        // Async write (not writeFileSync): a ~1MB serialize+write of the whole
+        // workspace on every edit would otherwise block the main thread — the
+        // one that services IPC and window events — and show up as UI lag.
+        await fs.promises.writeFile(file, json, 'utf8')
+        lastWrittenJson = json
+        lastWrittenPath = file
+      } catch {
+        // Non-fatal: persistence is best-effort.
+      }
     }
     // Don't block the local save on network latency — the cloud push is
     // itself best-effort and swallows its own errors. When this save merely

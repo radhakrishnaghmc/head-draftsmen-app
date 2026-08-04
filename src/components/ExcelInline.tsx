@@ -1,6 +1,64 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { IconPlus, IconTrash, IconSearch } from './Icons'
 import type { ExcelTable } from '@core/types'
+
+// Fixed column widths (px) — the sheet uses table-layout:fixed so that skipping
+// off-screen rows (content-visibility, below) can't make columns jump: their
+// widths no longer depend on which rows happen to be rendered. The table
+// overflows and scrolls horizontally when the columns don't fit.
+const COL_W = 160
+const ROWNUM_W = 44
+const ROWDEL_W = 44
+
+// One Works List row, memoised so editing a single cell re-renders ONLY that
+// row — not all 200+ rows × ~28 inputs. setCell replaces just the edited row's
+// array (others keep their reference), and the callbacks below are stable, so
+// React.memo's shallow prop compare skips every unchanged row.
+interface SheetRowProps {
+  ri: number
+  row: string[]
+  headerCount: number
+  onCell: (ri: number, ci: number, value: string) => void
+  onDelete: (ri: number) => void
+  flashed: boolean
+  flashMessage?: string
+  isFirstFlash: boolean
+  firstFlashRef: React.RefObject<HTMLTableRowElement>
+}
+const SheetRow = memo(function SheetRow({
+  ri,
+  row,
+  headerCount,
+  onCell,
+  onDelete,
+  flashed,
+  flashMessage,
+  isFirstFlash,
+  firstFlashRef
+}: SheetRowProps) {
+  return (
+    <Fragment>
+      <tr ref={isFirstFlash ? firstFlashRef : undefined} className={flashed ? 'row-flash' : ''}>
+        <td className="rownum">{ri + 1}</td>
+        {Array.from({ length: headerCount }, (_, ci) => (
+          <td key={ci}>
+            <input value={row[ci] ?? ''} onChange={(e) => onCell(ri, ci, e.target.value)} />
+          </td>
+        ))}
+        <td className="rowdel">
+          <button className="danger-ghost" title="Delete row" onClick={() => onDelete(ri)}>
+            <IconTrash />
+          </button>
+        </td>
+      </tr>
+      {flashed && flashMessage && (
+        <tr className="row-flash-msg">
+          <td colSpan={headerCount + 2}>✓ {flashMessage}</td>
+        </tr>
+      )}
+    </Fragment>
+  )
+})
 
 interface Props {
   table: ExcelTable
@@ -181,6 +239,16 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
     commit(headers, nextM)
   }
 
+  // Stable handlers passed to the memoised rows: they always call the latest
+  // setCell/deleteRow (via the ref) but keep the same identity across renders,
+  // so a memoised row isn't forced to re-render just because its callback prop
+  // changed. Without this, every edit would re-render all rows.
+  const handlersRef = useRef({ setCell, deleteRow })
+  handlersRef.current.setCell = setCell
+  handlersRef.current.deleteRow = deleteRow
+  const onCell = useCallback((ri: number, ci: number, value: string) => handlersRef.current.setCell(ri, ci, value), [])
+  const onDelete = useCallback((ri: number) => handlersRef.current.deleteRow(ri), [])
+
   return (
     <section className="card sheet-inline">
       {error && <div className="notice warn editor-warn">{error}</div>}
@@ -205,7 +273,17 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
       </div>
 
       <div className="sheet-wrap">
-        <table className="sheet">
+        <table
+          className="sheet"
+          style={{ tableLayout: 'fixed', width: Math.max(ROWNUM_W + headers.length * COL_W + ROWDEL_W, 0) || undefined }}
+        >
+          <colgroup>
+            <col style={{ width: ROWNUM_W }} />
+            {headers.map((_, ci) => (
+              <col key={ci} style={{ width: COL_W }} />
+            ))}
+            <col style={{ width: ROWDEL_W }} />
+          </colgroup>
           <thead>
             <tr>
               <th className="rownum">#</th>
@@ -232,34 +310,20 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
             </tr>
           </thead>
           <tbody>
-            {visible.map(({ row, ri }) => {
-              const flashed = flashing && flashSet.has(ri)
-              return (
-                <Fragment key={ri}>
-                  <tr
-                    ref={ri === firstFlashIndex ? firstFlashRef : undefined}
-                    className={flashed ? 'row-flash' : ''}
-                  >
-                    <td className="rownum">{ri + 1}</td>
-                    {headers.map((_, ci) => (
-                      <td key={ci}>
-                        <input value={row[ci] ?? ''} onChange={(e) => setCell(ri, ci, e.target.value)} />
-                      </td>
-                    ))}
-                    <td className="rowdel">
-                      <button className="danger-ghost" title="Delete row" onClick={() => deleteRow(ri)}>
-                        <IconTrash />
-                      </button>
-                    </td>
-                  </tr>
-                  {flashed && flashMessage && (
-                    <tr className="row-flash-msg">
-                      <td colSpan={headers.length + 2}>✓ {flashMessage}</td>
-                    </tr>
-                  )}
-                </Fragment>
-              )
-            })}
+            {visible.map(({ row, ri }) => (
+              <SheetRow
+                key={ri}
+                ri={ri}
+                row={row}
+                headerCount={headers.length}
+                onCell={onCell}
+                onDelete={onDelete}
+                flashed={flashing && flashSet.has(ri)}
+                flashMessage={flashMessage}
+                isFirstFlash={ri === firstFlashIndex}
+                firstFlashRef={firstFlashRef}
+              />
+            ))}
             {visible.length === 0 && (
               <tr>
                 <td className="sheet-empty" colSpan={headers.length + 2}>

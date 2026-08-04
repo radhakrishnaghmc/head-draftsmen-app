@@ -1,5 +1,3 @@
-import { pdfjsLib } from './pdfjsSetup'
-
 // Scale 2 off a PDF's standard 72dpi page is ~144dpi — plenty of detail for
 // OCR without producing an oversized image; electron/ocr.ts caps input size
 // further before running OCR regardless.
@@ -14,6 +12,8 @@ const RENDER_SCALE = 2
  * changes needed downstream.
  */
 export async function pdfPagesToDataUrls(file: File): Promise<string[]> {
+  // Loaded on demand — see pdfToText.ts.
+  const { pdfjsLib } = await import('./pdfjsSetup')
   const buffer = await file.arrayBuffer()
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise
   const dataUrls: string[] = []

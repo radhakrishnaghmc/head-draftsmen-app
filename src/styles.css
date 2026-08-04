@@ -3948,8 +3948,19 @@ button.danger:disabled {
 table.sheet {
   border-collapse: separate;
   border-spacing: 0;
-  width: 100%;
+  /* Actual width is set inline (sum of fixed column widths) with table-layout:
+     fixed; min-width keeps it filling the pane when there are few columns. */
+  min-width: 100%;
   font-size: 13px;
+}
+/* Native row virtualization: Chromium (bundled with Electron) skips the layout
+   and paint of off-screen rows, so a 200+ row Works List stays smooth to scroll
+   and quick to open. Safe now that columns are fixed-width (see table-layout:
+   fixed) — skipped rows can't change any column's width. `contain-intrinsic-size:
+   auto` remembers each row's real height; 34px is the fallback for unseen rows. */
+table.sheet tbody tr {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 34px;
 }
 table.sheet th {
   position: sticky;

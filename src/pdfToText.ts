@@ -1,5 +1,3 @@
-import { pdfjsLib } from './pdfjsSetup'
-
 interface TextItem {
   str: string
   transform: number[]
@@ -20,6 +18,9 @@ export async function pdfToTextLines(file: File): Promise<string[]> {
 
 /** Same as pdfToTextLines, from raw bytes — used for folder files read (as base64) via the main process. */
 export async function pdfToTextLinesFromData(data: ArrayBuffer | Uint8Array): Promise<string[]> {
+  // Loaded on demand — pdfjs (and its worker) is heavy and only needed when the
+  // user actually reads a PDF, so it stays out of the initial startup bundle.
+  const { pdfjsLib } = await import('./pdfjsSetup')
   const pdf = await pdfjsLib.getDocument({ data }).promise
   const lines: string[] = []
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
