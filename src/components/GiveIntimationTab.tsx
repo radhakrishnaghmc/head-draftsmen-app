@@ -543,13 +543,8 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
     <div className="card">
       <div ref={printScratchRef} style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }} aria-hidden />
 
-      <div className="empty">
+      <div className="empty empty--tight">
         <IconBell />
-        <p>
-          Upload the <strong>Online Intimation</strong> and the <strong>L1 selection form</strong> to build the
-          intimation letter. The L1 form also updates that work's row in the Works List. The letter previews below
-          once both are uploaded.
-        </p>
         <div className="boq-actions">
           <button className="primary upload-btn" onClick={() => noticeInputRef.current?.click()} disabled={!templateB64}>
             <IconFolder /> {notice ? 'Change Online Intimation' : 'Upload Online Intimation'}

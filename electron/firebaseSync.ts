@@ -116,7 +116,7 @@ export async function startSession(
     if (!claimed) return { claim: { ok: false, maxSessions: true }, remoteState: null }
 
     active = { loginId: id, sessionId, knownDocIds: new Set(), knownTodoIds: new Set(), pushedDocSig: new Map(), unsubscribes: [], heartbeatTimer: null }
-    active.heartbeatTimer = setInterval(() => void heartbeatTick(), 30_000)
+    active.heartbeatTimer = setInterval(() => void heartbeatTick(), 120_000)
 
     const remoteState = await pullRemoteState(id)
     if (remoteState) {
@@ -317,9 +317,22 @@ function subscribeRemote(
     })
   )
 
+  // The direct pullRemoteState in startSession already loaded the current docs
+  // and todos, so the FIRST snapshot each collection listener delivers is just
+  // that same state echoed back. Reacting to it would fire a redundant full
+  // pullRemoteState (2 extra cloud pulls per login, ~half of a login's total
+  // reads) for no new data. Skip that initial delivery and only react to
+  // genuine later changes from the other device.
+  let firstTodosSnap = true
+  let firstDocsSnap = true
+
   active.unsubscribes.push(
     onSnapshot(todosRef, (snap) => {
       if (snap.metadata.hasPendingWrites) return
+      if (firstTodosSnap) {
+        firstTodosSnap = false
+        return
+      }
       // Re-pull the whole (small) set rather than reconstruct from the diff —
       // same reasoning as documents. Never let an EMPTY cloud collection wipe
       // the on-screen list: a workspace still on the legacy misc.todos blob has
@@ -335,6 +348,10 @@ function subscribeRemote(
   active.unsubscribes.push(
     onSnapshot(docsRef, (snap) => {
       if (snap.metadata.hasPendingWrites) return
+      if (firstDocsSnap) {
+        firstDocsSnap = false
+        return
+      }
       // A per-doc lastWriter filter here would risk dropping a genuine
       // remote change whose sibling doc happens to echo our own recent
       // write in the same snapshot. The collection is small, so just

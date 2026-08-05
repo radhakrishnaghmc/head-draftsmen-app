@@ -7,11 +7,11 @@
      gradient partner is India Green #138808; the Ashoka-Chakra navy #1a237e
      carries the "in-progress" accent. White is the neutral third band. */
   --indigo-50: #fff9f2; /* lightest saffron tint (chip/pill backgrounds) */
-  --indigo-100: #ffecd9;
+  --indigo-100: #d9efd6;
   --indigo-200: #ffdcb3;
-  --indigo-500: #ffab54; /* India saffron — primary accent (lightened) */
-  --indigo-600: #f7943a; /* deep saffron — solid fills / accent text */
-  --indigo-700: #c26313; /* burnt saffron — accent text / hairlines */
+  --indigo-500: #2fa04a; /* India green — interactive accent (focus, active borders) */
+  --indigo-600: #248640; /* deeper green — solid accent fills / accent text */
+  --indigo-700: #1a6a30; /* darkest green — accent text / hairlines */
   --violet-500: #1aa30f; /* India green — gradient partner (lightened) */
   --chakra: #283593; /* Ashoka-Chakra navy */
   --sky-100: #e3f5dd;
@@ -52,9 +52,12 @@
   --shadow-lg: 0 24px 48px -16px rgba(16, 24, 40, 0.22);
   --shadow-glow: 0 8px 24px -6px rgba(255, 153, 51, 0.45);
 
-  /* Windows 11 corner rounding is subtler than the old design's */
-  --radius: 8px;
-  --radius-sm: 5px;
+  /* One rounded, polished scale used app-wide: --radius for boxes/cards/panels,
+     --radius-sm for smaller controls (inputs, chips, badges), --radius-pill for
+     buttons and pills. Scattered one-off radii are normalised onto these two so
+     every box shares the same corner. */
+  --radius: 18px;
+  --radius-sm: 12px;
   --radius-pill: 999px;
 
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
@@ -230,7 +233,7 @@ body::before {
   padding: 9px 10px;
   border: none;
   background: transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   font-size: 13.5px;
   font-weight: 550;
   color: var(--danger);
@@ -251,7 +254,7 @@ code {
   background: var(--indigo-50);
   color: var(--indigo-700);
   padding: 1px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
 }
 
 ::selection {
@@ -354,7 +357,7 @@ code {
 .office-picker {
   margin: 0 6px 14px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--surface);
   overflow: hidden;
 }
@@ -477,28 +480,31 @@ code {
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 11px 12px;
+  padding: 10px 16px;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  /* Fully rounded "pill" rows to match the upload buttons — clean and neat.
+     The extra left/right padding keeps the icon and label off the curve. */
+  border-radius: 999px;
   background: transparent;
   cursor: pointer;
   text-align: left;
-  transition: transform 0.18s var(--ease);
+  transition: transform 0.18s var(--ease), background 0.18s var(--ease), box-shadow 0.18s var(--ease);
 }
 .nav-item:hover {
   background: rgba(255, 153, 51, 0.1);
+  transform: translateX(2px);
 }
 .nav-item.on {
   background: var(--surface);
   border-color: var(--border);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 6px 16px -8px rgba(30, 41, 59, 0.4), var(--shadow-sm);
 }
 
 .nav-step {
   flex: none;
   width: 22px;
   height: 22px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   display: grid;
   place-items: center;
   font-size: 11.5px;
@@ -594,8 +600,10 @@ code {
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 12px;
-  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  /* Rounded on the box token so the footer card matches the cards and the
+     rounded nav rows above it, instead of reading as a sharp rectangle. */
+  border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
@@ -653,7 +661,7 @@ code {
   height: 20px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -748,7 +756,7 @@ code {
   flex: none;
   width: 52px;
   height: 52px;
-  border-radius: 15px;
+  border-radius: var(--radius);
   display: grid;
   place-items: center;
   color: var(--indigo-600);
@@ -836,7 +844,7 @@ code {
   flex: none;
   width: 30px;
   height: 30px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   display: grid;
   place-items: center;
   font-size: 13px;
@@ -850,7 +858,7 @@ code {
   flex: none;
   width: 38px;
   height: 38px;
-  border-radius: 11px;
+  border-radius: var(--radius);
   display: grid;
   place-items: center;
   color: var(--indigo-600);
@@ -920,8 +928,11 @@ button {
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   color: var(--text);
-  border-radius: var(--radius-sm);
-  padding: 8px 14px;
+  /* App-wide pill buttons: every button is fully rounded and neat, consistent
+     with the upload buttons. Variant classes below only change colour, never
+     the shape. */
+  border-radius: 999px;
+  padding: 9px 16px;
   font-weight: 550;
   cursor: pointer;
   transition: all 0.18s var(--ease);
@@ -944,21 +955,26 @@ button svg {
 }
 
 button.primary {
-  /* Fluent accent button: near-flat accent fill, faint top highlight, and a
-     slightly darker hairline base — the Windows 11 push-button look. */
-  background: linear-gradient(180deg, var(--indigo-500), var(--indigo-600));
-  color: #fff;
-  border: 1px solid var(--indigo-700);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), var(--shadow-sm);
+  /* The app's primary action pill uses the sidebar's own pale India-green band
+     tint (sampled: ~#e9f4e8 → #d7ead5) so the buttons and the sidebar share one
+     green. Dark text for contrast on the pale fill, a faint green edge so the
+     pill still reads on white, and a soft lift on hover. Every primary button
+     app-wide shares this — the upload buttons only add their fixed width. */
+  background: linear-gradient(180deg, #e6f3e3, #d0e8cd);
+  color: #14261a;
+  font-weight: 650;
+  border: 1px solid rgba(19, 136, 8, 0.28);
+  box-shadow: 0 4px 12px -6px rgba(19, 100, 30, 0.28);
 }
 button.primary:hover:not(:disabled) {
-  background: linear-gradient(180deg, #ffab54, var(--indigo-500));
-  border-color: var(--indigo-700);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), var(--shadow-md);
+  background: linear-gradient(180deg, #dcefd8, #c3e2bf);
+  border-color: rgba(19, 136, 8, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px -7px rgba(19, 100, 30, 0.32);
 }
 button.primary:active:not(:disabled) {
-  background: var(--indigo-600);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+  transform: translateY(0);
+  box-shadow: 0 3px 9px -6px rgba(19, 100, 30, 0.3);
 }
 
 button.ghost {
@@ -986,7 +1002,7 @@ button.danger-ghost:hover:not(:disabled) {
 .btn-lg {
   padding: 12px 22px;
   font-size: 15px;
-  border-radius: 11px;
+  border-radius: var(--radius-pill);
 }
 
 /* ---------- file lists ---------- */
@@ -1018,7 +1034,7 @@ button.danger-ghost:hover:not(:disabled) {
   flex: none;
   width: 36px;
   height: 36px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   display: grid;
   place-items: center;
   color: var(--indigo-600);
@@ -1045,7 +1061,7 @@ button.danger-ghost:hover:not(:disabled) {
   gap: 6px;
   padding: 6px 12px;
   font-size: 13px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 .file-edit svg {
   width: 14px;
@@ -1076,7 +1092,7 @@ button.danger-ghost:hover:not(:disabled) {
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--text-2);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 2px 7px;
 }
 .tag.accent {
@@ -1111,6 +1127,23 @@ button.danger-ghost:hover:not(:disabled) {
   margin: 0;
   font-size: 13px;
 }
+/* Empty state with no explanatory paragraph (icon + upload buttons only):
+   the base .empty is sized to frame a block of text (14px top margin + 26px
+   padding + an 8px icon gap). With the paragraph gone that all became empty
+   air, so collapse it — no top margin, slim padding, no icon gap — and the
+   buttons sit right under the header. */
+.empty--tight {
+  margin-top: 0;
+  padding: 8px 16px 12px;
+}
+.empty--tight > svg {
+  width: 20px;
+  height: 20px;
+  margin-bottom: 2px;
+}
+.empty--tight .boq-actions {
+  margin-top: 4px;
+}
 .boq-actions {
   display: flex;
   justify-content: center;
@@ -1134,10 +1167,12 @@ button.danger-ghost:hover:not(:disabled) {
   width: 100%;
 }
 
-/* Uniform file-upload buttons app-wide: a shared minimum width so short and
-   long labels (and their transient "Loading…" states) render the same size. */
-.upload-btn {
+/* Upload buttons inherit the full green-pill look from button.primary; they
+   only pin a shared width so short and long labels (and their transient
+   "Loading…" states) all render the same size. */
+button.upload-btn {
   min-width: 260px;
+  padding: 10px 22px;
   justify-content: center;
 }
 
@@ -1153,7 +1188,7 @@ button.danger-ghost:hover:not(:disabled) {
 .todo-add input {
   height: 38px;
   padding: 0 12px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface-2);
   font-size: 14px;
@@ -1213,7 +1248,7 @@ button.danger-ghost:hover:not(:disabled) {
   width: 100%;
   height: 28px;
   padding: 0 8px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--indigo-500);
   background: #fff;
   font-size: 14px;
@@ -1247,7 +1282,7 @@ button.danger-ghost:hover:not(:disabled) {
   flex: none;
   height: 32px;
   padding: 0 8px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface-2);
   font-size: 12.5px;
@@ -1275,7 +1310,7 @@ button.danger-ghost:hover:not(:disabled) {
   height: 42px;
   padding: 0 12px;
   margin-bottom: 14px;
-  border-radius: 11px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--surface-2);
   transition: all 0.16s var(--ease);
@@ -1309,7 +1344,7 @@ button.danger-ghost:hover:not(:disabled) {
   font-weight: 600;
   cursor: pointer;
   padding: 4px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 .mb-search-clear:hover {
   color: var(--text-2);
@@ -1392,7 +1427,7 @@ button.danger-ghost:hover:not(:disabled) {
   width: 100%;
   height: 40px;
   padding: 0 13px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--surface-2);
   font-size: 14px;
@@ -1414,7 +1449,7 @@ button.danger-ghost:hover:not(:disabled) {
   place-items: center;
   width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   flex: none;
 }
 .mb-section-ic svg {
@@ -1565,7 +1600,7 @@ button.danger-ghost:hover:not(:disabled) {
   flex: 1;
   height: 28px;
   padding: 0 8px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface-2);
   font-size: 12.5px;
@@ -1649,7 +1684,7 @@ button.danger-ghost:hover:not(:disabled) {
 .live-tile {
   background: var(--indigo-50);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 6px 12px;
   min-width: 90px;
 }
@@ -1723,7 +1758,7 @@ button.danger-ghost:hover:not(:disabled) {
   color: #92400e;
   background: #fffbeb;
   border: 1px solid #fde68a;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 8px 10px;
 }
 /* Per-entry live preview (left) + "details needed" panel (right): the
@@ -1780,7 +1815,7 @@ button.danger-ghost:hover:not(:disabled) {
   color: var(--text);
   padding: 7px 9px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--surface, #fff);
 }
 .loa-manual-grid input:focus {
@@ -1796,7 +1831,7 @@ button.danger-ghost:hover:not(:disabled) {
   gap: 4px;
   padding: 3px;
   background: var(--indigo-50);
-  border-radius: 10px;
+  border-radius: var(--radius);
   width: fit-content;
   margin-bottom: 10px;
 }
@@ -1807,7 +1842,7 @@ button.danger-ghost:hover:not(:disabled) {
   font-size: 12.5px;
   font-weight: 650;
   color: var(--muted);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
@@ -1827,7 +1862,7 @@ button.danger-ghost:hover:not(:disabled) {
   max-height: 320px;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: #fff;
 }
 .doc-sheet {
@@ -2045,7 +2080,7 @@ button.danger-ghost:hover:not(:disabled) {
   margin-top: 16px;
   padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--surface-2, rgba(0, 0, 0, 0.02));
 }
 .wo-download-all .primary {
@@ -2241,7 +2276,7 @@ select {
   font: inherit;
   padding: 6px 10px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -2251,7 +2286,7 @@ input[type='text'] {
   font: inherit;
   padding: 8px 12px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -2377,7 +2412,7 @@ input[type='text']:focus {
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   border: 1.5px solid var(--border);
   background: var(--surface);
   cursor: pointer;
@@ -2398,7 +2433,7 @@ input[type='text']:focus {
 .chip .box {
   width: 16px;
   height: 16px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   border: 1.5px solid var(--border-strong);
   display: grid;
   place-items: center;
@@ -2428,7 +2463,7 @@ input[type='text']:focus {
   background: var(--surface-2);
   border: 1px solid var(--border);
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   max-width: 340px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2576,7 +2611,7 @@ input[type='text']:focus {
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius);
   padding: 28px 26px 22px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.5);
   text-align: center;
@@ -2599,7 +2634,7 @@ input[type='text']:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: #fee2e2;
   color: #dc2626;
 }
@@ -2631,14 +2666,14 @@ input[type='text']:focus {
 .confirm-hint code {
   background: var(--surface-2);
   padding: 1px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font-weight: 700;
 }
 .confirm-input {
   width: 100%;
   height: 40px;
   padding: 0 12px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface-2);
   font-size: 14px;
@@ -2712,7 +2747,7 @@ input[type='text']:focus {
   background: var(--surface);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  border-radius: 16px;
+  border-radius: var(--radius);
   padding: 24px 26px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
   animation: pop 0.16s var(--ease);
@@ -2752,7 +2787,7 @@ input[type='text']:focus {
 .tender-field input {
   height: 38px;
   padding: 0 12px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface-2);
   font-size: 14px;
@@ -2767,7 +2802,7 @@ input[type='text']:focus {
   max-height: 160px;
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface-2);
   padding: 6px 4px;
 }
@@ -2778,7 +2813,7 @@ input[type='text']:focus {
   padding: 6px 8px;
   font-size: 13.5px;
   color: var(--text);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 .tender-wincode-item:hover {
@@ -2802,7 +2837,7 @@ input[type='text']:focus {
 button.danger {
   height: 38px;
   padding: 0 18px;
-  border-radius: 9px;
+  border-radius: var(--radius-pill);
   border: none;
   background: #dc2626;
   color: #fff;
@@ -2859,7 +2894,7 @@ button.danger:disabled {
   border: 1px solid transparent;
   background: transparent;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   min-width: 220px;
 }
 .editor-name:hover {
@@ -2913,7 +2948,7 @@ button.danger:disabled {
   height: 30px;
   padding: 0 8px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
   font: 600 14px/1 inherit;
@@ -2927,7 +2962,7 @@ button.danger:disabled {
   height: 30px;
   padding: 0 8px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--surface, #fff);
   color: var(--text);
   font: 500 13px/1 inherit;
@@ -2947,7 +2982,7 @@ button.danger:disabled {
   min-width: 30px;
   height: 30px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   font: 700 14px/1 inherit;
   cursor: pointer;
   text-decoration: underline;
@@ -3076,7 +3111,7 @@ button.danger:disabled {
   justify-content: flex-start;
   gap: 10px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 9px 10px;
   font-weight: 500;
   color: var(--text);
@@ -3181,7 +3216,7 @@ button.danger:disabled {
   place-items: center;
   width: 20px;
   height: 20px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1.5px solid var(--border-strong);
   background: #fff;
   color: #fff;
@@ -3226,7 +3261,7 @@ button.danger:disabled {
   align-items: center;
   gap: 6px;
   padding: 6px 11px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--indigo-100);
   background: linear-gradient(135deg, var(--indigo-50), #fff0e0);
   color: var(--indigo-700);
@@ -3342,7 +3377,9 @@ button.danger:disabled {
   gap: 6px;
   padding: 9px 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  /* Pill, like every other button; the active one uses the same green as the
+     primary buttons instead of the old saffron accent. */
+  border-radius: var(--radius-pill);
   background: #fff;
   color: var(--text-2);
   font: inherit;
@@ -3354,12 +3391,12 @@ button.danger:disabled {
   height: 16px;
 }
 .gen-output-modes .seg:hover {
-  border-color: var(--indigo-500);
+  border-color: rgba(19, 136, 8, 0.4);
 }
 .gen-output-modes .seg.active {
-  border-color: var(--indigo-500);
-  background: var(--indigo-500);
-  color: #fff;
+  border-color: rgba(19, 136, 8, 0.45);
+  background: linear-gradient(180deg, #e6f3e3, #d0e8cd);
+  color: #14261a;
 }
 /* Typed-in party-agency details for the 3rd/4th-party QC letters. */
 .gen-party-fields {
@@ -3368,7 +3405,7 @@ button.danger:disabled {
   gap: 8px;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--surface-2, rgba(0, 0, 0, 0.02));
 }
 .gen-party-hint {
@@ -3391,7 +3428,7 @@ button.danger:disabled {
   font-weight: 400;
   padding: 6px 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: #fff;
   color: var(--text);
   resize: vertical;
@@ -3463,7 +3500,7 @@ button.danger:disabled {
   font-weight: 400;
   padding: 6px 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: #fff;
   color: var(--text);
   resize: vertical;
@@ -3593,7 +3630,7 @@ button.danger:disabled {
   padding: 9px 12px;
   font-size: 12.5px;
   font-weight: 600;
-  border-radius: 12px;
+  border-radius: var(--radius);
   gap: 6px;
 }
 .wo-compact-actions .upload-btn svg {
@@ -3826,7 +3863,7 @@ button.danger:disabled {
 .manual-col-pickers select {
   height: 36px;
   padding: 0 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface-2);
   font-size: 13.5px;
@@ -3841,7 +3878,7 @@ button.danger:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 11px;
+  border-radius: var(--radius);
   border: 1px solid rgba(255, 255, 255, 0.7);
   background: rgba(255, 255, 255, 0.78);
   backdrop-filter: blur(6px);
@@ -3860,7 +3897,7 @@ button.danger:disabled {
 .doc-thumb-box {
   position: relative;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: var(--radius);
   border: 1px solid rgba(255, 255, 255, 0.7);
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 4px 14px -4px rgba(15, 23, 42, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.9);
@@ -3925,7 +3962,7 @@ button.danger:disabled {
   width: 34px;
   height: 34px;
   padding: 0;
-  border-radius: 10px;
+  border-radius: var(--radius);
 }
 .doc-tile-issue-btn:hover {
   background: color-mix(in srgb, var(--tone-a) 26%, rgba(255, 255, 255, 0.7));
@@ -4007,7 +4044,7 @@ table.sheet th {
   place-items: center;
   width: 26px;
   height: 26px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
@@ -4258,7 +4295,7 @@ table.picker-sheet th.grid-col {
   flex: none !important;
   width: 22px;
   height: 22px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   border: 1.5px solid var(--border);
   display: grid !important;
   place-items: center;
@@ -4598,7 +4635,7 @@ table.picker-sheet th.grid-col {
   flex: none;
   width: 20px;
   height: 20px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1.5px solid var(--border-strong);
   background: #fff;
   display: grid;
@@ -4756,7 +4793,7 @@ table.picker-sheet th.grid-col {
   font-size: 13px;
   padding: 8px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: #fff;
 }
 .rowpick-search:focus {
@@ -4826,7 +4863,7 @@ table.picker-sheet th.grid-col {
 .rp-box span {
   width: 20px;
   height: 20px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1.5px solid var(--border-strong);
   display: grid;
   place-items: center;
@@ -4934,7 +4971,7 @@ tr.on .rp-box span {
   color: var(--text);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 4px 8px;
   margin: -4px -8px;
   width: 100%;
@@ -4995,7 +5032,7 @@ tr.on .rp-box span {
   font: 600 13px/1 inherit;
   cursor: pointer;
   padding: 4px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 .link-btn:hover {
   background: var(--surface-2, rgba(0, 0, 0, 0.04));
@@ -5056,7 +5093,7 @@ tr.on .rp-box span {
   width: 16px;
   height: 16px;
   border: 1.5px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: transparent;
 }
 .gen-templates .chip .box svg {
@@ -5088,7 +5125,7 @@ tr.on .rp-box span {
 .gen-filter select {
   padding: 9px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
   font: 500 14px/1 inherit;
@@ -5098,7 +5135,7 @@ tr.on .rp-box span {
   min-width: 200px;
   padding: 9px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
   font: 500 14px/1 inherit;
@@ -5210,7 +5247,7 @@ tr.on .rp-box span {
 .gen-match code {
   background: var(--surface-2, rgba(0, 0, 0, 0.05));
   padding: 2px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--text);
 }
 .preview-link {
@@ -5221,7 +5258,7 @@ tr.on .rp-box span {
   font: 600 12px/1 inherit;
   cursor: pointer;
   padding: 2px 4px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
 }
 .preview-link:hover {
   background: var(--surface-2, rgba(0, 0, 0, 0.05));
@@ -5229,7 +5266,7 @@ tr.on .rp-box span {
 .gen-preview {
   margin-top: 10px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   overflow: auto;
   max-height: 240px;
 }
@@ -5279,7 +5316,7 @@ tr.on .rp-box span {
   gap: 8px;
   padding: 12px 16px;
   border: 1.5px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--surface);
   color: var(--muted);
   font: 600 14px/1 inherit;
@@ -5313,7 +5350,7 @@ tr.on .rp-box span {
   gap: 16px;
   padding: 14px 18px;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius);
   background: var(--surface);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
 }
@@ -5413,7 +5450,7 @@ tr.on .rp-box span {
   flex: none;
   padding: 8px 18px;
   font-size: 13px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
 }
 .tsearch-spin {
   flex: none;
@@ -5437,7 +5474,7 @@ tr.on .rp-box span {
 .tender-size select {
   padding: 7px 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: #fff;
   font-size: 13px;
 }
@@ -5546,7 +5583,7 @@ tr.on .rp-box span {
   gap: 10px;
   padding: 4px 14px;
   border: 1.5px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--surface-2);
   transition: border-color 0.16s var(--ease), box-shadow 0.16s var(--ease);
 }
@@ -5691,7 +5728,7 @@ tr.on .rp-box span {
   gap: 16px;
   flex-wrap: wrap;
   padding: 14px 18px;
-  border-radius: 16px;
+  border-radius: var(--radius);
   background: var(--surface);
   border: 1.5px solid var(--border-strong);
   box-shadow: 0 12px 32px rgba(20, 22, 40, 0.14);
@@ -5725,12 +5762,12 @@ tr.on .rp-box span {
   padding: 4px;
   background: var(--surface-2);
   border: 1.5px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
 }
 .agr-seg {
   padding: 7px 16px;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-2);
   font-weight: 600;
@@ -6286,7 +6323,7 @@ tr.on .rp-box span {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--muted);
@@ -6309,7 +6346,7 @@ tr.on .rp-box span {
   inset: 0;
   display: block;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: #fff;
 }
 
@@ -6408,7 +6445,7 @@ tr.on .rp-box span {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: #fff;
   color: var(--text-2);
@@ -6444,7 +6481,7 @@ tr.on .rp-box span {
   left: 50%;
   transform: translateX(-50%);
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--text, #1e1e2e);
   color: #fff;
   font-size: 11px;
@@ -6548,7 +6585,7 @@ tr.on .rp-box span {
   align-items: center;
   gap: 2px;
   padding: 0 3px 0 5px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--indigo-50);
   box-shadow: inset 0 0 0 1px var(--indigo-100);
   color: var(--indigo-600);
@@ -6600,7 +6637,7 @@ tr.on .rp-box span {
   background: #fef3f2;
   border: 1px solid #fecdca;
   padding: 3px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .docprev-msg {
@@ -6644,7 +6681,7 @@ tr.on .rp-box span {
 .ns-field select,
 .ns-form input {
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1.5px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -6700,7 +6737,7 @@ tr.on .rp-box span {
   border: 1px solid var(--border-strong);
   background: var(--surface);
   color: var(--indigo-600);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   padding: 3px 9px;
   font-size: 12px;
   font-weight: 600;
@@ -6740,7 +6777,7 @@ tr.on .rp-box span {
   color: var(--danger);
   cursor: pointer;
   font-size: 13px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 .ns-del:hover {
   background: var(--danger-bg);
@@ -6764,7 +6801,7 @@ tr.on .rp-box span {
   max-height: 76vh;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: #ececed;
   padding: 20px;
   display: flex;
@@ -6830,7 +6867,7 @@ tr.on .rp-box span {
 }
 .wo-date-field input[type='date'] {
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1.5px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -6863,7 +6900,7 @@ tr.on .rp-box span {
 .wo-manual-form input,
 .wo-manual-form select {
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1.5px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -6895,7 +6932,7 @@ tr.on .rp-box span {
 .wo-date-body input[type='date'] {
   width: 100%;
   padding: 10px 12px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   border: 1.5px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -6951,7 +6988,7 @@ tr.on .rp-box span {
 .tools-grid .tool-card .tool-card-ic {
   width: 46px;
   height: 46px;
-  border-radius: 13px;
+  border-radius: var(--radius);
 }
 .tools-grid .tool-card .tool-card-ic svg {
   width: 24px;
@@ -6996,7 +7033,7 @@ tr.on .rp-box span {
   justify-content: center;
   gap: 4px;
   padding: 6px 4px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   border: 1px solid color-mix(in srgb, var(--tone-a) 40%, transparent);
   background: color-mix(in srgb, var(--tone-a) 15%, rgba(255, 255, 255, 0.82));
   color: color-mix(in srgb, var(--tone-a) 82%, black 10%);
@@ -7080,7 +7117,7 @@ tr.on .rp-box span {
 }
 .split-picker-row select {
   padding: 7px 10px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.7);
   font: inherit;
@@ -7136,7 +7173,7 @@ tr.on .rp-box span {
   justify-content: center;
   width: 56px;
   height: 56px;
-  border-radius: 16px;
+  border-radius: var(--radius);
   /* Follow the tile's own tone (falls back to teal for tone-less tiles). */
   color: var(--tone-a, var(--teal-500));
   background: color-mix(in srgb, var(--tone-a, var(--teal-500)) 14%, transparent);
@@ -7167,7 +7204,7 @@ tr.on .rp-box span {
   max-height: 420px;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 .elec-preview table {
   width: 100%;

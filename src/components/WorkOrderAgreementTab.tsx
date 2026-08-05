@@ -1114,26 +1114,8 @@ export default function WorkOrderAgreementTab({
     <div className={only ? 'wo-compact' : 'card'}>
       <div ref={printScratchRef} style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }} aria-hidden />
 
-      <div className={only ? 'wo-compact-body' : 'empty'}>
+      <div className={only ? 'wo-compact-body' : 'empty empty--tight'}>
         {!only && <IconClipboard />}
-        {!only && (
-          <p>
-            {scheduleAOnly ? (
-              <>
-                Upload the technical-sanctioned <strong>estimate / BOQ</strong> to generate its Schedule&nbsp;A. The
-                output appears below as a tile — click it to preview full size and print / save it.
-              </>
-            ) : (
-              <>
-                Upload the <strong>Online Intimation</strong> and the <strong>L1 selection form</strong> to build the
-                Work Order and Agreement Bond.{!standalone && " The L1 form also updates that work's row in the Works List."}{' '}
-                Upload the technical-sanctioned <strong>estimate / BOQ</strong> to also generate this work's
-                Schedule&nbsp;A. Each output appears below as a tile — click one to preview it full size and print / save
-                it.
-              </>
-            )}
-          </p>
-        )}
         <div className={only ? 'wo-compact-actions' : 'boq-actions boq-actions--grid'}>
           {only && !scheduleAOnly && (
             <button className="ghost upload-btn" onClick={() => setManualMode((m) => !m)}>
@@ -1152,7 +1134,7 @@ export default function WorkOrderAgreementTab({
           )}
           {!only && (
             <button className="primary upload-btn" onClick={uploadBoq} disabled={noWorks}>
-              <IconTable /> {boq ? 'Change estimate / BOQ' : 'Upload estimate/BOQ to get schedule A'}
+              <IconTable /> {boq ? 'Change estimate / BOQ' : 'Upload estimate / BOQ'}
             </button>
           )}
           {!scheduleAOnly && !only && (

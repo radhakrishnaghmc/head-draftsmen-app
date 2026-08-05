@@ -14,7 +14,7 @@ export interface SessionSlot {
 
 /** A slot with no heartbeat in this long is treated as dead (crashed/closed
  * without a clean logout) and no longer counts toward the limit. */
-const STALE_MS = 90_000
+const STALE_MS = 360_000
 
 export function liveSlots(slots: SessionSlot[], now: number): SessionSlot[] {
   return slots.filter((s) => now - s.lastSeenAt < STALE_MS)
