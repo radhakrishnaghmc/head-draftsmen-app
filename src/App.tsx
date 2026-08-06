@@ -32,6 +32,7 @@ import WorksListL1Update from './components/WorksListL1Update'
 import EstimateWorkspaceTab from './components/EstimateWorkspaceTab'
 import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
 import GiveIntimationTab from './components/GiveIntimationTab'
+import EvaluationSheetTab from './components/EvaluationSheetTab'
 import WorkOrderAgreementTab from './components/WorkOrderAgreementTab'
 import PrintDocumentTab from './components/PrintDocumentTab'
 import ToolsTab from './components/ToolsTab'
@@ -117,6 +118,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   const officeEntries = entriesOf(loginCorporation)
 
   const [tab, setTab] = useState<TabKey>('dashboard')
+  // Sub-tabs within the Intimation workspace: the Intimation letter, or the
+  // Bid Capacity Evaluation Sheet issued from a "View Bidders" PDF.
+  const [intimationSubTab, setIntimationSubTab] = useState<'intimation' | 'evaluation'>('intimation')
   const [calendar, setCalendar] = useState<CalendarData | null>(null)
 
   const [tables, setTables] = useState<ExcelTable[]>([])
@@ -941,10 +945,32 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               </div>
               <div className="page-head-text">
                 <h1>Intimation</h1>
-                <p>Upload a PDF (or photos) plus an existing Intimation format to auto-fill it from what's in the document.</p>
+                <p>
+                  {intimationSubTab === 'intimation'
+                    ? "Upload a PDF (or photos) plus an existing Intimation format to auto-fill it from what's in the document."
+                    : 'Upload the portal’s “View Bidders” PDF to issue the Bid Capacity Evaluation Sheet — one column per participating bidder.'}
+                </p>
               </div>
             </div>
-            <GiveIntimationTab tables={tables} onChange={updateTable} office={office} />
+            <div className="doc-tabs">
+              <button
+                className={`doc-tab ${intimationSubTab === 'intimation' ? 'active' : ''}`}
+                onClick={() => setIntimationSubTab('intimation')}
+              >
+                Give Intimation
+              </button>
+              <button
+                className={`doc-tab ${intimationSubTab === 'evaluation' ? 'active' : ''}`}
+                onClick={() => setIntimationSubTab('evaluation')}
+              >
+                Evaluation Sheet
+              </button>
+            </div>
+            {intimationSubTab === 'intimation' ? (
+              <GiveIntimationTab tables={tables} onChange={updateTable} office={office} />
+            ) : (
+              <EvaluationSheetTab office={office} />
+            )}
           </section>
         )}
 

@@ -18,6 +18,7 @@ const api: DocuGenApi = {
   importFromLink: (url) => ipcRenderer.invoke(IPC.importFromLink, url),
   importAllSheetsFromLink: (url) => ipcRenderer.invoke(IPC.importAllSheetsFromLink, url),
   exportTable: (table, suggestedName) => ipcRenderer.invoke(IPC.exportTable, table, suggestedName),
+  exportEvaluationSheet: (input, suggestedName) => ipcRenderer.invoke(IPC.exportEvaluationSheet, input, suggestedName),
   exportScheduleA: (table, suggestedName, meta) =>
     ipcRenderer.invoke(IPC.exportScheduleA, table, suggestedName, meta),
   exportAgreementBundle: (files) => ipcRenderer.invoke(IPC.exportAgreementBundle, files),

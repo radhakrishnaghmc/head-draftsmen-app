@@ -15,8 +15,10 @@ export interface Office {
 }
 
 // Remembered across app restarts (localStorage) so the office survives a
-// relaunch — and, in dev where the login screen is skipped, so there's still an
-// identity to stamp the Works List with. Cleared on logout.
+// relaunch — and a logout: the office is a property of this machine's Head
+// Draughtsman, not of the login session, so it's never re-asked once picked
+// (it can still be changed from the sidebar). In dev, where the login screen is
+// skipped, it also gives an identity to stamp the Works List with.
 export const OFFICE_KEYS = {
   corporation: 'hda-corporation',
   zone: 'hda-zone',
@@ -51,11 +53,6 @@ export function saveOffice(office: Office): void {
   set(OFFICE_KEYS.zone, office.zone)
   set(OFFICE_KEYS.circle, office.circle)
   set(OFFICE_KEYS.circleNumber, office.circleNumber)
-}
-
-/** Forget the remembered office (on logout). */
-export function clearOffice(): void {
-  for (const key of Object.values(OFFICE_KEYS)) localStorage.removeItem(key)
 }
 
 /**

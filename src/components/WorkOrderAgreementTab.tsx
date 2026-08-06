@@ -474,9 +474,12 @@ export default function WorkOrderAgreementTab({
       }
     }
     const f = deriveFields(notice ?? {}, pdfEval ?? {}, selectedRow ?? {})
-    // The user-entered agreement date wins for both documents (kept identical);
-    // fall back to the LOA/selection date derived from the PDF when unset.
-    const dmy = agreementDate ? isoToDmy(agreementDate) : f.agreementDate
+    // The user-entered agreement date fills both documents (kept identical). When
+    // it's left unset, the date stays BLANK — the Work Order and Agreement print
+    // a "Dt:" line with a ruled blank to hand-write (see DATE_BLANK), rather than
+    // silently stamping the tender-notice date. "Download all" without a chosen
+    // date therefore yields date-less documents ready to be dated by hand.
+    const dmy = agreementDate ? isoToDmy(agreementDate) : ''
     return {
       ...f,
       agreementDate: dmy,
@@ -518,7 +521,10 @@ export default function WorkOrderAgreementTab({
     // In manual mode the date (and everything else) is already in the form, so no prompt.
     if (!manualMode && (kind === 'workOrder' || kind === 'agreement') && (!agreementDate || needsCircleZone)) {
       setPendingDoc(kind)
-      setPromptDate(dmyToIso(fields.agreementDate))
+      // Seed the picker with the tender-notice date as a convenient default (the
+      // document date now stays blank until explicitly chosen, so fields.agreementDate
+      // is empty here) — the user can accept or change it.
+      setPromptDate(dmyToIso(pdfEval?.noticeDate ?? ''))
       setDatePromptOpen(true)
       return
     }
@@ -840,6 +846,18 @@ export default function WorkOrderAgreementTab({
     // "Server Time: …"), so prefer it over the (often blank here) Works List
     // Intimation Date column.
     if (pdfEval?.serverDate) seed.intimationDate = pdfEval.serverDate
+    // The tender notice No & date live on the uploaded L1 sheet itself (its
+    // "Enquiry/IFB/Tender … Notice Number … Dt:" line). Fall back to them when
+    // the Works List row hasn't been updated from L1 yet, so the note reflects
+    // the sheet directly rather than sitting blank. NIT No mirrors the notice No.
+    if (!seed.tenderNoticeNo && pdfEval?.noticeNo) {
+      seed.tenderNoticeNo = pdfEval.noticeNo
+      seed.nitNo = pdfEval.noticeNo
+    }
+    if (!seed.tenderNoticeDate && pdfEval?.noticeDate) {
+      seed.tenderNoticeDate = pdfEval.noticeDate
+      seed.nitDate = pdfEval.noticeDate
+    }
     setNoteData(seed)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowIndex, table, allBidders, pdfEval])
@@ -856,12 +874,12 @@ export default function WorkOrderAgreementTab({
     setActionError(null)
     try {
       const lines = await pdfToTextLines(file)
-      const summary = summarizeNonResponsiveness(lines)
-      setNoteData((prev) => (prev ? { ...prev, qualificationNote: summary } : prev))
+      const { count, detail } = summarizeNonResponsiveness(lines)
+      setNoteData((prev) => (prev ? { ...prev, rejectedCount: count, qualificationNote: detail } : prev))
       setPdfStatus(
-        summary
-          ? `Non-responsiveness read from ${file.name} — check the rejection line in the Note Submitted editor.`
-          : `Read ${file.name}, but found no rejected bidders — add the rejection line in the Note Submitted editor if needed.`
+        count > 0
+          ? `Non-responsiveness read from ${file.name}: (${count}) rejected — check the count & reason in the Note Submitted editor.`
+          : `Read ${file.name}, but found no rejected bidders — set the rejected count in the Note Submitted editor if needed.`
       )
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
@@ -1289,7 +1307,9 @@ export default function WorkOrderAgreementTab({
               <span>Agreement date</span>
               <input type="date" value={agreementDate} onChange={(e) => setAgreementDate(e.target.value)} />
             </label>
-            <span className="estimate-hint">Same date fills the Work Order and the Agreement Bond.</span>
+            <span className="estimate-hint">
+              Same date fills the Work Order and the Agreement Bond. Leave blank to print a ruled date line to fill in by hand.
+            </span>
           </div>
         )}
         {!scheduleAOnly && !only && (

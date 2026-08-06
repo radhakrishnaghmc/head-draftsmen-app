@@ -82,6 +82,36 @@ describe('extractRateEntriesFromGrid', () => {
     ]
     expect(extractRateEntriesFromGrid(grid, 'Labour & material')).toEqual([])
   })
+
+  it('extracts a labour/material sheet\'s finished items while gating out short raw-input rates', () => {
+    const grid = [
+      ['Sl.no', 'Labour', 'SSR 2022-23', 'Rate'],
+      ['1', 'I st class Mason', 'x', '680'], // raw labour input — too short, excluded
+      ['3', 'Man Mazdoor', '', '605'], // raw labour input — excluded
+      ['', 'Mechanical trowelling, finishing with sound edges and corners as directed', '', '41', 'sqmt'],
+      ['', 'Groove Cutting of 2-4 mm for 1/3rd depth of concrete slab using machine', '', '60', 'Rmt']
+    ]
+    const entries = extractRateEntriesFromGrid(grid, 'Labour & material')
+    expect(entries.map((e) => ({ rate: e.rate, unit: e.unit }))).toEqual([
+      { rate: '41', unit: 'sqm' },
+      { rate: '60', unit: 'rmt' }
+    ])
+    expect(entries.every((e) => !/mason|mazdoor/i.test(e.description))).toBe(true)
+  })
+
+  it('prefixes a variant row with the serial-numbered heading it depends on', () => {
+    const grid = [
+      ['Sl.no', 'Item', '', 'Rate', 'Unit'],
+      ['77', 'Manufacture as per BIS:12592 supply and delivery of manhole covers and frames', '', ''],
+      ['', 'H.D.-10 with 560mm clear opening (new item)', '', '1987'], // long variant, must not become the heading
+      ['', 'd) H.D.-20 with 560mm clear opening', '', '2716']
+    ]
+    const entries = extractRateEntriesFromGrid(grid, 'Labour & material')
+    const hd20 = entries.find((e) => e.rate === '2716')
+    expect(hd20?.description).toBe(
+      'Manufacture as per BIS:12592 supply and delivery of manhole covers and frames - d) H.D.-20 with 560mm clear opening'
+    )
+  })
 })
 
 describe('buildRateIndex', () => {

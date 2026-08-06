@@ -205,6 +205,13 @@ export function deriveFields(
   }
 }
 
+// Hand-writable blank date lines — printed when no agreement/work-order date has
+// been set, so the document shows the "Dt:" / "Date:" label followed by a ruled
+// blank to fill in by hand (matching the templates' own "____" convention),
+// instead of silently defaulting to the tender-notice date.
+const DATE_BLANK = '____________'
+const DATE_WORDS_BLANK = '______________________'
+
 /** The {{Label}} -> value map for the Work Order template. */
 export function workOrderPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
   const estLakhs = num(f.estimateLakhs)
@@ -215,7 +222,7 @@ export function workOrderPlaceholders(f: WorkOrderAgreementFields): Record<strin
     Circle: f.circle,
     CNO: f.cno,
     Financialyear: f.financialYear,
-    'Agreement date': f.workOrderDate,
+    'Agreement date': f.workOrderDate.trim() || DATE_BLANK,
     'Name of the agency': f.agencyName,
     'Address of the agency': wrapAgencyAddress(f.address),
     'Phone no.': f.phone,
@@ -250,8 +257,8 @@ export function agreementPlaceholders(f: WorkOrderAgreementFields): Record<strin
     // Template already prints "(-)" … "%-Less" around this one.
     'Tender percentage': pct != null ? formatPercent(pct) : '',
     'Contract value': contract != null ? groupedRupees(contract) : '',
-    'Agreement Date': f.agreementDate,
-    'Agreement date in words': dateToWords(f.agreementDate),
+    'Agreement Date': f.agreementDate.trim() || DATE_BLANK,
+    'Agreement date in words': dateToWords(f.agreementDate) || DATE_WORDS_BLANK,
     'Agency Name': f.agencyName,
     'Contract value in rupees': contract != null ? amountToWords(contract) : ''
   }
@@ -308,7 +315,11 @@ export function forwardingSlipPlaceholders(f: WorkOrderAgreementFields): Record<
     'Amount of Estimation': estLakhs != null ? groupedRupees(estLakhs * 100000) : '',
     'Contractor Name and Address': contractor,
     'Approximate Value': contract != null ? groupedRupees(contract) : '',
-    'Tender Percentage': pct == null ? '' : pct === 0 ? '0%' : `(-) ${formatPercent(pct)}% Less`,
+    // Answers the slip's "Are the rates … within the Estimate rates …?" — so the
+    // quoted % is followed by ", within the estimate rates" (at par or below the
+    // estimate is within-estimate; blank stays blank).
+    'Tender Percentage':
+      pct == null ? '' : pct === 0 ? '0%, within the estimate rates' : `(-) ${formatPercent(pct)}% Less, within the estimate rates`,
     'Technical Sanction No and Date': f.tsNoDate,
     'Period of completion': f.completionMonths.trim() ? `${f.completionMonths.trim()}   Months` : '',
     // Reserved works are EMD-exempt; otherwise the 1% / 1.5% amounts off ECV.
@@ -334,11 +345,16 @@ export function civilTenderPlaceholders(
 ): Record<string, string> {
   const estLakhs = num(f.estimateLakhs)
   const ecv = num(f.ecvRupees)
+  const pct = num(f.tenderPercent)
   const contract = num(f.contractRupees)
   const contractor = [f.agencyName, f.address].map((s) => (s ?? '').trim()).filter(Boolean).join('\n')
   return {
     'Name of the work': f.nameOfWork,
     'Estimate Amount': estLakhs != null ? groupedRupees(estLakhs * 100000) : '',
+    // Page-1 forwarding slip answers "Are the rates … within the Estimate
+    // rates …?" — same wording as the standalone Forwarding Slip.
+    'Tender Percentage':
+      pct == null ? '' : pct === 0 ? '0%, within the estimate rates' : `(-) ${formatPercent(pct)}% Less, within the estimate rates`,
     Contractor: contractor,
     'Contract Amount': contract != null ? groupedRupees(contract) : '',
     ECV: ecv != null ? groupedRupees(ecv) : '',

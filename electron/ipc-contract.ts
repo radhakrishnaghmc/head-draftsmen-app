@@ -13,6 +13,7 @@ import type { CellEdit } from '../core/technicalSanction'
 import type { BidDocumentInput } from '../core/bidDocument'
 import type { LoginResult } from '../core/auth'
 import type { DeviationItem, DeviationMeta } from '../core/deviationTemplate'
+import type { EvaluationSheetInput } from '../core/evaluationSheet'
 import type { PlaceholderMatch } from '../core/createDocument'
 import type { EstimateWorkItem } from '../core/estimateExtract'
 import type { DetailedEstimateMeta } from '../core/estimateTemplate'
@@ -54,6 +55,7 @@ export const IPC = {
   importAllSheetsFromLink: 'data:importAllSheetsFromLink',
   exportTable: 'data:exportTable',
   exportScheduleA: 'data:exportScheduleA',
+  exportEvaluationSheet: 'data:exportEvaluationSheet',
   exportAgreementBundle: 'doc:exportAgreementBundle',
   exportBoq: 'data:exportBoq',
   exportBoqBatch: 'data:exportBoqBatch',
@@ -120,6 +122,8 @@ export interface DocuGenApi {
   importAllSheetsFromLink(url: string): Promise<SheetGrid[]>
   exportTable(table: ExcelTable, suggestedName: string): Promise<string | null>
   exportScheduleA(table: ExcelTable, suggestedName: string, meta?: ScheduleAMeta): Promise<string | null>
+  /** Build the Bid Capacity Evaluation Sheet (one column per participating bidder) and save it as .xlsx. Returns the written path, or null if cancelled. */
+  exportEvaluationSheet(input: EvaluationSheetInput, suggestedName: string): Promise<string | null>
   /** Save several agreement-workspace documents into ONE chosen folder, each in its given format (docx/pdf/xlsx). Returns the written paths, or null if cancelled. */
   exportAgreementBundle(files: AgreementBundleFile[]): Promise<string[] | null>
   exportBoq(table: ExcelTable, suggestedName: string, workName?: string): Promise<string | null>

@@ -37,8 +37,13 @@ export interface NoteSubmittedData {
   nitDate: string
   /** Newspapers the tender notice was published in (one sentence fragment). */
   newspapers: string
-  /** Optional "In that (x) qualified. (1) {name} rejected due to {reason}" sentence. */
+  /** Optional reason phrase for the rejected bidders (e.g. "low bid capacity"),
+   * rendered inside note 4's "…(N) bidders rejected due to {reason}…" clause.
+   * Free text — no count baked in; the count lives in `rejectedCount`. */
   qualificationNote: string
+  /** Count of bidders made non-responsive / rejected (not shown in the price
+   * table). Participants = bidders.length (qualified) + rejectedCount. */
+  rejectedCount: number
   bidders: NoteBidder[]
   l1Name: string
   l1PctText: string
@@ -72,18 +77,61 @@ export function isReservedExempt(reservation: string): boolean {
   return /\b(SC|ST)\b/i.test(reservation)
 }
 
+/** A rejection-reason keyword — how each bidder's Comments cell opens. */
+const REJECT_KEYWORD = /(non[- ]?responsive|not responsive|not satisfied|not uploaded|rejected)/i
 /**
- * Best-effort one-line summary of a non-responsiveness statement — the lines
- * flagging rejected / non-responsive bidders — used to pre-fill the Note
- * Submitted's qualification note (fully editable afterwards). Returns "" when
- * no rejected bidders are found.
+ * The portal's own static page chrome on the "List of Bidders Made
+ * Non-Responsive" sheet that ALSO carries the rejection keyword and so must not
+ * be counted as a bidder: the page title / section header ("List of Bidders
+ * Made Non-Responsive [/Commercial Stage …]") and the instruction footer
+ * ("Please Select Only such reasons for Non-Responsiveness …" / "Please Select
+ * the reason for the Disqualification").
  */
-export function summarizeNonResponsiveness(lines: string[]): string {
-  const hits = lines
-    .map((l) => l.trim())
-    .filter((l) => l && /(non[- ]?responsive|not responsive|not satisfied|not uploaded|rejected)/i.test(l))
-  if (hits.length === 0) return ''
-  return `. In that (${hits.length}) bidder(s) rejected. ${hits.join('; ')}`.replace(/\s+/g, ' ').trim()
+const NONRESP_CHROME = /^(list of bidders|please select)/i
+
+/**
+ * Best-effort read of a "List of Bidders Made Non-Responsive" sheet — used to
+ * pre-fill note 4's rejected count and reason (both fully editable afterwards).
+ *
+ * The sheet is a table: one row per rejected bidder, whose Comments cell opens
+ * with a rejection keyword ("Non Responsive …"). pdf.js returns that cell as its
+ * own line, with any wrapped continuation ("low Bid Capacity") on later lines
+ * that carry no keyword — so counting keyword-bearing lines counts each bidder
+ * once. The catch is the page's static chrome (title, section header, the
+ * "Please Select … Non-Responsiveness" instruction) carries the keyword too;
+ * those are excluded via NONRESP_CHROME, which is what made the old count
+ * over-report (e.g. 5 for a 2-bidder sheet).
+ *
+ * `detail` is only filled for a single rejected bidder, where the reason cell's
+ * lines compose into one clean phrase ("low Bid Capacity"); with several
+ * bidders their reasons don't concatenate readably, so detail is left blank and
+ * the note simply states the counts. Returns { count: 0, detail: '' } when no
+ * rejected bidders are found.
+ */
+export function summarizeNonResponsiveness(lines: string[]): { count: number; detail: string } {
+  const clean = lines.map((l) => l.trim()).filter(Boolean)
+  const reasonStarts = clean.filter((l) => !NONRESP_CHROME.test(l) && REJECT_KEYWORD.test(l))
+  const count = reasonStarts.length
+  if (count !== 1) return { count, detail: '' }
+
+  // Exactly one bidder: gather its Comments cell — every text-bearing line from
+  // its reason start down to the instruction footer. Company-name fragments in
+  // this region are ALL-CAPS (no lowercase), the reason fragments carry
+  // lowercase, so keep only the lowercase-bearing lines, then drop the leading
+  // "Non Responsive [due to]" boilerplate so it reads "…rejected due to {reason}".
+  const startAt = clean.indexOf(reasonStarts[0])
+  const fragments: string[] = []
+  for (let i = startAt; i < clean.length; i++) {
+    const l = clean[i]
+    if (/^please select/i.test(l)) break
+    if (/[a-z]/.test(l)) fragments.push(l)
+  }
+  const detail = fragments
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^non[- ]?responsive\s*(?:due to|,)?\s*/i, '')
+    .trim()
+  return { count, detail }
 }
 
 /** Plain whole-rupee string (no grouping), matching the sample notes' figures. */
@@ -186,13 +234,30 @@ export function buildNoteSubmittedHtml(d: NoteSubmittedData): string {
     '</tr>' +
     rows +
     '</table>'
-  const count = d.bidders.length
-  const qualif = d.qualificationNote.trim() ? ` ${esc(d.qualificationNote.trim())}` : ' as follows.'
+  // The price-bid table holds only the responsive (qualified) bidders, so the
+  // number who *participated* is those plus the rejected/non-responsive ones.
+  // Both counts are printed off the same numbers so they can never contradict
+  // each other (the old code printed the qualified count as "participated").
+  const qualified = d.bidders.length
+  const rejected = Math.max(0, Math.trunc(Number(d.rejectedCount) || 0))
+  const participants = qualified + rejected
+  const reason = d.qualificationNote.trim().replace(/^[.\s]+/, '')
+  // With rejections: "In that (N) bidder(s) rejected [due to …] and (M)
+  // qualified as follows." Without: just "as follows." reading on into the
+  // table below.
+  let qualif: string
+  if (rejected > 0) {
+    const rNoun = rejected === 1 ? 'bidder' : 'bidders'
+    const reasonClause = reason ? ` due to ${esc(reason)}` : ''
+    qualif = `. In that (${rejected}) ${rNoun} rejected${reasonClause} and (${qualified}) qualified as follows.`
+  } else {
+    qualif = ' as follows.'
+  }
   const note4 =
     P(
       `As per above note approved tenders have been called on e-procurement platform vide NIT No: ${esc(d.nitNo)}, ` +
         `Dt:${esc(d.nitDate)} &amp; e-procurement. tender notice has been published in ${esc(d.newspapers)}. ` +
-        `In response to the tender notice (${count}) bidders are participated${qualif}`
+        `In response to the tender notice (${participants}) bidders have participated${qualif}`
     ) +
     table +
     P(
@@ -277,6 +342,7 @@ export function noteSubmittedFromRow(row: Record<string, string>, defaultCircle 
     nitDate: (row['Tender notice Date'] ?? '').trim(),
     newspapers: 'Andhra Jyothi daily Telugu Newspaper and the Pioneer Daily English Paper',
     qualificationNote: '',
+    rejectedCount: 0,
     bidders,
     l1Name,
     l1PctText: l1Pct,

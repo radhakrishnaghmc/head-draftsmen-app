@@ -19,6 +19,8 @@ import type { ScheduleAMeta } from '../core/scheduleA'
 import { fillScheduleATemplate } from '../core/scheduleATemplate'
 import { fillBoqTemplate, rowsToBoqData } from '../core/boqTemplate'
 import { fillDeviationTemplate } from '../core/deviationTemplate'
+import { buildEvaluationSheet } from '../core/evaluationSheet'
+import type { EvaluationSheetInput } from '../core/evaluationSheet'
 import type { DeviationItem, DeviationMeta } from '../core/deviationTemplate'
 import { buildDetailedEstimateWorkbook } from '../core/estimateTemplate'
 import type { DetailedEstimateMeta } from '../core/estimateTemplate'
@@ -339,6 +341,20 @@ function registerHandlers(): void {
         : buildScheduleAWorkbook(items, meta) // fallback if the bundled template is missing
 
       fs.writeFileSync(result.filePath, buffer)
+      return result.filePath
+    }
+  )
+
+  ipcMain.handle(
+    IPC.exportEvaluationSheet,
+    async (_e, input: EvaluationSheetInput, suggestedName: string): Promise<string | null> => {
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        title: `Save ${suggestedName}`,
+        defaultPath: `${suggestedName}.xlsx`,
+        filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
+      })
+      if (result.canceled || !result.filePath) return null
+      fs.writeFileSync(result.filePath, await buildEvaluationSheet(input))
       return result.filePath
     }
   )

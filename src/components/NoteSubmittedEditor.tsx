@@ -81,7 +81,18 @@ export default function NoteSubmittedEditor({ data, onChange }: Props) {
           </label>
         </div>
         {field('Newspapers', 'newspapers')}
-        {field('Qualification / rejection note (optional)', 'qualificationNote')}
+        <div className="ns-grid">
+          <label className="field-label ns-field">
+            No. of rejected / non-responsive bidders
+            <input
+              type="number"
+              min={0}
+              value={String(data.rejectedCount ?? 0)}
+              onChange={(e) => setField('rejectedCount', Math.max(0, Math.trunc(Number(e.target.value) || 0)))}
+            />
+          </label>
+          {field('Rejection reason (optional)', 'qualificationNote')}
+        </div>
 
         <div className="ns-group-title">
           Bidders

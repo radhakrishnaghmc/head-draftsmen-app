@@ -20,7 +20,7 @@ import {
   type Unsubscribe
 } from 'firebase/firestore'
 import { canClaimSlot, claimSlot, releaseSlot, touchSlot, type SessionSlot } from '../core/sessionSlots'
-import type { PersistedState, CreatedDocument, TodoItem } from '../core/types'
+import type { PersistedState, CreatedDocument, TodoItem, MBScrutinyItem } from '../core/types'
 import { LEGACY_SEED_DOC_IDS, pruneLegacyDocuments } from '../core/types'
 
 const firebaseConfig = {
@@ -71,6 +71,9 @@ interface ActiveSession {
   /** Todo ids this session last saw in the cloud — so a delete removes only a
    * todo it knew about, never one another device added since (see pushState). */
   knownTodoIds: Set<string>
+  /** MB Scrutiny record ids this session last saw in the cloud — same per-item
+   * delete safety as knownTodoIds (see pushState). */
+  knownMbIds: Set<string>
   /**
    * Signature (order|name|docx) of each document as last written to the cloud,
    * so pushState re-uploads only the documents that actually changed instead of
@@ -115,13 +118,14 @@ export async function startSession(
     })
     if (!claimed) return { claim: { ok: false, maxSessions: true }, remoteState: null }
 
-    active = { loginId: id, sessionId, knownDocIds: new Set(), knownTodoIds: new Set(), pushedDocSig: new Map(), unsubscribes: [], heartbeatTimer: null }
+    active = { loginId: id, sessionId, knownDocIds: new Set(), knownTodoIds: new Set(), knownMbIds: new Set(), pushedDocSig: new Map(), unsubscribes: [], heartbeatTimer: null }
     active.heartbeatTimer = setInterval(() => void heartbeatTick(), 120_000)
 
     const remoteState = await pullRemoteState(id)
     if (remoteState) {
       active.knownDocIds = new Set((remoteState.createdDocuments ?? []).map((d) => d.id))
       active.knownTodoIds = new Set((remoteState.todos ?? []).map((t) => t.id))
+      active.knownMbIds = new Set((remoteState.mbScrutiny ?? []).map((it) => it.id))
       // Seed the doc signatures from what the cloud already has, so the first
       // push after login doesn't needlessly re-upload documents that match.
       active.pushedDocSig = new Map(
@@ -187,10 +191,10 @@ export async function endSession(): Promise<void> {
 
 async function pullRemoteState(id: string): Promise<PersistedState | null> {
   try {
-    // These 3 reads are independent of one another — fetched in parallel
+    // These reads are independent of one another — fetched in parallel
     // instead of one-after-another so login/sync only pays for the slowest
-    // of the 3 round trips, not the sum of all 3.
-    const [tablesSnap, miscSnap, docsSnap, todosSnap] = await Promise.all([
+    // round trip, not the sum of all of them.
+    const [tablesSnap, miscSnap, docsSnap, todosSnap, mbSnap] = await Promise.all([
       getDoc(doc(db!, 'users', id, 'meta', 'tables')),
       getDoc(doc(db!, 'users', id, 'meta', 'misc')),
       // A Firestore collection has no inherent array order — getDocs()
@@ -204,7 +208,11 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       // Todos sync per-item (like documents), so one device's stale whole-blob
       // write can't wipe a task another device just added. `order` preserves the
       // user's arrangement across a round trip.
-      getDocs(collection(db!, 'users', id, 'todos'))
+      getDocs(collection(db!, 'users', id, 'todos')),
+      // MB Scrutiny records sync per-item for the same reason — the whole-blob
+      // misc.mbScrutiny write used to let a concurrent session's stale copy wipe
+      // a record another device had just added. `order` keeps receipt order.
+      getDocs(collection(db!, 'users', id, 'mbScrutiny'))
     ])
     if (!tablesSnap.exists() && !miscSnap.exists()) return null
 
@@ -235,6 +243,25 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
         ...(v.completedDate ? { completedDate: v.completedDate } : {})
       }))
     const todos = todosFromCollection.length > 0 ? todosFromCollection : (m.todos ?? [])
+    // Same as todos: prefer the per-item mbScrutiny collection, falling back to
+    // the legacy misc.mbScrutiny blob for a workspace that predates per-item
+    // sync (migrated up on next push). Firestore rejects `undefined`, so the
+    // optional fields were only written when present — re-spread just those.
+    const mbFromCollection: MBScrutinyItem[] = mbSnap.docs
+      .map((d) => d.data() as MBScrutinyItem & { order?: number })
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((v) => ({
+        id: v.id,
+        serialNo: v.serialNo,
+        mbNo: v.mbNo,
+        agencyName: v.agencyName,
+        receivedDate: v.receivedDate,
+        done: v.done,
+        ...(v.targetDate ? { targetDate: v.targetDate } : {}),
+        ...(v.completedDate ? { completedDate: v.completedDate } : {}),
+        ...(v.remarks ? { remarks: v.remarks } : {})
+      }))
+    const mbScrutiny = mbFromCollection.length > 0 ? mbFromCollection : (m.mbScrutiny ?? [])
     return {
       // The persisted schema version must round-trip through Firebase, or the
       // caller's one-time migrations (e.g. Lakhs -> rupees ECV/Contract Amount)
@@ -252,7 +279,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       tenderReminders: m.tenderReminders ?? [],
       createdDocuments,
       bidDocumentBatches: m.bidDocumentBatches ?? [],
-      mbScrutiny: m.mbScrutiny ?? []
+      mbScrutiny
     }
   } catch (e) {
     console.error('pullRemoteState failed', e)
@@ -270,6 +297,7 @@ function subscribeRemote(
   const miscRef = doc(db!, 'users', id, 'meta', 'misc')
   const docsRef = collection(db!, 'users', id, 'documents')
   const todosRef = collection(db!, 'users', id, 'todos')
+  const mbRef = collection(db!, 'users', id, 'mbScrutiny')
 
   // Firestore invokes onSnapshot callbacks from its own internal retry/
   // dispatch timers, outside any request this module's caller made — an
@@ -302,17 +330,16 @@ function subscribeRemote(
       if (snap.metadata.hasPendingWrites) return
       const data = snap.data()
       if (!data || data.lastWriter === sessionId) return
-      // NOTE: todos are intentionally NOT read from the misc blob here — they
-      // sync via the per-item todos collection below, so a stale whole-blob misc
-      // write can't clobber the task list.
+      // NOTE: todos and mbScrutiny are intentionally NOT read from the misc blob
+      // here — they sync via their own per-item collections below, so a stale
+      // whole-blob misc write can't clobber either list.
       safeUpdate({
         resolution: data.resolution ?? {},
         lastGoogleLink: data.lastGoogleLink ?? undefined,
         worksListLinks: data.worksListLinks ?? {},
         qcParties: data.qcParties ?? undefined,
         tenderReminders: data.tenderReminders ?? [],
-        bidDocumentBatches: data.bidDocumentBatches ?? [],
-        mbScrutiny: data.mbScrutiny ?? []
+        bidDocumentBatches: data.bidDocumentBatches ?? []
       })
     })
   )
@@ -325,6 +352,7 @@ function subscribeRemote(
   // genuine later changes from the other device.
   let firstTodosSnap = true
   let firstDocsSnap = true
+  let firstMbSnap = true
 
   active.unsubscribes.push(
     onSnapshot(todosRef, (snap) => {
@@ -369,6 +397,25 @@ function subscribeRemote(
         // carry them. A genuine "user deleted every document" is not worth
         // reintroducing that whole-workspace wipe for.
         if (full && (full.createdDocuments?.length ?? 0) > 0) safeUpdate({ createdDocuments: full.createdDocuments })
+      })
+    })
+  )
+
+  active.unsubscribes.push(
+    onSnapshot(mbRef, (snap) => {
+      if (snap.metadata.hasPendingWrites) return
+      if (firstMbSnap) {
+        firstMbSnap = false
+        return
+      }
+      // Re-pull the whole (small) set rather than reconstruct from the diff —
+      // same reasoning as todos. Never let an EMPTY cloud collection wipe the
+      // on-screen list: a workspace still on the legacy misc.mbScrutiny blob has
+      // an empty collection until its first push migrates it, and applying []
+      // here would erase those records. The migrated records get pushed up
+      // moments later; a genuine "deleted every MB" reflects on the next full pull.
+      void pullRemoteState(id).then((full) => {
+        if (full && (full.mbScrutiny?.length ?? 0) > 0) safeUpdate({ mbScrutiny: full.mbScrutiny })
       })
     })
   )
@@ -485,6 +532,41 @@ export async function pushState(state: PersistedState): Promise<void> {
         if (!currentTodoIds.has(oldId)) await deleteDoc(doc(db!, 'users', loginId, 'todos', oldId))
       }
       active.knownTodoIds = currentTodoIds
+    }
+
+    // MB Scrutiny: one Firestore doc per record (mirrors todos), so a stale
+    // whole-blob push can't wipe a record another device just added. Firestore
+    // rejects `undefined`, so the optional fields are only written when present.
+    // The legacy misc.mbScrutiny above stays dual-written for not-yet-updated
+    // clients.
+    const orderedMb = state.mbScrutiny ?? []
+    const currentMbIds = new Set(orderedMb.map((it) => it.id))
+    for (let i = 0; i < orderedMb.length; i++) {
+      const it = orderedMb[i]
+      try {
+        await setDoc(doc(db!, 'users', loginId, 'mbScrutiny', it.id), {
+          id: it.id,
+          serialNo: it.serialNo,
+          mbNo: it.mbNo,
+          agencyName: it.agencyName,
+          receivedDate: it.receivedDate,
+          done: it.done,
+          ...(it.targetDate ? { targetDate: it.targetDate } : {}),
+          ...(it.completedDate ? { completedDate: it.completedDate } : {}),
+          ...(it.remarks ? { remarks: it.remarks } : {}),
+          order: i,
+          updatedAt: serverTimestamp(),
+          lastWriter: sessionId
+        })
+      } catch (e) {
+        console.error(`pushState: failed to sync MB record "${it.mbNo}"`, e)
+      }
+    }
+    if (active) {
+      for (const oldId of active.knownMbIds) {
+        if (!currentMbIds.has(oldId)) await deleteDoc(doc(db!, 'users', loginId, 'mbScrutiny', oldId))
+      }
+      active.knownMbIds = currentMbIds
     }
   } catch (e) {
     console.error('pushState failed', e)

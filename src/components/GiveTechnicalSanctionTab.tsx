@@ -5,7 +5,7 @@ import { extractEstimateItemsWithAi } from '../aiEstimateColumns'
 import { mismatchHint } from '../docClassify'
 import { buildRateIndex } from '@core/rateDatabase'
 import type { RateEntry } from '@core/rateDatabase'
-import { matchEstimateItems, buildCellEdits, buildRateAnalysisSheet } from '@core/technicalSanction'
+import { matchEstimateItems, buildCellEdits, buildRateAnalysisSheet, isAutoResolved, needsReview } from '@core/technicalSanction'
 import type { ItemMatch, ResolvedItem } from '@core/technicalSanction'
 import { IconFolder, IconDownload, IconWarn, IconCheck, IconTable } from './Icons'
 import type { SheetGrid } from '../../electron/ipc-contract'
@@ -84,11 +84,11 @@ export default function GiveTechnicalSanctionTab() {
     }
     const m = matchEstimateItems(items, index, embeddings)
     setMatches(m)
-    // A single candidate found purely by semantic similarity (no keyword
-    // overlap at all) still needs a human look before it's trusted — the
-    // bundled model isn't fine-tuned on this domain's jargon and can
-    // confidently conflate closely-related-but-distinct technical items.
-    setSelections(m.map((x) => (x.candidates.length === 1 && !x.semanticOnly ? 0 : null)))
+    // Only auto-select a match confident enough to fill without review (exact
+    // code/grade, or a strong-similarity single candidate). A weak/semantic-only
+    // guess — including a medium-confidence lookalike drawn by an item whose true
+    // rate isn't in the Data Sheet at all — is left for the user to confirm.
+    setSelections(m.map((x) => (isAutoResolved(x) ? 0 : null)))
   }
 
   async function uploadDataSheet() {
@@ -168,10 +168,10 @@ export default function GiveTechnicalSanctionTab() {
     }
   }
 
+  // Resolved = anything now carrying a chosen rate, auto-filled or user-picked.
+  // Needs-pick = reviewable matches still awaiting a choice. Not-found = red.
   const foundCount = matches ? selections.filter((s) => s != null).length : 0
-  const ambiguousCount = matches
-    ? matches.filter((m) => m.candidates.length > 1 || (m.candidates.length === 1 && m.semanticOnly)).length
-    : 0
+  const ambiguousCount = matches ? matches.filter((m, i) => needsReview(m) && selections[i] == null).length : 0
   const notFoundCount = matches ? matches.filter((m) => m.candidates.length === 0).length : 0
 
   return (
@@ -259,17 +259,19 @@ export default function GiveTechnicalSanctionTab() {
                       Not found — left for manual entry
                     </span>
                   )}
-                  {m.candidates.length === 1 && !m.semanticOnly && (
+                  {isAutoResolved(m) && (
                     <span className="todo-dates" style={{ color: '#008000' }}>
                       Rate found: {formatRate(m.candidates[0].rate)}
                     </span>
                   )}
-                  {(m.candidates.length > 1 || (m.candidates.length === 1 && m.semanticOnly)) && (
+                  {needsReview(m) && (
                     <label className="todo-dates" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ color: '#b8860b' }}>
                         {m.candidates.length > 1
                           ? `${m.candidates.length} possible rates — pick one:`
-                          : 'Matched by meaning only, not exact wording — please verify:'}
+                          : m.semanticOnly
+                            ? 'Matched by meaning only, not exact wording — please verify:'
+                            : 'Low-confidence match — please verify:'}
                       </span>
                       <select
                         value={selections[i] ?? ''}

@@ -181,6 +181,18 @@ export function parseTenderEvaluation(lines: string[]): TenderEvaluation {
     const value = cleanNit(nit[1])
     if (value) result.noticeNo = value
   }
+  // Many L1 sheets label this field only "Enquiry/IFB/Tender … Notice Number"
+  // with no "NIT No." prefix at all (e.g. "Enquiry/IFB/Tender 08/DB/EE/Nizampet
+  // Circle-58/CMC/2026- … Notice Number 27(Item No.01),Dt:25.06.2026"), so the
+  // label-anchored match above finds nothing. Fall back to the notice number's
+  // own canonical shape wherever it sits in the (label-stripped) text —
+  // "<code>/DB/EE/<place> Circle-<circleNo>/[QBZ/]CMC/<year>" — tolerating the
+  // spaces the stripped "Tender ID"/"Notice Number" labels leave inside the
+  // wrapped "…/2026-  27" tail. tightenCode then rejoins it.
+  if (!result.noticeNo) {
+    const canonical = /\d{1,3}\/DB\/EE\/.+?Circle\s*-\s*\d{1,3}\/(?:QBZ\/)?CMC\/\d{4}\s*-\s*\d{2,4}/i.exec(cleaned)
+    if (canonical) result.noticeNo = tightenCode(canonical[0])
+  }
 
   // The NIT line carries the notice's own date as "Dated:15.07.2026" /
   // "Dt: 15-07-2026" — split out as the Tender notice Date. "Dated"/"Dt" is

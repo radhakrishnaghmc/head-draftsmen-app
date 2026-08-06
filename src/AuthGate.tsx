@@ -2,7 +2,7 @@ import { useState } from 'react'
 import App from './App'
 import LoginPage from './components/LoginPage'
 import { api } from './ipc'
-import { type Office, loadOffice, saveOffice, clearOffice } from './office'
+import { type Office, loadOffice, saveOffice } from './office'
 
 // The signed-in flag is cleared when the app/window closes — login is required
 // once per launch, not stored indefinitely.
@@ -43,8 +43,10 @@ export default function AuthGate() {
       onLogout={() => {
         void api.logout()
         sessionStorage.removeItem(SESSION_KEY)
-        clearOffice()
-        setOfficeState({})
+        // Keep the chosen office remembered across logout — it's a property of
+        // this machine's Head Draughtsman, not of the login session, so the app
+        // should never re-ask for it once picked. (It can still be changed any
+        // time from the sidebar's office selector.)
         setAuthed(false)
       }}
     />

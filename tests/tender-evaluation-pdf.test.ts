@@ -121,6 +121,21 @@ describe('parseTenderEvaluation', () => {
     expect(r.noticeNo).toBe('02/DB/EE/Gajularamaram Circle-57/QBZ/CMC/2026-27')
   })
 
+  it('reads the notice No & date from an "Enquiry/IFB/Tender … Notice Number" line with no "NIT No." label', () => {
+    // Real NIT.08 layout: the field is labelled only "Enquiry/IFB/Tender …
+    // Notice Number", never "NIT No.", and the Tender ID splits the wrapped
+    // "…/2026-  27" tail. The notice number (and its Dt: date) must still come
+    // through so the Note Submitted form isn't left blank.
+    const r = parseTenderEvaluation([
+      'Enquiry/IFB/Tender 08/DB/EE/Nizampet Circle-58/CMC/2026-',
+      'Tender ID 711763',
+      'Notice Number 27(Item No.01),Dt:25.06.2026',
+      'Name of Work Maintenance of CC Roads'
+    ])
+    expect(r.noticeNo).toBe('08/DB/EE/Nizampet Circle-58/CMC/2026-27')
+    expect(r.noticeDate).toBe('25.06.2026')
+  })
+
   it('trims a lowercase "date:" / work-name tail the value regex over-captured', () => {
     const r = parseTenderEvaluation([
       'Commercial Evaluation',
