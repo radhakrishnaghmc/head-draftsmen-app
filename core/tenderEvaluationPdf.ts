@@ -161,8 +161,12 @@ export function parseTenderEvaluation(lines: string[]): TenderEvaluation {
 
   // Tender ID sits in the header's right column; pdf.js emits it either as
   // "Tender ID <id>" or — when the value cell rounds a hair above its label —
-  // as "<id> Tender ID" (value before label). Accept both orders.
-  const tenderId = /Tender ID\s+(\d+)|(\d+)\s+Tender ID/i.exec(joined)
+  // as "<id> Tender ID" (value before label). Accept both orders. The id is a
+  // 6-digit number, so require 5–8 digits: on some sheets (e.g. the SE office
+  // layout) the NIT date's year — "…Dt. 27.07.2026 Tender ID 722264…" — sits
+  // right before the label, and an unconstrained "\d+" matched that "2026"
+  // (leftmost) instead of the real id.
+  const tenderId = /Tender ID\s+(\d{5,8})\b|\b(\d{5,8})\s+Tender ID/i.exec(joined)
   if (tenderId) result.tenderId = tenderId[1] ?? tenderId[2]
 
   // NIT No spans the header's left column and is interrupted by the right

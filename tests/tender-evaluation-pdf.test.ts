@@ -121,6 +121,17 @@ describe('parseTenderEvaluation', () => {
     expect(r.noticeNo).toBe('02/DB/EE/Gajularamaram Circle-57/QBZ/CMC/2026-27')
   })
 
+  it('reads the SE-office Tender ID when the NIT date year sits right before the label', () => {
+    // Real SE (zone) L1 layout: "… Dt. 27.07.2026 Tender ID 722264 (Item No.11)".
+    // The "2026" of the NIT date abuts the label; the old \d+ grabbed it (leftmost).
+    const r = parseTenderEvaluation([
+      'Current Tender Details Enquiry/IFB/Tender Notice NIT No. 15/SE/QBZ/CMC/2026-27, Dt. 27.07.2026 Tender ID 722264 (Item No.11) Number',
+      'Name of Work Laying of Footpath',
+      'J.J. Constructions 1000000.00 Less 5.00 950000.00 L-1'
+    ])
+    expect(r.tenderId).toBe('722264')
+  })
+
   it('reads the notice No & date from an "Enquiry/IFB/Tender … Notice Number" line with no "NIT No." label', () => {
     // Real NIT.08 layout: the field is labelled only "Enquiry/IFB/Tender …
     // Notice Number", never "NIT No.", and the Tender ID splits the wrapped
