@@ -124,8 +124,8 @@ export interface DocuGenApi {
   exportScheduleA(table: ExcelTable, suggestedName: string, meta?: ScheduleAMeta): Promise<string | null>
   /** Build the Bid Capacity Evaluation Sheet (one column per participating bidder) and save it as .xlsx. Returns the written path, or null if cancelled. */
   exportEvaluationSheet(input: EvaluationSheetInput, suggestedName: string): Promise<string | null>
-  /** Save several agreement-workspace documents into ONE chosen folder, each in its given format (docx/pdf/xlsx). Returns the written paths, or null if cancelled. */
-  exportAgreementBundle(files: AgreementBundleFile[]): Promise<string[] | null>
+  /** Save several agreement-workspace documents into ONE chosen folder, each in its given format (docx/pdf/xlsx). Returns the written paths plus any that failed (e.g. PDF conversion), or null if cancelled. */
+  exportAgreementBundle(files: AgreementBundleFile[]): Promise<{ written: string[]; failed: string[] } | null>
   exportBoq(table: ExcelTable, suggestedName: string, workName?: string): Promise<string | null>
   exportBoqBatch(
     entries: { table: ExcelTable; suggestedName: string; workName?: string }[]

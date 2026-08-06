@@ -77,60 +77,81 @@ export function isReservedExempt(reservation: string): boolean {
   return /\b(SC|ST)\b/i.test(reservation)
 }
 
-/** A rejection-reason keyword — how each bidder's Comments cell opens. */
-const REJECT_KEYWORD = /(non[- ]?responsive|not responsive|not satisfied|not uploaded|rejected)/i
-/**
- * The portal's own static page chrome on the "List of Bidders Made
- * Non-Responsive" sheet that ALSO carries the rejection keyword and so must not
- * be counted as a bidder: the page title / section header ("List of Bidders
- * Made Non-Responsive [/Commercial Stage …]") and the instruction footer
- * ("Please Select Only such reasons for Non-Responsiveness …" / "Please Select
- * the reason for the Disqualification").
- */
-const NONRESP_CHROME = /^(list of bidders|please select)/i
+/** A positioned line from the non-responsive sheet (see pdfToPositionedLines):
+ * `x` is the line's leftmost item, `y` its top-to-bottom reading position. */
+export interface NonRespLine {
+  text: string
+  x: number
+  y: number
+}
+
+// The header row of the bidder table (its wrapped fragments) and the page's
+// footer — used to bound the region that holds the actual bidder rows.
+const NONRESP_HEADER = /company name.*comment/i
+const NONRESP_FOOTER =
+  /^(please select|back\b|save & continue|icons|view documents|dashboard \||department tender|refund emd|information technology|\*\* applicable|current tender)/i
 
 /**
- * Best-effort read of a "List of Bidders Made Non-Responsive" sheet — used to
- * pre-fill note 4's rejected count and reason (both fully editable afterwards).
+ * Count the bidders on a "List of Bidders Made Non-Responsive" sheet — and, for
+ * a single bidder, its rejection reason — for note 4's rejected count.
  *
- * The sheet is a table: one row per rejected bidder, whose Comments cell opens
- * with a rejection keyword ("Non Responsive …"). pdf.js returns that cell as its
- * own line, with any wrapped continuation ("low Bid Capacity") on later lines
- * that carry no keyword — so counting keyword-bearing lines counts each bidder
- * once. The catch is the page's static chrome (title, section header, the
- * "Please Select … Non-Responsiveness" instruction) carries the keyword too;
- * those are excluded via NONRESP_CHROME, which is what made the old count
- * over-report (e.g. 5 for a 2-bidder sheet).
+ * This reads the TABLE STRUCTURE, not the comment wording, because evaluators
+ * routinely misspell the reason ("NOT RESPOSONVIE DUE TO LOW BID") — keyword
+ * matching then miscounts (0, or double-counts a two-line comment). Instead:
+ * the sheet has a company-name column on the far left and a Comments column on
+ * the far right (the middle columns are checkboxes, so they carry no text).
+ * Within the bidder region we take the right-hand (Comments) column — one text
+ * block per bidder — and count blocks by their vertical gaps: small gaps are a
+ * comment's own line-wraps, a big gap starts the next bidder's row.
  *
- * `detail` is only filled for a single rejected bidder, where the reason cell's
- * lines compose into one clean phrase ("low Bid Capacity"); with several
- * bidders their reasons don't concatenate readably, so detail is left blank and
- * the note simply states the counts. Returns { count: 0, detail: '' } when no
- * rejected bidders are found.
+ * `detail` is filled only for a single bidder (several reasons don't compose
+ * readably). Returns { count: 0, detail: '' } when no bidder rows are found.
  */
-export function summarizeNonResponsiveness(lines: string[]): { count: number; detail: string } {
-  const clean = lines.map((l) => l.trim()).filter(Boolean)
-  const reasonStarts = clean.filter((l) => !NONRESP_CHROME.test(l) && REJECT_KEYWORD.test(l))
-  const count = reasonStarts.length
-  if (count !== 1) return { count, detail: '' }
-
-  // Exactly one bidder: gather its Comments cell — every text-bearing line from
-  // its reason start down to the instruction footer. Company-name fragments in
-  // this region are ALL-CAPS (no lowercase), the reason fragments carry
-  // lowercase, so keep only the lowercase-bearing lines, then drop the leading
-  // "Non Responsive [due to]" boilerplate so it reads "…rejected due to {reason}".
-  const startAt = clean.indexOf(reasonStarts[0])
-  const fragments: string[] = []
-  for (let i = startAt; i < clean.length; i++) {
-    const l = clean[i]
-    if (/^please select/i.test(l)) break
-    if (/[a-z]/.test(l)) fragments.push(l)
+export function summarizeNonResponsiveness(lines: NonRespLine[]): { count: number; detail: string } {
+  const clean = lines.filter((l) => l.text.trim())
+  // Bound the region to the rows between the column header and the footer.
+  const headerIdx = clean.findIndex((l) => NONRESP_HEADER.test(l.text))
+  const startIdx = headerIdx >= 0 ? headerIdx + 1 : 0
+  let endIdx = clean.length
+  for (let i = startIdx; i < clean.length; i++) {
+    if (NONRESP_FOOTER.test(clean[i].text)) {
+      endIdx = i
+      break
+    }
   }
-  const detail = fragments
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .replace(/^non[- ]?responsive\s*(?:due to|,)?\s*/i, '')
-    .trim()
+  const region = clean.slice(startIdx, endIdx)
+  if (region.length === 0) return { count: 0, detail: '' }
+
+  // The Comments column is the right-most; require a clear x-gap from the
+  // name/middle columns so a sheet without one never yields phantom bidders.
+  const maxX = Math.max(...region.map((l) => l.x))
+  const minX = Math.min(...region.map((l) => l.x))
+  if (maxX - minX < 150) return { count: 0, detail: '' }
+  const comments = region.filter((l) => l.x >= maxX - 45)
+  if (comments.length === 0) return { count: 0, detail: '' }
+
+  // One comment block per bidder: cluster the (top-to-bottom) comment lines by
+  // vertical gap. Threshold adapts to the line height (median gap) so it works
+  // across font sizes, with a floor for the single-line-comment case.
+  const gaps: number[] = []
+  for (let i = 1; i < comments.length; i++) gaps.push(comments[i].y - comments[i - 1].y)
+  const sorted = [...gaps].sort((a, b) => a - b)
+  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0
+  const threshold = Math.max(18, median * 1.8)
+  let count = 1
+  for (const g of gaps) if (g > threshold) count++
+
+  // Reason for a single bidder: the joined comment text, minus the leading
+  // "(non|not) respo… [due to]" boilerplate (tolerant of the common misspelling).
+  const detail =
+    count === 1
+      ? comments
+          .map((c) => c.text)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .replace(/^(non|not)[\s-]*respo\S*\s*(due to|,|:)?\s*/i, '')
+          .trim()
+      : ''
   return { count, detail }
 }
 
@@ -155,7 +176,7 @@ function agreementClause(d: NoteSubmittedData): string {
   const asdPct = pct != null ? pct - 25 : null
   const emdAmt = emd != null ? money(emd) : '____________'
   const asdAmt = money(asd)
-  const receipt = `vide Online Receipt No: ${esc(d.receiptNo) || '____________________'} Dt: ${esc(d.receiptDate) || '__________'}`
+  const receipt = `vide Online Receipt No: ${esc(d.receiptNo) || RECEIPT_BLANK} Dt: ${esc(d.receiptDate) || '__________'}`
 
   if (isReservedExempt(d.reservation)) {
     const cat = esc(d.reservation.match(/\b(SC|ST)\b/i)?.[0]?.toUpperCase() ?? d.reservation)
@@ -182,7 +203,16 @@ const HD_EE =
   '<td style="border:none;text-align:right;font-weight:bold">EE</td>' +
   '</tr></table>'
 
-const P = (html: string): string => `<p style="margin:0 0 6px;line-height:1.45">${html}</p>`
+// Full-line hand-writable blanks: the newspapers clause (note 4) and the EMD
+// Online Receipt No (note 6, a ~20-char number) each print a line-spanning
+// underline to fill by hand when left empty, instead of a default / short gap.
+const NEWSPAPER_BLANK = '_'.repeat(65)
+const RECEIPT_BLANK = '_'.repeat(45)
+
+// Note paragraphs are justified (text-align:justify → w:jc "both"); the Word
+// 2007 sanitiser keeps <w:jc> in schema order after html-to-docx (see
+// sanitizeHtmlDocxForWord2007).
+const P = (html: string): string => `<p style="margin:0 0 6px;line-height:1.45;text-align:justify">${html}</p>`
 const SUB = '<p style="margin:14px 0 4px;font-weight:bold">Submitted: -</p>'
 
 /**
@@ -197,7 +227,7 @@ export function buildNoteSubmittedHtml(d: NoteSubmittedData): string {
   // Note 1 — administrative sanction
   const note1 = P(
     `It is to submit that the Commissioner/Zonal-Commissioner, ${b} has Accorded administrative sanction for the work of ` +
-      `<b>${esc(d.workName)}</b> for Estimate amount of ${estimate} dt:${esc(d.asDate)} under general budget for the financial year ${fy}`
+      `<b>${esc(d.workName)}</b> for Estimate amount of ${estimate} dt: ${d.asDate.trim() ? esc(d.asDate) : '_____________'} under general budget for the financial year ${fy}`
   )
 
   // Note 2 — technical sanction (fixed text)
@@ -256,7 +286,7 @@ export function buildNoteSubmittedHtml(d: NoteSubmittedData): string {
   const note4 =
     P(
       `As per above note approved tenders have been called on e-procurement platform vide NIT No: ${esc(d.nitNo)}, ` +
-        `Dt:${esc(d.nitDate)} &amp; e-procurement. tender notice has been published in ${esc(d.newspapers)}. ` +
+        `Dt:${esc(d.nitDate)} &amp; e-procurement. tender notice has been published in ${d.newspapers.trim() ? esc(d.newspapers) : NEWSPAPER_BLANK}. ` +
         `In response to the tender notice (${participants}) bidders have participated${qualif}`
     ) +
     table +
@@ -340,7 +370,9 @@ export function noteSubmittedFromRow(row: Record<string, string>, defaultCircle 
     tenderNoticeDate: (row['Tender notice Date'] ?? '').trim(),
     nitNo: (row['Tender Notice No'] ?? '').trim(),
     nitDate: (row['Tender notice Date'] ?? '').trim(),
-    newspapers: 'Andhra Jyothi daily Telugu Newspaper and the Pioneer Daily English Paper',
+    // Left blank by default so the note prints a fill-in line — the office
+    // writes the actual newspapers by hand (or types them in the editor).
+    newspapers: '',
     qualificationNote: '',
     rejectedCount: 0,
     bidders,

@@ -1,56 +1,85 @@
 import { describe, it, expect } from 'vitest'
-import { summarizeNonResponsiveness, buildNoteSubmittedHtml, type NoteSubmittedData } from '../core/noteSubmitted'
+import {
+  summarizeNonResponsiveness,
+  buildNoteSubmittedHtml,
+  type NoteSubmittedData,
+  type NonRespLine
+} from '../core/noteSubmitted'
 
-// The exact lines pdf.js reconstructs from the portal's "List of Bidders Made
-// Non-Responsive" sheet (Tender 717652, 2 rejected bidders). Includes the page
-// chrome that also carries the "Non-Responsive" keyword — the title, the
-// section header and the "Please Select … Non-Responsiveness" instruction —
-// which used to be miscounted as bidders (the sheet reported "(5) rejected").
-const NON_RESPONSIVE_2_BIDDERS = [
-  'Welcome to ee-grrc-ghmc Profile | Training Manuals | Logout',
-  'List of Bidders Made Non-Responsive',
-  'Current Tender Details',
-  'Name of Work',
-  'List of Bidders Made Non-Responsive /Commercial Stage Please Enter Comments',
-  'Company Name Registration Digital Scanned Criminal Others Comments *',
-  'EMD',
-  'SRI TULJA',
-  'Non Responsive due to',
-  'BHAVANI',
-  'low Bid Capacity',
-  'CONSTRUCTIONS',
-  'Non Responsive Low',
-  'SVS INFRA',
-  'bid Capacity and',
-  'Please Select Only such reasons for Non-Responsiveness,strictly based on NIT/Tender conditions * Indicates Mandatory',
-  'Please Select the reason for the Disqualification'
+const NAME_X = 40
+const COMMENT_X = 600
+
+// Positioned lines mirroring the portal's "List of Bidders Made Non-Responsive"
+// sheet: a company-name column on the far left (NAME_X) and a Comments column on
+// the far right (COMMENT_X). y increases downward, as pdfToPositionedLines emits.
+const header = (y: number): NonRespLine => ({
+  text: 'Company Name Registration Digital Scanned Criminal Others Comments *',
+  x: NAME_X,
+  y
+})
+const name = (text: string, y: number): NonRespLine => ({ text, x: NAME_X, y })
+const comment = (text: string, y: number): NonRespLine => ({ text, x: COMMENT_X, y })
+const footer = (y: number): NonRespLine => ({
+  text: 'Please Select Only such reasons for Non-Responsiveness,strictly based on NIT/Tender conditions',
+  x: NAME_X,
+  y
+})
+
+// Two bidders (SRI TULJA BHAVANI CONSTRUCTIONS, SVS INFRA) — name and comment
+// lines interleave in y as the taller name cell centres against the comment.
+const TWO_BIDDERS: NonRespLine[] = [
+  header(100),
+  name('SRI TULJA', 120),
+  comment('Non Responsive due to', 122),
+  name('BHAVANI', 135),
+  comment('low Bid Capacity', 137),
+  name('CONSTRUCTIONS', 150),
+  name('SVS INFRA', 180),
+  comment('Non Responsive Low', 182),
+  comment('bid Capacity and', 197),
+  footer(220)
 ]
 
 describe('summarizeNonResponsiveness', () => {
-  it('counts only the rejected bidders, not the page title / header / instruction', () => {
-    const { count } = summarizeNonResponsiveness(NON_RESPONSIVE_2_BIDDERS)
-    expect(count).toBe(2)
+  it('counts bidders from the table structure, not the page chrome', () => {
+    expect(summarizeNonResponsiveness(TWO_BIDDERS).count).toBe(2)
   })
 
-  it('leaves the reason blank for several bidders (their reasons do not concatenate readably)', () => {
-    const { detail } = summarizeNonResponsiveness(NON_RESPONSIVE_2_BIDDERS)
-    expect(detail).toBe('')
+  it('leaves the reason blank for several bidders (they do not concatenate readably)', () => {
+    expect(summarizeNonResponsiveness(TWO_BIDDERS).detail).toBe('')
   })
 
   it('extracts a clean single reason when exactly one bidder is rejected', () => {
-    const oneBidder = NON_RESPONSIVE_2_BIDDERS.filter(
-      (l) => !/SVS INFRA|Non Responsive Low|bid Capacity and/.test(l)
-    )
-    const { count, detail } = summarizeNonResponsiveness(oneBidder)
+    const one: NonRespLine[] = [
+      header(100),
+      name('SRI TULJA', 120),
+      comment('Non Responsive due to', 122),
+      name('BHAVANI', 135),
+      comment('low Bid Capacity', 137),
+      name('CONSTRUCTIONS', 150),
+      footer(200)
+    ]
+    const { count, detail } = summarizeNonResponsiveness(one)
     expect(count).toBe(1)
     expect(detail).toBe('low Bid Capacity')
   })
 
-  it('returns zero when the sheet flags no rejected bidders', () => {
-    expect(summarizeNonResponsiveness(['Current Tender Details', 'Company Name'])).toEqual({
-      count: 0,
-      detail: ''
-    })
+  it('counts a bidder even when the evaluator misspells "responsive"', () => {
+    const typo: NonRespLine[] = [
+      header(100),
+      name('MSR', 120),
+      comment('NOT RESPOSONVIE DUE', 122),
+      comment('TO LOW BID', 137),
+      name('CONSTRUCTIONS', 150),
+      footer(200)
+    ]
+    const { count, detail } = summarizeNonResponsiveness(typo)
+    expect(count).toBe(1)
+    expect(detail).toBe('LOW BID')
+  })
+
+  it('returns zero when there is no distinct comments column', () => {
+    expect(summarizeNonResponsiveness([header(100), footer(120)])).toEqual({ count: 0, detail: '' })
   })
 })
 
@@ -106,5 +135,37 @@ describe('buildNoteSubmittedHtml — participant / rejected counts', () => {
     const html = buildNoteSubmittedHtml(noteData({ rejectedCount: 1 }))
     expect(html).toContain('(5) bidders have participated')
     expect(html).toContain('In that (1) bidder rejected and (4) qualified as follows.')
+  })
+
+  it('leaves a fill-in blank after "dt:" when no admin-sanction date is set', () => {
+    const html = buildNoteSubmittedHtml(noteData({ asDate: '' }))
+    expect(html).toContain('dt: _____________ under general budget')
+  })
+
+  it('prints the admin-sanction date after "dt:" when set', () => {
+    const html = buildNoteSubmittedHtml(noteData({ asDate: '29.05.2026' }))
+    expect(html).toContain('dt: 29.05.2026 under general budget')
+  })
+
+  it('justifies every note paragraph', () => {
+    const html = buildNoteSubmittedHtml(noteData({}))
+    expect(html).not.toContain('<p style="margin:0 0 6px;line-height:1.45">') // no un-justified paragraphs
+    expect(html.includes('text-align:justify')).toBe(true)
+  })
+
+  it('prints a full-line blank for the newspapers when none entered, not a default', () => {
+    const html = buildNoteSubmittedHtml(noteData({ newspapers: '' }))
+    expect(html).toContain(`published in ${'_'.repeat(65)}.`)
+    expect(html).not.toContain('Andhra Jyothi')
+  })
+
+  it('prints the newspapers when entered', () => {
+    const html = buildNoteSubmittedHtml(noteData({ newspapers: 'Eenadu and The Hindu' }))
+    expect(html).toContain('published in Eenadu and The Hindu.')
+  })
+
+  it('gives the EMD Online Receipt No a full-line blank when unset (20-char number)', () => {
+    const html = buildNoteSubmittedHtml(noteData({ receiptNo: '' }))
+    expect(html).toContain(`Online Receipt No: ${'_'.repeat(45)} `)
   })
 })

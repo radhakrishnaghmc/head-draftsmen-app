@@ -372,7 +372,7 @@ function registerHandlers(): void {
   // from the Schedule A table). A unique-name guard avoids clobbering.
   ipcMain.handle(
     IPC.exportAgreementBundle,
-    async (_e, files: AgreementBundleFile[]): Promise<string[] | null> => {
+    async (_e, files: AgreementBundleFile[]): Promise<{ written: string[]; failed: string[] } | null> => {
       if (!files || files.length === 0) return null
       const result = await dialog.showOpenDialog(mainWindow!, {
         title: 'Choose a folder to save all agreement documents into',
@@ -394,6 +394,7 @@ function registerHandlers(): void {
       }
 
       const written: string[] = []
+      const failed: string[] = []
       for (const f of files) {
         try {
           if (f.format === 'xlsx') {
@@ -416,11 +417,14 @@ function registerHandlers(): void {
           }
         } catch (e) {
           // Best-effort per file: one bad convert (e.g. LibreOffice missing for a
-          // pdf) shouldn't abort the whole bundle.
+          // pdf) shouldn't abort the whole bundle — but record it so the caller
+          // can tell the user exactly which documents didn't make it (they used
+          // to vanish silently).
           console.error(`exportAgreementBundle: failed to write "${f.name}" (${f.format})`, e)
+          failed.push(`${f.name} (${f.format.toUpperCase()})`)
         }
       }
-      return written.length > 0 ? written : null
+      return written.length > 0 || failed.length > 0 ? { written, failed } : null
     }
   )
 

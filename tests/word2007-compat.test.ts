@@ -89,3 +89,47 @@ describe('sanitizeDocxForWord2007', () => {
     expect(part(twice, 'word/document.xml')).not.toContain('<w:end ')
   })
 })
+
+import { convertHtmlToDocx } from '../core/htmlToDocx'
+import { buildNoteSubmittedHtml, noteSubmittedFromRow } from '../core/noteSubmitted'
+import { DOMParser } from '@xmldom/xmldom'
+
+function childSeqs(xml: string, container: string): string[] {
+  const doc = new DOMParser().parseFromString(xml, 'text/xml')
+  const out = new Set<string>()
+  for (const n of Array.from(doc.getElementsByTagName(container)) as any[]) {
+    const kids = (Array.from(n.childNodes) as any[])
+      .filter((c) => c.nodeType === 1)
+      .map((c) => c.nodeName)
+    if (kids.length) out.add(kids.join(','))
+  }
+  return [...out]
+}
+
+describe('convertHtmlToDocx → Word 2007 (html-to-docx sanitising)', () => {
+  it('produces a Word-2007-openable Note Submitted docx', async () => {
+    const data = noteSubmittedFromRow(
+      {
+        'Name of the work': 'Laying of UGD (Reserved for ST)',
+        Circle: 'Nizampet',
+        'Amount of estimate': '18.00',
+        'Tender Notice No': '11/DB/EE',
+        'Tender notice Date': '14.07.2026',
+        'Name of the Agency': 'L SURENDER',
+        Reservation: 'ST'
+      },
+      'Nizampet'
+    )
+    const buf = await convertHtmlToDocx(buildNoteSubmittedHtml(data))
+
+    // 1. No invalid .rels content-type overrides (Word 2007 rejects them).
+    expect(part(buf, '[Content_Types].xml')).not.toMatch(/PartName="[^"]*\.rels"/i)
+
+    // 2. Property containers are in OOXML schema order.
+    const doc = part(buf, 'word/document.xml')
+    expect(childSeqs(doc, 'w:tblPr')).toEqual(['w:tblW,w:jc,w:tblCellSpacing,w:tblBorders,w:tblCellMar'])
+    expect(childSeqs(doc, 'w:tblCellMar')).toEqual(['w:top,w:left,w:bottom,w:right'])
+    // pPr may appear as just <w:spacing> and as <w:spacing,w:jc> — never jc-before-spacing.
+    expect(childSeqs(doc, 'w:pPr')).not.toContain('w:jc,w:spacing')
+  })
+})

@@ -127,3 +127,99 @@ export function sanitizeDocxForWord2007(buffer: Buffer): Buffer {
   }
   return changed ? zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }) : buffer
 }
+
+// ── html-to-docx → Word 2007 ──────────────────────────────────────────────
+// The html-to-docx library emits OOXML that Word 2010+ opens but Word 2007
+// rejects ("… problems with the contents"), for two reasons this fixes:
+//   1. [Content_Types].xml carries invalid <Override> entries for the .rels
+//      relationship parts — those are typed only via the `rels` Default, and
+//      Word 2007's stricter OPC reader refuses the package over the duplicate.
+//   2. Property containers (<w:pPr>, <w:tblPr>, <w:tblCellMar>, …) come out with
+//      their child elements in the WRONG order — e.g. tblPr as
+//      "tblBorders,tblCellSpacing,tblW,tblCellMar,jc" — and Word 2007 validates
+//      the CT_* child SEQUENCE strictly (Word 2010+ is lenient). Reordering to
+//      the schema sequence is lossless.
+
+// Canonical child-element order for each ordered property container (the OOXML
+// CT_* sequence). A child not listed keeps its relative position after the known
+// ones. Both the physical (left/right) and logical (start/end) side names are
+// listed so this is correct whether or not the bidi rename above has run.
+const CHILD_ORDER: Record<string, string[]> = {
+  'w:pPr': ['w:pStyle','w:keepNext','w:keepLines','w:pageBreakBefore','w:framePr','w:widowControl','w:numPr','w:suppressLineNumbers','w:pBdr','w:shd','w:tabs','w:suppressAutoHyphens','w:kinsoku','w:wordWrap','w:overflowPunct','w:topLinePunct','w:autoSpaceDE','w:autoSpaceDN','w:bidi','w:adjustRightInd','w:snapToGrid','w:spacing','w:ind','w:contextualSpacing','w:mirrorIndents','w:suppressOverlap','w:jc','w:textDirection','w:textAlignment','w:textboxTightWrap','w:outlineLvl','w:divId','w:cnfStyle','w:rPr','w:sectPr','w:pPrChange'],
+  'w:rPr': ['w:rStyle','w:rFonts','w:b','w:bCs','w:i','w:iCs','w:caps','w:smallCaps','w:strike','w:dstrike','w:outline','w:shadow','w:emboss','w:imprint','w:noProof','w:snapToGrid','w:vanish','w:webHidden','w:color','w:spacing','w:w','w:kern','w:position','w:sz','w:szCs','w:highlight','w:u','w:effect','w:bdr','w:shd','w:fitText','w:vertAlign','w:rtl','w:cs','w:em','w:lang','w:eastAsianLayout','w:specVanish','w:oMath','w:rPrChange'],
+  'w:tblPr': ['w:tblStyle','w:tblpPr','w:tblOverlap','w:bidiVisual','w:tblStyleRowBandSize','w:tblStyleColBandSize','w:tblW','w:jc','w:tblCellSpacing','w:tblInd','w:tblBorders','w:shd','w:tblLayout','w:tblCellMar','w:tblLook','w:tblCaption','w:tblDescription','w:tblPrChange'],
+  'w:trPr': ['w:cnfStyle','w:divId','w:gridBefore','w:gridAfter','w:wBefore','w:wAfter','w:cantSplit','w:trHeight','w:tblHeader','w:tblCellSpacing','w:jc','w:hidden','w:ins','w:del','w:trPrChange'],
+  'w:tcPr': ['w:cnfStyle','w:tcW','w:gridSpan','w:hMerge','w:vMerge','w:tcBorders','w:shd','w:noWrap','w:tcMar','w:textDirection','w:tcFitText','w:vAlign','w:hideMark','w:headers','w:cellIns','w:cellDel','w:cellMerge','w:tcPrChange'],
+  'w:tblCellMar': ['w:top','w:start','w:left','w:bottom','w:end','w:right'],
+  'w:tcMar': ['w:top','w:start','w:left','w:bottom','w:end','w:right'],
+  'w:tblBorders': ['w:top','w:start','w:left','w:bottom','w:end','w:right','w:insideH','w:insideV'],
+  'w:tcBorders': ['w:top','w:start','w:left','w:bottom','w:end','w:right','w:insideH','w:insideV','w:tl2br','w:tr2bl'],
+  'w:pBdr': ['w:top','w:left','w:bottom','w:right','w:between','w:bar']
+}
+
+/** Stable-reorder a container's element children into `order`; drops the
+ * whitespace-only text nodes between them (cosmetic). Returns true if it moved
+ * anything. Existing nodes are moved (not recreated), so namespaces survive. */
+function reorderChildren(parent: Element, order: string[]): boolean {
+  const elems = (Array.from(parent.childNodes) as unknown as Element[]).filter((n) => n.nodeType === 1)
+  if (elems.length < 2) return false
+  const rank = (n: Element) => {
+    const i = order.indexOf(n.nodeName)
+    return i === -1 ? order.length : i
+  }
+  const sorted = elems.map((el, i) => ({ el, i })).sort((a, b) => rank(a.el) - rank(b.el) || a.i - b.i).map((x) => x.el)
+  if (sorted.every((el, i) => el === elems[i])) return false
+  while (parent.firstChild) parent.removeChild(parent.firstChild)
+  for (const el of sorted) parent.appendChild(el)
+  return true
+}
+
+/** Remove the invalid <Override> entries for .rels parts from [Content_Types].xml. */
+function fixContentTypesRels(xml: Document): boolean {
+  let changed = false
+  for (const ov of els(xml, 'Override')) {
+    if (/\.rels$/i.test(ov.getAttribute('PartName') ?? '')) {
+      ov.parentNode?.removeChild(ov as never)
+      changed = true
+    }
+  }
+  return changed
+}
+
+/**
+ * Make an html-to-docx buffer open in Word 2007: strip the invalid .rels
+ * content-type overrides and reorder every property container's children into
+ * the OOXML schema sequence. Also runs the bidirectional fixes above (a no-op
+ * for html-to-docx output, kept for safety). Returns the same buffer unchanged
+ * when there's nothing to fix.
+ */
+export function sanitizeHtmlDocxForWord2007(buffer: Buffer): Buffer {
+  const zip = new PizZip(buffer)
+  let changed = false
+
+  const ctName = '[Content_Types].xml'
+  const ctText = zip.file(ctName)?.asText()
+  if (ctText && /PartName="[^"]*\.rels"/i.test(ctText)) {
+    const ctXml = new DOMParser().parseFromString(ctText, 'text/xml')
+    if (fixContentTypesRels(ctXml)) {
+      zip.file(ctName, new XMLSerializer().serializeToString(ctXml))
+      changed = true
+    }
+  }
+
+  for (const name of Object.keys(zip.files)) {
+    if (!FIXABLE_PART_RE.test(name)) continue
+    const xmlText = zip.file(name)?.asText()
+    if (!xmlText) continue
+    const xml = new DOMParser().parseFromString(xmlText, 'text/xml')
+    let partChanged = fixSideElements(xml) || fixJustification(xml) || fixIndentAttrs(xml)
+    for (const [container, order] of Object.entries(CHILD_ORDER)) {
+      for (const node of els(xml, container)) if (reorderChildren(node, order)) partChanged = true
+    }
+    if (partChanged) {
+      zip.file(name, new XMLSerializer().serializeToString(xml))
+      changed = true
+    }
+  }
+  return changed ? zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }) : buffer
+}

@@ -38,7 +38,7 @@ import { mismatchHint } from '../docClassify'
 import type { PlaceholderMatch } from '@core/createDocument'
 import type { ScheduleAMeta, AgreementBundleFile } from '../../electron/ipc-contract'
 import type { ExcelTable } from '@core/types'
-import { pdfToTextLines } from '../pdfToText'
+import { pdfToTextLines, pdfToPositionedLines } from '../pdfToText'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH, normalizeDocxTextboxes } from './docPage'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconCheck, IconClipboard, IconTable } from './Icons'
 
@@ -623,7 +623,7 @@ export default function WorkOrderAgreementTab({
     }
   }
 
-  async function fillDoc(kind: DocKind): Promise<string> {
+  async function fillDoc(kind: DocKind, opts?: { blankDate?: boolean }): Promise<string> {
     const b64 =
       { workOrder: workOrderB64, agreement: agreementB64, qccIntimation: qccIntimationB64, forwardingSlip: forwardingSlipB64, civilTender: civilTenderB64 }[
         kind as 'workOrder' | 'agreement' | 'qccIntimation' | 'forwardingSlip' | 'civilTender'
@@ -633,17 +633,22 @@ export default function WorkOrderAgreementTab({
         kind as 'workOrder' | 'agreement' | 'qccIntimation' | 'forwardingSlip' | 'civilTender'
       ] ?? zonalLabels[kind] ?? []
     if (!b64) throw new Error('Format not loaded yet.')
+    // "Download all" asks for the Work Order / Agreement Bond date to be blank
+    // (hand-written on the printed copy), regardless of any date picked for a
+    // preview — so force the date empty for those two docs here (the placeholder
+    // functions then print the ruled "Dt:" fill-in line).
+    const f = opts?.blankDate ? { ...fields, agreementDate: '', workOrderDate: '' } : fields
     const values = ZONAL_KINDS.includes(kind as (typeof ZONAL_KINDS)[number])
-      ? zonalDocsPlaceholders(fields, notice ?? {}, pdfEval ?? {})
+      ? zonalDocsPlaceholders(f, notice ?? {}, pdfEval ?? {})
       : kind === 'workOrder'
-        ? workOrderPlaceholders(fields)
+        ? workOrderPlaceholders(f)
         : kind === 'agreement'
-          ? agreementPlaceholders(fields)
+          ? agreementPlaceholders(f)
           : kind === 'qccIntimation'
-            ? qccIntimationPlaceholders(fields)
+            ? qccIntimationPlaceholders(f)
             : kind === 'forwardingSlip'
-              ? forwardingSlipPlaceholders(fields)
-              : civilTenderPlaceholders(fields, pdfEval ?? {}, { pagesOfAgreement, scheduleAItems })
+              ? forwardingSlipPlaceholders(f)
+              : civilTenderPlaceholders(f, pdfEval ?? {}, { pagesOfAgreement, scheduleAItems })
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
     return api.fillPlaceholdersInDocument(b64, resolved, values)
   }
@@ -803,9 +808,10 @@ export default function WorkOrderAgreementTab({
           scheduleAMeta
         })
       if (forwardingSlipB64) files.push({ name: docName('forwardingSlip'), format: 'docx', docxBase64: await fillDoc('forwardingSlip') })
-      if (agreementB64) files.push({ name: docName('agreement'), format: 'docx', docxBase64: await fillDoc('agreement') })
+      // Work Order & Agreement Bond print a blank, hand-writable date in the bundle.
+      if (agreementB64) files.push({ name: docName('agreement'), format: 'docx', docxBase64: await fillDoc('agreement', { blankDate: true }) })
       if (qccIntimationB64) files.push({ name: docName('qccIntimation'), format: 'pdf', docxBase64: await fillDoc('qccIntimation') })
-      if (workOrderB64) files.push({ name: docName('workOrder'), format: 'pdf', docxBase64: await fillDoc('workOrder') })
+      if (workOrderB64) files.push({ name: docName('workOrder'), format: 'pdf', docxBase64: await fillDoc('workOrder', { blankDate: true }) })
       if (noteReady)
         files.push({
           name: `Note Submitted${noteData?.workName ? ` - ${noteData.workName}` : ''}`,
@@ -817,7 +823,19 @@ export default function WorkOrderAgreementTab({
         return
       }
       const res = await api.exportAgreementBundle(files)
-      setActionSaved(res && res.length > 0 ? `Saved ${res.length} document(s) to the chosen folder.` : 'Cancelled.')
+      if (!res) {
+        setActionSaved('Cancelled.')
+      } else if (res.failed.length > 0) {
+        // Some documents (usually PDFs needing LibreOffice) didn't convert — say
+        // which, instead of silently dropping them from the folder.
+        setActionSaved(`Saved ${res.written.length} document(s).`)
+        setActionError(
+          `${res.failed.length} document(s) could not be saved: ${res.failed.join(', ')}. ` +
+            `PDFs need LibreOffice installed — install it from libreoffice.org, or download those as Word (.docx) instead.`
+        )
+      } else {
+        setActionSaved(`Saved ${res.written.length} document(s) to the chosen folder.`)
+      }
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -873,7 +891,7 @@ export default function WorkOrderAgreementTab({
   async function handleNonRespFile(file: File) {
     setActionError(null)
     try {
-      const lines = await pdfToTextLines(file)
+      const lines = await pdfToPositionedLines(file)
       const { count, detail } = summarizeNonResponsiveness(lines)
       setNoteData((prev) => (prev ? { ...prev, rejectedCount: count, qualificationNote: detail } : prev))
       setPdfStatus(
@@ -999,17 +1017,24 @@ export default function WorkOrderAgreementTab({
     }
     if (!selectedRow) return undefined
     const base = metaFromWorksRow(selectedRow)
-    // The tender % (and contractor / work name) are frequently known only from
-    // the uploaded L-1 selection form before the Works List row itself carries
-    // them — prefer the resolved `fields` value so Schedule A's "Tender Quoted
-    // %" and "Less: (…)% Less" fill from what was uploaded rather than staying
-    // blank against a not-yet-updated (or mis-selected) row.
+    // The tender % (and contractor / work name / amounts) are frequently known
+    // only from the uploaded L-1 selection form before the Works List row itself
+    // carries them — prefer the resolved `fields` values so Schedule A's ECV,
+    // Contract Amount, "Tender Quoted %" and "Less: (…)% Less" fill from what was
+    // uploaded rather than staying blank against a not-yet-updated (or
+    // mis-selected) row. `fields.ecvRupees`/`contractRupees` are the ECV/contract
+    // (never the estimate), so this never violates "blank ECV stays blank".
+    const ecvNum = fields.ecvRupees.trim() ? Number(fields.ecvRupees.replace(/,/g, '')) : null
+    const contractNum = fields.contractRupees.trim() ? Number(fields.contractRupees.replace(/,/g, '')) : null
     return {
       ...base,
       // Name of work comes from the uploaded L-1 (via `fields`), not the row.
       nameOfWork: fields.nameOfWork || base.nameOfWork?.trim() || '',
       contractorName: base.contractorName?.trim() || fields.agencyName,
-      tenderPercentage: fields.tenderPercent || base.tenderPercentage
+      tenderPercentage: fields.tenderPercent || base.tenderPercentage,
+      ecvAmount: ecvNum != null && Number.isFinite(ecvNum) ? `${indianDigitGroups(ecvNum)}/-` : base.ecvAmount,
+      contractAmount:
+        contractNum != null && Number.isFinite(contractNum) ? `${indianDigitGroups(contractNum)}/-` : base.contractAmount
     }
   }, [scheduleAOnly, detectedWorkName, boq, scheduleA, uploadedIsEstimate, table, selectedRow, fields])
 
