@@ -117,6 +117,8 @@ export function resolveIntimationValue(
     case 'nit no':
     case 'tender notice no':
       return notice.nitNo ?? pdf.noticeNo ?? row['Tender Notice No'] ?? ''
+    case 'tender id':
+      return pdf.tenderId ?? row['Tender ID'] ?? ''
     case 'estimate amount': {
       const raw = (row['Amount of estimate'] ?? '').replace(/,/g, '').trim()
       const n = Number(raw)
