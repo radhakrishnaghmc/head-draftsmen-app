@@ -69,6 +69,7 @@ const api: DocuGenApi = {
   noteSubmittedDocx: (html) => ipcRenderer.invoke(IPC.noteSubmittedDocx, html),
   intimationTemplate: () => ipcRenderer.invoke(IPC.intimationTemplate),
   workOrderTemplate: () => ipcRenderer.invoke(IPC.workOrderTemplate),
+  fileBackerTemplate: () => ipcRenderer.invoke(IPC.fileBackerTemplate),
   agreementTemplate: () => ipcRenderer.invoke(IPC.agreementTemplate),
   qccIntimationTemplate: () => ipcRenderer.invoke(IPC.qccIntimationTemplate),
   forwardingSlipTemplate: () => ipcRenderer.invoke(IPC.forwardingSlipTemplate),

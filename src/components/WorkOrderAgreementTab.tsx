@@ -8,6 +8,7 @@ import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
 import {
   deriveFields,
   workOrderPlaceholders,
+  fileBackerPlaceholders,
   agreementPlaceholders,
   qccIntimationPlaceholders,
   forwardingSlipPlaceholders,
@@ -103,6 +104,16 @@ function stripBoqWord(name: string): string {
     .trim()
 }
 
+/**
+ * The saved Note Submitted file name: "Note Submitted - <work name>", with the
+ * work-name part capped at 20 characters (a long work name would otherwise make
+ * an unwieldy file name — and some file systems cap the total length).
+ */
+function noteSubmittedFileName(workName: string | undefined): string {
+  const name = (workName ?? '').trim().slice(0, 20).trim()
+  return `Note Submitted${name ? ` - ${name}` : ''}`
+}
+
 /** "2026-07-15" (a date-input value) -> "15.07.2026", the templates' dd.mm.yyyy date style. */
 function isoToDmy(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
@@ -119,6 +130,7 @@ function dmyToIso(dmy: string): string {
 
 type DocKind =
   | 'workOrder'
+  | 'fileBacker'
   | 'agreement'
   | 'qccIntimation'
   | 'forwardingSlip'
@@ -133,6 +145,7 @@ type Output = DocKind | 'scheduleA' | 'note'
 const ZONAL_KINDS = ['zonalWorkOrder', 'zonalConcludingAgreement', 'zonalMemoEe'] as const
 
 const DOC_LABEL: Record<Output, string> = {
+  fileBacker: 'File Backer',
   forwardingSlip: 'Forwarding Slip',
   civilTender: 'Tender Document',
   workOrder: 'Work Order',
@@ -147,6 +160,7 @@ const DOC_LABEL: Record<Output, string> = {
 
 const DOC_KINDS: DocKind[] = [
   'workOrder',
+  'fileBacker',
   'agreement',
   'qccIntimation',
   'forwardingSlip',
@@ -266,11 +280,13 @@ export default function WorkOrderAgreementTab({
   const seMode = !only && !!office?.zone?.trim() && !office?.circle?.trim()
 
   const [workOrderB64, setWorkOrderB64] = useState<string | null>(null)
+  const [fileBackerB64, setFileBackerB64] = useState<string | null>(null)
   const [agreementB64, setAgreementB64] = useState<string | null>(null)
   const [qccIntimationB64, setQccIntimationB64] = useState<string | null>(null)
   const [forwardingSlipB64, setForwardingSlipB64] = useState<string | null>(null)
   const [civilTenderB64, setCivilTenderB64] = useState<string | null>(null)
   const [workOrderLabels, setWorkOrderLabels] = useState<string[]>([])
+  const [fileBackerLabels, setFileBackerLabels] = useState<string[]>([])
   const [agreementLabels, setAgreementLabels] = useState<string[]>([])
   const [qccIntimationLabels, setQccIntimationLabels] = useState<string[]>([])
   const [forwardingSlipLabels, setForwardingSlipLabels] = useState<string[]>([])
@@ -347,6 +363,7 @@ export default function WorkOrderAgreementTab({
   const noticeInputRef = useRef<HTMLInputElement>(null)
   const nonRespInputRef = useRef<HTMLInputElement>(null)
   const woTileRef = useRef<HTMLDivElement>(null)
+  const fbTileRef = useRef<HTMLDivElement>(null)
   const agTileRef = useRef<HTMLDivElement>(null)
   const qccIntTileRef = useRef<HTMLDivElement>(null)
   const fsTileRef = useRef<HTMLDivElement>(null)
@@ -394,15 +411,17 @@ export default function WorkOrderAgreementTab({
     let cancelled = false
     void (async () => {
       try {
-        const [woB64, agB64, qiB64, fsB64, ctB64] = await Promise.all([
+        const [woB64, fbB64, agB64, qiB64, fsB64, ctB64] = await Promise.all([
           api.workOrderTemplate(),
+          api.fileBackerTemplate(),
           api.agreementTemplate(),
           api.qccIntimationTemplate(),
           api.forwardingSlipTemplate(),
           api.civilTenderTemplate()
         ])
-        const [woLabels, agLabels, qiLabels, fsLabels, ctLabels] = await Promise.all([
+        const [woLabels, fbLabels, agLabels, qiLabels, fsLabels, ctLabels] = await Promise.all([
           api.findPlaceholdersInDocument(woB64),
+          api.findPlaceholdersInDocument(fbB64),
           api.findPlaceholdersInDocument(agB64),
           api.findPlaceholdersInDocument(qiB64),
           api.findPlaceholdersInDocument(fsB64),
@@ -410,11 +429,13 @@ export default function WorkOrderAgreementTab({
         ])
         if (cancelled) return
         setWorkOrderB64(woB64)
+        setFileBackerB64(fbB64)
         setAgreementB64(agB64)
         setQccIntimationB64(qiB64)
         setForwardingSlipB64(fsB64)
         setCivilTenderB64(ctB64)
         setWorkOrderLabels(woLabels)
+        setFileBackerLabels(fbLabels)
         setAgreementLabels(agLabels)
         setQccIntimationLabels(qiLabels)
         setForwardingSlipLabels(fsLabels)
@@ -625,12 +646,12 @@ export default function WorkOrderAgreementTab({
 
   async function fillDoc(kind: DocKind, opts?: { blankDate?: boolean }): Promise<string> {
     const b64 =
-      { workOrder: workOrderB64, agreement: agreementB64, qccIntimation: qccIntimationB64, forwardingSlip: forwardingSlipB64, civilTender: civilTenderB64 }[
-        kind as 'workOrder' | 'agreement' | 'qccIntimation' | 'forwardingSlip' | 'civilTender'
+      { workOrder: workOrderB64, fileBacker: fileBackerB64, agreement: agreementB64, qccIntimation: qccIntimationB64, forwardingSlip: forwardingSlipB64, civilTender: civilTenderB64 }[
+        kind as 'workOrder' | 'fileBacker' | 'agreement' | 'qccIntimation' | 'forwardingSlip' | 'civilTender'
       ] ?? zonalB64[kind]
     const labels =
-      { workOrder: workOrderLabels, agreement: agreementLabels, qccIntimation: qccIntimationLabels, forwardingSlip: forwardingSlipLabels, civilTender: civilTenderLabels }[
-        kind as 'workOrder' | 'agreement' | 'qccIntimation' | 'forwardingSlip' | 'civilTender'
+      { workOrder: workOrderLabels, fileBacker: fileBackerLabels, agreement: agreementLabels, qccIntimation: qccIntimationLabels, forwardingSlip: forwardingSlipLabels, civilTender: civilTenderLabels }[
+        kind as 'workOrder' | 'fileBacker' | 'agreement' | 'qccIntimation' | 'forwardingSlip' | 'civilTender'
       ] ?? zonalLabels[kind] ?? []
     if (!b64) throw new Error('Format not loaded yet.')
     // "Download all" asks for the Work Order / Agreement Bond date to be blank
@@ -642,7 +663,9 @@ export default function WorkOrderAgreementTab({
       ? zonalDocsPlaceholders(f, notice ?? {}, pdfEval ?? {})
       : kind === 'workOrder'
         ? workOrderPlaceholders(f)
-        : kind === 'agreement'
+        : kind === 'fileBacker'
+          ? fileBackerPlaceholders(f)
+          : kind === 'agreement'
           ? agreementPlaceholders(f)
           : kind === 'qccIntimation'
             ? qccIntimationPlaceholders(f)
@@ -682,15 +705,17 @@ export default function WorkOrderAgreementTab({
   // soft note so the user knows the Works-List-only columns will be blank.
   const noWorksRowMatch = !standalone && worksRowMatched === false
 
-  // Guard: the uploaded L-1's Circle must match the Circle the documents will
-  // fill from. The L-1's Circle comes from its NIT No ("…/EE/Gajularamaram
-  // Circle-57/…"), with a fallback to inferring it from the L-1's work name via
-  // the directory. We compare it against the office's Circle (Works List page)
-  // when set, otherwise the matched Works List row's Circle — so an L-1 from
-  // another circle that fuzzy-matched a row here is caught and blocked (it would
-  // otherwise issue e.g. a Nizampet work's agreement under Gajularamaram).
+  // Guard: the uploaded Circle must match the Circle the documents will fill
+  // from. The Circle comes from the NIT No ("…/EE/Gajularamaram Circle-57/…") of
+  // EITHER upload — the L-1 selection form or the Online Intimation — so the
+  // check fires even when only the Online Intimation has been uploaded; it falls
+  // back to inferring the circle from the L-1's work name via the directory. We
+  // compare it against the office's Circle (Works List page) when set, otherwise
+  // the matched Works List row's Circle — so an upload from another circle that
+  // fuzzy-matched a row here is caught and blocked (it would otherwise issue e.g.
+  // a Nizampet work's agreement under Gajularamaram).
   const l1Circle = useMemo(() => {
-    const fromNit = circleFromNit(pdfEval?.noticeNo || notice?.nitNo || '').circle
+    const fromNit = circleFromNit(pdfEval?.noticeNo || '').circle || circleFromNit(notice?.nitNo || '').circle
     if (fromNit) return fromNit
     return resolveFromDirectory(pdfEval?.nameOfWork || '', entriesOf(office?.corporation)).circle ?? ''
   }, [pdfEval, notice, office])
@@ -716,7 +741,7 @@ export default function WorkOrderAgreementTab({
     : !!notice && !!pdfEval && !workMismatch && !circleMismatch
   const templatesReady = seMode
     ? ZONAL_KINDS.every((k) => !!zonalB64[k])
-    : !!workOrderB64 && !!agreementB64 && !!forwardingSlipB64 && !!civilTenderB64
+    : !!workOrderB64 && !!fileBackerB64 && !!agreementB64 && !!forwardingSlipB64 && !!civilTenderB64
   const docsReady = templatesReady && bothUploaded
 
   // Live thumbnails in the document tiles, refreshed whenever the filled values
@@ -731,6 +756,7 @@ export default function WorkOrderAgreementTab({
       return
     }
     if (woTileRef.current) void renderDocInto('workOrder', woTileRef.current).catch(() => {})
+    if (fbTileRef.current) void renderDocInto('fileBacker', fbTileRef.current).catch(() => {})
     if (agTileRef.current) void renderDocInto('agreement', agTileRef.current).catch(() => {})
     if (qccIntTileRef.current) void renderDocInto('qccIntimation', qccIntTileRef.current).catch(() => {})
     if (fsTileRef.current) void renderDocInto('forwardingSlip', fsTileRef.current).catch(() => {})
@@ -799,6 +825,8 @@ export default function WorkOrderAgreementTab({
     setActionSaved(null)
     try {
       const files: AgreementBundleFile[] = []
+      // File Backer — the cover page — as Word, first in the bundle.
+      if (fileBackerB64) files.push({ name: docName('fileBacker'), format: 'docx', docxBase64: await fillDoc('fileBacker') })
       if (civilTenderB64) files.push({ name: docName('civilTender'), format: 'pdf', docxBase64: await fillDoc('civilTender') })
       if (scheduleA)
         files.push({
@@ -814,7 +842,7 @@ export default function WorkOrderAgreementTab({
       if (workOrderB64) files.push({ name: docName('workOrder'), format: 'pdf', docxBase64: await fillDoc('workOrder', { blankDate: true }) })
       if (noteReady)
         files.push({
-          name: `Note Submitted${noteData?.workName ? ` - ${noteData.workName}` : ''}`,
+          name: noteSubmittedFileName(noteData?.workName),
           format: 'docx',
           docxBase64: await api.noteSubmittedDocx(notePreviewHtml)
         })
@@ -883,9 +911,10 @@ export default function WorkOrderAgreementTab({
   const notePreviewHtml = useMemo(() => (noteData ? buildNoteSubmittedHtml(noteData) : ''), [noteData])
   // Same gate as the Work Order / Agreement tiles: don't build the Note
   // Submitted while the Online Intimation and L1 selection form disagree on the
-  // work/agency, or the L1's work isn't in the Works List (the note is seeded
-  // from the selected row) — otherwise it would show the wrong work/agency.
-  const noteReady = !!noteData && !!pdfEval && !workMismatch
+  // work/agency, the L1's work isn't in the Works List (the note is seeded
+  // from the selected row), or the L1's circle isn't this office's circle —
+  // otherwise it would show the wrong work/agency or the wrong circle's note.
+  const noteReady = !!noteData && !!pdfEval && !workMismatch && !circleMismatch
 
   // Optional non-responsiveness statement — pre-fills the note's rejection line.
   async function handleNonRespFile(file: File) {
@@ -911,7 +940,7 @@ export default function WorkOrderAgreementTab({
     setActionSaved(null)
     try {
       const b64 = await api.noteSubmittedDocx(notePreviewHtml)
-      const name = `Note Submitted${noteData.workName ? ` - ${noteData.workName}` : ''}`
+      const name = noteSubmittedFileName(noteData.workName)
       const res = await api.exportCreatedDocument(b64, name, formats)
       setActionSaved(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
     } catch (e) {
@@ -1380,7 +1409,11 @@ export default function WorkOrderAgreementTab({
         )}
         {!only && noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
         {!only && pdfName && <p className="estimate-hint">Tender details read from {pdfName}</p>}
-        {!only && pdfStatus && (
+        {/* The "Matched … its details fill the documents" success line is
+            suppressed on a circle mismatch — there, the L-1 belongs to another
+            circle, nothing fills, and the red circle-mismatch error below is the
+            only message that should show (otherwise the two contradict). */}
+        {!only && pdfStatus && !circleMismatch && (
           <div className="notice ok">
             <IconCheck /> {pdfStatus}
           </div>
@@ -1409,10 +1442,8 @@ export default function WorkOrderAgreementTab({
       )}
       {circleMismatch && (
         <div className="notice error">
-          <IconWarn /> The uploaded L1 / Intimation is for <strong>{l1Circle}</strong> circle, but the documents would be
-          issued under <strong>{targetCircle}</strong> circle. Documents are blocked so a work isn’t issued under the wrong
-          circle — select the <strong>{l1Circle}</strong> office on the Works List page (and load its Works List), or upload
-          the correct circle’s L1.
+          <IconWarn /> Office selected and L1 sheet circle does not match — upload the L1 sheet of{' '}
+          <strong>{targetCircle}</strong> circle only.
         </div>
       )}
       {noWorksRowMatch && !circleMismatch && pdfEval && (
@@ -1475,6 +1506,28 @@ export default function WorkOrderAgreementTab({
               </button>
             </>
           )}
+          {/* Order (main tab): File Backer, Note Submitted, Forwarding Slip,
+              Agreement Bond, Schedule A, Work Order, Tender Document, QCC
+              Intimation. The Tools single-document panels (`only`) still show
+              just their one tile via the `only ===` guards. */}
+          {docsReady && !only && !seMode && (
+            <button className="wo-tile" onClick={() => openDoc('fileBacker')}>
+              <div className="wo-tile-preview">
+                <div ref={fbTileRef} className="wo-tile-doc" />
+                <span className="wo-tile-open">Click to preview</span>
+              </div>
+              <div className="wo-tile-foot">{DOC_LABEL.fileBacker}</div>
+            </button>
+          )}
+          {noteReady && !only && (
+            <button className="wo-tile" onClick={() => setExpanded('note')}>
+              <div className="wo-tile-preview">
+                <div className="wo-tile-doc ns-tile-doc" dangerouslySetInnerHTML={{ __html: notePreviewHtml }} />
+                <span className="wo-tile-open">Click to preview</span>
+              </div>
+              <div className="wo-tile-foot">{DOC_LABEL.note}</div>
+            </button>
+          )}
           {docsReady && !only && !seMode && (
             <button className="wo-tile" onClick={() => openDoc('forwardingSlip')}>
               <div className="wo-tile-preview">
@@ -1482,15 +1535,6 @@ export default function WorkOrderAgreementTab({
                 <span className="wo-tile-open">Click to preview</span>
               </div>
               <div className="wo-tile-foot">{DOC_LABEL.forwardingSlip}</div>
-            </button>
-          )}
-          {docsReady && !only && !seMode && (
-            <button className="wo-tile" onClick={() => openDoc('civilTender')}>
-              <div className="wo-tile-preview">
-                <div ref={ctTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.civilTender}</div>
             </button>
           )}
           {docsReady && !seMode && (!only || only === 'agreement') && (
@@ -1539,21 +1583,21 @@ export default function WorkOrderAgreementTab({
             </button>
           )}
           {docsReady && !only && !seMode && (
+            <button className="wo-tile" onClick={() => openDoc('civilTender')}>
+              <div className="wo-tile-preview">
+                <div ref={ctTileRef} className="wo-tile-doc" />
+                <span className="wo-tile-open">Click to preview</span>
+              </div>
+              <div className="wo-tile-foot">{DOC_LABEL.civilTender}</div>
+            </button>
+          )}
+          {docsReady && !only && !seMode && (
             <button className="wo-tile" onClick={() => openDoc('qccIntimation')}>
               <div className="wo-tile-preview">
                 <div ref={qccIntTileRef} className="wo-tile-doc" />
                 <span className="wo-tile-open">Click to preview</span>
               </div>
               <div className="wo-tile-foot">{DOC_LABEL.qccIntimation}</div>
-            </button>
-          )}
-          {noteReady && !only && (
-            <button className="wo-tile" onClick={() => setExpanded('note')}>
-              <div className="wo-tile-preview">
-                <div className="wo-tile-doc ns-tile-doc" dangerouslySetInnerHTML={{ __html: notePreviewHtml }} />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.note}</div>
             </button>
           )}
           </div>
@@ -1620,6 +1664,20 @@ export default function WorkOrderAgreementTab({
               />
             </div>
             <div className="wo-modal-foot">
+              {/* Skip the date: preview with the date left blank, so the document
+                  prints its ruled "Dt: ____" line to be hand-dated. Circle/Zone,
+                  when the L-1 didn't carry them, are still required. */}
+              <button
+                className="ghost"
+                disabled={missingCircleZone && (!manualCircle.trim() || !manualZone.trim())}
+                onClick={() => {
+                  setAgreementDate('')
+                  setDatePromptOpen(false)
+                  setExpanded(pendingDoc)
+                }}
+              >
+                Continue without date
+              </button>
               <button
                 className="primary"
                 disabled={!promptDate || (missingCircleZone && (!manualCircle.trim() || !manualZone.trim()))}

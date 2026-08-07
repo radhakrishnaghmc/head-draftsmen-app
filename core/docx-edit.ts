@@ -250,6 +250,41 @@ export function fillPlaceholdersInDocx(
 }
 
 /**
+ * The fillable parts of a .docx: the body plus every header/footer part. Used
+ * so placeholders in headers/footers (e.g. an office sign-off in the page
+ * footer) fill too — not just the body.
+ */
+export function fillableParts(buffer: Buffer): string[] {
+  const zip = new PizZip(buffer)
+  return Object.keys(zip.files).filter((f) => f === DOC_XML || /^word\/(header|footer)\d*\.xml$/.test(f))
+}
+
+/**
+ * Union of {{Placeholder}} labels across the body AND every header/footer part,
+ * so a footer-only placeholder is still offered to the caller for filling.
+ */
+export function findPlaceholdersInAllParts(buffer: Buffer): string[] {
+  const seen = new Set<string>()
+  for (const part of fillableParts(buffer)) for (const label of findPlaceholdersInDocx(buffer, part)) seen.add(label)
+  return [...seen]
+}
+
+/**
+ * Fill placeholders across the body and every header/footer part. A header/footer
+ * is only re-written when it actually contains a placeholder — parts without one
+ * are left byte-for-byte untouched (no needless re-serialisation), so documents
+ * whose footers carry no {{…}} are completely unaffected.
+ */
+export function fillPlaceholdersInAllParts(buffer: Buffer, resolved: PlaceholderMatch[], row: Record<string, string>): Buffer {
+  let buf = buffer
+  for (const part of fillableParts(buffer)) {
+    if (part !== DOC_XML && findPlaceholdersInDocx(buffer, part).length === 0) continue
+    buf = fillPlaceholdersInDocx(buf, resolved, row, part)
+  }
+  return buf
+}
+
+/**
  * OOXML-native equivalent of core/createDocument.ts's bakeFixedPlaceholders:
  * replace only the given labels' occurrences (matched case-insensitively)
  * with fixed values, leaving every other {{Placeholder}} untouched for later

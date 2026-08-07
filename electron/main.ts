@@ -43,8 +43,8 @@ import { sanitizeDocxForWord2007 } from '../core/word2007Compat'
 import {
   listParagraphs,
   applyParagraphEdits,
-  findPlaceholdersInDocx,
-  fillPlaceholdersInDocx,
+  findPlaceholdersInAllParts,
+  fillPlaceholdersInAllParts,
   bakeFixedPlaceholdersInDocx
 } from '../core/docx-edit'
 import type { PlaceholderMatch } from '../core/createDocument'
@@ -623,13 +623,13 @@ function registerHandlers(): void {
   )
 
   ipcMain.handle(IPC.findPlaceholdersInDocument, async (_e, docxBase64: string): Promise<string[]> => {
-    return findPlaceholdersInDocx(Buffer.from(docxBase64, 'base64'))
+    return findPlaceholdersInAllParts(Buffer.from(docxBase64, 'base64'))
   })
 
   ipcMain.handle(
     IPC.fillPlaceholdersInDocument,
     async (_e, docxBase64: string, resolved: PlaceholderMatch[], row: Record<string, string>): Promise<string> => {
-      const filled = fillPlaceholdersInDocx(Buffer.from(docxBase64, 'base64'), resolved, row)
+      const filled = fillPlaceholdersInAllParts(Buffer.from(docxBase64, 'base64'), resolved, row)
       return filled.toString('base64')
     }
   )
@@ -798,6 +798,12 @@ function registerHandlers(): void {
   ipcMain.handle(IPC.agreementTemplate, async (): Promise<string> => {
     const templatePath = bundledResourceFile('agreement-template.docx')
     if (!templatePath) throw new Error('Agreement format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
+  ipcMain.handle(IPC.fileBackerTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('file-backer-template.docx')
+    if (!templatePath) throw new Error('File Backer format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
 

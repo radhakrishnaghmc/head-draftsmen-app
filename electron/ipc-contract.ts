@@ -83,6 +83,7 @@ export const IPC = {
   noteSubmittedDocx: 'doc:noteSubmittedDocx',
   intimationTemplate: 'doc:intimationTemplate',
   workOrderTemplate: 'doc:workOrderTemplate',
+  fileBackerTemplate: 'doc:fileBackerTemplate',
   agreementTemplate: 'doc:agreementTemplate',
   qccIntimationTemplate: 'doc:qccIntimationTemplate',
   forwardingSlipTemplate: 'doc:forwardingSlipTemplate',
@@ -195,6 +196,8 @@ export interface DocuGenApi {
   intimationTemplate(): Promise<string>
   /** Reads the bundled Work Order format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
   workOrderTemplate(): Promise<string>
+  /** Reads the bundled File Backer format (.docx) — the file's cover page — base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
+  fileBackerTemplate(): Promise<string>
   /** Reads the bundled Agreement format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
   agreementTemplate(): Promise<string>
   /** Reads the bundled QCC Intimation letter (.docx) — the Dy.EE's request to Quality Control to inspect a starting work — base64-encoded for filling its {{placeholders}}. */

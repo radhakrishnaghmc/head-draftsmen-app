@@ -197,7 +197,12 @@ function agreementClause(d: NoteSubmittedData): string {
 // the HTML border="0" attribute (not CSS border:none) because html-to-docx
 // ignores CSS border on tables and falls back to a default 2px border — the
 // border="0" attribute is the only thing it honours to keep the block boxless.
+// Two empty rows above the HD/EE line give room to physically sign between a
+// note and its sign-off block (the Head Draughtsman and Executive Engineer sign
+// there). &nbsp; keeps html-to-docx from collapsing the blank paragraphs away.
+const SIGN_SPACE = '<p style="margin:0;line-height:1.6">&nbsp;</p><p style="margin:0;line-height:1.6">&nbsp;</p>'
 const HD_EE =
+  SIGN_SPACE +
   '<table border="0" style="width:100%;border-collapse:collapse;margin:2px 0 16px"><tr>' +
   '<td style="border:none;text-align:left;font-weight:bold">HD</td>' +
   '<td style="border:none;text-align:right;font-weight:bold">EE</td>' +
@@ -213,6 +218,11 @@ const RECEIPT_BLANK = '_'.repeat(45)
 // 2007 sanitiser keeps <w:jc> in schema order after html-to-docx (see
 // sanitizeHtmlDocxForWord2007).
 const P = (html: string): string => `<p style="margin:0 0 6px;line-height:1.45;text-align:justify">${html}</p>`
+// Left-aligned variant for paragraphs that carry a full-line hand-writable
+// blank (the 65/45-char underlines). Justifying such a paragraph stretches the
+// short line before the blank into huge inter-word gaps, so those paragraphs are
+// left-aligned instead.
+const PL = (html: string): string => `<p style="margin:0 0 6px;line-height:1.45;text-align:left">${html}</p>`
 const SUB = '<p style="margin:14px 0 4px;font-weight:bold">Submitted: -</p>'
 
 /**
@@ -284,7 +294,7 @@ export function buildNoteSubmittedHtml(d: NoteSubmittedData): string {
     qualif = ' as follows.'
   }
   const note4 =
-    P(
+    PL(
       `As per above note approved tenders have been called on e-procurement platform vide NIT No: ${esc(d.nitNo)}, ` +
         `Dt:${esc(d.nitDate)} &amp; e-procurement. tender notice has been published in ${d.newspapers.trim() ? esc(d.newspapers) : NEWSPAPER_BLANK}. ` +
         `In response to the tender notice (${participants}) bidders have participated${qualif}`
@@ -302,7 +312,7 @@ export function buildNoteSubmittedHtml(d: NoteSubmittedData): string {
 
   // Note 6 — agreement (conditional EMD/ASD clause)
   const note6 =
-    P(
+    PL(
       `In response to this office Intimation letter on DT: ${esc(d.intimationDate)}, <b>${esc(d.l1Name)}</b> ` +
         `${agreementClause(d)} and Rs.100/- Non-Judicial Stamp Paper for concluding agreement.`
     ) + P(`Hence, the draft agreement is herewith prepared and put up for approval.`)

@@ -8,7 +8,7 @@
 // the portal "View Intimation Notice" HTML -> the L-1 selection / evaluation
 // PDF -> the picked Works List row.
 import { computeWorkAmounts, formatRupees, indianDigitGroups, tenderPercentFromRow } from './worksAmounts'
-import { amountToWords, dateToWords } from './numberToWords'
+import { amountToWords, dateToWords, integerToIndianWords } from './numberToWords'
 import { zoneAbbr } from './loaSe'
 import type { IntimationNotice } from './intimationNotice'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
@@ -154,6 +154,22 @@ function formatPercent(pct: number): string {
   return pct.toFixed(2)
 }
 
+const DIGIT_WORDS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine']
+
+/**
+ * A tender percentage spelled out for the Price Bid's "(In words)" blank —
+ * integer part in words, "Point", then each decimal digit named:
+ * 16.5 -> "Sixteen Point Five Zero Percent", 27.45 -> "Twenty Seven Point Four
+ * Five Percent". (The 2-decimal form matches the office's "%" figures.)
+ */
+export function percentToWords(pct: number): string {
+  if (!Number.isFinite(pct)) return ''
+  const [intPart, decPart] = Math.abs(pct).toFixed(2).split('.')
+  const intWords = integerToIndianWords(Number(intPart))
+  const decWords = decPart.split('').map((d) => DIGIT_WORDS[Number(d)]).join(' ')
+  return `${intWords} Point ${decWords} Percent`
+}
+
 /**
  * Pre-fill the canonical fields from whatever's been uploaded/picked. Every
  * field is still user-editable afterwards; the two date fields the office
@@ -265,6 +281,29 @@ export function agreementPlaceholders(f: WorkOrderAgreementFields): Record<strin
 }
 
 /**
+ * The {{Label}} -> value map for the File Backer — the file's cover page. A
+ * centred cover: the corporation header (fixed in the template) over the circle
+ * line ("{{Circle Header}}" = "GAJULARAMARAM CIRCLE-57") and a six-row table of
+ * the work's key facts. Amounts follow the same wording as the Work Order /
+ * Agreement (estimate in Lakhs, contract Indian-grouped, "% Less").
+ */
+export function fileBackerPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
+  const estLakhs = num(f.estimateLakhs)
+  const pct = num(f.tenderPercent)
+  const contract = num(f.contractRupees)
+  const circleHeader = f.circle ? `${f.circle.toUpperCase()} CIRCLE${f.cno ? `-${f.cno}` : ''}` : ''
+  return {
+    'Circle Header': circleHeader,
+    'Name of the work': f.nameOfWork,
+    'Estimate Amount': estLakhs != null ? `Rs. ${estLakhs.toFixed(2)} Lakhs` : '',
+    'Contract Amount': contract != null ? groupedRupees(contract) : '',
+    'Tender Percentage': pct == null ? '' : pct === 0 ? 'At par' : `${formatPercent(pct)} % Less`,
+    'Name of the agency': f.agencyName,
+    'Address of the agency': f.address
+  }
+}
+
+/**
  * The {{Label}} -> value map for the QCC (Quality Control Cell) Intimation
  * letter — the Dy.EE's request to the Quality Control Division to inspect a
  * work about to start. Reuses the same office/work/agency/amount data as the
@@ -368,7 +407,21 @@ export function civilTenderPlaceholders(
     // Price bid opening = the sheet's Server Time (when the price bid was opened).
     'Price Bid Open': pdf.serverDate ?? '',
     'Pages Of Agreement': extras.pagesOfAgreement ?? '',
-    'Schedule A Items': extras.scheduleAItems ?? ''
+    'Schedule A Items': extras.scheduleAItems ?? '',
+    // Office block for the page footer (repeats on every page).
+    Circle: f.circle,
+    CNO: f.cno,
+    Zone: f.zone,
+    // Price Bid page: the "I Sri/Smt/M/s …" agency, the estimated contract value
+    // in figures + words, and the tender % in figures and words.
+    'Agency Name': f.agencyName,
+    'ECV Figures Words': ecv != null ? `${groupedRupees(ecv)} (${amountToWords(ecv)})` : '',
+    'Tender Percentage Figures': pct == null ? '' : `${formatPercent(pct)} %`,
+    'Tender Percentage Words': pct == null ? '' : percentToWords(pct),
+    // "Details of Maximum amount reimbursable to the Contractor" — GST @ 18% and
+    // Labour Cess @ 1%, both off the ECV.
+    GST: ecv != null ? groupedRupees(ecv * 0.18) : '',
+    'Labour Cess': ecv != null ? groupedRupees(ecv * 0.01) : ''
   }
 }
 

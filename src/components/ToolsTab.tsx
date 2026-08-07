@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
-import { IconTable, IconFolder, IconWarn, IconOpen, IconImage, IconClipboard, IconBolt, IconPrint, IconDownload } from './Icons'
+import { IconTable, IconFolder, IconWarn, IconOpen, IconImage, IconClipboard, IconBolt, IconPrint, IconDownload, IconBell } from './Icons'
 import UploadPhotosTab from './UploadPhotosTab'
 import WorkOrderAgreementTab from './WorkOrderAgreementTab'
+import IntimationToolTab from './IntimationToolTab'
 import ElectricalEstimateTab from './ElectricalEstimateTab'
 import DocThumbnail from './DocThumbnail'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
@@ -51,7 +52,7 @@ interface SplitProgress {
 
 // The tool tiles whose panel opens beneath them (the Excel Separator runs a
 // one-shot dialog instead of opening a panel, so it isn't one of these).
-type Panel = 'photos' | 'workOrder' | 'agreement' | 'scheduleA' | 'electrical'
+type Panel = 'photos' | 'workOrder' | 'agreement' | 'intimation' | 'scheduleA' | 'electrical'
 
 interface Props {
   /** The Works List database — passed through to the photo-estimate tool for ECV write-back and Circle/Agency lookups. */
@@ -325,6 +326,30 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
           {open === 'agreement' && (
             <div className="tool-inline-panel">
               <WorkOrderAgreementTab standalone only="agreement" tables={[]} onChange={() => {}} office={office} />
+            </div>
+          )}
+        </div>
+
+        <div className="tool-cell">
+          <button
+            className={`doc-tile-card tone-rose tool-card ${open === 'intimation' ? 'on' : ''}`}
+            onClick={() => toggle('intimation')}
+            aria-expanded={open === 'intimation'}
+          >
+            <span className="tool-card-ic">
+              <IconBell />
+            </span>
+            <span className="doc-tile-card-name">Intimation</span>
+            <span className="doc-tile-card-meta">
+              {open === 'intimation' ? 'Open below — click to hide' : 'From L1 — office by circle in the work name — any circle'}
+            </span>
+            <span className="tool-card-cta">
+              <IconFolder /> Upload L1 selection form
+            </span>
+          </button>
+          {open === 'intimation' && (
+            <div className="tool-inline-panel">
+              <IntimationToolTab office={office} />
             </div>
           )}
         </div>

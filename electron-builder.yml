@@ -26,6 +26,8 @@ extraResources:
     to: intimation-template.docx
   - from: resources/work-order-template.docx
     to: work-order-template.docx
+  - from: resources/file-backer-template.docx
+    to: file-backer-template.docx
   - from: resources/agreement-template.docx
     to: agreement-template.docx
   - from: resources/qcc-intimation-template.docx

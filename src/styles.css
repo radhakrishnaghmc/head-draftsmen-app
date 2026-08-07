@@ -1151,6 +1151,12 @@ button.danger-ghost:hover:not(:disabled) {
   margin-top: 14px;
   flex-wrap: wrap;
 }
+/* Left-aligned variant (Tools Intimation) — plain upload buttons with no
+   framed/striped .empty container behind them. */
+.boq-actions--start {
+  justify-content: flex-start;
+  margin-top: 4px;
+}
 
 /* Aligned 2×2 grid of upload buttons (Agreement & Work Order's four sources) —
    equal-width cells so the buttons line up instead of wrapping unevenly. The
