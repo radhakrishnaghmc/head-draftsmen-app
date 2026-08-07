@@ -47,7 +47,12 @@ function prevNonEmptyLine(lines: string[], i: number): string {
 function isNameContinuation(line: string): boolean {
   const t = line.trim()
   if (!t || t.length > 40 || /\d/.test(t)) return false
-  return !/^(back|save|reject|icons|view documents|dashboard|company name|department|refund|information technology|https?:)/i.test(t)
+  // Reject the page's own control rows and the price-table header remnants
+  // ("Value", "Amount", "Rank"…) that wrap onto their own lines beside the
+  // bidder rows — they are not part of any agency name.
+  return !/^(back|save|reject|icons|view documents|dashboard|company name|department|refund|information technology|https?:|value|amount|rank|select|percentage|estimated|close|server|price bid)\b/i.test(
+    t
+  )
 }
 
 // The field labels that follow "Name of Work" on the page — reaching one ends
@@ -279,18 +284,61 @@ export function parseTenderEvaluation(lines: string[]): TenderEvaluation {
  * page carries no price table (e.g. the Responsiveness screen).
  */
 export function parseAllBidders(lines: string[]): NoteBidder[] {
+  // Anchor on the number cells, NOT on the name being on the same line: a long
+  // agency name wraps, so its tail (or all of it) sits on a neighbouring line.
+  // e.g. "BOBBA RAVI CHANDRA CIVIL" / "CONTRACTOR 3531887.00 Less 19.8 … L-2".
+  // Reassembling the name the same way the L-1 parser does keeps every bidder,
+  // instead of dropping the wrapped one or showing only its tail ("CONTRACTOR").
+  const priceCore = /([\d,]+\.\d{2})\s+(Less|Excess)\s+([\d.]+)\s+([\d,]+\.\d{2})\s+L-?\s*(\d+)\b/i
+  // Lines already claimed as part of a bidder's (wrapped) name, so the next
+  // bidder can't re-grab a previous bidder's tail — e.g. "CONTRACTOR" sitting
+  // directly above "NARENDRA NAIK RAMAVATHU …" belongs to the L-2 name, not L-3.
+  const consumed = new Set<number>()
+  const prevUnconsumed = (i: number): number => {
+    for (let j = i - 1; j >= 0; j--) {
+      if (consumed.has(j)) continue
+      if (lines[j].trim()) return j
+    }
+    return -1
+  }
   const out: NoteBidder[] = []
-  for (const line of lines) {
-    const m = /^(.+?)\s+([\d,]+\.\d{2})\s+(Less|Excess)\s+([\d.]+)\s+([\d,]+\.\d{2})\s+L-?\s*(\d+)/i.exec(line.trim())
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    const m = priceCore.exec(line)
     if (!m) continue
-    const isExcess = /excess/i.test(m[3])
+    const prefix = line.slice(0, m.index).trim()
+    let name = prefix
+    if (prefix) {
+      // Name tail is on this row; its head may be the line immediately above,
+      // when that's a bare name fragment (not the header, not a consumed tail).
+      const pj = i - 1
+      if (pj >= 0 && !consumed.has(pj) && isNameContinuation(lines[pj])) {
+        name = `${lines[pj].trim()} ${prefix}`
+        consumed.add(pj)
+      }
+    } else {
+      // Number-only row: the whole name sits on the neighbouring lines — the
+      // nearest unclaimed line above (its head) plus the line below when that's
+      // a name continuation (its tail). Both are then claimed.
+      const hj = prevUnconsumed(i)
+      const head = hj >= 0 ? lines[hj].trim() : ''
+      if (hj >= 0) consumed.add(hj)
+      const nj = i + 1
+      let tail = ''
+      if (nj < lines.length && !consumed.has(nj) && isNameContinuation(lines[nj])) {
+        tail = lines[nj].trim()
+        consumed.add(nj)
+      }
+      name = `${head} ${tail}`.trim()
+    }
+    const isExcess = /excess/i.test(m[2])
     out.push({
       sno: `${out.length + 1}.`,
-      name: m[1].replace(/\s+/g, ' ').trim(),
-      ecv: m[2].replace(/,/g, ''),
-      pct: isExcess ? m[4] : `(-)${m[4]}`,
-      tcv: m[5].replace(/,/g, ''),
-      rank: `L-${m[6]}`
+      name: name.replace(/\s+/g, ' ').trim(),
+      ecv: m[1].replace(/,/g, ''),
+      pct: isExcess ? m[3] : `(-)${m[3]}`,
+      tcv: m[4].replace(/,/g, ''),
+      rank: `L-${m[5]}`
     })
   }
   return out
