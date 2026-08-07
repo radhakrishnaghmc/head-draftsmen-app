@@ -62,6 +62,10 @@ export const IPC = {
   pickWorkbookForSplit: 'tools:pickWorkbookForSplit',
   splitWorkbook: 'tools:splitWorkbook',
   splitProgress: 'tools:splitProgress',
+  pickPdfsForMerge: 'tools:pickPdfsForMerge',
+  mergePdfs: 'tools:mergePdfs',
+  pickPdfForSplit: 'tools:pickPdfForSplit',
+  splitPdf: 'tools:splitPdf',
   exportDeviation: 'data:exportDeviation',
   exportDetailedEstimate: 'data:exportDetailedEstimate',
   exportMaterialEstimate: 'data:exportMaterialEstimate',
@@ -137,6 +141,15 @@ export interface DocuGenApi {
   splitWorkbook(srcPath: string, sheetNames: string[] | null): Promise<{ dir: string; files: string[] } | null>
   /** Fires as each sheet is written while splitWorkbook runs, so the UI can show a progress bar. Returns an unsubscribe function. */
   onSplitProgress(callback: (progress: SplitProgress) => void): () => void
+  /** Tool: pick two or more PDFs to merge; returns each one's path, name and page count (in the order picked), or null if cancelled. */
+  pickPdfsForMerge(): Promise<{ path: string; name: string; pages: number }[] | null>
+  /** Tool: merge the given PDFs (in this order) into one file the user names/saves. Returns the saved file path, or null if cancelled. */
+  mergePdfs(srcPaths: string[]): Promise<{ file: string } | null>
+  /** Tool: pick a PDF to separate; returns its path, name and page count, or null if cancelled. */
+  pickPdfForSplit(): Promise<{ path: string; name: string; pages: number } | null>
+  /** Tool: split a PDF into one file per range (1-based inclusive) in a folder the user picks; null `ranges` = every page separately. Returns the folder and saved files, or null if cancelled. */
+  splitPdf(srcPath: string, ranges: [number, number][] | null): Promise<{ dir: string; files: string[] } | null>
+  exportDeviation(items: DeviationItem[], meta: DeviationMeta, suggestedName: string): Promise<string | null>
   exportDeviation(items: DeviationItem[], meta: DeviationMeta, suggestedName: string): Promise<string | null>
   /** Builds and saves a full "Detailed and Abstract Estimate" workbook (letterhead, item table, standard surcharge cascade, signature block) from scratch — not a bare Sl No/Description/Qty/Rate/Amount table. */
   exportDetailedEstimate(

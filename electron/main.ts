@@ -11,6 +11,7 @@ import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer }
 import { recognizeImage } from './ocr'
 import { readWorkbookSheetNames } from './excelSplit'
 import { runSplitInWorker } from './splitRunner'
+import { pdfPageCount, mergePdfFiles, splitPdfFile } from './pdfTools'
 import { applyTechnicalSanctionEdits } from '../core/technicalSanctionOutput'
 import type { CellEdit } from '../core/technicalSanction'
 import { embedTexts } from './embeddings'
@@ -518,6 +519,66 @@ function registerHandlers(): void {
       const files = await runSplitInWorker(srcPath, dir, sheetNames, (done, total, sheet) => {
         mainWindow?.webContents.send(IPC.splitProgress, { done, total, sheet })
       })
+      return { dir, files }
+    }
+  )
+
+  ipcMain.handle(IPC.pickPdfsForMerge, async (): Promise<{ path: string; name: string; pages: number }[] | null> => {
+    const pick = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Select the PDFs to merge (in order)',
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      properties: ['openFile', 'multiSelections']
+    })
+    if (pick.canceled || pick.filePaths.length === 0) return null
+    const out: { path: string; name: string; pages: number }[] = []
+    for (const p of pick.filePaths) {
+      let pages = 0
+      try {
+        pages = await pdfPageCount(p)
+      } catch {
+        pages = 0
+      }
+      out.push({ path: p, name: path.basename(p), pages })
+    }
+    return out
+  })
+
+  ipcMain.handle(IPC.mergePdfs, async (_e, srcPaths: string[]): Promise<{ file: string } | null> => {
+    if (!srcPaths || srcPaths.length === 0) return null
+    const save = await dialog.showSaveDialog(mainWindow!, {
+      title: 'Save the merged PDF',
+      defaultPath: path.join(path.dirname(srcPaths[0]), 'Merged.pdf'),
+      filters: [{ name: 'PDF', extensions: ['pdf'] }]
+    })
+    if (save.canceled || !save.filePath) return null
+    const file = save.filePath.toLowerCase().endsWith('.pdf') ? save.filePath : `${save.filePath}.pdf`
+    await mergePdfFiles(srcPaths, file)
+    return { file }
+  })
+
+  ipcMain.handle(IPC.pickPdfForSplit, async (): Promise<{ path: string; name: string; pages: number } | null> => {
+    const pick = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Select a PDF to separate',
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      properties: ['openFile']
+    })
+    if (pick.canceled || pick.filePaths.length === 0) return null
+    const p = pick.filePaths[0]
+    return { path: p, name: path.basename(p), pages: await pdfPageCount(p) }
+  })
+
+  ipcMain.handle(
+    IPC.splitPdf,
+    async (_e, srcPath: string, ranges: [number, number][] | null): Promise<{ dir: string; files: string[] } | null> => {
+      const folder = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Choose where to save the separated PDFs',
+        buttonLabel: 'Save PDFs here',
+        defaultPath: path.dirname(srcPath),
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (folder.canceled || folder.filePaths.length === 0) return null
+      const dir = folder.filePaths[0]
+      const files = await splitPdfFile(srcPath, dir, ranges)
       return { dir, files }
     }
   )

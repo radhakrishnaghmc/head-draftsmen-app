@@ -7135,6 +7135,69 @@ tr.on .rp-box span {
   gap: 8px;
   margin-left: auto;
 }
+
+/* PDF Merger — the ordered list of picked PDFs. */
+.pdf-merge-panel {
+  flex-direction: column;
+  align-items: stretch;
+}
+.pdf-merge-list {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.pdf-merge-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.pdf-merge-idx {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-soft, rgba(46, 125, 50, 0.14));
+  color: var(--accent, #2e7d32);
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.pdf-merge-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.pdf-merge-pages {
+  color: var(--muted);
+  font-size: 12px;
+}
+.pdf-merge-ctl {
+  flex: none;
+  display: inline-flex;
+  gap: 4px;
+}
+.pdf-merge-ctl button {
+  padding: 3px 8px;
+  min-width: 0;
+  line-height: 1;
+}
+.pdf-merge-ctl button svg {
+  width: 14px;
+  height: 14px;
+}
 .tool-card-cta {
   position: absolute;
   left: 50%;

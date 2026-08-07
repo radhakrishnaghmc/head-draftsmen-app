@@ -27,6 +27,10 @@ const api: DocuGenApi = {
   exportBoqBatch: (entries) => ipcRenderer.invoke(IPC.exportBoqBatch, entries),
   pickWorkbookForSplit: () => ipcRenderer.invoke(IPC.pickWorkbookForSplit),
   splitWorkbook: (srcPath, sheetNames) => ipcRenderer.invoke(IPC.splitWorkbook, srcPath, sheetNames),
+  pickPdfsForMerge: () => ipcRenderer.invoke(IPC.pickPdfsForMerge),
+  mergePdfs: (srcPaths) => ipcRenderer.invoke(IPC.mergePdfs, srcPaths),
+  pickPdfForSplit: () => ipcRenderer.invoke(IPC.pickPdfForSplit),
+  splitPdf: (srcPath, ranges) => ipcRenderer.invoke(IPC.splitPdf, srcPath, ranges),
   onSplitProgress: (callback) => {
     const listener = (_e: unknown, progress: import('./ipc-contract').SplitProgress) => callback(progress)
     ipcRenderer.on(IPC.splitProgress, listener)

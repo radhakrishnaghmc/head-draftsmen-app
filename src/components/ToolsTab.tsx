@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
-import { IconTable, IconFolder, IconWarn, IconOpen, IconImage, IconClipboard, IconBolt, IconPrint, IconDownload, IconBell } from './Icons'
+import { IconTable, IconFolder, IconWarn, IconOpen, IconImage, IconClipboard, IconBolt, IconPrint, IconDownload, IconBell, IconDoc, IconTrash } from './Icons'
 import UploadPhotosTab from './UploadPhotosTab'
 import WorkOrderAgreementTab from './WorkOrderAgreementTab'
 import IntimationToolTab from './IntimationToolTab'
@@ -155,6 +155,17 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
   // (this sheet, or all) is shown so they can separate one sheet or every sheet.
   const [splitPick, setSplitPick] = useState<{ path: string; name: string; sheets: string[] } | null>(null)
   const [splitChoice, setSplitChoice] = useState<string>('all')
+  // PDF Merger — the picked PDFs (list order = the order they're merged in) plus
+  // the run's outcome. PDF Separator — the picked PDF, the split mode + ranges,
+  // and its outcome. Both are one-shot file tools like the Excel Separator.
+  const [mergeList, setMergeList] = useState<{ path: string; name: string; pages: number }[]>([])
+  const [mergeBusy, setMergeBusy] = useState(false)
+  const [mergeOut, setMergeOut] = useState<{ file: string } | null>(null)
+  const [mergeErr, setMergeErr] = useState<string | null>(null)
+  const [pdfSep, setPdfSep] = useState<{ path: string; name: string; pages: number } | null>(null)
+  const [sepMode, setSepMode] = useState<'each' | 'ranges'>('each')
+  const [sepRanges, setSepRanges] = useState('')
+  const [pdfSplit, setPdfSplit] = useState<SplitState>({ busy: false, result: null, error: null })
   // Which tool's panel is expanded, if any. One at a time (accordion): opening a
   // tile reveals its panel directly beneath that tile and closes any other, so
   // the workspace stays focused on the one tool the user picked. Each tile is
@@ -220,6 +231,91 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
     }
   }
 
+  // --- PDF Merger ---------------------------------------------------------
+  // Pick PDFs and append them to the list (skipping exact-path duplicates), so
+  // "Choose PDFs" / "Add more" both build up the same ordered list.
+  async function chooseMergePdfs() {
+    setMergeErr(null)
+    setMergeOut(null)
+    try {
+      const picked = await api.pickPdfsForMerge()
+      if (!picked) return
+      setMergeList((cur) => [...cur, ...picked.filter((p) => !cur.some((c) => c.path === p.path))])
+    } catch (e) {
+      setMergeErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+  function moveMerge(i: number, dir: -1 | 1) {
+    setMergeList((cur) => {
+      const j = i + dir
+      if (j < 0 || j >= cur.length) return cur
+      const next = cur.slice()
+      const tmp = next[i]
+      next[i] = next[j]
+      next[j] = tmp
+      return next
+    })
+  }
+  async function doMerge() {
+    if (mergeList.length < 2 || mergeBusy) return
+    setMergeBusy(true)
+    setMergeErr(null)
+    setMergeOut(null)
+    try {
+      const res = await api.mergePdfs(mergeList.map((m) => m.path)) // null when the save dialog is cancelled
+      if (res) {
+        setMergeOut(res)
+        setMergeList([])
+      }
+    } catch (e) {
+      setMergeErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setMergeBusy(false)
+    }
+  }
+
+  // --- PDF Separator ------------------------------------------------------
+  async function choosePdfForSplit() {
+    setPdfSplit({ busy: false, result: null, error: null })
+    try {
+      const picked = await api.pickPdfForSplit()
+      if (!picked) return
+      setPdfSep(picked)
+      setSepMode('each')
+      setSepRanges('')
+    } catch (e) {
+      setPdfSplit({ busy: false, result: null, error: e instanceof Error ? e.message : String(e) })
+    }
+  }
+  // "1-3, 5, 7-9" -> [[1,3],[5,5],[7,9]]; null when nothing parses (invalid input).
+  function parseRanges(s: string): [number, number][] | null {
+    const out: [number, number][] = []
+    for (const part of s.split(',').map((x) => x.trim()).filter(Boolean)) {
+      const m = /^(\d+)\s*-\s*(\d+)$/.exec(part)
+      if (m) out.push([Number(m[1]), Number(m[2])])
+      else if (/^\d+$/.test(part)) out.push([Number(part), Number(part)])
+      else return null
+    }
+    return out.length ? out : null
+  }
+  async function doPdfSplit() {
+    if (!pdfSep || pdfSplit.busy) return
+    const ranges = sepMode === 'each' ? null : parseRanges(sepRanges)
+    if (sepMode === 'ranges' && !ranges) {
+      setPdfSplit({ busy: false, result: null, error: 'Enter valid page ranges, e.g. 1-3, 5, 7-9.' })
+      return
+    }
+    const src = pdfSep.path
+    setPdfSep(null)
+    setPdfSplit({ busy: true, result: null, error: null })
+    try {
+      const res = await api.splitPdf(src, ranges) // null when the folder dialog is cancelled
+      setPdfSplit({ busy: false, result: res, error: null })
+    } catch (e) {
+      setPdfSplit({ busy: false, result: null, error: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
   return (
     <div className="card">
       <div className="doc-tile-grid tools-grid">
@@ -255,6 +351,48 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
               />
             </span>
           )}
+        </button>
+
+        <button
+          className={`doc-tile-card tone-sky tool-card ${mergeList.length ? 'on' : ''}`}
+          onClick={chooseMergePdfs}
+          disabled={mergeBusy}
+        >
+          <span className="tool-card-ic">
+            <IconDoc />
+          </span>
+          <span className="doc-tile-card-name">PDF Merger</span>
+          <span className="doc-tile-card-meta">
+            {mergeBusy
+              ? 'Merging…'
+              : mergeList.length
+                ? `${mergeList.length} PDF${mergeList.length === 1 ? '' : 's'} chosen — arrange below`
+                : 'Combine several PDFs into one file'}
+          </span>
+          <span className="tool-card-cta">
+            <IconFolder /> Choose PDFs
+          </span>
+        </button>
+
+        <button
+          className={`doc-tile-card tone-rose tool-card ${pdfSep ? 'on' : ''}`}
+          onClick={choosePdfForSplit}
+          disabled={pdfSplit.busy}
+        >
+          <span className="tool-card-ic">
+            <IconDoc />
+          </span>
+          <span className="doc-tile-card-name">PDF Separator</span>
+          <span className="doc-tile-card-meta">
+            {pdfSplit.busy
+              ? 'Separating…'
+              : pdfSep
+                ? `${pdfSep.pages} page${pdfSep.pages === 1 ? '' : 's'} — choose below`
+                : 'Split a PDF into single pages or ranges'}
+          </span>
+          <span className="tool-card-cta">
+            <IconFolder /> Choose PDF
+          </span>
         </button>
 
         <button
@@ -544,6 +682,115 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
             {split.result.files.length === 1 ? '' : 's'} to {split.result.dir}
           </span>
           <button className="ghost" onClick={() => api.openPath(split.result!.dir)}>
+            <IconOpen /> Open folder
+          </button>
+        </div>
+      )}
+
+      {/* PDF Merger — the chosen PDFs, in merge order, with reorder / remove. */}
+      {mergeList.length > 0 && (
+        <div className="notice split-picker tool-outcome pdf-merge-panel">
+          <div className="split-picker-head">
+            <IconDoc />
+            <strong>Merge {mergeList.length} PDF{mergeList.length === 1 ? '' : 's'}</strong>
+            <span className="split-picker-count">top → bottom = page order</span>
+          </div>
+          <ol className="pdf-merge-list">
+            {mergeList.map((f, i) => (
+              <li key={f.path}>
+                <span className="pdf-merge-idx">{i + 1}</span>
+                <span className="pdf-merge-name" title={f.path}>
+                  {f.name} <span className="pdf-merge-pages">· {f.pages || '?'} pg</span>
+                </span>
+                <span className="pdf-merge-ctl">
+                  <button className="ghost" onClick={() => moveMerge(i, -1)} disabled={i === 0} title="Move up" aria-label="Move up">↑</button>
+                  <button className="ghost" onClick={() => moveMerge(i, 1)} disabled={i === mergeList.length - 1} title="Move down" aria-label="Move down">↓</button>
+                  <button className="ghost" onClick={() => setMergeList((cur) => cur.filter((_, k) => k !== i))} title="Remove" aria-label="Remove"><IconTrash /></button>
+                </span>
+              </li>
+            ))}
+          </ol>
+          <div className="split-picker-actions">
+            <button className="ghost" onClick={chooseMergePdfs} disabled={mergeBusy}>
+              <IconFolder /> Add more
+            </button>
+            <button className="ghost" onClick={() => setMergeList([])} disabled={mergeBusy}>
+              Clear
+            </button>
+            <button className="primary" onClick={doMerge} disabled={mergeBusy || mergeList.length < 2}>
+              <IconDoc /> {mergeBusy ? 'Merging…' : 'Merge & save'}
+            </button>
+          </div>
+          {mergeList.length < 2 && <p className="estimate-hint">Add at least two PDFs to merge.</p>}
+        </div>
+      )}
+      {mergeErr && (
+        <div className="notice error tool-outcome">
+          <IconWarn /> {mergeErr}
+        </div>
+      )}
+      {mergeOut && (
+        <div className="notice ok tool-result tool-outcome">
+          <span>
+            <IconDoc /> Saved merged PDF: {mergeOut.file}
+          </span>
+          <button className="ghost" onClick={() => api.openPath(mergeOut.file)}>
+            <IconOpen /> Open
+          </button>
+        </div>
+      )}
+
+      {/* PDF Separator — every page, or custom page ranges. */}
+      {pdfSep && (
+        <div className="notice split-picker tool-outcome">
+          <div className="split-picker-head">
+            <IconDoc />
+            <strong>{pdfSep.name}</strong>
+            <span className="split-picker-count">
+              {pdfSep.pages} page{pdfSep.pages === 1 ? '' : 's'}
+            </span>
+          </div>
+          <label className="split-picker-row">
+            <span>Separate</span>
+            <select value={sepMode} onChange={(e) => setSepMode(e.target.value as 'each' | 'ranges')}>
+              <option value="each">Every page separately ({pdfSep.pages} files)</option>
+              <option value="ranges">Custom page ranges…</option>
+            </select>
+          </label>
+          {sepMode === 'ranges' && (
+            <label className="split-picker-row">
+              <span>Ranges</span>
+              <input
+                type="text"
+                placeholder="e.g. 1-3, 5, 7-9"
+                value={sepRanges}
+                onChange={(e) => setSepRanges(e.target.value)}
+                style={{ minWidth: 200 }}
+              />
+            </label>
+          )}
+          <div className="split-picker-actions">
+            <button className="ghost" onClick={() => setPdfSep(null)}>
+              Cancel
+            </button>
+            <button className="primary" onClick={doPdfSplit}>
+              <IconFolder /> Separate
+            </button>
+          </div>
+        </div>
+      )}
+      {pdfSplit.error && (
+        <div className="notice error tool-outcome">
+          <IconWarn /> {pdfSplit.error}
+        </div>
+      )}
+      {pdfSplit.result && (
+        <div className="notice ok tool-result tool-outcome">
+          <span>
+            <IconFolder /> Saved {pdfSplit.result.files.length} PDF
+            {pdfSplit.result.files.length === 1 ? '' : 's'} to {pdfSplit.result.dir}
+          </span>
+          <button className="ghost" onClick={() => api.openPath(pdfSplit.result!.dir)}>
             <IconOpen /> Open folder
           </button>
         </div>
