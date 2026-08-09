@@ -31,6 +31,13 @@ const api: DocuGenApi = {
   mergePdfs: (srcPaths) => ipcRenderer.invoke(IPC.mergePdfs, srcPaths),
   pickPdfForSplit: () => ipcRenderer.invoke(IPC.pickPdfForSplit),
   splitPdf: (srcPath, ranges) => ipcRenderer.invoke(IPC.splitPdf, srcPath, ranges),
+  savePdf: (bytes, suggestedName) => ipcRenderer.invoke(IPC.savePdf, bytes, suggestedName),
+  savePdfsToFolder: (files) => ipcRenderer.invoke(IPC.savePdfsToFolder, files),
+  docxToPdf: (docxBytes) => ipcRenderer.invoke(IPC.docxToPdf, docxBytes),
+  mergeDocx: (docxBytesList) => ipcRenderer.invoke(IPC.mergeDocx, docxBytesList),
+  splitDocxSections: (docxBytes) => ipcRenderer.invoke(IPC.splitDocxSections, docxBytes),
+  saveDocxsToFolder: (files) => ipcRenderer.invoke(IPC.saveDocxsToFolder, files),
+  ocrGpsOverlay: (imageBytes) => ipcRenderer.invoke(IPC.ocrGpsOverlay, imageBytes),
   onSplitProgress: (callback) => {
     const listener = (_e: unknown, progress: import('./ipc-contract').SplitProgress) => callback(progress)
     ipcRenderer.on(IPC.splitProgress, listener)

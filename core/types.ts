@@ -235,6 +235,15 @@ export interface PersistedState {
    * by the 3rd/4th-party QC letters. Synced like worksListLinks.
    */
   qcParties?: Record<string, QcOfficeParties>
+  /**
+   * The Head Draughtsman's chosen office (Corporation/Zone/Circle/CNO). Persisted
+   * here — not just in the renderer's localStorage — so it's remembered on the
+   * next login and restored on any system the user signs in from, and never
+   * re-asked once picked. localStorage still holds it for an instant read at
+   * startup; this synced copy is the fallback whenever that's been lost (a fresh
+   * install, a cleared cache, or a different machine).
+   */
+  office?: { corporation?: string; zone?: string; circle?: string; circleNumber?: string }
   tenderReminders?: TenderReminder[]
   createdDocuments?: CreatedDocument[]
   /**

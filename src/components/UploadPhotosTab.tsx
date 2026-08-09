@@ -405,25 +405,10 @@ export default function UploadPhotosTab({ tables, onChange, autoOpen = false, on
     }
   }
 
-  // Launched from a Tools tile (autoOpen): until a photo/PDF is actually
-  // picked, show nothing at all — just the hidden picker the mount effect
-  // fires — so clicking the tile opens the folder with no placeholder panel.
-  if (autoOpen && photos.length === 0 && !resultTable) {
-    return (
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*,application/pdf"
-        multiple
-        style={{ display: 'none' }}
-        onChange={(e) => {
-          void handleFiles(e.target.files)
-          e.target.value = ''
-        }}
-      />
-    )
-  }
-
+  // Launched from a Tools tile, autoOpen fires the file picker on mount for a
+  // one-click start — but the page itself always shows the "Upload Photos or
+  // PDF" button and (once files are added) their previews below, so cancelling
+  // the picker leaves a usable panel, not a blank card.
   return (
     <div className="card">
       <div className="empty">

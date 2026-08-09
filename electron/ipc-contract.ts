@@ -6,6 +6,7 @@ import type {
   PersistedState
 } from '../core/types'
 import type { SheetGrid } from '../core/sheet'
+import type { SheetPreview } from '../core/excel'
 import type { CalendarData } from '../core/calendar'
 import type { ScheduleAMeta } from '../core/scheduleA'
 import type { TenderNoticeInput } from '../core/tenderNotice'
@@ -66,6 +67,13 @@ export const IPC = {
   mergePdfs: 'tools:mergePdfs',
   pickPdfForSplit: 'tools:pickPdfForSplit',
   splitPdf: 'tools:splitPdf',
+  savePdf: 'tools:savePdf',
+  savePdfsToFolder: 'tools:savePdfsToFolder',
+  docxToPdf: 'tools:docxToPdf',
+  mergeDocx: 'tools:mergeDocx',
+  splitDocxSections: 'tools:splitDocxSections',
+  saveDocxsToFolder: 'tools:saveDocxsToFolder',
+  ocrGpsOverlay: 'tools:ocrGpsOverlay',
   exportDeviation: 'data:exportDeviation',
   exportDetailedEstimate: 'data:exportDetailedEstimate',
   exportMaterialEstimate: 'data:exportMaterialEstimate',
@@ -135,8 +143,8 @@ export interface DocuGenApi {
   exportBoqBatch(
     entries: { table: ExcelTable; suggestedName: string; workName?: string }[]
   ): Promise<string[] | null>
-  /** Tool: pick a multi-sheet workbook to split; returns its path and worksheet names (so the user can choose a specific sheet or all), or null if cancelled. */
-  pickWorkbookForSplit(): Promise<{ path: string; name: string; sheets: string[] } | null>
+  /** Tool: pick a multi-sheet workbook to split; returns its path and a lightweight per-sheet preview (name + a corner of cells, for the sheet tiles), or null if cancelled. */
+  pickWorkbookForSplit(): Promise<{ path: string; name: string; sheets: SheetPreview[] } | null>
   /** Tool: split the chosen workbook into one .xlsx per sheet (named after the tab) in a folder the user picks. `sheetNames` limits it to those sheets; null/empty separates all. Returns the folder and saved file paths, or null if cancelled. */
   splitWorkbook(srcPath: string, sheetNames: string[] | null): Promise<{ dir: string; files: string[] } | null>
   /** Fires as each sheet is written while splitWorkbook runs, so the UI can show a progress bar. Returns an unsubscribe function. */
@@ -149,6 +157,20 @@ export interface DocuGenApi {
   pickPdfForSplit(): Promise<{ path: string; name: string; pages: number } | null>
   /** Tool: split a PDF into one file per range (1-based inclusive) in a folder the user picks; null `ranges` = every page separately. Returns the folder and saved files, or null if cancelled. */
   splitPdf(srcPath: string, ranges: [number, number][] | null): Promise<{ dir: string; files: string[] } | null>
+  /** Tool (PDF workspace): save already-built PDF bytes to a file the user names/picks. Returns the written path, or null if cancelled. */
+  savePdf(bytes: Uint8Array, suggestedName: string): Promise<{ file: string } | null>
+  /** Tool (PDF workspace): save several already-built PDFs (name + bytes) into ONE folder the user picks. Returns the folder and written paths, or null if cancelled. */
+  savePdfsToFolder(files: { name: string; bytes: Uint8Array }[]): Promise<{ dir: string; files: string[] } | null>
+  /** Tool (Word workspace): convert one .docx (raw bytes) to PDF via LibreOffice, for a page-level preview. Returns the PDF bytes; throws a clear error if LibreOffice isn't installed. */
+  docxToPdf(docxBytes: Uint8Array): Promise<Uint8Array>
+  /** Tool (Word workspace): merge several .docx files (raw bytes, in order) into one .docx and save it via a dialog. Returns the saved path, or null if cancelled. */
+  mergeDocx(docxBytesList: Uint8Array[]): Promise<{ file: string } | null>
+  /** Tool (Word workspace): split one .docx (raw bytes) into one .docx per page at its page breaks; each keeps full formatting. Returns the section .docx byte arrays (a single item when there are no page breaks). */
+  splitDocxSections(docxBytes: Uint8Array): Promise<Uint8Array[]>
+  /** Tool (Word workspace): save several .docx files (name + bytes) into ONE folder the user picks. Returns the folder and written paths, or null if cancelled. */
+  saveDocxsToFolder(files: { name: string; bytes: Uint8Array }[]): Promise<{ dir: string; files: string[] } | null>
+  /** Tool (GPS Photos): OCR the GPS overlay stamped on a photo (multi-threshold passes) and return its text lines, for parsing coordinates out of. Used only when the photo has no EXIF GPS. */
+  ocrGpsOverlay(imageBytes: Uint8Array): Promise<string[]>
   exportDeviation(items: DeviationItem[], meta: DeviationMeta, suggestedName: string): Promise<string | null>
   exportDeviation(items: DeviationItem[], meta: DeviationMeta, suggestedName: string): Promise<string | null>
   /** Builds and saves a full "Detailed and Abstract Estimate" workbook (letterhead, item table, standard surcharge cascade, signature block) from scratch — not a bare Sl No/Description/Qty/Rate/Amount table. */
@@ -246,6 +268,7 @@ export interface DocuGenApi {
 
 export type { ExcelTable }
 export type { SheetGrid }
+export type { SheetPreview }
 export type { TenderQuery, TenderResult, PersistedState }
 export type { ScheduleAMeta }
 

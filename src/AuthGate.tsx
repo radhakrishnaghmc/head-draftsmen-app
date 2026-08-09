@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import App from './App'
 import LoginPage from './components/LoginPage'
 import { api } from './ipc'
-import { type Office, loadOffice, saveOffice } from './office'
+import { type Office, loadOffice, saveOffice, isOfficeReady, normalizeOffice } from './office'
 
 // The signed-in flag is cleared when the app/window closes — login is required
 // once per launch, not stored indefinitely.
@@ -20,10 +20,36 @@ export default function AuthGate() {
   // not derived from the login, and remembered across launches.
   const [office, setOfficeState] = useState<Office>(() => loadOffice())
 
+  // localStorage is the fast path, but it lives per renderer-origin — a cleared
+  // cache, a reinstall, or (in dev) a shifted Vite port loses it, and it never
+  // follows the user to another machine. So when nothing usable is in
+  // localStorage, fall back to the office saved in the on-disk / synced state
+  // (written by App, independent of the renderer origin) before showing the app,
+  // so a returning user is never asked to pick their office again. Starts
+  // "ready" — and so skips the fallback with no delay — whenever localStorage
+  // already has an office.
+  const [officeReady, setOfficeReady] = useState(() => isOfficeReady(loadOffice()))
+
   function setOffice(next: Office) {
     setOfficeState(next)
     saveOffice(next)
   }
+
+  useEffect(() => {
+    if (officeReady) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const s = await api.loadState()
+        if (!cancelled && s?.office && isOfficeReady(s.office)) setOffice(normalizeOffice(s.office))
+      } finally {
+        if (!cancelled) setOfficeReady(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [officeReady])
 
   if (!authed) {
     return (
@@ -35,6 +61,11 @@ export default function AuthGate() {
       />
     )
   }
+
+  // Hold the app back only while we're recovering a lost office from disk (a
+  // brief, one-off IPC read; skipped entirely in the common case above) so App's
+  // startup runs with the right office already in hand.
+  if (!officeReady) return <div className="app-boot" />
 
   return (
     <App

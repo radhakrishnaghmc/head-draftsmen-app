@@ -1,11 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
-import { IconTable, IconFolder, IconWarn, IconOpen, IconImage, IconClipboard, IconBolt, IconPrint, IconDownload, IconBell, IconDoc, IconTrash } from './Icons'
+import { IconTable, IconFolder, IconWarn, IconImage, IconClipboard, IconBolt, IconPrint, IconDownload, IconBell, IconDoc, IconChevronLeft } from './Icons'
 import UploadPhotosTab from './UploadPhotosTab'
 import WorkOrderAgreementTab from './WorkOrderAgreementTab'
 import IntimationToolTab from './IntimationToolTab'
 import ElectricalEstimateTab from './ElectricalEstimateTab'
+import PdfToolPage from './PdfToolPage'
+import ExcelSeparatorPage from './ExcelSeparatorPage'
+import WordToolPage from './WordToolPage'
+import GpsPhotosPage from './GpsPhotosPage'
+import PhotosToPdfPage from './PhotosToPdfPage'
 import DocThumbnail from './DocThumbnail'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
 import { circlesOf, corporationByName } from '../zoneCircleDirectory'
@@ -38,21 +43,21 @@ function officeValues(office: Office, circle?: string, cno?: string): Record<str
   return v
 }
 
-interface SplitState {
-  busy: boolean
-  result: { dir: string; files: string[] } | null
-  error: string | null
-}
-
-interface SplitProgress {
-  done: number
-  total: number
-  sheet: string
-}
-
-// The tool tiles whose panel opens beneath them (the Excel Separator runs a
-// one-shot dialog instead of opening a panel, so it isn't one of these).
-type Panel = 'photos' | 'workOrder' | 'agreement' | 'intimation' | 'scheduleA' | 'electrical'
+// Every tool tile opens its own full page (Back button → grid) in place of the
+// grid. The file tools (pdf/excel/word) are self-contained page components; the
+// rest host an existing workspace component under a shared Back-button header.
+type FullPage =
+  | 'pdf'
+  | 'excel'
+  | 'word'
+  | 'gps'
+  | 'photosToPdf'
+  | 'photos'
+  | 'workOrder'
+  | 'agreement'
+  | 'intimation'
+  | 'scheduleA'
+  | 'electrical'
 
 interface Props {
   /** The Works List database — passed through to the photo-estimate tool for ECV write-back and Circle/Agency lookups. */
@@ -148,399 +153,204 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
       setPrintingId(null)
     }
   }
-  const [split, setSplit] = useState<SplitState>({ busy: false, result: null, error: null })
-  // Live per-sheet progress pushed from the main process while a split runs.
-  const [progress, setProgress] = useState<SplitProgress | null>(null)
-  // A workbook the user picked but hasn't split yet — while set, a small chooser
-  // (this sheet, or all) is shown so they can separate one sheet or every sheet.
-  const [splitPick, setSplitPick] = useState<{ path: string; name: string; sheets: string[] } | null>(null)
-  const [splitChoice, setSplitChoice] = useState<string>('all')
-  // PDF Merger — the picked PDFs (list order = the order they're merged in) plus
-  // the run's outcome. PDF Separator — the picked PDF, the split mode + ranges,
-  // and its outcome. Both are one-shot file tools like the Excel Separator.
-  const [mergeList, setMergeList] = useState<{ path: string; name: string; pages: number }[]>([])
-  const [mergeBusy, setMergeBusy] = useState(false)
-  const [mergeOut, setMergeOut] = useState<{ file: string } | null>(null)
-  const [mergeErr, setMergeErr] = useState<string | null>(null)
-  const [pdfSep, setPdfSep] = useState<{ path: string; name: string; pages: number } | null>(null)
-  const [sepMode, setSepMode] = useState<'each' | 'ranges'>('each')
-  const [sepRanges, setSepRanges] = useState('')
-  const [pdfSplit, setPdfSplit] = useState<SplitState>({ busy: false, result: null, error: null })
+  // Which full-page tool (if any) has taken over the tab: the PDF workspace
+  // (upload PDFs, pick pages, merge/separate) or the Excel Sheet Separator (pick
+  // a workbook, tick sheets, separate). Each renders in place of the grid with a
+  // Back button.
+  const [fullPage, setFullPage] = useState<FullPage | null>(null)
   // Which tool's panel is expanded, if any. One at a time (accordion): opening a
   // tile reveals its panel directly beneath that tile and closes any other, so
   // the workspace stays focused on the one tool the user picked. Each tile is
   // its own focused entry point — Work Order and Agreement Bond ask only for the
   // L-1 + Intimation and each show only their own document.
-  const [open, setOpen] = useState<Panel | null>(null)
-  // Whether the currently-open single-upload tool has picked a file yet. Until
-  // it has, its panel must take up no grid row (else the empty full-width row
-  // would push the remaining tiles onto the next line — see the wrappers below).
-  const [panelFilled, setPanelFilled] = useState(false)
-
-  // Open (or toggle shut) a tool's panel. Also clears the Excel Separator's
-  // "Saved N sheets…" result so that notice doesn't linger once the user has
-  // moved on to another tile, and resets the single-upload "has content" flag.
-  function toggle(panel: Panel) {
-    setOpen((cur) => (cur === panel ? null : panel))
-    setPanelFilled(false)
-    setSplit({ busy: false, result: null, error: null })
-    setProgress(null)
-    setSplitPick(null)
+  function openFullPage(page: FullPage) {
+    setFullPage(page)
   }
+  const backToTools = () => setFullPage(null)
 
-  // Subscribe once to the main process's per-sheet progress events; the split
-  // itself runs in the main process, so the whole UI (this and every other tab)
-  // stays usable while it works.
-  useEffect(() => api.onSplitProgress(setProgress), [])
+  // The self-contained file-tool pages.
+  if (fullPage === 'pdf') return <PdfToolPage onBack={backToTools} />
+  if (fullPage === 'excel') return <ExcelSeparatorPage onBack={backToTools} />
+  if (fullPage === 'word') return <WordToolPage onBack={backToTools} />
+  if (fullPage === 'gps') return <GpsPhotosPage onBack={backToTools} />
+  if (fullPage === 'photosToPdf') return <PhotosToPdfPage onBack={backToTools} />
 
-  // Step 1 — pick a workbook and read its sheet names, then show the chooser
-  // (which sheet, or all) below. Picking the separator is a switch to a
-  // different tool, so any open tool panel is closed.
-  async function chooseWorkbook() {
-    if (split.busy) return
-    setOpen(null)
-    setPanelFilled(false)
-    setSplit({ busy: false, result: null, error: null })
-    setProgress(null)
-    try {
-      const picked = await api.pickWorkbookForSplit() // null when the user cancels
-      if (!picked) return
-      setSplitPick(picked)
-      setSplitChoice('all')
-    } catch (e) {
-      setSplit({ busy: false, result: null, error: e instanceof Error ? e.message : String(e) })
-    }
-  }
-
-  // Step 2 — separate the chosen sheet (or all sheets) into the folder the user
-  // then picks.
-  async function doSplit() {
-    if (!splitPick || split.busy) return
-    const srcPath = splitPick.path
-    const sheetNames = splitChoice === 'all' ? null : [splitChoice]
-    setSplitPick(null)
-    setSplit({ busy: true, result: null, error: null })
-    setProgress(null)
-    try {
-      const result = await api.splitWorkbook(srcPath, sheetNames) // null when the folder dialog is cancelled
-      setSplit({ busy: false, result, error: null })
-    } catch (e) {
-      setSplit({ busy: false, result: null, error: e instanceof Error ? e.message : String(e) })
-    } finally {
-      setProgress(null)
-    }
-  }
-
-  // --- PDF Merger ---------------------------------------------------------
-  // Pick PDFs and append them to the list (skipping exact-path duplicates), so
-  // "Choose PDFs" / "Add more" both build up the same ordered list.
-  async function chooseMergePdfs() {
-    setMergeErr(null)
-    setMergeOut(null)
-    try {
-      const picked = await api.pickPdfsForMerge()
-      if (!picked) return
-      setMergeList((cur) => [...cur, ...picked.filter((p) => !cur.some((c) => c.path === p.path))])
-    } catch (e) {
-      setMergeErr(e instanceof Error ? e.message : String(e))
-    }
-  }
-  function moveMerge(i: number, dir: -1 | 1) {
-    setMergeList((cur) => {
-      const j = i + dir
-      if (j < 0 || j >= cur.length) return cur
-      const next = cur.slice()
-      const tmp = next[i]
-      next[i] = next[j]
-      next[j] = tmp
-      return next
-    })
-  }
-  async function doMerge() {
-    if (mergeList.length < 2 || mergeBusy) return
-    setMergeBusy(true)
-    setMergeErr(null)
-    setMergeOut(null)
-    try {
-      const res = await api.mergePdfs(mergeList.map((m) => m.path)) // null when the save dialog is cancelled
-      if (res) {
-        setMergeOut(res)
-        setMergeList([])
+  // The remaining tools each host an existing workspace component under a shared
+  // Back-button header, so every tile opens as its own full page.
+  if (fullPage) {
+    const hosted: Record<string, { icon: JSX.Element; label: string; body: JSX.Element }> = {
+      photos: {
+        icon: <IconImage />,
+        label: 'Estimate from Photos / PDF',
+        body: <UploadPhotosTab tables={tables} onChange={onChange} autoOpen onContent={() => {}} />
+      },
+      workOrder: {
+        icon: <IconClipboard />,
+        label: 'Work Order',
+        body: <WorkOrderAgreementTab standalone only="workOrder" tables={[]} onChange={() => {}} office={office} />
+      },
+      agreement: {
+        icon: <IconClipboard />,
+        label: 'Agreement Bond',
+        body: <WorkOrderAgreementTab standalone only="agreement" tables={[]} onChange={() => {}} office={office} />
+      },
+      intimation: {
+        icon: <IconBell />,
+        label: 'Intimation',
+        body: <IntimationToolTab office={office} />
+      },
+      scheduleA: {
+        icon: <IconTable />,
+        label: 'Schedule A',
+        body: <WorkOrderAgreementTab scheduleAOnly autoOpen onContent={() => {}} tables={tables} onChange={() => {}} />
+      },
+      electrical: {
+        icon: <IconBolt />,
+        label: 'Electrical Estimate',
+        body: <ElectricalEstimateTab autoOpen onContent={() => {}} />
       }
-    } catch (e) {
-      setMergeErr(e instanceof Error ? e.message : String(e))
-    } finally {
-      setMergeBusy(false)
     }
-  }
-
-  // --- PDF Separator ------------------------------------------------------
-  async function choosePdfForSplit() {
-    setPdfSplit({ busy: false, result: null, error: null })
-    try {
-      const picked = await api.pickPdfForSplit()
-      if (!picked) return
-      setPdfSep(picked)
-      setSepMode('each')
-      setSepRanges('')
-    } catch (e) {
-      setPdfSplit({ busy: false, result: null, error: e instanceof Error ? e.message : String(e) })
-    }
-  }
-  // "1-3, 5, 7-9" -> [[1,3],[5,5],[7,9]]; null when nothing parses (invalid input).
-  function parseRanges(s: string): [number, number][] | null {
-    const out: [number, number][] = []
-    for (const part of s.split(',').map((x) => x.trim()).filter(Boolean)) {
-      const m = /^(\d+)\s*-\s*(\d+)$/.exec(part)
-      if (m) out.push([Number(m[1]), Number(m[2])])
-      else if (/^\d+$/.test(part)) out.push([Number(part), Number(part)])
-      else return null
-    }
-    return out.length ? out : null
-  }
-  async function doPdfSplit() {
-    if (!pdfSep || pdfSplit.busy) return
-    const ranges = sepMode === 'each' ? null : parseRanges(sepRanges)
-    if (sepMode === 'ranges' && !ranges) {
-      setPdfSplit({ busy: false, result: null, error: 'Enter valid page ranges, e.g. 1-3, 5, 7-9.' })
-      return
-    }
-    const src = pdfSep.path
-    setPdfSep(null)
-    setPdfSplit({ busy: true, result: null, error: null })
-    try {
-      const res = await api.splitPdf(src, ranges) // null when the folder dialog is cancelled
-      setPdfSplit({ busy: false, result: res, error: null })
-    } catch (e) {
-      setPdfSplit({ busy: false, result: null, error: e instanceof Error ? e.message : String(e) })
-    }
+    const tool = hosted[fullPage]
+    return (
+      <>
+        <div className="pdf-ws-topbar">
+          <div className="pdf-ws-title">
+            {tool.icon} <span className="pdf-ws-title-label">Tool:</span> {tool.label}
+          </div>
+          <button className="ghost pdf-ws-back" onClick={backToTools}>
+            <IconChevronLeft /> Back to Tools
+          </button>
+        </div>
+        <div className="card pdf-workspace">
+          <div className="tool-fullpage-body">{tool.body}</div>
+        </div>
+      </>
+    )
   }
 
   return (
     <div className="card">
       <div className="doc-tile-grid tools-grid">
-        <button
-          className={`doc-tile-card tone-teal tool-card ${splitPick ? 'on' : ''}`}
-          onClick={chooseWorkbook}
-          disabled={split.busy}
-        >
+        <button className="doc-tile-card tone-teal tool-card" onClick={() => openFullPage('excel')}>
           <span className="tool-card-ic">
             <IconTable />
           </span>
           <span className="doc-tile-card-name">Excel Sheet Separator</span>
-          <span className="doc-tile-card-meta">
-            {split.busy
-              ? progress
-                ? `Splitting ${progress.done} / ${progress.total} sheets…`
-                : 'Reading workbook…'
-              : splitPick
-                ? 'Choose a sheet below — or all'
-                : 'One sheet, or all — one file per tab'}
-          </span>
+          <span className="doc-tile-card-meta">Pick a workbook, tick sheets, separate selected or all</span>
           <span className="tool-card-cta">
-            <IconFolder /> Choose workbook
+            <IconFolder /> Open workspace
           </span>
-          {/* Progress lives inside the tile itself — a thin bar pinned to the
-              bottom edge while a split runs — so nothing pushes the other tiles
-              around. The per-sheet count shows in the meta line above. */}
-          {split.busy && (
-            <span className="tool-card-progress" aria-hidden>
-              <span
-                className="tool-card-progress-bar"
-                style={{ width: progress && progress.total > 0 ? `${(progress.done / progress.total) * 100}%` : '8%' }}
-              />
-            </span>
-          )}
         </button>
 
-        <button
-          className={`doc-tile-card tone-sky tool-card ${mergeList.length ? 'on' : ''}`}
-          onClick={chooseMergePdfs}
-          disabled={mergeBusy}
-        >
+        <button className="doc-tile-card tone-sky tool-card" onClick={() => openFullPage('pdf')}>
           <span className="tool-card-ic">
             <IconDoc />
           </span>
-          <span className="doc-tile-card-name">PDF Merger</span>
-          <span className="doc-tile-card-meta">
-            {mergeBusy
-              ? 'Merging…'
-              : mergeList.length
-                ? `${mergeList.length} PDF${mergeList.length === 1 ? '' : 's'} chosen — arrange below`
-                : 'Combine several PDFs into one file'}
-          </span>
+          <span className="doc-tile-card-name">PDF Merge / Separator</span>
+          <span className="doc-tile-card-meta">Upload PDFs, pick pages, merge into one or save each separately</span>
           <span className="tool-card-cta">
-            <IconFolder /> Choose PDFs
+            <IconFolder /> Open workspace
           </span>
         </button>
 
-        <button
-          className={`doc-tile-card tone-rose tool-card ${pdfSep ? 'on' : ''}`}
-          onClick={choosePdfForSplit}
-          disabled={pdfSplit.busy}
-        >
+        <button className="doc-tile-card tone-rose tool-card" onClick={() => openFullPage('word')}>
           <span className="tool-card-ic">
             <IconDoc />
           </span>
-          <span className="doc-tile-card-name">PDF Separator</span>
-          <span className="doc-tile-card-meta">
-            {pdfSplit.busy
-              ? 'Separating…'
-              : pdfSep
-                ? `${pdfSep.pages} page${pdfSep.pages === 1 ? '' : 's'} — choose below`
-                : 'Split a PDF into single pages or ranges'}
-          </span>
+          <span className="doc-tile-card-name">Word Merge / Separator</span>
+          <span className="doc-tile-card-meta">Upload Word files, pick pages (PDF), or merge whole files into one .docx</span>
           <span className="tool-card-cta">
-            <IconFolder /> Choose PDF
+            <IconFolder /> Open workspace
           </span>
         </button>
 
-        <button
-          className={`doc-tile-card tone-amber tool-card ${open === 'photos' ? 'on' : ''}`}
-          onClick={() => toggle('photos')}
-          aria-expanded={open === 'photos'}
-        >
+        <button className="doc-tile-card tone-amber tool-card" onClick={() => openFullPage('photosToPdf')}>
+          <span className="tool-card-ic">
+            <IconDoc />
+          </span>
+          <span className="doc-tile-card-name">Photos → PDF</span>
+          <span className="doc-tile-card-meta">Combine photos (or PDF pages) into one PDF — auto-crops borders</span>
+          <span className="tool-card-cta">
+            <IconFolder /> Upload photos or PDF
+          </span>
+        </button>
+
+        <button className="doc-tile-card tone-green tool-card" onClick={() => openFullPage('gps')}>
+          <span className="tool-card-ic">
+            <IconImage />
+          </span>
+          <span className="doc-tile-card-name">GPS Photos → Latitude / Longitude</span>
+          <span className="doc-tile-card-meta">Upload photos, read each one's GPS from its metadata, export to Excel</span>
+          <span className="tool-card-cta">
+            <IconImage /> Upload GPS photos
+          </span>
+        </button>
+
+        <button className="doc-tile-card tone-amber tool-card" onClick={() => openFullPage('photos')}>
           <span className="tool-card-ic">
             <IconImage />
           </span>
           <span className="doc-tile-card-name">Estimate from Photos / PDF</span>
-          <span className="doc-tile-card-meta">
-            {open === 'photos' ? 'Open below — click to hide' : 'Photos / scanned PDF → BOQ, Schedule A, Deviation, Material'}
-          </span>
+          <span className="doc-tile-card-meta">Photos / scanned PDF → BOQ, Schedule A, Deviation, Material</span>
           <span className="tool-card-cta">
             <IconImage /> Upload photos / PDF
           </span>
         </button>
-        {open === 'photos' && (
-          <div
-            className={panelFilled ? 'tool-panel-row workspace-section' : ''}
-            style={panelFilled ? undefined : { display: 'contents' }}
-          >
-            <UploadPhotosTab tables={tables} onChange={onChange} autoOpen onContent={setPanelFilled} />
-          </div>
-        )}
 
-        <div className="tool-cell">
-          <button
-            className={`doc-tile-card tone-sky tool-card ${open === 'workOrder' ? 'on' : ''}`}
-            onClick={() => toggle('workOrder')}
-            aria-expanded={open === 'workOrder'}
-          >
-            <span className="tool-card-ic">
-              <IconClipboard />
-            </span>
-            <span className="doc-tile-card-name">Work Order</span>
-            <span className="doc-tile-card-meta">
-              {open === 'workOrder' ? 'Open below — click to hide' : 'From L1 + Intimation — any circle/zone'}
-            </span>
-            <span className="tool-card-cta">
-              <IconFolder /> Upload L1 + Intimation
-            </span>
-          </button>
-          {open === 'workOrder' && (
-            <div className="tool-inline-panel">
-              <WorkOrderAgreementTab standalone only="workOrder" tables={[]} onChange={() => {}} office={office} />
-            </div>
-          )}
-        </div>
+        <button className="doc-tile-card tone-sky tool-card" onClick={() => openFullPage('workOrder')}>
+          <span className="tool-card-ic">
+            <IconClipboard />
+          </span>
+          <span className="doc-tile-card-name">Work Order</span>
+          <span className="doc-tile-card-meta">From L1 + Intimation — any circle/zone</span>
+          <span className="tool-card-cta">
+            <IconFolder /> Upload L1 + Intimation
+          </span>
+        </button>
 
-        <div className="tool-cell">
-          <button
-            className={`doc-tile-card tone-sky tool-card ${open === 'agreement' ? 'on' : ''}`}
-            onClick={() => toggle('agreement')}
-            aria-expanded={open === 'agreement'}
-          >
-            <span className="tool-card-ic">
-              <IconClipboard />
-            </span>
-            <span className="doc-tile-card-name">Agreement Bond</span>
-            <span className="doc-tile-card-meta">
-              {open === 'agreement' ? 'Open below — click to hide' : 'From L1 + Intimation — any circle/zone'}
-            </span>
-            <span className="tool-card-cta">
-              <IconFolder /> Upload L1 + Intimation
-            </span>
-          </button>
-          {open === 'agreement' && (
-            <div className="tool-inline-panel">
-              <WorkOrderAgreementTab standalone only="agreement" tables={[]} onChange={() => {}} office={office} />
-            </div>
-          )}
-        </div>
+        <button className="doc-tile-card tone-sky tool-card" onClick={() => openFullPage('agreement')}>
+          <span className="tool-card-ic">
+            <IconClipboard />
+          </span>
+          <span className="doc-tile-card-name">Agreement Bond</span>
+          <span className="doc-tile-card-meta">From L1 + Intimation — any circle/zone</span>
+          <span className="tool-card-cta">
+            <IconFolder /> Upload L1 + Intimation
+          </span>
+        </button>
 
-        <div className="tool-cell">
-          <button
-            className={`doc-tile-card tone-rose tool-card ${open === 'intimation' ? 'on' : ''}`}
-            onClick={() => toggle('intimation')}
-            aria-expanded={open === 'intimation'}
-          >
-            <span className="tool-card-ic">
-              <IconBell />
-            </span>
-            <span className="doc-tile-card-name">Intimation</span>
-            <span className="doc-tile-card-meta">
-              {open === 'intimation' ? 'Open below — click to hide' : 'From L1 — office by circle in the work name — any circle'}
-            </span>
-            <span className="tool-card-cta">
-              <IconFolder /> Upload L1 selection form
-            </span>
-          </button>
-          {open === 'intimation' && (
-            <div className="tool-inline-panel">
-              <IntimationToolTab office={office} />
-            </div>
-          )}
-        </div>
+        <button className="doc-tile-card tone-rose tool-card" onClick={() => openFullPage('intimation')}>
+          <span className="tool-card-ic">
+            <IconBell />
+          </span>
+          <span className="doc-tile-card-name">Intimation</span>
+          <span className="doc-tile-card-meta">From L1 — office by circle in the work name — any circle</span>
+          <span className="tool-card-cta">
+            <IconFolder /> Upload L1 selection form
+          </span>
+        </button>
 
-        <button
-          className={`doc-tile-card tone-sky tool-card ${open === 'scheduleA' ? 'on' : ''}`}
-          onClick={() => toggle('scheduleA')}
-          aria-expanded={open === 'scheduleA'}
-        >
+        <button className="doc-tile-card tone-sky tool-card" onClick={() => openFullPage('scheduleA')}>
           <span className="tool-card-ic">
             <IconTable />
           </span>
           <span className="doc-tile-card-name">Schedule A</span>
-          <span className="doc-tile-card-meta">
-            {open === 'scheduleA' ? 'Open below — click to hide' : 'From an uploaded estimate / BOQ'}
-          </span>
+          <span className="doc-tile-card-meta">From an uploaded estimate / BOQ</span>
           <span className="tool-card-cta">
             <IconTable /> Upload estimate / BOQ
           </span>
         </button>
-        {open === 'scheduleA' && (
-          <div
-            className={panelFilled ? 'tool-panel-row workspace-section' : ''}
-            style={panelFilled ? undefined : { display: 'contents' }}
-          >
-            <WorkOrderAgreementTab scheduleAOnly autoOpen onContent={setPanelFilled} tables={tables} onChange={() => {}} />
-          </div>
-        )}
 
-        <button
-          className={`doc-tile-card tone-green tool-card ${open === 'electrical' ? 'on' : ''}`}
-          onClick={() => toggle('electrical')}
-          aria-expanded={open === 'electrical'}
-        >
+        <button className="doc-tile-card tone-green tool-card" onClick={() => openFullPage('electrical')}>
           <span className="tool-card-ic">
             <IconBolt />
           </span>
           <span className="doc-tile-card-name">Electrical Estimate</span>
-          <span className="doc-tile-card-meta">
-            {open === 'electrical' ? 'Open below — click to hide' : 'Electrical estimate → BOQ + Schedule A'}
-          </span>
+          <span className="doc-tile-card-meta">Electrical estimate → BOQ + Schedule A</span>
           <span className="tool-card-cta">
             <IconBolt /> Upload electrical estimate
           </span>
         </button>
-        {open === 'electrical' && (
-          <div
-            className={panelFilled ? 'tool-panel-row workspace-section' : ''}
-            style={panelFilled ? undefined : { display: 'contents' }}
-          >
-            <ElectricalEstimateTab autoOpen onContent={setPanelFilled} />
-          </div>
-        )}
 
         {/* Every Issue-Documents template, as a blank-form tile — office-
             independent, so all show regardless of the selected office. Hover
@@ -635,166 +445,6 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
         </div>
       )}
 
-      {/* Sheet chooser for the Excel Separator: pick one sheet or separate all. */}
-      {splitPick && (
-        <div className="notice split-picker tool-outcome">
-          <div className="split-picker-head">
-            <IconTable />
-            <strong>{splitPick.name}</strong>
-            <span className="split-picker-count">
-              {splitPick.sheets.length} sheet{splitPick.sheets.length === 1 ? '' : 's'}
-            </span>
-          </div>
-          <label className="split-picker-row">
-            <span>Separate</span>
-            <select value={splitChoice} onChange={(e) => setSplitChoice(e.target.value)}>
-              <option value="all">All sheets ({splitPick.sheets.length})</option>
-              {splitPick.sheets.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="split-picker-actions">
-            <button className="ghost" onClick={() => setSplitPick(null)}>
-              Cancel
-            </button>
-            <button className="primary" onClick={doSplit}>
-              <IconFolder /> {splitChoice === 'all' ? 'Separate all' : 'Separate sheet'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Separator outcome sits below the whole grid, so it never pushes the
-          tiles around. Progress itself shows in the tile (above). */}
-      {split.error && (
-        <div className="notice error tool-outcome">
-          <IconWarn />
-          {split.error}
-        </div>
-      )}
-      {split.result && (
-        <div className="notice ok tool-result tool-outcome">
-          <span>
-            <IconFolder /> Saved {split.result.files.length} sheet
-            {split.result.files.length === 1 ? '' : 's'} to {split.result.dir}
-          </span>
-          <button className="ghost" onClick={() => api.openPath(split.result!.dir)}>
-            <IconOpen /> Open folder
-          </button>
-        </div>
-      )}
-
-      {/* PDF Merger — the chosen PDFs, in merge order, with reorder / remove. */}
-      {mergeList.length > 0 && (
-        <div className="notice split-picker tool-outcome pdf-merge-panel">
-          <div className="split-picker-head">
-            <IconDoc />
-            <strong>Merge {mergeList.length} PDF{mergeList.length === 1 ? '' : 's'}</strong>
-            <span className="split-picker-count">top → bottom = page order</span>
-          </div>
-          <ol className="pdf-merge-list">
-            {mergeList.map((f, i) => (
-              <li key={f.path}>
-                <span className="pdf-merge-idx">{i + 1}</span>
-                <span className="pdf-merge-name" title={f.path}>
-                  {f.name} <span className="pdf-merge-pages">· {f.pages || '?'} pg</span>
-                </span>
-                <span className="pdf-merge-ctl">
-                  <button className="ghost" onClick={() => moveMerge(i, -1)} disabled={i === 0} title="Move up" aria-label="Move up">↑</button>
-                  <button className="ghost" onClick={() => moveMerge(i, 1)} disabled={i === mergeList.length - 1} title="Move down" aria-label="Move down">↓</button>
-                  <button className="ghost" onClick={() => setMergeList((cur) => cur.filter((_, k) => k !== i))} title="Remove" aria-label="Remove"><IconTrash /></button>
-                </span>
-              </li>
-            ))}
-          </ol>
-          <div className="split-picker-actions">
-            <button className="ghost" onClick={chooseMergePdfs} disabled={mergeBusy}>
-              <IconFolder /> Add more
-            </button>
-            <button className="ghost" onClick={() => setMergeList([])} disabled={mergeBusy}>
-              Clear
-            </button>
-            <button className="primary" onClick={doMerge} disabled={mergeBusy || mergeList.length < 2}>
-              <IconDoc /> {mergeBusy ? 'Merging…' : 'Merge & save'}
-            </button>
-          </div>
-          {mergeList.length < 2 && <p className="estimate-hint">Add at least two PDFs to merge.</p>}
-        </div>
-      )}
-      {mergeErr && (
-        <div className="notice error tool-outcome">
-          <IconWarn /> {mergeErr}
-        </div>
-      )}
-      {mergeOut && (
-        <div className="notice ok tool-result tool-outcome">
-          <span>
-            <IconDoc /> Saved merged PDF: {mergeOut.file}
-          </span>
-          <button className="ghost" onClick={() => api.openPath(mergeOut.file)}>
-            <IconOpen /> Open
-          </button>
-        </div>
-      )}
-
-      {/* PDF Separator — every page, or custom page ranges. */}
-      {pdfSep && (
-        <div className="notice split-picker tool-outcome">
-          <div className="split-picker-head">
-            <IconDoc />
-            <strong>{pdfSep.name}</strong>
-            <span className="split-picker-count">
-              {pdfSep.pages} page{pdfSep.pages === 1 ? '' : 's'}
-            </span>
-          </div>
-          <label className="split-picker-row">
-            <span>Separate</span>
-            <select value={sepMode} onChange={(e) => setSepMode(e.target.value as 'each' | 'ranges')}>
-              <option value="each">Every page separately ({pdfSep.pages} files)</option>
-              <option value="ranges">Custom page ranges…</option>
-            </select>
-          </label>
-          {sepMode === 'ranges' && (
-            <label className="split-picker-row">
-              <span>Ranges</span>
-              <input
-                type="text"
-                placeholder="e.g. 1-3, 5, 7-9"
-                value={sepRanges}
-                onChange={(e) => setSepRanges(e.target.value)}
-                style={{ minWidth: 200 }}
-              />
-            </label>
-          )}
-          <div className="split-picker-actions">
-            <button className="ghost" onClick={() => setPdfSep(null)}>
-              Cancel
-            </button>
-            <button className="primary" onClick={doPdfSplit}>
-              <IconFolder /> Separate
-            </button>
-          </div>
-        </div>
-      )}
-      {pdfSplit.error && (
-        <div className="notice error tool-outcome">
-          <IconWarn /> {pdfSplit.error}
-        </div>
-      )}
-      {pdfSplit.result && (
-        <div className="notice ok tool-result tool-outcome">
-          <span>
-            <IconFolder /> Saved {pdfSplit.result.files.length} PDF
-            {pdfSplit.result.files.length === 1 ? '' : 's'} to {pdfSplit.result.dir}
-          </span>
-          <button className="ghost" onClick={() => api.openPath(pdfSplit.result!.dir)}>
-            <IconOpen /> Open folder
-          </button>
-        </div>
-      )}
     </div>
   )
 }

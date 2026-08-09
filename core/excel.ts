@@ -118,6 +118,35 @@ export function parseExcelFile(filePath: string): ExcelTable {
   return parseExcelBuffer(buffer, path.basename(filePath), filePath)
 }
 
+/** A small preview of one worksheet — its name plus the top-left corner of its
+ * cells — used to draw the Excel Sheet Separator's live sheet tiles. */
+export interface SheetPreview {
+  name: string
+  /** Whether the sheet is hidden in the workbook (shown faded, still separable). */
+  hidden: boolean
+  /** Up to `maxRows` × `maxCols` of stringified cell values from the top-left. */
+  rows: string[][]
+}
+
+/**
+ * Read a lightweight preview of every sheet in a workbook (name + a small
+ * top-left block of cells), for the sheet tiles. `sheetRows` caps how much of
+ * each sheet is parsed so even a large workbook previews quickly.
+ */
+export function readSheetPreviews(filePath: string, maxRows = 7, maxCols = 5): SheetPreview[] {
+  const buffer = fs.readFileSync(filePath)
+  const workbook = XLSX.read(buffer, { type: 'buffer', sheetRows: maxRows, cellFormula: false })
+  const meta = workbook.Workbook?.Sheets
+  return workbook.SheetNames.map((name, i) => {
+    const ws = workbook.Sheets[name]
+    const aoa = ws
+      ? (XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: '' }) as unknown[][])
+      : []
+    const rows = aoa.slice(0, maxRows).map((r) => r.slice(0, maxCols).map(cellStr))
+    return { name, hidden: !!meta?.[i]?.Hidden, rows }
+  })
+}
+
 /** Serialize a table back to an .xlsx workbook buffer, e.g. for saving to disk. */
 export function buildWorkbookBuffer(table: ExcelTable): Buffer {
   const aoa = [table.headers, ...table.rows.map((row) => table.headers.map((h) => row[h] ?? ''))]

@@ -12,7 +12,7 @@ import {
 } from './worksSchema'
 import { autofillWorksRow, enforceZoneCircle, fillCircleNumber, splitCircleColumn } from './zoneCircleCheck'
 import { entriesOf, corporationByName } from './zoneCircleDirectory'
-import { type Office, officeKey } from './office'
+import { type Office, officeKey, isOfficeReady } from './office'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import { mergeTables } from '@core/merge'
 import Sidebar, { type TabKey } from './components/Sidebar'
@@ -401,6 +401,11 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
           tables: currentTables,
           tablesByOffice: byOffice,
           currentOfficeKey: currentOfficeKey || undefined,
+          // Persist the chosen office so it's restored on the next login / a
+          // fresh machine (AuthGate reads it back when localStorage has none).
+          // Only save a real selection — never let an empty office overwrite a
+          // good one already stored (LWW) for other sessions.
+          office: isOfficeReady(office) ? office : undefined,
           resolution,
           todos,
           lastGoogleLink: lastGoogleLink ?? undefined,
@@ -422,6 +427,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     tables,
     tablesByOffice,
     currentOfficeKey,
+    office,
     resolution,
     todos,
     lastGoogleLink,

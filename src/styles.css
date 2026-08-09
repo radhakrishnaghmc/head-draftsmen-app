@@ -7198,6 +7198,669 @@ tr.on .rp-box span {
   width: 14px;
   height: 14px;
 }
+
+/* ---- PDF workspace (full page behind PDF Merger / PDF Separator) --------- */
+.pdf-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* A tool hosted on its own full page (Estimate from Photos, Work Order, …) —
+   its existing workspace component sits under the shared Back-button header. */
+.tool-fullpage-body {
+  margin-top: 4px;
+}
+
+/* ---- GPS Photos → Longitude/Latitude tool ------------------------------- */
+.gps-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.gps-counts {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.gps-counts strong {
+  color: var(--text);
+}
+.gps-warn {
+  color: var(--danger, #c0392b);
+  font-weight: 600;
+}
+/* Circular Cover Flow ("album shuffle") shown while photos are being read: cards
+   sit on a cylinder at even angle steps, so the ring looks uniform on both sides.
+   The finished-count card faces the viewer; the deck rotates at the read speed. */
+.gps-coverflow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 0 6px;
+}
+.gps-coverflow-stage {
+  position: relative;
+  width: 100%;
+  height: 460px;
+  perspective: 1200px;
+  perspective-origin: 50% 50%;
+  transform-style: preserve-3d;
+  overflow: hidden;
+}
+.gps-cf-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* width/height/margins are set inline, per the photo's aspect ratio */
+  border-radius: 12px;
+  overflow: hidden;
+  background: transparent;
+  transition: transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.4s ease,
+    width 0.45s ease, height 0.45s ease, margin 0.45s ease;
+  backface-visibility: hidden;
+}
+.gps-cf-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* card matches the photo shape, so this fills with no frame */
+  display: block;
+}
+.gps-cf-card.active {
+  /* a flat green ring marks the card being read — no drop shadow. */
+  box-shadow: 0 0 0 3px #2e7d32;
+}
+.gps-coverflow-name {
+  font-size: 13px;
+  color: var(--text-2);
+  max-width: 80%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gps-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.gps-progress-label {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.gps-progress-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.gps-progress-bar {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #7fc07a, #2e7d32);
+  transition: width 0.2s ease;
+}
+.gps-table-wrap {
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.gps-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+.gps-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  text-align: left;
+  padding: 8px 12px;
+  font-weight: 650;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.gps-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.gps-table tbody tr:hover {
+  background: var(--surface-2);
+}
+.gps-name {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gps-row-missing td {
+  background: rgba(192, 57, 43, 0.05);
+}
+.gps-row-check td {
+  background: rgba(230, 160, 30, 0.1);
+}
+.gps-hint {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.gps-badge-ok {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 650;
+  color: #1e6b25;
+  background: rgba(46, 125, 50, 0.14);
+}
+.gps-badge-check {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 650;
+  color: #9a6a10;
+  background: rgba(230, 160, 30, 0.18);
+}
+.gps-badge-ocr {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 650;
+  color: #1c5b95;
+  background: rgba(30, 110, 190, 0.15);
+}
+/* The tool header bar — sits ABOVE the workspace card (title left, Back right). */
+.pdf-ws-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  padding: 0 4px;
+}
+/* Back button sits at the right end of the header. */
+.pdf-ws-back {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+}
+.pdf-ws-back:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.pdf-ws-back svg {
+  width: 16px;
+  height: 16px;
+}
+.pdf-ws-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 650;
+  color: var(--text);
+}
+.pdf-ws-title svg {
+  width: 18px;
+  height: 18px;
+}
+.pdf-ws-title-label {
+  color: var(--muted);
+  font-weight: 600;
+}
+/* Two columns: scrollable page previews on the left, a sticky action rail on
+   the right. On a narrow window the rail drops below the previews. */
+.pdf-ws-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.pdf-ws-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pdf-ws-rail {
+  flex: none;
+  width: 260px;
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.pdf-ws-upload {
+  width: 100%;
+  justify-content: center;
+}
+.pdf-ws-rail-count {
+  font-size: 13px;
+  color: var(--text-2);
+  padding: 2px 0;
+}
+.pdf-ws-rail-count strong {
+  color: var(--text);
+  font-size: 15px;
+}
+.pdf-ws-rail-selrow {
+  display: flex;
+  gap: 6px;
+}
+.pdf-ws-rail-selrow button {
+  flex: 1;
+  justify-content: center;
+}
+.pdf-ws-rail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.pdf-ws-rail-actions .primary,
+.pdf-ws-railbtn {
+  width: 100%;
+  justify-content: center;
+}
+.pdf-ws-rail-grouplabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* Every tool action button shares the app's one primary green — the same colour
+   across the PDF / Word / Excel / GPS tools, for main actions, the select/clear
+   pair, and remove-all alike (matching button.primary exactly). */
+.pdf-ws-railbtn,
+.pdf-ws-selbtn,
+.pdf-ws-clearall,
+.pdf-ws-clearbtn {
+  background: linear-gradient(180deg, #e6f3e3, #d0e8cd);
+  color: #14261a;
+  font-weight: 650;
+  border: 1px solid rgba(19, 136, 8, 0.28);
+  box-shadow: 0 4px 12px -6px rgba(19, 100, 30, 0.28);
+}
+.pdf-ws-railbtn:hover:not(:disabled),
+.pdf-ws-selbtn:hover:not(:disabled),
+.pdf-ws-clearall:hover:not(:disabled),
+.pdf-ws-clearbtn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #dcefd8, #c3e2bf);
+  border-color: rgba(19, 136, 8, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px -7px rgba(19, 100, 30, 0.32);
+}
+.pdf-ws-clearall {
+  width: 100%;
+  justify-content: center;
+  margin-top: 2px;
+}
+.pdf-ws-rail-result {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  font-size: 12px;
+  word-break: break-all;
+}
+.pdf-ws-rail-hint {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+/* Photos → PDF options block in the rail. */
+.photos-pdf-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.photos-pdf-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.photos-pdf-opt select,
+.photos-pdf-opt input {
+  flex: none;
+  width: 130px;
+}
+.photos-pdf-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.photos-pdf-check input {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+/* Photos → PDF preview modal: Chromium's own PDF viewer in an iframe. */
+.pdf-preview-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: min(920px, 94vw);
+  height: 92vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.4);
+}
+.pdf-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.pdf-preview-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text);
+}
+.pdf-preview-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pdf-preview-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #525659;
+}
+@media (max-width: 900px) {
+  .pdf-ws-body {
+    flex-direction: column;
+  }
+  .pdf-ws-rail {
+    position: static;
+    width: 100%;
+  }
+}
+.pdf-ws-dropzone {
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 48px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-2);
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+.pdf-ws-dropzone:hover:not(:disabled) {
+  border-color: rgba(19, 136, 8, 0.5);
+  background: var(--surface);
+}
+.pdf-ws-dropzone:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.pdf-ws-dropzone svg {
+  width: 40px;
+  height: 40px;
+  opacity: 0.7;
+}
+.pdf-ws-dropzone-title {
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--text);
+}
+.pdf-ws-dropzone-sub {
+  font-size: 13px;
+  color: var(--muted);
+}
+.pdf-ws-docs {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.pdf-ws-doc {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 12px 14px 16px;
+}
+.pdf-ws-doc-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.pdf-ws-doc-name {
+  font-weight: 650;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.pdf-ws-doc-meta {
+  color: var(--muted);
+  font-size: 12px;
+  flex: none;
+}
+.pdf-ws-doc-ctl {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.pdf-ws-doc-ctl button {
+  padding: 4px 9px;
+  font-size: 13px;
+}
+.pdf-ws-doc-ctl button svg {
+  width: 15px;
+  height: 15px;
+}
+.pdf-ws-pages {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+.pdf-ws-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s, transform 0.08s;
+}
+.pdf-ws-page:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px -10px rgba(0, 0, 0, 0.4);
+}
+.pdf-ws-page.on {
+  border-color: rgba(19, 136, 8, 0.65);
+  box-shadow: 0 0 0 2px rgba(19, 136, 8, 0.28);
+}
+.pdf-ws-page-thumb {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1.414;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.pdf-ws-page-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.pdf-ws-page-spin {
+  color: var(--muted);
+  font-size: 20px;
+}
+.pdf-ws-page-check {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 11px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.75);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+}
+/* The serial number shows only once a page is picked; the empty badge marks an
+   un-picked page. */
+.pdf-ws-page.on .pdf-ws-page-check {
+  background: #2e7d32;
+  border-color: #2e7d32;
+}
+.pdf-ws-page-no {
+  font-size: 12px;
+  color: var(--text-2);
+  font-weight: 600;
+}
+.pdf-ws-page-fail {
+  color: var(--muted);
+}
+.pdf-ws-page-fail svg {
+  width: 22px;
+  height: 22px;
+  opacity: 0.6;
+}
+
+/* Excel Sheet Separator — live sheet tiles (reuse the PDF page-tile shell). */
+.excel-sheet-grid {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+.excel-sheet-tile.hidden {
+  opacity: 0.62;
+}
+.excel-sheet-preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 0.72;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.excel-sheet-preview table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  font-size: 8px;
+  line-height: 1.1;
+  color: #333;
+}
+.excel-sheet-preview td {
+  border: 1px solid #e3e3e6;
+  padding: 2px 3px;
+  max-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Fade the preview out at the bottom so a clipped sheet doesn't look cut off. */
+.excel-sheet-preview::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 24px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #fff);
+  pointer-events: none;
+}
+.excel-sheet-writing {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  z-index: 1;
+  font-size: 11px;
+  font-weight: 700;
+  color: #2e7d32;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+.excel-sheet-hidden-tag {
+  color: var(--muted);
+  font-weight: 400;
+}
+.excel-sheet-tile .pdf-ws-page-no {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.excel-sep-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.excel-sep-progress-label {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.excel-sep-progress-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.excel-sep-progress-bar {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #7fc07a, #2e7d32);
+  transition: width 0.2s ease;
+}
 .tool-card-cta {
   position: absolute;
   left: 50%;

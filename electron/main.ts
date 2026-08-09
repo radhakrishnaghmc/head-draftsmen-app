@@ -7,9 +7,9 @@ import * as firebaseSync from './firebaseSync'
 import { initAutoUpdate, restartToUpdate, checkForUpdatesManually } from './autoUpdate'
 import { IPC } from './ipc-contract'
 import type { ManualCheckResult, AgreementBundleFile } from './ipc-contract'
-import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer } from '../core/excel'
+import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer, readSheetPreviews } from '../core/excel'
+import type { SheetPreview } from '../core/excel'
 import { recognizeImage } from './ocr'
-import { readWorkbookSheetNames } from './excelSplit'
 import { runSplitInWorker } from './splitRunner'
 import { pdfPageCount, mergePdfFiles, splitPdfFile } from './pdfTools'
 import { applyTechnicalSanctionEdits } from '../core/technicalSanctionOutput'
@@ -40,6 +40,9 @@ import type { BidDocumentInput } from '../core/bidDocument'
 import type { CalendarData } from '../core/calendar'
 import { convertHtmlToDocx } from '../core/htmlToDocx'
 import { convertDocxToPdf } from '../core/docxToPdf'
+import { mergeDocxBuffers } from '../core/mergeDocx'
+import { splitDocxByPageBreaks } from '../core/splitDocx'
+import { ocrGpsOverlay } from './gpsOcr'
 import { sanitizeDocxForWord2007 } from '../core/word2007Compat'
 import {
   listParagraphs,
@@ -76,7 +79,10 @@ function createWindow(): void {
       preload: path.join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // Enables Chromium's built-in PDF viewer, used by the Photos → PDF tool's
+      // preview (a blob: PDF shown in an <iframe>).
+      plugins: true
     }
   })
 
@@ -485,7 +491,7 @@ function registerHandlers(): void {
 
   ipcMain.handle(
     IPC.pickWorkbookForSplit,
-    async (): Promise<{ path: string; name: string; sheets: string[] } | null> => {
+    async (): Promise<{ path: string; name: string; sheets: SheetPreview[] } | null> => {
       const pick = await dialog.showOpenDialog(mainWindow!, {
         title: 'Select an Excel workbook to split into separate sheets',
         filters: [{ name: 'Excel workbook', extensions: ['xlsx'] }],
@@ -493,7 +499,9 @@ function registerHandlers(): void {
       })
       if (pick.canceled || pick.filePaths.length === 0) return null
       const srcPath = pick.filePaths[0]
-      const sheets = await readWorkbookSheetNames(srcPath)
+      // A lightweight per-sheet preview (name + a corner of cells) drives the
+      // live sheet tiles; the split itself still works off the sheet names.
+      const sheets = readSheetPreviews(srcPath)
       return { path: srcPath, name: path.basename(srcPath), sheets }
     }
   )
@@ -580,6 +588,103 @@ function registerHandlers(): void {
       const dir = folder.filePaths[0]
       const files = await splitPdfFile(srcPath, dir, ranges)
       return { dir, files }
+    }
+  )
+
+  // PDF workspace — the renderer builds the output PDF(s) with pdf-lib (the same
+  // pages the user selected across the uploaded files) and hands the raw bytes
+  // here just to be written to disk via the OS save/folder dialog.
+  ipcMain.handle(IPC.savePdf, async (_e, bytes: Uint8Array, suggestedName: string): Promise<{ file: string } | null> => {
+    const save = await dialog.showSaveDialog(mainWindow!, {
+      title: 'Save the PDF',
+      defaultPath: suggestedName || 'Document.pdf',
+      filters: [{ name: 'PDF', extensions: ['pdf'] }]
+    })
+    if (save.canceled || !save.filePath) return null
+    const file = save.filePath.toLowerCase().endsWith('.pdf') ? save.filePath : `${save.filePath}.pdf`
+    fs.writeFileSync(file, Buffer.from(bytes))
+    return { file }
+  })
+
+  ipcMain.handle(
+    IPC.savePdfsToFolder,
+    async (_e, files: { name: string; bytes: Uint8Array }[]): Promise<{ dir: string; files: string[] } | null> => {
+      if (!files || files.length === 0) return null
+      const folder = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Choose where to save the PDFs',
+        buttonLabel: 'Save PDFs here',
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (folder.canceled || folder.filePaths.length === 0) return null
+      const dir = folder.filePaths[0]
+      const written: string[] = []
+      for (const f of files) {
+        // Strip anything that can't be a file name so a source PDF's name can't
+        // escape the chosen folder or break the write.
+        const safe = f.name.replace(/[\\/:*?"<>|]/g, '_')
+        const out = path.join(dir, safe.toLowerCase().endsWith('.pdf') ? safe : `${safe}.pdf`)
+        fs.writeFileSync(out, Buffer.from(f.bytes))
+        written.push(out)
+      }
+      return { dir, files: written }
+    }
+  )
+
+  // GPS Photos tool — OCR the stamped overlay when a photo has no EXIF GPS.
+  ipcMain.handle(IPC.ocrGpsOverlay, async (_e, imageBytes: Uint8Array): Promise<string[]> => {
+    return ocrGpsOverlay(Buffer.from(imageBytes))
+  })
+
+  // Word workspace — a .docx has no addressable pages until it's laid out, so the
+  // page-level preview is driven off a LibreOffice conversion to PDF. The renderer
+  // then renders/selects/merges those pages exactly like the PDF workspace.
+  ipcMain.handle(IPC.docxToPdf, async (_e, docxBytes: Uint8Array): Promise<Uint8Array> => {
+    const pdf = await convertDocxToPdf(Buffer.from(docxBytes))
+    return new Uint8Array(pdf)
+  })
+
+  // Whole-document merge: concatenate the .docx files (in order) into one and
+  // save it via a dialog. Kept in Word format (unlike the page tool's PDF output).
+  ipcMain.handle(IPC.mergeDocx, async (_e, docxBytesList: Uint8Array[]): Promise<{ file: string } | null> => {
+    if (!docxBytesList || docxBytesList.length === 0) return null
+    const merged = mergeDocxBuffers(docxBytesList.map((b) => Buffer.from(b)))
+    const save = await dialog.showSaveDialog(mainWindow!, {
+      title: 'Save the merged Word document',
+      defaultPath: 'Merged.docx',
+      filters: [{ name: 'Word Document', extensions: ['docx'] }]
+    })
+    if (save.canceled || !save.filePath) return null
+    const file = save.filePath.toLowerCase().endsWith('.docx') ? save.filePath : `${save.filePath}.docx`
+    fs.writeFileSync(file, merged)
+    return { file }
+  })
+
+  // Split a .docx into one .docx per page (at its page breaks), each keeping full
+  // formatting — pure XML surgery, so it works without LibreOffice (only the
+  // page previews need it).
+  ipcMain.handle(IPC.splitDocxSections, async (_e, docxBytes: Uint8Array): Promise<Uint8Array[]> => {
+    return splitDocxByPageBreaks(Buffer.from(docxBytes)).map((b) => new Uint8Array(b))
+  })
+
+  ipcMain.handle(
+    IPC.saveDocxsToFolder,
+    async (_e, files: { name: string; bytes: Uint8Array }[]): Promise<{ dir: string; files: string[] } | null> => {
+      if (!files || files.length === 0) return null
+      const folder = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Choose where to save the Word files',
+        buttonLabel: 'Save here',
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (folder.canceled || folder.filePaths.length === 0) return null
+      const dir = folder.filePaths[0]
+      const written: string[] = []
+      for (const f of files) {
+        const safe = f.name.replace(/[\\/:*?"<>|]/g, '_')
+        const out = path.join(dir, safe.toLowerCase().endsWith('.docx') ? safe : `${safe}.docx`)
+        fs.writeFileSync(out, Buffer.from(f.bytes))
+        written.push(out)
+      }
+      return { dir, files: written }
     }
   )
 
