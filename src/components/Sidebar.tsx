@@ -36,6 +36,9 @@ export type TabKey =
 interface Props {
   active: TabKey
   onSelect: (t: TabKey) => void
+  /** Double-click a nav item: tear down every kept-alive workspace (stopping any
+   * in-progress work) and open this section fresh. */
+  onReset: (t: TabKey) => void
   tableCount: number
   unresolved: number
   createdDocCount: number
@@ -185,6 +188,8 @@ export default function Sidebar(props: Props) {
             key={it.key}
             className={`nav-item ${props.active === it.key ? 'on' : ''} ${it.tone ? `tone-${it.tone}` : ''}`}
             onClick={() => props.onSelect(it.key)}
+            onDoubleClick={() => props.onReset(it.key)}
+            title="Click to switch (work continues in the background); double-click to close all workspaces and start fresh"
           >
             <span className="nav-step">{i + 1}</span>
             <span className="nav-ic">{it.icon}</span>

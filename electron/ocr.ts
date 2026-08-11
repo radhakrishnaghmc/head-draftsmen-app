@@ -8,6 +8,8 @@ export interface OcrLine {
   /** The recognized text of one detected line, in no particular order (callers sort by `top`). */
   text: string
   top: number
+  /** Bounding box of the detected line in the OCR-input image's pixels: [x, y, width, height]. Enables image-based table reconstruction (offline, no extra model). */
+  box?: [number, number, number, number]
 }
 
 // Bundled OCR model dir candidates, matching the existing bundled-resource
@@ -39,42 +41,63 @@ interface Pending {
 // signal recognizeImage() uses to retry the page at a smaller resolution.
 class OcrProcessCrashError extends Error {}
 
-// OCR runs in an isolated child PROCESS (child_process.fork), not a worker
-// thread. A native onnxruntime crash on a large image cannot be caught in JS,
-// so if it were a worker thread it would take the whole app down with it. In a
-// separate process the fault only kills the child, and the parent retries the
-// page at a smaller, proven-safe size (see recognizeImage). ELECTRON_RUN_AS_NODE
-// makes fork() launch the Electron binary as plain Node so onnxruntime-node's
-// N-API addon loads exactly as it does today. Spawned once and reused across
-// pages; respawned after a crash.
-let child: ChildProcess | null = null
-let nextId = 0
-const pending = new Map<number, Pending>()
+// OCR runs in isolated child PROCESSES (child_process.fork), not worker
+// threads. A native onnxruntime crash on a large image cannot be caught in JS,
+// so in a worker thread it would take the whole app down with it. In a separate
+// process the fault only kills that child, and the parent retries the page at a
+// smaller, proven-safe size (see recognizeImage). ELECTRON_RUN_AS_NODE makes
+// fork() launch the Electron binary as plain Node so onnxruntime-node's N-API
+// addon loads exactly as it does today.
+//
+// A *pool* of children (not one) so a batch — every photo needs several OCR
+// passes — spreads across CPU cores instead of serialising on a single process:
+// onnxruntime inference is single-threaded per call, so one child ≈ one core,
+// and the pool is what turns a multi-photo batch from sequential into parallel.
+interface OcrChild {
+  proc: ChildProcess
+  pending: Map<number, Pending>
+}
 
-function getChild(): ChildProcess {
-  if (child) return child
-  const c = fork(path.join(__dirname, 'ocrWorker.js'), [], {
+// Leave a core free for the UI / main process; never fewer than 1, never more
+// than 4 (each child loads its own copy of the model, so the pool costs RAM).
+const POOL_SIZE = Math.max(1, Math.min(4, (os.cpus()?.length ?? 2) - 1))
+let pool: OcrChild[] = []
+let nextId = 0
+
+function spawnChild(): OcrChild {
+  const proc = fork(path.join(__dirname, 'ocrWorker.js'), [], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
   })
-  c.on('message', (msg: { id: number; lines?: OcrLine[]; error?: string }) => {
-    const p = pending.get(msg.id)
+  const entry: OcrChild = { proc, pending: new Map() }
+  proc.on('message', (msg: { id: number; lines?: OcrLine[]; error?: string }) => {
+    const p = entry.pending.get(msg.id)
     if (!p) return
-    pending.delete(msg.id)
+    entry.pending.delete(msg.id)
     if (msg.error) p.reject(new Error(msg.error))
     else p.resolve(msg.lines ?? [])
   })
   const onDead = (info: string): void => {
-    // The child died with requests in flight — fail them with the crash marker
-    // so recognizeImage can retry smaller, and drop the handle so the next call
-    // spawns a fresh child.
-    for (const p of pending.values()) p.reject(new OcrProcessCrashError(info))
-    pending.clear()
-    if (child === c) child = null
+    // This child died with requests in flight — fail them with the crash marker
+    // so recognizeImage can retry smaller, and drop it from the pool so the next
+    // pick spawns a fresh one.
+    for (const p of entry.pending.values()) p.reject(new OcrProcessCrashError(info))
+    entry.pending.clear()
+    pool = pool.filter((c) => c !== entry)
   }
-  c.on('exit', (code, signal) => onDead(`OCR process exited (code=${code}, signal=${signal})`))
-  c.on('error', (err) => onDead(err.message))
-  child = c
-  return c
+  proc.on('exit', (code, signal) => onDead(`OCR process exited (code=${code}, signal=${signal})`))
+  proc.on('error', (err) => onDead(err.message))
+  pool.push(entry)
+  return entry
+}
+
+// Reuse an idle child if there is one; otherwise grow the pool up to POOL_SIZE
+// (so a single photo's passes never spawn more than one child and reload the
+// model N times); otherwise queue on the least-busy child.
+function pickChild(): OcrChild {
+  const free = pool.find((c) => c.pending.size === 0)
+  if (free) return free
+  if (pool.length < POOL_SIZE) return spawnChild()
+  return pool.reduce((a, b) => (b.pending.size < a.pending.size ? b : a))
 }
 
 // The higher-resolution pass: a phone photo of a dense paper estimate needs
@@ -102,13 +125,13 @@ async function runOcrPass(imageBuffer: Buffer, dir: string, maxDimension: number
   fs.writeFileSync(tempPath, capped)
   try {
     const id = nextId++
-    const c = getChild()
+    const c = pickChild()
     return await new Promise<OcrLine[]>((resolve, reject) => {
-      pending.set(id, { resolve, reject })
-      c.send({ id, imagePath: tempPath, modelDir: dir }, (err) => {
+      c.pending.set(id, { resolve, reject })
+      c.proc.send({ id, imagePath: tempPath, modelDir: dir }, (err) => {
         // The channel closed between spawning and sending (child already dead):
         // surface it as a crash so the caller can fall back.
-        if (err && pending.delete(id)) reject(new OcrProcessCrashError(err.message))
+        if (err && c.pending.delete(id)) reject(new OcrProcessCrashError(err.message))
       })
     })
   } finally {
@@ -138,4 +161,27 @@ export async function recognizeImage(imageBuffer: Buffer): Promise<OcrLine[]> {
     }
     throw e
   }
+}
+
+/**
+ * OCR many images and return their lines in the SAME order as the input.
+ *
+ * The win over a plain `for … await recognizeImage` is parallelism: it runs up
+ * to POOL_SIZE pages at once — one per OCR child process, i.e. one per spare CPU
+ * core — instead of one page at a time. Concurrency is capped at the pool size
+ * (rather than firing every page at once) so a big multi-page PDF doesn't spawn
+ * hundreds of temp images / model queue entries simultaneously; each worker
+ * pulls the next page as it finishes, keeping every core busy end to end.
+ */
+export async function recognizeImages(imageBuffers: Buffer[]): Promise<OcrLine[][]> {
+  const results: OcrLine[][] = new Array(imageBuffers.length)
+  let next = 0
+  const workerCount = Math.max(1, Math.min(POOL_SIZE, imageBuffers.length))
+  const worker = async (): Promise<void> => {
+    for (let i = next++; i < imageBuffers.length; i = next++) {
+      results[i] = await recognizeImage(imageBuffers[i])
+    }
+  }
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  return results
 }

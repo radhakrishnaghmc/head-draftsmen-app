@@ -174,6 +174,30 @@ function reorderChildren(parent: Element, order: string[]): boolean {
   return true
 }
 
+/**
+ * Move the body-level <w:sectPr> to be the LAST child of <w:body>. html-to-docx
+ * emits it as the FIRST child, but the OOXML CT_Body sequence requires the
+ * section properties to come last — Word refuses to open the file otherwise
+ * ("Word experienced an error trying to open the file"), even though LibreOffice
+ * and python-docx tolerate it. Only the direct body child is moved (a sectPr
+ * nested in a paragraph's pPr is a mid-document section break, left alone).
+ */
+function fixBodySectPr(xml: Document): boolean {
+  const body = els(xml, 'w:body')[0]
+  if (!body) return false
+  let sect: Element | undefined
+  for (let n = body.firstChild; n; n = n.nextSibling) {
+    if ((n as Element).nodeName === 'w:sectPr') {
+      sect = n as Element
+      break
+    }
+  }
+  if (!sect || body.lastChild === sect) return false
+  body.removeChild(sect as never)
+  body.appendChild(sect as never)
+  return true
+}
+
 /** Remove the invalid <Override> entries for .rels parts from [Content_Types].xml. */
 function fixContentTypesRels(xml: Document): boolean {
   let changed = false
@@ -212,7 +236,11 @@ export function sanitizeHtmlDocxForWord2007(buffer: Buffer): Buffer {
     const xmlText = zip.file(name)?.asText()
     if (!xmlText) continue
     const xml = new DOMParser().parseFromString(xmlText, 'text/xml')
-    let partChanged = fixSideElements(xml) || fixJustification(xml) || fixIndentAttrs(xml)
+    // Note: each fix must run (not short-circuit), so call them separately.
+    let partChanged = fixSideElements(xml)
+    if (fixJustification(xml)) partChanged = true
+    if (fixIndentAttrs(xml)) partChanged = true
+    if (fixBodySectPr(xml)) partChanged = true
     for (const [container, order] of Object.entries(CHILD_ORDER)) {
       for (const node of els(xml, container)) if (reorderChildren(node, order)) partChanged = true
     }
@@ -221,5 +249,24 @@ export function sanitizeHtmlDocxForWord2007(buffer: Buffer): Buffer {
       changed = true
     }
   }
+
+  // html-to-docx's zip includes explicit directory entries (_rels/, word/,
+  // word/theme/, …). Microsoft Word — notably on macOS — refuses to open a
+  // .docx whose package contains folder entries ("Word experienced an error
+  // trying to open the file"), even though LibreOffice and python-docx accept
+  // it. Real Word/PizZip packages have none, so drop them and regenerate.
+  let removedDir = false
+  const files = zip.files as Record<string, { dir?: boolean }>
+  for (const name of Object.keys(files)) {
+    // Delete only the folder ENTRY from the map — zip.remove() would cascade and
+    // delete the files inside the folder too (e.g. removing "word/" drops
+    // word/document.xml). The contained files are separate keys, left intact.
+    if (files[name]?.dir) {
+      delete files[name]
+      removedDir = true
+    }
+  }
+  if (removedDir) changed = true
+
   return changed ? zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }) : buffer
 }

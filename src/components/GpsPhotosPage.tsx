@@ -10,6 +10,10 @@ import { IconChevronLeft, IconImage, IconFolder, IconTable, IconTrash, IconWarn,
 // `confidence` is 'high' for EXIF and for a clean overlay read, 'low' for a
 // shaky overlay read (flagged for the user to verify), 'none' when nothing found.
 interface PhotoRow {
+  id: string
+  // While a photo is still being read, its row is shown as a placeholder so the
+  // table fills in live, row by row, alongside the batch being processed.
+  pending?: boolean
   name: string
   lat?: number
   lon?: number
@@ -28,7 +32,9 @@ interface PhotoRow {
 
 // Read GPS straight from a photo's EXIF metadata. Returns undefined (→ fall back
 // to OCR) when the photo carries no embedded GPS.
-async function readExif(file: File): Promise<PhotoRow | undefined> {
+type PhotoData = Omit<PhotoRow, 'id' | 'pending'>
+
+async function readExif(file: File): Promise<PhotoData | undefined> {
   try {
     const d = await exifr.parse(file, { tiff: true, exif: true, gps: true })
     if (!d || typeof d.latitude !== 'number' || typeof d.longitude !== 'number') return undefined
@@ -48,7 +54,7 @@ async function readExif(file: File): Promise<PhotoRow | undefined> {
 }
 
 // The overlay path: OCR the stamped text (in the main process) and parse it.
-async function readOverlay(file: File): Promise<PhotoRow> {
+async function readOverlay(file: File): Promise<PhotoData> {
   try {
     const bytes = new Uint8Array(await file.arrayBuffer())
     const lines = await api.ocrGpsOverlay(bytes)
@@ -75,7 +81,7 @@ async function readOverlay(file: File): Promise<PhotoRow> {
   }
 }
 
-async function processFile(file: File): Promise<PhotoRow> {
+async function processFile(file: File): Promise<PhotoData> {
   return (await readExif(file)) ?? (await readOverlay(file))
 }
 
@@ -119,12 +125,16 @@ export default function GpsPhotosPage({ onBack }: Props) {
   // OCR/EXIF runs. Revoked by the effect below when the batch is cleared/unmounts.
   const [procPreviews, setProcPreviews] = useState<{ name: string; url: string; ratio: number }[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const idRef = useRef(0)
 
   useEffect(() => () => procPreviews.forEach((p) => URL.revokeObjectURL(p.url)), [procPreviews])
 
-  const withGps = rows.filter((r) => r.lat != null && r.lon != null).length
-  const needCheck = rows.filter((r) => r.confidence === 'low').length
-  const withoutGps = rows.filter((r) => r.source === 'none').length
+  // Counts (and the export) look only at rows already read — placeholders still
+  // being processed are excluded so the tallies never flicker mid-batch.
+  const done = rows.filter((r) => !r.pending)
+  const withGps = done.filter((r) => r.lat != null && r.lon != null).length
+  const needCheck = done.filter((r) => r.confidence === 'low').length
+  const withoutGps = done.filter((r) => r.source === 'none').length
 
   async function addFiles(files: File[]) {
     const images = files.filter((f) => /\.(jpe?g|png|tiff?|heic|heif|webp|dng)$/i.test(f.name) || f.type.startsWith('image/'))
@@ -141,26 +151,35 @@ export default function GpsPhotosPage({ onBack }: Props) {
         })
       )
     )
+    // Insert a placeholder row for every photo up front, so the table appears
+    // immediately and each row is filled in the moment its photo is read — the
+    // reading (cover flow) and the writing (table) run side by side.
+    const ids = images.map(() => `g${idRef.current++}`)
+    setRows((cur) => [...cur, ...images.map((f, i) => ({ id: ids[i], name: f.name, source: 'none' as const, confidence: 'none' as const, pending: true }))])
     try {
-      // A small pool: EXIF photos finish instantly, overlay-OCR photos queue on
-      // the single OCR worker in the main process — either way nothing blocks.
-      const POOL = 6
-      let done = 0
+      // A small pool: EXIF photos finish instantly; overlay-OCR photos each fan
+      // their preprocessing passes out to the OCR child pool in the main process
+      // (electron/ocr.ts), so a handful of photos in flight already saturates it.
+      const POOL = 4
+      let doneCount = 0
       let next = 0
-      const out: PhotoRow[] = new Array(images.length)
       async function worker() {
         while (next < images.length) {
           const i = next++
-          out[i] = await processFile(images[i])
-          done++
+          const data = await processFile(images[i])
+          // Replace this photo's placeholder in place — the row goes from
+          // "Reading…" to its coordinates without waiting for the rest.
+          setRows((cur) => cur.map((r) => (r.id === ids[i] ? { ...data, id: ids[i] } : r)))
+          doneCount++
           // Update on every photo — OCR reads are slow, so a stale bar looks stuck.
-          setProgress({ done, total: images.length })
+          setProgress({ done: doneCount, total: images.length })
         }
       }
       await Promise.all(Array.from({ length: Math.min(POOL, images.length) }, worker))
-      setRows((cur) => [...cur, ...out])
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+      // Clear any placeholders left hanging so no row stays stuck on "Reading…".
+      setRows((cur) => cur.map((r) => (r.pending && ids.includes(r.id) ? { ...r, pending: false } : r)))
     } finally {
       setBusy(false)
       setProgress(null)
@@ -186,9 +205,8 @@ export default function GpsPhotosPage({ onBack }: Props) {
     setSaved(null)
     // Export layout: S.No, Address, Latitude, Longitude, Image name. Address is
     // filled from any place/pincode/state the overlay yielded (blank otherwise —
-    // it's often absent). Confidence + Raw OCR text trail as verification helpers
-    // (delete them if a clean sheet is needed).
-    const headers = ['S.No', 'Address', 'Latitude', 'Longitude', 'Image name', 'Confidence', 'Raw OCR text']
+    // it's often absent). Raw OCR text trails as a verification helper.
+    const headers = ['S.No', 'Address', 'Latitude', 'Longitude', 'Image name', 'Raw OCR text']
     const table: ExcelTable = {
       id: 'gps-photos',
       name: 'GPS Coordinates',
@@ -200,14 +218,6 @@ export default function GpsPhotosPage({ onBack }: Props) {
         Latitude: dec(r.lat),
         Longitude: dec(r.lon),
         'Image name': r.name,
-        Confidence:
-          r.source === 'EXIF'
-            ? 'Exact'
-            : r.source === 'OCR' && r.confidence === 'high'
-              ? 'OCR (verify)'
-              : r.confidence === 'low'
-                ? 'Check'
-                : 'Not found',
         'Raw OCR text': r.source === 'OCR' ? r.raw ?? '' : ''
       }))
     }
@@ -378,15 +388,28 @@ export default function GpsPhotosPage({ onBack }: Props) {
                     <th>Altitude</th>
                     <th>Place</th>
                     <th>Date / Time</th>
-                    <th>Source</th>
-                    <th>Confidence</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r, i) => {
                     const has = r.lat != null && r.lon != null
+                    if (r.pending) {
+                      return (
+                        <tr key={r.id} className="gps-row-pending">
+                          <td>{i + 1}</td>
+                          <td className="gps-name" title={r.name}>
+                            {r.name}
+                          </td>
+                          <td colSpan={5}>
+                            <span className="gps-reading">
+                              <span className="gps-reading-dot" aria-hidden /> Reading…
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    }
                     return (
-                      <tr key={i} className={r.confidence === 'low' ? 'gps-row-check' : r.source === 'none' ? 'gps-row-missing' : ''}>
+                      <tr key={r.id} className={r.confidence === 'low' ? 'gps-row-check' : r.source === 'none' ? 'gps-row-missing' : ''}>
                         <td>{i + 1}</td>
                         <td className="gps-name" title={r.source === 'OCR' ? r.raw : r.name}>
                           {r.name}
@@ -396,18 +419,6 @@ export default function GpsPhotosPage({ onBack }: Props) {
                         <td>{r.altitude ?? ''}</td>
                         <td>{r.address ?? r.place ?? ''}</td>
                         <td>{r.taken ?? ''}</td>
-                        <td>{r.source === 'none' ? 'Not found' : r.source}</td>
-                        <td>
-                          {r.source === 'EXIF' ? (
-                            <span className="gps-badge-ok">Exact</span>
-                          ) : r.source === 'OCR' && r.confidence === 'high' ? (
-                            <span className="gps-badge-ocr">OCR</span>
-                          ) : r.confidence === 'low' ? (
-                            <span className="gps-badge-check">Check</span>
-                          ) : (
-                            ''
-                          )}
-                        </td>
                       </tr>
                     )
                   })}

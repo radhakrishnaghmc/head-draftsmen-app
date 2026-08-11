@@ -892,6 +892,92 @@ code {
   flex: none;
 }
 
+/* Issue Documents: the "Download all" batch control, pushed to the top-right of
+   the card head (above the Work row). */
+.doc-batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  margin-left: auto;
+}
+.doc-batch-actions .gen-output-modes {
+  margin: 0;
+}
+
+/* Issue Documents: the "Select documents" bar above the tile grid. */
+.doc-select-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.doc-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.doc-select-all input {
+  width: 17px;
+  height: 17px;
+  cursor: pointer;
+  accent-color: var(--ok);
+}
+.doc-select-hint {
+  color: var(--muted);
+  font-size: 12.5px;
+  flex: 1;
+}
+
+/* Issue Documents: per-tile selection checkbox (top-left) for batch print/download.
+   Sits in a solid white chip so the box is clearly visible against the tile's
+   translucent, image-backed surface. The selector is scoped under
+   `.doc-tile-card >` so it out-specifies the generic `.doc-tile-card > *`
+   rule (which otherwise forces every child back into `position: relative`). */
+.doc-tile-card > .doc-tile-check {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 2px 6px -2px rgba(30, 41, 59, 0.35);
+  cursor: pointer;
+}
+.doc-tile-check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--ok);
+}
+
+/* Issue Documents: the bottom hover pill is the clickable Preview button (the
+   tile body itself selects, so this needs its own pointer events). */
+.doc-tile-card > .doc-preview-cta {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* Selected document tile — clear ring so the picked ones stand out. */
+.doc-tile-card.selected {
+  border-color: var(--ok);
+  box-shadow: 0 0 0 2px var(--ok), 0 10px 30px -10px rgba(30, 41, 59, 0.18);
+}
+
 .card-head h2 {
   margin: 0;
   font-size: 15px;
@@ -925,25 +1011,24 @@ button {
   gap: 7px;
   border: 1px solid var(--border-strong);
   background: var(--surface);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
   color: var(--text);
   /* App-wide pill buttons: every button is fully rounded and neat, consistent
      with the upload buttons. Variant classes below only change colour, never
-     the shape. */
+     the shape. Flat finish everywhere — no shadow, gradient, glass blur or
+     hover lift; feedback comes from flat colour changes only. */
   border-radius: 999px;
   padding: 9px 16px;
   font-weight: 550;
   cursor: pointer;
-  transition: all 0.18s var(--ease);
+  box-shadow: none;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), color 0.15s var(--ease);
 }
 button:hover:not(:disabled) {
   background: var(--surface-2);
   border-color: var(--muted);
-  transform: translateY(-1px);
 }
 button:active:not(:disabled) {
-  transform: translateY(0);
+  background: var(--surface-2);
 }
 button:disabled {
   opacity: 0.5;
@@ -955,26 +1040,23 @@ button svg {
 }
 
 button.primary {
-  /* The app's primary action pill uses the sidebar's own pale India-green band
-     tint (sampled: ~#e9f4e8 → #d7ead5) so the buttons and the sidebar share one
-     green. Dark text for contrast on the pale fill, a faint green edge so the
-     pill still reads on white, and a soft lift on hover. Every primary button
+  /* The app's primary action pill uses the sidebar's own pale India-green tint
+     so the buttons and the sidebar share one green. Dark text for contrast on
+     the pale fill, a faint green edge so the pill still reads on white. Flat:
+     a single solid fill, no gradient/shadow/lift. Every primary button
      app-wide shares this — the upload buttons only add their fixed width. */
-  background: linear-gradient(180deg, #e6f3e3, #d0e8cd);
+  background: #dcefd8;
   color: #14261a;
   font-weight: 650;
   border: 1px solid rgba(19, 136, 8, 0.28);
-  box-shadow: 0 4px 12px -6px rgba(19, 100, 30, 0.28);
+  box-shadow: none;
 }
 button.primary:hover:not(:disabled) {
-  background: linear-gradient(180deg, #dcefd8, #c3e2bf);
+  background: #cfe8ca;
   border-color: rgba(19, 136, 8, 0.4);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 18px -7px rgba(19, 100, 30, 0.32);
 }
 button.primary:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 3px 9px -6px rgba(19, 100, 30, 0.3);
+  background: #c3e2bf;
 }
 
 button.ghost {
@@ -2694,6 +2776,69 @@ input[type='text']:focus {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
+}
+
+/* ---------- What's New (post-update changelog) ---------- */
+.whatsnew-modal {
+  width: min(520px, 94vw);
+  text-align: left;
+}
+.whatsnew-ic {
+  margin-left: 0;
+  margin-right: 0;
+  background: color-mix(in srgb, var(--brand, var(--sky-500)) 16%, transparent);
+  color: var(--brand, var(--sky-500));
+}
+.whatsnew-modal h3 {
+  text-align: left;
+}
+.whatsnew-sub {
+  margin: 0 0 16px;
+  font-size: 13.5px;
+  color: var(--text-2, var(--muted));
+}
+.whatsnew-body {
+  max-height: min(52vh, 440px);
+  overflow-y: auto;
+  margin: 0 -4px 8px;
+  padding: 0 4px;
+}
+.whatsnew-version + .whatsnew-version {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.whatsnew-version-tag {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--brand, var(--sky-500));
+  margin-bottom: 8px;
+}
+.whatsnew-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.whatsnew-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.whatsnew-list li svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 2px;
+  color: var(--brand, var(--sky-500));
+}
+.whatsnew-actions {
+  margin-top: 6px;
 }
 
 .login-screen {
@@ -7345,6 +7490,27 @@ tr.on .rp-box span {
 .gps-row-check td {
   background: rgba(230, 160, 30, 0.1);
 }
+.gps-row-pending td {
+  background: rgba(30, 110, 190, 0.06);
+}
+.gps-reading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-style: italic;
+}
+.gps-reading-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #1c5b95;
+  animation: gps-reading-pulse 1s ease-in-out infinite;
+}
+@keyframes gps-reading-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
 .gps-hint {
   margin: 0 0 12px;
   font-size: 12.5px;
@@ -7526,6 +7692,47 @@ tr.on .rp-box span {
   font-size: 12px;
   line-height: 1.5;
 }
+/* Photos/PDF → Word/Excel: the editable recognised-text block under the
+   thumbnails. */
+.photos-doc-text {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.photos-doc-text-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.photos-doc-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 220px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.photos-doc-textarea:focus {
+  outline: none;
+  border-color: var(--indigo-400, var(--muted));
+}
+
+/* Photos/PDF → Word/Excel: small heading above each output path in the rail. */
+.photos-doc-path-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+  margin-bottom: 2px;
+}
+
 /* Photos → PDF options block in the rail. */
 .photos-pdf-opts {
   display: flex;

@@ -1,0 +1,66 @@
+/**
+ * The user-facing "What's New" changelog. On the first launch after an update,
+ * the app shows the changes for every version newer than the one last seen on
+ * this machine (see src/components/WhatsNew.tsx and App.tsx). Keep entries short,
+ * plain-language, and written for a Head Draughtsman — not a developer.
+ *
+ * Add a new entry at the TOP (newest first) whenever a release ships, matching
+ * the version in package.json.
+ */
+export interface ChangelogEntry {
+  version: string
+  /** One short, plain-language line per user-visible change. */
+  changes: string[]
+}
+
+// Newest first. The top entry's version should match package.json.
+export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '1.17.0',
+    changes: [
+      'To Do List and MB Scrutiny list are now kept separately for each office — what you add under one circle no longer shows under another.',
+      'Completion Report: a blank Estimate Amount now stays blank (no more "Rs 0/-"), and the stray "dt." is removed when there is no Technical Sanction date.',
+      'After an update, the app now shows a short summary of what changed (this window).'
+    ]
+  },
+  {
+    version: '1.16.0',
+    changes: [
+      'New tool: Photos / PDF → Word or Excel — read photos or a scanned PDF into editable text and save as a Word (.docx) or Excel (.xlsx) file, keeping tables and layout.',
+      'GPS Photos: better at reading faint or stamped Latitude–Longitude overlays.',
+      'Tender Notice now fills the correct circle name, circle number and contact numbers for the office issuing it.',
+      'Smaller fixes to the Work Order / Agreement (ECV) and the Bid Document.'
+    ]
+  }
+]
+
+/**
+ * Compare two dotted version strings ("1.16.0"). Returns -1 if a < b, 1 if
+ * a > b, 0 if equal. Missing segments count as 0, and any non-numeric segment
+ * as 0, so it never throws on an odd version string — it just orders it low.
+ */
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split('.')
+  const pb = b.split('.')
+  const len = Math.max(pa.length, pb.length)
+  for (let i = 0; i < len; i++) {
+    const na = Number(pa[i] ?? 0) || 0
+    const nb = Number(pb[i] ?? 0) || 0
+    if (na < nb) return -1
+    if (na > nb) return 1
+  }
+  return 0
+}
+
+/**
+ * The changelog entries to show on this launch: every version strictly newer
+ * than `seen` and no newer than `current`, newest first. A fresh install
+ * (`seen` null/blank) shows nothing — there's no prior version to announce an
+ * update from — and so does a launch where nothing has changed since last seen.
+ */
+export function changesSince(seen: string | null | undefined, current: string): ChangelogEntry[] {
+  if (!seen) return []
+  return CHANGELOG.filter(
+    (e) => compareVersions(e.version, seen) > 0 && compareVersions(e.version, current) <= 0
+  )
+}

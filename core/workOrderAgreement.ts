@@ -289,6 +289,7 @@ export function agreementPlaceholders(f: WorkOrderAgreementFields): Record<strin
  */
 export function fileBackerPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
   const estLakhs = num(f.estimateLakhs)
+  const ecv = num(f.ecvRupees)
   const pct = num(f.tenderPercent)
   const contract = num(f.contractRupees)
   const circleHeader = f.circle ? `${f.circle.toUpperCase()} CIRCLE${f.cno ? `-${f.cno}` : ''}` : ''
@@ -296,6 +297,9 @@ export function fileBackerPlaceholders(f: WorkOrderAgreementFields): Record<stri
     'Circle Header': circleHeader,
     'Name of the work': f.nameOfWork,
     'Estimate Amount': estLakhs != null ? `Rs. ${estLakhs.toFixed(2)} Lakhs` : '',
+    // ECV sits between Estimate and Contract; it's stored in rupees (blank stays
+    // blank — never derived from the estimate), grouped like the Contract Amount.
+    ECV: ecv != null ? groupedRupees(ecv) : '',
     'Contract Amount': contract != null ? groupedRupees(contract) : '',
     'Tender Percentage': pct == null ? '' : pct === 0 ? 'At par' : `${formatPercent(pct)} % Less`,
     'Name of the agency': f.agencyName,

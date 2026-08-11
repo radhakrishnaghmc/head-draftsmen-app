@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, Fragment, type ReactNode } from 'react'
 import { api } from './ipc'
 import { prefetchTenders, fetchTenders } from './tenderCache'
 import {
@@ -38,6 +38,8 @@ import PrintDocumentTab from './components/PrintDocumentTab'
 import ToolsTab from './components/ToolsTab'
 import TodoList from './components/TodoList'
 import MbScrutinyList from './components/MbScrutinyList'
+import WhatsNew from './components/WhatsNew'
+import { changesSince, type ChangelogEntry } from '@core/changelog'
 import TenderReminders from './components/TenderReminders'
 import {
   IconTable,
@@ -107,6 +109,24 @@ interface Props {
   onOfficeChange: (office: Office) => void
 }
 
+// The app version last shown in the "What's New" dialog on this machine —
+// localStorage so it survives updates (but not a reinstall/cache clear).
+const LAST_SEEN_VERSION_KEY = 'hda-last-seen-version'
+
+/**
+ * Keep a visited tab's content mounted (just hidden) instead of tearing it down
+ * when the user navigates away, so any in-progress work (photo OCR, uploads,
+ * long conversions) keeps running and the workspace's state is preserved when
+ * they come back. A tab renders nothing until first visited; once visited it
+ * stays mounted (display:none while another tab is active). Double-clicking a
+ * sidebar item bumps a reset key upstream, which remounts these panes fresh —
+ * that's the deliberate "close everything" gesture.
+ */
+function KeepAlive({ active, mounted, children }: { active: boolean; mounted: boolean; children: ReactNode }) {
+  if (!active && !mounted) return null
+  return <div className="tab-pane" style={{ display: active ? 'block' : 'none' }}>{children}</div>
+}
+
 export default function App({ onLogout, office, onOfficeChange }: Props) {
   // The office identity drives every Zone/Circle behaviour below. Kept as local
   // aliases so the rest of the app reads the same as when these came from the
@@ -117,7 +137,57 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   const loginCircleNumber = office.circleNumber
   const officeEntries = entriesOf(loginCorporation)
 
+  // "What's New" changes to announce on the first launch after an update (empty
+  // until the version check below runs; a fresh install announces nothing).
+  const [whatsNew, setWhatsNew] = useState<ChangelogEntry[]>([])
+
   const [tab, setTab] = useState<TabKey>('dashboard')
+  // Keep-alive bookkeeping: every tab the user has visited stays mounted (hidden)
+  // so its work/state survives navigating away. `resetNonce` is part of the panes'
+  // React key — bumping it (a sidebar double-click) remounts them all, the
+  // explicit "terminate every workspace" gesture.
+  const [mountedTabs, setMountedTabs] = useState<Set<TabKey>>(() => new Set<TabKey>(['dashboard']))
+  const [resetNonce, setResetNonce] = useState(0)
+  useEffect(() => {
+    setMountedTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)))
+  }, [tab])
+  // All panes share the one workspace scroller, so reset it to the top on a tab
+  // switch — otherwise a short pane can open looking blank at a previous pane's
+  // scroll offset. (Work/state is preserved; only the scroll position resets.)
+  const workspaceRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    workspaceRef.current?.scrollTo(0, 0)
+  }, [tab])
+
+  // Show "What's New" once after an update: compare the running app version with
+  // the one last seen on this machine (localStorage, so it persists across
+  // updates but not across a reinstall). Newer → list what changed, then record
+  // this version as seen only when the user dismisses it, so it reliably shows.
+  // A fresh install (no version seen yet) records the version silently and shows
+  // nothing — there's no prior release to announce an update from. In dev the
+  // login screen is skipped, so this runs on launch rather than after login.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const current = await api.getAppVersion()
+      if (cancelled || !current) return
+      const seen = localStorage.getItem(LAST_SEEN_VERSION_KEY)
+      const entries = changesSince(seen, current)
+      if (entries.length > 0) setWhatsNew(entries)
+      else localStorage.setItem(LAST_SEEN_VERSION_KEY, current)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  // Double-click a sidebar item: drop every other kept-alive workspace and remount
+  // the chosen one from scratch (bumping resetNonce also resets it if it was the
+  // current tab), so all in-progress workspace work is torn down.
+  const resetToTab = (next: TabKey) => {
+    setMountedTabs(new Set<TabKey>([next]))
+    setResetNonce((n) => n + 1)
+    setTab(next)
+  }
   // Sub-tabs within the Intimation workspace: the Intimation letter, or the
   // Bid Capacity Evaluation Sheet issued from a "View Bidders" PDF.
   const [intimationSubTab, setIntimationSubTab] = useState<'intimation' | 'evaluation'>('intimation')
@@ -440,6 +510,42 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     mbScrutiny
   ])
 
+  // To Do and MB Scrutiny are per-office, like the Works List: show only the
+  // current office's items, and stamp each new item with the office it's added
+  // under. The full (all-office) arrays stay in `todos`/`mbScrutiny` for sync;
+  // these adapters slice/merge just the current office's slice for the tabs.
+  const officeTodos = todos.filter((t) => (t.officeKey ?? '') === currentOfficeKey)
+  const officeMb = mbScrutiny.filter((it) => (it.officeKey ?? '') === currentOfficeKey)
+  // Short label of the office these per-office lists are scoped to, for the page header.
+  const officeLabel = office.circle || office.zone || ''
+  function setOfficeTodos(next: TodoItem[]) {
+    const stamped = currentOfficeKey
+      ? next.map((t) => (t.officeKey ? t : { ...t, officeKey: currentOfficeKey }))
+      : next
+    setTodos([...todos.filter((t) => (t.officeKey ?? '') !== currentOfficeKey), ...stamped])
+  }
+  function setOfficeMb(next: MBScrutinyItem[]) {
+    const stamped = currentOfficeKey
+      ? next.map((it) => (it.officeKey ? it : { ...it, officeKey: currentOfficeKey }))
+      : next
+    setMbScrutiny([...mbScrutiny.filter((it) => (it.officeKey ?? '') !== currentOfficeKey), ...stamped])
+  }
+
+  // One-time adoption: To Do / MB records created before per-office scoping have
+  // no officeKey and would otherwise show under every office. On first load with
+  // an office in view, assign them to it so they settle into one office's list.
+  useEffect(() => {
+    if (!hydrated || !currentOfficeKey) return
+    setTodos((prev) =>
+      prev.some((t) => !t.officeKey) ? prev.map((t) => (t.officeKey ? t : { ...t, officeKey: currentOfficeKey })) : prev
+    )
+    setMbScrutiny((prev) =>
+      prev.some((it) => !it.officeKey)
+        ? prev.map((it) => (it.officeKey ? it : { ...it, officeKey: currentOfficeKey }))
+        : prev
+    )
+  }, [hydrated, currentOfficeKey])
+
   const collisions = dataset?.collisions ?? []
   const unresolved = collisions.filter((c) => !resolution[c.column])
 
@@ -467,7 +573,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
 
   // Flatten the MB Scrutiny register into a table and save it as an .xlsx.
   async function exportMbScrutiny() {
-    if (mbScrutiny.length === 0) return
+    if (officeMb.length === 0) return
     const fmt = (iso?: string) => {
       if (!iso) return ''
       const [y, m, d] = iso.split('-')
@@ -483,7 +589,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       'Scrutiny completed date',
       'Remarks / objections'
     ]
-    const rows = [...mbScrutiny]
+    const rows = [...officeMb]
       .sort((a, b) => (a.serialNo || 0) - (b.serialNo || 0))
       .map((it) => ({
         'S.No': String(it.serialNo ?? ''),
@@ -781,6 +887,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       <Sidebar
         active={tab}
         onSelect={setTab}
+        onReset={resetToTab}
         tableCount={tables.length}
         unresolved={unresolved.length}
         createdDocCount={createdDocuments.length}
@@ -788,8 +895,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
         onOfficeChange={changeOffice}
       />
 
-      <main className="workspace">
-        {tab === 'dashboard' && (
+      <main className="workspace" ref={workspaceRef}>
+        <Fragment key={resetNonce}>
+        <KeepAlive active={tab === 'dashboard'} mounted={mountedTabs.has('dashboard')}>
           <section className="page wide">
             <div className="page-head">
               <div className="page-ic violet">
@@ -811,9 +919,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
             <Dashboard cached={calendar} onData={setCalendar} />
             <BidDocumentsPanel batches={bidDocumentBatches} onRemove={removeBidBatch} />
           </section>
-        )}
+        </KeepAlive>
 
-        {tab === 'data' && (
+        <KeepAlive active={tab === 'data'} mounted={mountedTabs.has('data')}>
           <section className="page wide">
             <div className="page-head">
               <div className="page-ic green">
@@ -887,9 +995,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               onResolve={resolveCollision}
             />
           </section>
-        )}
+        </KeepAlive>
 
-        {tab === 'printDoc' && (
+        <KeepAlive active={tab === 'printDoc'} mounted={mountedTabs.has('printDoc')}>
           <section className="page">
             <div className="page-head">
               <div className="page-ic sky">
@@ -908,9 +1016,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               qcParties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
             />
           </section>
-        )}
+        </KeepAlive>
 
-        {tab === 'estimateWorkspace' && (
+        <KeepAlive active={tab === 'estimateWorkspace'} mounted={mountedTabs.has('estimateWorkspace')}>
           <section className="page">
             <div className="page-head">
               <div className="page-ic amber">
@@ -923,9 +1031,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
             </div>
             <EstimateWorkspaceTab tables={tables} onChange={updateTable} office={office} />
           </section>
-        )}
+        </KeepAlive>
 
-        {tab === 'techSanction' && (
+        <KeepAlive active={tab === 'techSanction'} mounted={mountedTabs.has('techSanction')}>
           <section className="page">
             <div className="page-head">
               <div className="page-ic">
@@ -941,9 +1049,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
             </div>
             <GiveTechnicalSanctionTab />
           </section>
-        )}
+        </KeepAlive>
 
-        {tab === 'intimation' && (
+        <KeepAlive active={tab === 'intimation'} mounted={mountedTabs.has('intimation')}>
           <section className="page">
             <div className="page-head">
               <div className="page-ic rose">
@@ -978,9 +1086,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               <EvaluationSheetTab office={office} />
             )}
           </section>
-        )}
+        </KeepAlive>
 
-        {tab === 'workOrder' && (
+        <KeepAlive active={tab === 'workOrder'} mounted={mountedTabs.has('workOrder')}>
           <section className="page">
             <div className="page-head">
               <div className="page-ic">
@@ -998,19 +1106,19 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               office={office}
             />
           </section>
-        )}
+        </KeepAlive>
 
-        {tab === 'mbScrutiny' && (
+        <KeepAlive active={tab === 'mbScrutiny'} mounted={mountedTabs.has('mbScrutiny')}>
           <section className="page">
             <div className="page-head">
               <div className="page-ic">
                 <IconEye />
               </div>
               <div className="page-head-text">
-                <h1>MB Scrutiny list</h1>
-                <p>Log each Measurement Book received for scrutiny and track it through to completion.</p>
+                <h1>MB Scrutiny list{officeLabel ? ` — ${officeLabel}` : ''}</h1>
+                <p>Log each Measurement Book received for scrutiny and track it through to completion. This register is specific to the selected office.</p>
               </div>
-              {mbScrutiny.length > 0 && (
+              {officeMb.length > 0 && (
                 <div className="page-head-action">
                   <button className="ghost" onClick={exportMbScrutiny} title="Download as Excel">
                     <IconDownload /> Download
@@ -1018,11 +1126,11 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 </div>
               )}
             </div>
-            <MbScrutinyList items={mbScrutiny} onChange={setMbScrutiny} />
+            <MbScrutinyList items={officeMb} onChange={setOfficeMb} />
           </section>
-        )}
+        </KeepAlive>
 
-        {tab === 'search' && (
+        <KeepAlive active={tab === 'search'} mounted={mountedTabs.has('search')}>
           <section className="page wide">
             <div className="page-head">
               <div className="page-ic green">
@@ -1041,27 +1149,28 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               refreshingId={refreshingReminderId}
             />
           </section>
-        )}
+        </KeepAlive>
 
-        {tab === 'todo' && (
+        <KeepAlive active={tab === 'todo'} mounted={mountedTabs.has('todo')}>
           <section className="page">
             <div className="page-head">
               <div className="page-ic">
                 <IconChecklist />
               </div>
               <div className="page-head-text">
-                <h1>To Do List</h1>
+                <h1>To Do List{officeLabel ? ` — ${officeLabel}` : ''}</h1>
                 <p>
                   Track tasks with a target completion date. Ticking one off keeps it visible for
-                  the rest of the day, then it rolls off the list.
+                  the rest of the day, then it rolls off the list. This list is specific to the
+                  selected office.
                 </p>
               </div>
             </div>
-            <TodoList todos={todos} onChange={setTodos} />
+            <TodoList todos={officeTodos} onChange={setOfficeTodos} />
           </section>
-        )}
+        </KeepAlive>
 
-        {tab === 'tools' && (
+        <KeepAlive active={tab === 'tools'} mounted={mountedTabs.has('tools')}>
           <section className="page">
             <div className="page-head">
               <div className="page-ic teal">
@@ -1073,9 +1182,21 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
             </div>
             <ToolsTab tables={tables} onChange={updateTable} office={office} documents={bakedDocuments} />
           </section>
-        )}
+        </KeepAlive>
+        </Fragment>
       </main>
       </div>
+      {whatsNew.length > 0 && (
+        <WhatsNew
+          entries={whatsNew}
+          onClose={() => {
+            // Record the running version as seen only now, so closing is what
+            // dismisses it for good (it re-shows until the user acknowledges).
+            void api.getAppVersion().then((v) => v && localStorage.setItem(LAST_SEEN_VERSION_KEY, v))
+            setWhatsNew([])
+          }}
+        />
+      )}
     </>
   )
 }

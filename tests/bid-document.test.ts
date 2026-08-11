@@ -82,4 +82,20 @@ describe('fillBidDocument', () => {
     const emdLine = paragraphs.find((p) => p.startsWith('Rs:') && p.includes('12,000/-'))
     expect(emdLine).toBeDefined()
   })
+
+  it('fills the work name into the Conditions of Contract covering-letter blank', () => {
+    const out = fillBidDocument(buffer, {
+      nitNo: '22/DB/EE/Nizampet Circle-58/CMC/2026-27',
+      dated: '10.08.2026',
+      downloadStartDate: '18.08.2026',
+      downloadEndDate: '25.08.2026',
+      work: { serial: 1, name: 'Providing temporary lighting at Nizampet', amount: '5' }
+    })
+    const para = listParagraphs(out).find((p) =>
+      p.includes('hereby tender and if this tender be accepted')
+    )
+    expect(para).toBeDefined()
+    // The name lands right in the blank after "viz" (previously an empty underscore line).
+    expect(para).toContain('viz“Providing temporary lighting at Nizampet.”')
+  })
 })

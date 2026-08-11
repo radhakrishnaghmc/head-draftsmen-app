@@ -67,6 +67,13 @@ export interface TodoItem {
   done: boolean
   /** ISO date (YYYY-MM-DD) the item was marked done — it stays visible through that day, then rolls off. */
   completedDate?: string
+  /**
+   * The office (Corporation|Zone|Circle key) this task belongs to, so the To Do
+   * list is per-office like the Works List — a task added in one circle isn't
+   * shown in another. Absent on tasks created before per-office scoping; those
+   * are adopted into the office in view on first load (see App.tsx).
+   */
+  officeKey?: string
 }
 
 /** One point noted during scrutiny — can be ticked off once attended to. */
@@ -91,6 +98,13 @@ export interface MBScrutinyItem {
   completedDate?: string
   /** Objections/notes from scrutiny, one entry per point (not a single paragraph). */
   remarks?: MBScrutinyRemark[]
+  /**
+   * The office (Corporation|Zone|Circle key) this record belongs to, so the MB
+   * register is per-office (each circle keeps its own running serial number).
+   * Absent on records created before per-office scoping; those are adopted into
+   * the office in view on first load (see App.tsx).
+   */
+  officeKey?: string
 }
 
 export interface TenderReminderItem {

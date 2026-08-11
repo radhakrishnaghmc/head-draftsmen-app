@@ -11,6 +11,7 @@ import ExcelSeparatorPage from './ExcelSeparatorPage'
 import WordToolPage from './WordToolPage'
 import GpsPhotosPage from './GpsPhotosPage'
 import PhotosToPdfPage from './PhotosToPdfPage'
+import PhotosToDocPage from './PhotosToDocPage'
 import DocThumbnail from './DocThumbnail'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
 import { circlesOf, corporationByName } from '../zoneCircleDirectory'
@@ -52,6 +53,7 @@ type FullPage =
   | 'word'
   | 'gps'
   | 'photosToPdf'
+  | 'photosToDoc'
   | 'photos'
   | 'workOrder'
   | 'agreement'
@@ -174,6 +176,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
   if (fullPage === 'word') return <WordToolPage onBack={backToTools} />
   if (fullPage === 'gps') return <GpsPhotosPage onBack={backToTools} />
   if (fullPage === 'photosToPdf') return <PhotosToPdfPage onBack={backToTools} />
+  if (fullPage === 'photosToDoc') return <PhotosToDocPage onBack={backToTools} />
 
   // The remaining tools each host an existing workspace component under a shared
   // Back-button header, so every tile opens as its own full page.
@@ -182,7 +185,10 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
       photos: {
         icon: <IconImage />,
         label: 'Estimate from Photos / PDF',
-        body: <UploadPhotosTab tables={tables} onChange={onChange} autoOpen onContent={() => {}} />
+        // No autoOpen: open the workspace first (with its "Upload Photos or PDF"
+        // button) like the other file tools, rather than popping the OS file
+        // dialog straight away on the tile click.
+        body: <UploadPhotosTab tables={tables} onChange={onChange} onContent={() => {}} />
       },
       workOrder: {
         icon: <IconClipboard />,
@@ -202,12 +208,15 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
       scheduleA: {
         icon: <IconTable />,
         label: 'Schedule A',
-        body: <WorkOrderAgreementTab scheduleAOnly autoOpen onContent={() => {}} tables={tables} onChange={() => {}} />
+        // No autoOpen: open the workspace first (with its upload button), like
+        // the other file tools, instead of popping the file dialog immediately.
+        body: <WorkOrderAgreementTab scheduleAOnly onContent={() => {}} tables={tables} onChange={() => {}} />
       },
       electrical: {
         icon: <IconBolt />,
         label: 'Electrical Estimate',
-        body: <ElectricalEstimateTab autoOpen onContent={() => {}} />
+        // No autoOpen: open the workspace first (with its upload button).
+        body: <ElectricalEstimateTab onContent={() => {}} />
       }
     }
     const tool = hosted[fullPage]
@@ -272,6 +281,17 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
           <span className="doc-tile-card-meta">Combine photos (or PDF pages) into one PDF — auto-crops borders</span>
           <span className="tool-card-cta">
             <IconFolder /> Upload photos or PDF
+          </span>
+        </button>
+
+        <button className="doc-tile-card tone-sky tool-card" onClick={() => openFullPage('photosToDoc')}>
+          <span className="tool-card-ic">
+            <IconDoc />
+          </span>
+          <span className="doc-tile-card-name">Photos / PDF → Word / Excel</span>
+          <span className="doc-tile-card-meta">OCR photos or a scanned PDF into editable text, export to .docx or .xlsx</span>
+          <span className="tool-card-cta">
+            <IconFolder /> Upload photos / PDF
           </span>
         </button>
 

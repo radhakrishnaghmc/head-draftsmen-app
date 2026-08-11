@@ -21,58 +21,59 @@ export async function ocrGpsOverlay(imageBuffer: Buffer): Promise<string[]> {
   const width = Math.max(1800, W || 1800)
   const base = sharp(imageBuffer).rotate().grayscale().resize({ width })
 
-  // Every line from every pass is kept (NOT de-duplicated): core/gpsOverlay.ts
-  // votes across passes, so repeated identical reads must count.
-  const lines: string[] = []
-  const collect = async (buf: Buffer) => {
-    let ocrLines
-    try {
-      ocrLines = await recognizeImage(buf)
-    } catch {
-      return
-    }
-    for (const l of ocrLines) {
-      const s = l.text.trim()
-      if (s) lines.push(s)
-    }
-  }
+  // Each pass preprocesses the image a different way and OCRs it. They're
+  // independent, so instead of running all 8 back-to-back on one photo we build
+  // them as tasks and run them concurrently — the OCR child pool (electron/ocr.ts)
+  // spreads them across CPU cores. Kept in pass order and NOT de-duplicated:
+  // core/gpsOverlay.ts votes across passes (and, on a tie, favours the earlier
+  // pass), so repeated reads must count and order must stay stable.
+  const passes: Array<() => Promise<Buffer>> = []
 
   // Pass set 1 — whole-image binarisation at several brightness thresholds.
   // Recovers the large, high-contrast centre overlay (DMS "N 17°52'…" stamp).
-  for (const threshold of [205, 230, 250]) {
-    try {
-      await collect(await base.clone().threshold(threshold).negate().png().toBuffer())
-    } catch {
-      /* skip a failed pass */
-    }
+  // 190 is included for fainter white-on-photo text.
+  for (const threshold of [190, 205, 230, 250]) {
+    passes.push(() => base.clone().threshold(threshold).negate().png().toBuffer())
   }
 
-  // Pass set 2 — several contrast-boosted (CLAHE) variants of the bottom-left
-  // strip. The other common overlay is small, faint, semi-transparent text in the
-  // bottom corner ("Lat/Long: Lat 17.611674 Long 78.162789"); thresholding loses
-  // it, but local-contrast equalisation on an upscaled crop brings it out.
-  // Several variants give the parser independent reads to vote on.
+  // Pass set 2 — several contrast-boosted variants of the FULL-WIDTH bottom
+  // strip. The other common overlay is small, faint, semi-transparent text in
+  // the bottom corner ("Lat/Long: Lat 17.611674 Long 78.162789"); thresholding
+  // loses it, but local-contrast equalisation / normalisation on an upscaled crop
+  // brings it out. Full width (not 65%) so a right-aligned longitude is never
+  // cropped off; the extra normalise/gamma variants recover very faint stamps on
+  // bright backgrounds. Several variants give the parser independent reads to vote
+  // on (core/gpsOverlay.ts also reconstructs a dropped decimal / a wrapped value).
   if (W > 0 && H > 0) {
-    const stripH = Math.max(1, Math.round(H * 0.34))
-    const stripW = Math.max(1, Math.round(W * 0.65))
-    const crop = (upscale: number) =>
+    const stripH = Math.max(1, Math.round(H * 0.38))
+    const crop = () =>
       sharp(imageBuffer)
-        .extract({ left: 0, top: H - stripH, width: stripW, height: stripH })
-        .resize({ width: Math.min(2600, Math.round(stripW * upscale)) })
+        .extract({ left: 0, top: H - stripH, width: W, height: stripH })
+        .resize({ width: Math.min(3200, Math.round(W * 2.2)) })
         .grayscale()
-    const variants = [
-      () => crop(2).clahe({ width: 15, height: 15 }),
-      () => crop(3).clahe({ width: 8, height: 8 }),
-      () => crop(3).normalise().clahe({ width: 20, height: 20 })
-    ]
-    for (const v of variants) {
-      try {
-        await collect(await v().png().toBuffer())
-      } catch {
-        /* skip a failed variant */
-      }
+    passes.push(() => crop().clahe({ width: 15, height: 15 }).png().toBuffer())
+    passes.push(() => crop().normalise().clahe({ width: 20, height: 20 }).png().toBuffer())
+    passes.push(() => crop().normalise().sharpen().png().toBuffer())
+    passes.push(() => crop().gamma(2.5).normalise().clahe({ width: 18, height: 18 }).png().toBuffer())
+  }
+
+  // Run one pass: build its preprocessed image, OCR it, return its trimmed lines.
+  // A failed preprocess or a failed OCR pass just contributes nothing.
+  const runPass = async (make: () => Promise<Buffer>): Promise<string[]> => {
+    let buf: Buffer
+    try {
+      buf = await make()
+    } catch {
+      return []
+    }
+    try {
+      const ocrLines = await recognizeImage(buf)
+      return ocrLines.map((l) => l.text.trim()).filter((s) => s.length > 0)
+    } catch {
+      return []
     }
   }
 
-  return lines
+  const perPass = await Promise.all(passes.map(runPass))
+  return perPass.flat()
 }

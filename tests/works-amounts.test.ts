@@ -110,6 +110,12 @@ describe('withComputedAmounts', () => {
     const row = withComputedAmounts({ 'Amount of estimate': '45', 'ECV': '5000000' })
     expect(row['Contract Amount']).toBe('')
   })
+
+  it('leaves the estimate blank when its cell is blank — never "Rs 0/-" (no work selected)', () => {
+    const row = withComputedAmounts({ 'Amount of estimate': '', 'ECV': '' })
+    expect(row['Amount of estimate']).toBe('')
+    expect(row['Estimate Amount']).toBe('')
+  })
 })
 
 describe('rupeesToLakhsString', () => {

@@ -133,10 +133,14 @@ export function computeWorkAmounts(row: Record<string, string>): ComputedAmounts
  */
 export function withComputedAmounts(row: Record<string, string>): Record<string, string> {
   const c = computeWorkAmounts(row)
+  // A blank "Amount of estimate" cell stays blank — never rendered as "Rs 0/-"
+  // (e.g. an Issue Document previewed/issued with no work selected). Only a
+  // filled cell gets the formatted "Rs …/-" figure.
+  const estimate = (row['Amount of estimate'] ?? '').trim() ? formatRupees(c.estimate) : ''
   return {
     ...row,
-    'Amount of estimate': formatRupees(c.estimate),
-    'Estimate Amount': formatRupees(c.estimate),
+    'Amount of estimate': estimate,
+    'Estimate Amount': estimate,
     ECV: c.ecv !== null ? formatRupees(c.ecv) : '',
     'EMD 1%': c.emd1 !== null ? formatRupees(c.emd1) : '',
     'EMD 1.5%': c.emd1_5 !== null ? formatRupees(c.emd1_5) : '',

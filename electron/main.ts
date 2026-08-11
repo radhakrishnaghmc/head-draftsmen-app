@@ -9,7 +9,7 @@ import { IPC } from './ipc-contract'
 import type { ManualCheckResult, AgreementBundleFile } from './ipc-contract'
 import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer, readSheetPreviews } from '../core/excel'
 import type { SheetPreview } from '../core/excel'
-import { recognizeImage } from './ocr'
+import { recognizeImages } from './ocr'
 import { runSplitInWorker } from './splitRunner'
 import { pdfPageCount, mergePdfFiles, splitPdfFile } from './pdfTools'
 import { applyTechnicalSanctionEdits } from '../core/technicalSanctionOutput'
@@ -39,6 +39,10 @@ import { fillBidDocument } from '../core/bidDocument'
 import type { BidDocumentInput } from '../core/bidDocument'
 import type { CalendarData } from '../core/calendar'
 import { convertHtmlToDocx } from '../core/htmlToDocx'
+import { textToParagraphsHtml, buildPhotosWorkbook, buildWorkbookFromRows } from '../core/photosToDoc'
+import { convertPdfToDocx } from '../core/pdfToDocx'
+import { buildDocx, type DocBlock } from '../core/docxBuilder'
+import type { OcrPage } from '../core/ocrReconstruct'
 import { convertDocxToPdf } from '../core/docxToPdf'
 import { mergeDocxBuffers } from '../core/mergeDocx'
 import { splitDocxByPageBreaks } from '../core/splitDocx'
@@ -171,11 +175,12 @@ function registerHandlers(): void {
   })
 
   ipcMain.handle(IPC.ocrEstimatePhotos, async (_e, dataUrls: string[]): Promise<SheetGrid> => {
+    const buffers = dataUrls.map((u) => Buffer.from(u.split(',')[1] ?? '', 'base64'))
+    // OCR all pages in parallel across the process pool (one per core), then
+    // stitch them back together in page order.
+    const perPage = await recognizeImages(buffers)
     const allRows: string[][] = []
-    for (const dataUrl of dataUrls) {
-      const base64 = dataUrl.split(',')[1] ?? ''
-      const buffer = Buffer.from(base64, 'base64')
-      const lines = await recognizeImage(buffer)
+    for (const lines of perPage) {
       // The OCR engine's detector already returns each printed line as one
       // clean unit of text (unlike a per-word engine, whose word boxes
       // would need reassembling into rows/columns by position) — sorting by
@@ -634,6 +639,119 @@ function registerHandlers(): void {
   ipcMain.handle(IPC.ocrGpsOverlay, async (_e, imageBytes: Uint8Array): Promise<string[]> => {
     return ocrGpsOverlay(Buffer.from(imageBytes))
   })
+
+  // Photos/PDF → Word/Excel tool — OCR each page image (in order) into text
+  // lines, kept in reading order and separated by a blank line between pages so
+  // the renderer can show one editable block the user reviews before exporting.
+  ipcMain.handle(IPC.ocrPhotosToLines, async (_e, dataUrls: string[]): Promise<string[]> => {
+    const buffers = dataUrls.map((u) => Buffer.from(u.split(',')[1] ?? '', 'base64'))
+    // OCR every page in parallel across the process pool (one per core) instead
+    // of one at a time — the big speed-up for multi-page uploads.
+    const perPage = await recognizeImages(buffers)
+    const out: string[] = []
+    perPage.forEach((lines, i) => {
+      const sorted = [...lines].sort((a, b) => a.top - b.top)
+      if (i > 0) out.push('') // blank line between pages
+      out.push(...sorted.map((l) => l.text))
+    })
+    return out
+  })
+
+  ipcMain.handle(
+    IPC.savePhotosAsWord,
+    async (_e, text: string, suggestedName: string): Promise<string | null> => {
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        title: 'Save as Word',
+        defaultPath: `${suggestedName || 'Document'}.docx`,
+        filters: [{ name: 'Word Document', extensions: ['docx'] }]
+      })
+      if (result.canceled || !result.filePath) return null
+      const buffer = await convertHtmlToDocx(textToParagraphsHtml(text))
+      fs.writeFileSync(result.filePath, buffer)
+      return result.filePath
+    }
+  )
+
+  ipcMain.handle(
+    IPC.savePhotosAsExcel,
+    async (_e, text: string, suggestedName: string): Promise<string | null> => {
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        title: 'Save as Excel',
+        defaultPath: `${suggestedName || 'Spreadsheet'}.xlsx`,
+        filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
+      })
+      if (result.canceled || !result.filePath) return null
+      fs.writeFileSync(result.filePath, buildPhotosWorkbook(text, suggestedName))
+      return result.filePath
+    }
+  )
+
+  // Photos/PDF → Word (keep layout): convert the ORIGINAL uploaded PDF(s) to a
+  // .docx that preserves the layout (LibreOffice writer_pdf_import), merging
+  // several PDFs in order — vs the OCR path that only extracts plain text.
+  ipcMain.handle(
+    IPC.savePdfAsWord,
+    async (_e, pdfs: { name: string; bytes: Uint8Array }[], suggestedName: string): Promise<string | null> => {
+      if (!pdfs || pdfs.length === 0) return null
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        title: 'Save as Word (keep layout)',
+        defaultPath: `${suggestedName || 'Document'}.docx`,
+        filters: [{ name: 'Word Document', extensions: ['docx'] }]
+      })
+      if (result.canceled || !result.filePath) return null
+      const docxBuffers: Buffer[] = []
+      for (const pdf of pdfs) docxBuffers.push(await convertPdfToDocx(Buffer.from(pdf.bytes)))
+      const out = docxBuffers.length === 1 ? docxBuffers[0] : mergeDocxBuffers(docxBuffers)
+      fs.writeFileSync(result.filePath, out)
+      return result.filePath
+    }
+  )
+
+  // Photos/PDF → Word (offline reconstruction): the renderer rebuilds a text
+  // PDF's layout (or plain OCR lines) into a doc-model of real paragraphs +
+  // tables; this writes it as a directly-built, Word-valid .docx (core/docxBuilder
+  // — NOT html-to-docx, whose output Microsoft Word refuses to open).
+  ipcMain.handle(
+    IPC.saveWordDoc,
+    async (_e, blocks: DocBlock[], suggestedName: string): Promise<string | null> => {
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        title: 'Save as Word',
+        defaultPath: `${suggestedName || 'Document'}.docx`,
+        filters: [{ name: 'Word Document', extensions: ['docx'] }]
+      })
+      if (result.canceled || !result.filePath) return null
+      fs.writeFileSync(result.filePath, buildDocx(blocks))
+      return result.filePath
+    }
+  )
+
+  // Photos/PDF → Word/Excel (offline image-based reconstruction): OCR each page
+  // and return the recognised lines WITH their bounding boxes, per page, so the
+  // renderer/core can rebuild the table from where the text sits on the image
+  // (handles photos, scans, and broken-font pages the text layer can't).
+  ipcMain.handle(IPC.ocrPhotosToLayout, async (_e, dataUrls: string[]): Promise<OcrPage[]> => {
+    const buffers = dataUrls.map((u) => Buffer.from(u.split(',')[1] ?? '', 'base64'))
+    const perPage = await recognizeImages(buffers)
+    return perPage.map((lines) => ({
+      lines: lines
+        .filter((l) => l.box && l.text.trim())
+        .map((l) => ({ text: l.text, x: l.box![0], y: l.box![1], w: l.box![2], h: l.box![3] }))
+    }))
+  })
+
+  ipcMain.handle(
+    IPC.saveRowsAsExcel,
+    async (_e, rows: string[][], suggestedName: string): Promise<string | null> => {
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        title: 'Save as Excel',
+        defaultPath: `${suggestedName || 'Spreadsheet'}.xlsx`,
+        filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
+      })
+      if (result.canceled || !result.filePath) return null
+      fs.writeFileSync(result.filePath, buildWorkbookFromRows(rows, suggestedName))
+      return result.filePath
+    }
+  )
 
   // Word workspace — a .docx has no addressable pages until it's laid out, so the
   // page-level preview is driven off a LibreOffice conversion to PDF. The renderer
@@ -1327,7 +1445,10 @@ function registerHandlers(): void {
   // circle", Sl. No. = {{cno}}.
   // v18: Action Taken Report — removed the empty padding rows that left a big gap
   // under Name of the Work; 4th-party letterhead uses "O/o Executive Engineer".
-  const CURRENT_DEFAULT_DOC_VERSION = 18
+  // v19: Completion Report — Technical Sanction No & Date is one {{TS No and Date}}
+  // placeholder so the " dt. " separator only shows when a value is present (a
+  // no-work preview no longer prints a stray "dt.").
+  const CURRENT_DEFAULT_DOC_VERSION = 19
   const DEFAULT_DOCUMENTS: { id: string; name: string; file: string; officeScope?: 'zonal' | 'circle' }[] = [
     { id: 'doc_public_participation', name: 'Public Participation Log Book', file: 'public-participation-book-template.docx' },
     { id: 'doc_action_taken_report', name: 'Action Taken Report', file: 'action-taken-report-template.docx' },

@@ -6,7 +6,7 @@ import type { PlaceholderMatch } from '@core/createDocument'
 import { withComputedAmounts } from '@core/worksAmounts'
 import type { CreatedDocument, ExcelTable, QcOfficeParties } from '@core/types'
 import type { Office } from '../office'
-import { IconDoc, IconEye, IconPrint, IconDownload, IconPlus, IconSearch } from './Icons'
+import { IconDoc, IconEye, IconPrint, IconDownload, IconSearch } from './Icons'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
 import DocThumbnail from './DocThumbnail'
 
@@ -54,7 +54,8 @@ const MANUAL_LABELS = new Set([
   'party phone',
   'test type',
   'ae name phone',
-  'estimate lakhs'
+  'estimate lakhs',
+  'ts no and date'
 ])
 function isPartyDoc(doc: CreatedDocument | null): boolean {
   return doc?.id === PARTY_3RD_ID || doc?.id === PARTY_4TH_ID
@@ -69,8 +70,9 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
 
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [rowIndex, setRowIndex] = useState(0)
+  // -1 = no work chosen: documents fill with the office details only (the work's
+  // Works-List columns stay blank). A work is picked explicitly from the dropdown.
+  const [rowIndex, setRowIndex] = useState(-1)
   // Page-level work picker: the chosen Works List row every document is issued
   // against, found by typing part of its name rather than scrolling all rows.
   const [workSearch, setWorkSearch] = useState('')
@@ -92,23 +94,46 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
   function onWorkSearch(v: string) {
     setWorkSearch(v)
     if (!table) return
+    // Leave the selection on "no work" until the user actively picks one — don't
+    // auto-select a row just because they typed in the search box.
+    if (rowIndex < 0) return
     const q = v.trim().toLowerCase()
     const matches = table.rows.map((row, i) => ({ row, i })).filter(({ row }) => !q || workNameOf(row).toLowerCase().includes(q))
     if (matches.length > 0 && !matches.some((m) => m.i === rowIndex)) setRowIndex(matches[0].i)
   }
-  // How the Issue button outputs: download Word, download PDF, or print. Pick
-  // one, then click Issue.
-  const [outputMode, setOutputMode] = useState<'word' | 'pdf' | 'print'>('word')
-  const [genBusy, setGenBusy] = useState(false)
-  const [genError, setGenError] = useState<string | null>(null)
-  const [genNotice, setGenNotice] = useState<string | null>(null)
+  // Batch actions — issue several documents at once against the selected work.
+  // Which documents: the ticked ones, or (when none are ticked) all shown for
+  // this office. Output: Word/PDF (saved together into one folder) or Print.
+  const [batchFormat, setBatchFormat] = useState<'word' | 'pdf' | 'print'>('word')
+  const [batchBusy, setBatchBusy] = useState(false)
+  const [batchError, setBatchError] = useState<string | null>(null)
+  const [batchNotice, setBatchNotice] = useState<string | null>(null)
+  // Per-document selection (tile checkboxes) for the batch action.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const toggleSelected = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  const selectedCount = useMemo(
+    () => documents.filter((d) => isDocForOffice(d, office) && selectedIds.has(d.id)).length,
+    [documents, office, selectedIds]
+  )
+  const allSelected = visibleCount > 0 && selectedCount === visibleCount
+  function toggleSelectAll() {
+    setSelectedIds(allSelected ? new Set() : new Set(documents.filter((d) => isDocForOffice(d, office)).map((d) => d.id)))
+  }
   const [preview, setPreview] = useState<{ docx: string; resolved: PlaceholderMatch[] } | null>(null)
   const [previewPages, setPreviewPages] = useState(0)
+  // Title shown on the preview modal — one document's name, or "N documents".
+  const [previewTitle, setPreviewTitle] = useState('')
   const previewRef = useRef<HTMLDivElement>(null)
-  // Off-screen render target used only to turn a filled .docx into HTML for
-  // printing (see handlePrint) — printCreatedDocument needs plain HTML, not
-  // a docx buffer, since printing goes through the OS print dialog against
-  // a temp HTML file rather than requiring LibreOffice the way PDF export does.
+  // Off-screen render target used to turn filled .docx files into HTML — for
+  // batch printing (handleBatch 'print') and for building the combined preview
+  // (handleBatchPreview). printCreatedDocument needs plain HTML, not a docx
+  // buffer, so printing goes through the OS print dialog against a temp HTML
+  // file rather than requiring LibreOffice the way PDF export does.
   const printScratchRef = useRef<HTMLDivElement>(null)
 
   function handleDragStart(e: React.DragEvent, index: number) {
@@ -139,13 +164,6 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
     setOverIndex(null)
   }
 
-  function toggleExpand(doc: CreatedDocument) {
-    setGenError(null)
-    setGenNotice(null)
-    setPreview(null)
-    setExpandedId((id) => (id === doc.id ? null : doc.id))
-  }
-
   async function resolveForRow(doc: CreatedDocument): Promise<{ docx: string; resolved: PlaceholderMatch[] }> {
     const labels = await api.findPlaceholdersInDocument(doc.docx)
     // Amount-bearing columns (Amount of estimate, ECV, EMD @
@@ -162,13 +180,19 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
     // {{placeholder}} label so they self-resolve below. Test Type / AE contact
     // stay blank (hand-filled per test); Estimate Lakhs is the plain Lakhs figure
     // (the 4th-party table column is "Rs. in Lakhs", not the "Rs …/-" form).
+    // Technical Sanction No & Date combined into one placeholder so the " dt. "
+    // separator only appears when there's something to separate — a blank work
+    // (no selection) leaves the whole field blank instead of a stray "dt.".
+    const tsNo = (rawRow['Technical Sanc No'] ?? '').trim()
+    const tsDate = (rawRow['TS date'] ?? '').trim()
     const manualValues: Record<string, string> = {
       'Party Name': party?.name ?? '',
       'Party Address': party?.address ?? '',
       'Party Phone': party?.phone ?? '',
       'Test Type': '',
       'AE Name Phone': '',
-      'Estimate Lakhs': rawEstimate && !Number.isNaN(Number(rawEstimate)) ? Number(rawEstimate).toFixed(2) : rawEstimate
+      'Estimate Lakhs': rawEstimate && !Number.isNaN(Number(rawEstimate)) ? Number(rawEstimate).toFixed(2) : rawEstimate,
+      'TS No and Date': tsNo && tsDate ? `${tsNo} dt. ${tsDate}` : tsNo || tsDate
     }
     const row = { ...withComputedAmounts(rawRow), ...manualValues }
     const columns = table?.headers ?? []
@@ -199,9 +223,12 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
     return { docx: await api.fillPlaceholdersInDocument(doc.docx, resolved, row), resolved }
   }
 
+  // Preview one document (tile click) — fills it against the selected work
+  // (office details only when no work is chosen) and renders it read-only.
   async function handlePreview(doc: CreatedDocument) {
-    setGenBusy(true)
-    setGenError(null)
+    setBatchBusy(true)
+    setBatchError(null)
+    setPreviewTitle(doc.name)
     try {
       const result = await resolveForRow(doc)
       setPreview(result)
@@ -215,52 +242,105 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
         })()
       })
     } catch (e) {
-      setGenError(e instanceof Error ? e.message : String(e))
+      setBatchError(e instanceof Error ? e.message : String(e))
     } finally {
-      setGenBusy(false)
+      setBatchBusy(false)
     }
   }
 
-  async function handlePrint(doc: CreatedDocument) {
-    setGenBusy(true)
-    setGenError(null)
-    setGenNotice(null)
+  // Preview the batch target (ticked documents, or all) together in one modal,
+  // each rendered with a page break between — same set the Download/Print acts on.
+  async function handleBatchPreview() {
+    const docs = batchTargets()
+    if (docs.length === 0) {
+      setBatchError('No documents to preview for this office.')
+      return
+    }
+    setBatchBusy(true)
+    setBatchError(null)
+    setBatchNotice(null)
     try {
-      const { docx } = await resolveForRow(doc)
-      const container = printScratchRef.current
-      if (!container) throw new Error('Print failed to initialize.')
-      container.innerHTML = ''
-      await renderAsync(base64ToUint8(docx), container, undefined, DOCX_PREVIEW_OPTIONS)
-      await api.printCreatedDocument(container.innerHTML)
+      const scratch = printScratchRef.current
+      if (!scratch) throw new Error('Preview failed to initialize.')
+      const parts: string[] = []
+      for (const doc of docs) {
+        const { docx } = await resolveForRow(doc)
+        scratch.innerHTML = ''
+        await renderAsync(base64ToUint8(docx), scratch, undefined, DOCX_PREVIEW_OPTIONS)
+        parts.push(scratch.innerHTML)
+      }
+      const combined = parts.join('<div style="page-break-after:always"></div>')
+      setPreviewTitle(docs.length === 1 ? docs[0].name : `${docs.length} documents`)
+      setPreview({ docx: '', resolved: [] })
+      requestAnimationFrame(() => {
+        const c = previewRef.current
+        if (!c) return
+        c.innerHTML = combined
+        setPreviewPages(c.querySelectorAll('section.docx').length)
+      })
     } catch (e) {
-      setGenError(e instanceof Error ? e.message : String(e))
+      setBatchError(e instanceof Error ? e.message : String(e))
     } finally {
-      setGenBusy(false)
+      setBatchBusy(false)
     }
   }
 
-  async function handleCreate(doc: CreatedDocument, formats: ('docx' | 'pdf')[]) {
-    setGenBusy(true)
-    setGenError(null)
-    setGenNotice(null)
+  // Which documents the batch acts on: the ticked ones, or — when none are
+  // ticked — every document shown for this office.
+  function batchTargets(): CreatedDocument[] {
+    const visible = documents.filter((d) => isDocForOffice(d, office))
+    const picked = visible.filter((d) => selectedIds.has(d.id))
+    return picked.length > 0 ? picked : visible
+  }
+
+  // Batch action: fill each target document against the selected work (office
+  // details only when no work is chosen), then either save them all into ONE
+  // folder (Word / PDF) or send them to the printer as a single job (Print).
+  async function handleBatch(format: 'word' | 'pdf' | 'print') {
+    const docs = batchTargets()
+    if (docs.length === 0) {
+      setBatchError('No documents to issue for this office.')
+      return
+    }
+    setBatchBusy(true)
+    setBatchError(null)
+    setBatchNotice(null)
     try {
-      const { docx } = await resolveForRow(doc)
-      const res = await api.exportCreatedDocument(docx, doc.name, formats)
-      setGenNotice(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
+      if (format === 'print') {
+        // Render every selected document to HTML and print them as one job, with
+        // a hard page break between documents.
+        const container = printScratchRef.current
+        if (!container) throw new Error('Print failed to initialize.')
+        const parts: string[] = []
+        for (const doc of docs) {
+          const { docx } = await resolveForRow(doc)
+          container.innerHTML = ''
+          await renderAsync(base64ToUint8(docx), container, undefined, DOCX_PREVIEW_OPTIONS)
+          parts.push(container.innerHTML)
+        }
+        const combined = parts.join('<div style="page-break-after:always"></div>')
+        await api.printCreatedDocument(combined)
+        setBatchNotice(`Sent ${docs.length} document(s) to the printer.`)
+        return
+      }
+      const files: { name: string; bytes: Uint8Array }[] = []
+      for (const doc of docs) {
+        const { docx } = await resolveForRow(doc)
+        if (format === 'word') {
+          files.push({ name: doc.name, bytes: base64ToUint8(docx) })
+        } else {
+          const pdf = await api.docxToPdf(base64ToUint8(docx))
+          files.push({ name: doc.name, bytes: pdf })
+        }
+      }
+      const res = format === 'word' ? await api.saveDocxsToFolder(files) : await api.savePdfsToFolder(files)
+      setBatchNotice(res ? `Saved ${res.files.length} document(s) to ${res.dir}` : 'Cancelled.')
     } catch (e) {
-      setGenError(e instanceof Error ? e.message : String(e))
+      setBatchError(e instanceof Error ? e.message : String(e))
     } finally {
-      setGenBusy(false)
+      setBatchBusy(false)
     }
   }
-
-  // The Issue button: generate in whichever output mode is selected.
-  function handleIssue(doc: CreatedDocument) {
-    if (outputMode === 'print') return handlePrint(doc)
-    return handleCreate(doc, [outputMode === 'word' ? 'docx' : 'pdf'])
-  }
-
-  const expandedDoc = useMemo(() => documents.find((d) => d.id === expandedId) ?? null, [documents, expandedId])
 
   return (
     <>
@@ -275,7 +355,49 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
             <h2>Document</h2>
             <p className="sub">Pick a saved document, choose a Works List row, and create the filled output.</p>
           </div>
+          {visibleCount > 0 && (
+            <div className="doc-batch-actions">
+              <div className="gen-output-modes" role="group" aria-label="Batch output format">
+                <button
+                  type="button"
+                  className={batchFormat === 'word' ? 'seg active' : 'seg'}
+                  onClick={() => setBatchFormat('word')}
+                >
+                  <IconDownload /> Word
+                </button>
+                <button
+                  type="button"
+                  className={batchFormat === 'pdf' ? 'seg active' : 'seg'}
+                  onClick={() => setBatchFormat('pdf')}
+                >
+                  <IconDownload /> PDF
+                </button>
+                <button
+                  type="button"
+                  className={batchFormat === 'print' ? 'seg active' : 'seg'}
+                  onClick={() => setBatchFormat('print')}
+                >
+                  <IconPrint /> Print
+                </button>
+              </div>
+              <button className="ghost" disabled={batchBusy} onClick={handleBatchPreview}>
+                <IconEye /> Preview
+              </button>
+              <button className="primary" disabled={batchBusy} onClick={() => handleBatch(batchFormat)}>
+                {batchFormat === 'print' ? <IconPrint /> : <IconDownload />}{' '}
+                {batchBusy
+                  ? 'Working…'
+                  : `${batchFormat === 'print' ? 'Print' : 'Download'} ${
+                      selectedCount > 0 ? `selected (${selectedCount})` : 'all'
+                    }`}
+              </button>
+            </div>
+          )}
         </div>
+
+        {(batchError || batchNotice) && (
+          <div className={`notice ${batchError ? 'error' : 'ok'}`}>{batchError ?? batchNotice}</div>
+        )}
 
         {table && table.rows.length > 0 && (
           <div className="doc-work-picker">
@@ -295,6 +417,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
               )}
             </div>
             <select className="doc-work-select" value={rowIndex} onChange={(e) => setRowIndex(Number(e.target.value))}>
+              <option value={-1}>— No work (office details only) —</option>
               {filteredRows.length === 0 ? (
                 <option value={rowIndex} disabled>
                   No work matches “{workSearch}”
@@ -307,6 +430,25 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                 ))
               )}
             </select>
+          </div>
+        )}
+
+        {visibleCount > 0 && (
+          <div className="doc-select-bar">
+            <label className="doc-select-all">
+              <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} />
+              Select all
+            </label>
+            <span className="doc-select-hint">
+              {selectedCount > 0
+                ? `${selectedCount} selected — the button above prints/downloads only these`
+                : 'Tick documents to print or download only those (none ticked = all)'}
+            </span>
+            {selectedCount > 0 && (
+              <button className="ghost" onClick={() => setSelectedIds(new Set())}>
+                Clear
+              </button>
+            )}
           </div>
         )}
 
@@ -324,6 +466,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                   'doc-tile-card',
                   'tool-card',
                   TILE_TONES[i % TILE_TONES.length],
+                  selectedIds.has(doc.id) ? 'selected' : '',
                   dragIndex === i ? 'dragging' : '',
                   overIndex === i && dragIndex !== null && dragIndex !== i ? 'drag-over' : ''
                 ]
@@ -331,13 +474,14 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                   .join(' ')}
                 key={doc.id}
                 role="button"
+                aria-pressed={selectedIds.has(doc.id)}
                 tabIndex={0}
-                title={`Issue ${doc.name}`}
-                onClick={() => toggleExpand(doc)}
+                title={`Select ${doc.name}`}
+                onClick={() => toggleSelected(doc.id)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
-                    toggleExpand(doc)
+                    toggleSelected(doc.id)
                   }
                 }}
                 draggable
@@ -346,11 +490,29 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                 onDrop={(e) => handleDrop(e, i)}
                 onDragEnd={handleDragEnd}
               >
+                <label
+                  className="doc-tile-check"
+                  title="Select for batch print / download"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(doc.id)}
+                    onChange={() => toggleSelected(doc.id)}
+                  />
+                </label>
                 <DocThumbnail docx={doc.docx} />
                 <span className="doc-tile-card-name">{doc.name}</span>
                 <span className="doc-tile-card-meta">Added {doc.createdDate}</span>
-                <span className="tool-card-cta">
-                  <IconDoc /> Issue {doc.name}
+                <span
+                  className="tool-card-cta doc-preview-cta"
+                  title={`Preview ${doc.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void handlePreview(doc)
+                  }}
+                >
+                  <IconEye /> Preview
                 </span>
               </div>
             ))}
@@ -358,101 +520,11 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
         )}
       </section>
 
-      {expandedDoc && !preview && (
-        <div className="editor-overlay" onClick={() => toggleExpand(expandedDoc)}>
-          <div className="confirm-modal gen-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-            <h3>{expandedDoc.name}</h3>
-            <div className="gen-panel">
-              {!table || table.rows.length === 0 ? (
-                <button className="primary" onClick={onGoToWorksList}>
-                  <IconPlus /> Add works
-                </button>
-              ) : (
-                <>
-                  <label className="gen-row-label">
-                    Work:{' '}
-                    <select value={rowIndex} onChange={(e) => setRowIndex(Number(e.target.value))}>
-                      {table.rows.map((row, i) => (
-                        <option value={i} key={i}>
-                          {rowLabel(row, table.headers, i)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  {isPartyDoc(expandedDoc) &&
-                    (() => {
-                      const p = expandedDoc.id === PARTY_3RD_ID ? qcParties?.third : qcParties?.fourth
-                      const which = expandedDoc.id === PARTY_3RD_ID ? '3rd-party QC agency' : '4th-party testing agency'
-                      return (
-                        <div className="gen-party-fields">
-                          {p?.name?.trim() ? (
-                            <p className="gen-party-hint">
-                              {which}: <strong>{p.name}</strong> — from the Works List. Change it there if the agency
-                              changed.
-                            </p>
-                          ) : (
-                            <p className="gen-party-hint">
-                              No {which} set yet. Add it once on the <strong>Works List</strong> page (below the office
-                              details) and it fills here automatically.
-                            </p>
-                          )}
-                        </div>
-                      )
-                    })()}
-
-                  <div className="gen-output-modes" role="group" aria-label="Output">
-                    <button
-                      type="button"
-                      className={outputMode === 'word' ? 'seg active' : 'seg'}
-                      onClick={() => setOutputMode('word')}
-                    >
-                      <IconDownload /> Word
-                    </button>
-                    <button
-                      type="button"
-                      className={outputMode === 'pdf' ? 'seg active' : 'seg'}
-                      onClick={() => setOutputMode('pdf')}
-                    >
-                      <IconDownload /> PDF
-                    </button>
-                    <button
-                      type="button"
-                      className={outputMode === 'print' ? 'seg active' : 'seg'}
-                      onClick={() => setOutputMode('print')}
-                    >
-                      <IconPrint /> Print
-                    </button>
-                  </div>
-
-                  <div className="gen-actions">
-                    <button className="ghost" disabled={genBusy} onClick={() => handlePreview(expandedDoc)}>
-                      <IconEye /> Preview
-                    </button>
-                    <button className="primary" disabled={genBusy} onClick={() => handleIssue(expandedDoc)}>
-                      <IconDownload /> {genBusy ? 'Working…' : `Issue ${expandedDoc.name}`}
-                    </button>
-                  </div>
-
-                  {genError && <div className="notice error">{genError}</div>}
-                  {genNotice && <div className="notice">{genNotice}</div>}
-                </>
-              )}
-            </div>
-            <div className="confirm-actions">
-              <button className="ghost" onClick={() => toggleExpand(expandedDoc)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {preview && expandedDoc && (
+      {preview && (
         <div className="editor-overlay" onClick={() => setPreview(null)}>
           <div className="editor-modal" onClick={(e) => e.stopPropagation()}>
             <div className="editor-head">
-              <span className="editor-title">{expandedDoc.name} — preview</span>
+              <span className="editor-title">{previewTitle} — preview</span>
               <div className="editor-head-actions">
                 <button className="ghost" onClick={() => setPreview(null)}>
                   Close

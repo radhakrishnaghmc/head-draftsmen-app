@@ -155,24 +155,74 @@ function findFullAddress(lines: string[]): string | undefined {
 // two or more independent passes agree on). Two passes rarely make the identical
 // digit error, so a value with ≥2 votes is trusted; a lone read (which may have
 // lost a digit or the decimal point) has count 1 and the row is flagged instead.
-function findDecimalCoords(lines: string[]): { lat?: number; lon?: number; latVotes: number; lonVotes: number } {
+function findDecimalCoords(lines: string[]): {
+  lat?: number
+  lon?: number
+  latVotes: number
+  lonVotes: number
+  rebuilt: boolean
+} {
   const latV = new Map<number, number>()
   const lonV = new Map<number, number>()
   const anyV = new Map<number, number>()
+  // A separate pool of "rebuilt" candidates — values recovered from a faint
+  // stamp where OCR dropped the decimal point or the value wrapped onto the next
+  // line. Only consulted when the normal decimal read fails for that axis, and
+  // when used it forces the row to 'low' confidence (a human should verify).
+  const latRebuilt = new Map<number, number>()
+  const lonRebuilt = new Map<number, number>()
   const bump = (m: Map<number, number>, v: number) => m.set(v, (m.get(v) ?? 0) + 1)
-  for (const raw of lines) {
-    const s = raw.replace(/[Oo]/g, '0')
+  // Insert the decimal into a decimal-LESS coordinate run: every India lat/long
+  // has a 2-digit integer part, so "78164114" → 78.164114. undefined if implausible.
+  const rebuild = (digits: string): number | undefined => {
+    const d = digits.replace(/\D/g, '')
+    if (d.length < 6 || d.length > 10) return undefined
+    const v = parseFloat(`${d.slice(0, 2)}.${d.slice(2)}`)
+    return Number.isFinite(v) ? v : undefined
+  }
+  // "Long" gets OCR'd as L0ng / L0n9 / Long; match all. (o→0 already applied.)
+  const LON = 'L[o0]n[g9]'
+  for (let i = 0; i < lines.length; i++) {
+    const s = lines[i].replace(/[Oo]/g, '0')
     const lm = s.match(/Lat(?:itude)?\s*[:.\-/]*\s*(-?\d{1,2}\.\d{3,})/i)
     if (lm) {
       const v = parseFloat(lm[1])
       if (Math.abs(v) <= 90) bump(latV, v)
     }
-    const om = s.match(/Lon(?:g|gitude)?\s*[:.\-/]*\s*(-?\d{1,3}\.\d{3,})/i)
+    const om = s.match(new RegExp(`${LON}(?:itude)?\\s*[:.\\-/]*\\s*(-?\\d{1,3}\\.\\d{3,})`, 'i'))
     if (om) {
       const v = parseFloat(om[1])
       if (Math.abs(v) <= 180) bump(lonV, v)
     }
     for (const mm of s.matchAll(/(-?\d{1,3}\.\d{3,})/g)) bump(anyV, parseFloat(mm[1]))
+
+    // ---- Faint-stamp recovery (context-gated so pincodes/dates/plus-codes
+    // ---- can never be mistaken for coordinates) ----
+    // (a) same line, decimal dropped: "Lat 17611379" / "Long 78164114".
+    const latNoDot = s.match(/Lat(?:itude)?\s*[:.\-/]*\s*(\d{6,10})(?![\d.])/i)
+    if (latNoDot) {
+      const v = rebuild(latNoDot[1])
+      if (v != null && v <= 90) bump(latRebuilt, v)
+    }
+    const lonNoDot = s.match(new RegExp(`${LON}(?:itude)?\\s*[:.\\-/]*\\s*(\\d{6,10})(?![\\d.])`, 'i'))
+    if (lonNoDot) {
+      const v = rebuild(lonNoDot[1])
+      if (v != null && v <= 180) bump(lonRebuilt, v)
+    }
+    // (b) wrapped onto the next line: this line ENDS with a bare Lat/Long label,
+    // the value is the start of the next line (with or without its decimal).
+    const endsLon = new RegExp(`${LON}\\s*[:.\\-]?\\s*$`, 'i').test(s)
+    const endsLat = /Lat(?:itude)?\s*[:.\-]?\s*$/i.test(s) && !endsLon
+    if (endsLon || endsLat) {
+      const next = (lines[i + 1] ?? '').replace(/[Oo]/g, '0').trim()
+      const dot = next.match(/^(-?\d{1,3}\.\d{3,})/)
+      const run = next.match(/^(\d{6,10})(?![\d.])/)
+      const v = dot ? parseFloat(dot[1]) : run ? rebuild(run[1]) : undefined
+      if (v != null) {
+        if (endsLon && v <= 180) bump(lonRebuilt, v)
+        else if (endsLat && v <= 90) bump(latRebuilt, v)
+      }
+    }
   }
   const mode = (m: Map<number, number>): { v: number; c: number } | undefined => {
     let best: { v: number; c: number } | undefined
@@ -193,7 +243,22 @@ function findDecimalCoords(lines: string[]): { lat?: number; lon?: number; latVo
     for (const [v, c] of anyV) if ((!lon || v !== lon.v) && Math.abs(v) <= 90) cand.set(v, c)
     lat = mode(cand)
   }
-  return { lat: lat?.v, lon: lon?.v, latVotes: lat?.c ?? 0, lonVotes: lon?.c ?? 0 }
+  // Last resort: a rebuilt (decimal-inserted / de-wrapped) value for whichever
+  // axis is still missing. Marks the whole read 'low' so the user verifies it.
+  let rebuilt = false
+  if (!lon) {
+    const cand = new Map<number, number>()
+    for (const [v, c] of lonRebuilt) if (!lat || v !== lat.v) cand.set(v, c)
+    lon = mode(cand)
+    if (lon) rebuilt = true
+  }
+  if (!lat) {
+    const cand = new Map<number, number>()
+    for (const [v, c] of latRebuilt) if (!lon || v !== lon.v) cand.set(v, c)
+    lat = mode(cand)
+    if (lat) rebuilt = true
+  }
+  return { lat: lat?.v, lon: lon?.v, latVotes: lat?.c ?? 0, lonVotes: lon?.c ?? 0, rebuilt }
 }
 
 export function parseGpsOverlay(lines: string[]): GpsOverlay {
@@ -241,7 +306,10 @@ export function parseGpsOverlay(lines: string[]): GpsOverlay {
   // Prefer a consensus decimal read (≥2 passes agree = exact), then a strong DMS
   // read (exact); fall back to whatever partial value exists, marked low so the
   // row gets verified.
-  const decHigh = dec.lat != null && dec.lon != null && dec.latVotes >= 2 && dec.lonVotes >= 2
+  // A rebuilt value (decimal reconstructed / de-wrapped from a faint stamp) can
+  // never be 'high' — the user must verify it.
+  const decHigh =
+    dec.lat != null && dec.lon != null && dec.latVotes >= 2 && dec.lonVotes >= 2 && !dec.rebuilt
   const decAny = dec.lat != null && dec.lon != null
   const dmsStrong = !!(lat?.strong && lon?.strong)
   let outLat: number | undefined

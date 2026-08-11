@@ -14,6 +14,8 @@ import type { CellEdit } from '../core/technicalSanction'
 import type { BidDocumentInput } from '../core/bidDocument'
 import type { LoginResult } from '../core/auth'
 import type { DeviationItem, DeviationMeta } from '../core/deviationTemplate'
+import type { DocBlock } from '../core/docxBuilder'
+import type { OcrPage } from '../core/ocrReconstruct'
 import type { EvaluationSheetInput } from '../core/evaluationSheet'
 import type { PlaceholderMatch } from '../core/createDocument'
 import type { EstimateWorkItem } from '../core/estimateExtract'
@@ -74,6 +76,13 @@ export const IPC = {
   splitDocxSections: 'tools:splitDocxSections',
   saveDocxsToFolder: 'tools:saveDocxsToFolder',
   ocrGpsOverlay: 'tools:ocrGpsOverlay',
+  ocrPhotosToLines: 'tools:ocrPhotosToLines',
+  savePhotosAsWord: 'tools:savePhotosAsWord',
+  savePhotosAsExcel: 'tools:savePhotosAsExcel',
+  savePdfAsWord: 'tools:savePdfAsWord',
+  saveWordDoc: 'tools:saveWordDoc',
+  ocrPhotosToLayout: 'tools:ocrPhotosToLayout',
+  saveRowsAsExcel: 'tools:saveRowsAsExcel',
   exportDeviation: 'data:exportDeviation',
   exportDetailedEstimate: 'data:exportDetailedEstimate',
   exportMaterialEstimate: 'data:exportMaterialEstimate',
@@ -171,6 +180,20 @@ export interface DocuGenApi {
   saveDocxsToFolder(files: { name: string; bytes: Uint8Array }[]): Promise<{ dir: string; files: string[] } | null>
   /** Tool (GPS Photos): OCR the GPS overlay stamped on a photo (multi-threshold passes) and return its text lines, for parsing coordinates out of. Used only when the photo has no EXIF GPS. */
   ocrGpsOverlay(imageBytes: Uint8Array): Promise<string[]>
+  /** Tool (Photos/PDF → Word/Excel): OCR each page image (data URLs, in order) and return all recognised lines in reading order, blank-line-separated between pages. Best-effort — always reviewed/edited before export. */
+  ocrPhotosToLines(dataUrls: string[]): Promise<string[]>
+  /** Tool (Photos/PDF → Word/Excel): save the reviewed text as a .docx (one paragraph per line). Returns the written path, or null if cancelled. */
+  savePhotosAsWord(text: string, suggestedName: string): Promise<string | null>
+  /** Tool (Photos/PDF → Word/Excel): save the reviewed text as an .xlsx (one row per line, split into columns on wide gaps). Returns the written path, or null if cancelled. */
+  savePhotosAsExcel(text: string, suggestedName: string): Promise<string | null>
+  /** Tool (Photos/PDF → Word): convert uploaded PDF(s) to a LAYOUT-PRESERVING .docx via LibreOffice (writer_pdf_import) — tables/borders/positioning kept as editable Word content — merging multiple PDFs in order. Returns the written path, or null if cancelled. Needs LibreOffice installed. */
+  savePdfAsWord(pdfs: { name: string; bytes: Uint8Array }[], suggestedName: string): Promise<string | null>
+  /** Tool (Photos/PDF → Word): save a reconstructed doc-model (real paragraphs/tables rebuilt from a text-PDF's geometry, or plain OCR lines) as a directly-built, Word-valid .docx (core/docxBuilder — not html-to-docx). Returns the written path, or null if cancelled. */
+  saveWordDoc(blocks: DocBlock[], suggestedName: string): Promise<string | null>
+  /** Tool (Photos/PDF → Word/Excel): OCR each page image and return its text lines WITH bounding boxes, per page — the input to offline image-based table reconstruction (core/ocrReconstruct). */
+  ocrPhotosToLayout(dataUrls: string[]): Promise<OcrPage[]>
+  /** Tool (Photos/PDF → Excel): save a reconstructed 2-D grid of cells as an .xlsx. Returns the written path, or null if cancelled. */
+  saveRowsAsExcel(rows: string[][], suggestedName: string): Promise<string | null>
   exportDeviation(items: DeviationItem[], meta: DeviationMeta, suggestedName: string): Promise<string | null>
   exportDeviation(items: DeviationItem[], meta: DeviationMeta, suggestedName: string): Promise<string | null>
   /** Builds and saves a full "Detailed and Abstract Estimate" workbook (letterhead, item table, standard surcharge cascade, signature block) from scratch — not a bare Sl No/Description/Qty/Rate/Amount table. */

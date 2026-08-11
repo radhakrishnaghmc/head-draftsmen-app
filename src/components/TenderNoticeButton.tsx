@@ -35,6 +35,36 @@ function toDDMMYYYY(iso: string): string {
   return `${d}.${m}.${y}`
 }
 
+// The contact details (e-mail + the two mobile numbers) are properties of the
+// issuing office, not of a single notice, so they're remembered per machine and
+// pre-filled next time rather than re-typed for every notice.
+const CONTACT_KEYS = {
+  email: 'hda-tn-email',
+  eePhone: 'hda-tn-ee-phone',
+  hdPhone: 'hda-tn-hd-phone'
+} as const
+
+/** The office's default e-mail, following the circle's number ("eec58.GHMC@gmail.com"). */
+function defaultEmailFor(office?: Office): string {
+  return office?.circleNumber ? `eec${office.circleNumber}.GHMC@gmail.com` : ''
+}
+
+/**
+ * Whether the full NIT No can be composed from the office — needs its Circle,
+ * Circle number and Corporation. When it can, the user only supplies the
+ * running serial and the circle/corporation/year come from the office, so the
+ * NIT number can never disagree with the rest of the document.
+ */
+function canComposeNit(office?: Office): boolean {
+  return !!(office?.circle && office?.circleNumber && office?.corporation)
+}
+
+/** Build the full NIT No from the running serial + the office's circle/corporation/financial-year. */
+function composeNitNo(serial: string, office?: Office): string {
+  const s = serial.trim() || '16'
+  return `${s}/DB/EE/${office?.circle} Circle-${office?.circleNumber}/${office?.corporation}/${indianFinancialYear()}`
+}
+
 function todayISO(): string {
   const d = new Date()
   const dd = String(d.getDate()).padStart(2, '0')
@@ -75,19 +105,27 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
   // The NIT No default follows the chosen office — its Circle, Circle number
-  // and Corporation — so it's issued under the right circle/zone. The leading
-  // "16" is the office's own running serial (edited per notice).
-  const defaultNitNo = useMemo(() => {
-    if (office?.circle && office?.circleNumber && office?.corporation) {
-      return `16/DB/EE/${office.circle} Circle-${office.circleNumber}/${office.corporation}/${indianFinancialYear()}`
-    }
-    return '16/DB/EE/Gajularamaram Circle-57/CMC/2026-27'
-  }, [office])
+  // and Corporation — the circle, corporation and financial year are pulled from
+  // the office (the single source of truth for circle/zone across the whole
+  // notice); the user only supplies the running serial ("16"). When the office
+  // isn't fully chosen we fall back to a hand-typed full NIT No.
+  const composeReady = canComposeNit(office)
 
-  const [nitNo, setNitNo] = useState(defaultNitNo)
+  // Running serial only (office-composed path); the full hand-typed NIT No
+  // (fallback path when the office isn't fully chosen).
+  const [nitSerial, setNitSerial] = useState('16')
+  const [nitNoManual, setNitNoManual] = useState('16/DB/EE/Gajularamaram Circle-57/CMC/2026-27')
+  const nitNo = useMemo(
+    () => (composeReady ? composeNitNo(nitSerial, office) : nitNoManual),
+    [composeReady, nitSerial, office, nitNoManual]
+  )
+
   const [datedDate, setDatedDate] = useState(todayISO)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [email, setEmail] = useState('')
+  const [eePhone, setEePhone] = useState('')
+  const [hdPhone, setHdPhone] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
@@ -105,9 +143,15 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
   }, [open, previewing, winCodes.length])
 
   // Reset the NIT No to the current office's default each time the dialog opens,
-  // so it always reflects the chosen Circle/Corporation.
+  // so it always reflects the chosen Circle/Corporation. Contact details are
+  // pre-filled from the last-remembered values (or, for the e-mail, derived from
+  // the circle number when nothing's been saved yet).
   useEffect(() => {
-    if (open) setNitNo(defaultNitNo)
+    if (!open) return
+    setNitSerial('16')
+    setEmail(localStorage.getItem(CONTACT_KEYS.email) || defaultEmailFor(office))
+    setEePhone(localStorage.getItem(CONTACT_KEYS.eePhone) || '')
+    setHdPhone(localStorage.getItem(CONTACT_KEYS.hdPhone) || '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -177,7 +221,16 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
       items,
       startDate: toDDMMYYYY(startDate),
       endDate: toDDMMYYYY(endDate),
-      today: toDDMMYYYY(datedDate)
+      today: toDDMMYYYY(datedDate),
+      // Carry the chosen office's circle/zone so the template's hard-coded
+      // Gajularamaram Circle-57 / Quthbullapur Zone place names are rewritten
+      // to the circle this notice is actually being issued for.
+      circle: office?.circle,
+      circleNumber: office?.circleNumber,
+      zone: office?.zone,
+      email: email.trim(),
+      eePhone: eePhone.trim(),
+      hdPhone: hdPhone.trim()
     }
   }
 
@@ -229,6 +282,10 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
       const suggestedName = tenderNoticeFileName(input.nitNo, bidWorks[0]?.circle)
       const path = await api.generateTenderNotice(input, suggestedName)
       if (path) {
+        // Remember the contact details for next time (per machine/office).
+        localStorage.setItem(CONTACT_KEYS.email, email.trim())
+        localStorage.setItem(CONTACT_KEYS.eePhone, eePhone.trim())
+        localStorage.setItem(CONTACT_KEYS.hdPhone, hdPhone.trim())
         setSaved(path)
         setOpen(false)
         onGenerated?.(input.nitNo)
@@ -314,20 +371,38 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
                 )}
 
                 <div className="tender-field-row">
-                  <label className="tender-field tender-field-nitno">
-                    <span>NIT No.</span>
-                    <input
-                      value={nitNo}
-                      onChange={(e) => setNitNo(e.target.value)}
-                      placeholder="16/DB/EE/Gajularamaram Circle-57/CMC/2026-27"
-                    />
-                  </label>
+                  {composeReady ? (
+                    <label className="tender-field tender-field-nitno">
+                      <span>NIT Serial No.</span>
+                      <input
+                        value={nitSerial}
+                        onChange={(e) => setNitSerial(e.target.value)}
+                        placeholder="16"
+                      />
+                    </label>
+                  ) : (
+                    <label className="tender-field tender-field-nitno">
+                      <span>NIT No.</span>
+                      <input
+                        value={nitNoManual}
+                        onChange={(e) => setNitNoManual(e.target.value)}
+                        placeholder="16/DB/EE/Gajularamaram Circle-57/CMC/2026-27"
+                      />
+                    </label>
+                  )}
 
                   <label className="tender-field tender-field-dated">
                     <span>Dated</span>
                     <input type="date" value={datedDate} onChange={(e) => setDatedDate(e.target.value)} />
                   </label>
                 </div>
+
+                {composeReady && (
+                  <p className="hint">
+                    NIT No.: <strong>{nitNo}</strong> — circle & corporation come from the office
+                    selected on the Works List.
+                  </p>
+                )}
 
                 <label className="tender-field">
                   <span>Download Start Date (2:00 P.M)</span>
@@ -342,6 +417,38 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
                 <p className="hint">
                   Price Bid Opening is the same day as the download end date, at 2:30 P.M.
                 </p>
+
+                <label className="tender-field">
+                  <span>Email ID</span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="eec58.GHMC@gmail.com"
+                  />
+                </label>
+
+                <div className="tender-field-row">
+                  <label className="tender-field">
+                    <span>Executive Engineer Phone</span>
+                    <input
+                      type="tel"
+                      value={eePhone}
+                      onChange={(e) => setEePhone(e.target.value)}
+                      placeholder="10-digit mobile number"
+                    />
+                  </label>
+
+                  <label className="tender-field">
+                    <span>Head Draughtsman Phone</span>
+                    <input
+                      type="tel"
+                      value={hdPhone}
+                      onChange={(e) => setHdPhone(e.target.value)}
+                      placeholder="10-digit mobile number"
+                    />
+                  </label>
+                </div>
 
                 {error && (
                   <div className="notice error">

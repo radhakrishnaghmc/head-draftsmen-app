@@ -240,7 +240,8 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
         createdDate: v.createdDate,
         targetDate: v.targetDate,
         done: v.done,
-        ...(v.completedDate ? { completedDate: v.completedDate } : {})
+        ...(v.completedDate ? { completedDate: v.completedDate } : {}),
+        ...(v.officeKey ? { officeKey: v.officeKey } : {})
       }))
     const todos = todosFromCollection.length > 0 ? todosFromCollection : (m.todos ?? [])
     // Same as todos: prefer the per-item mbScrutiny collection, falling back to
@@ -259,7 +260,8 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
         done: v.done,
         ...(v.targetDate ? { targetDate: v.targetDate } : {}),
         ...(v.completedDate ? { completedDate: v.completedDate } : {}),
-        ...(v.remarks ? { remarks: v.remarks } : {})
+        ...(v.remarks ? { remarks: v.remarks } : {}),
+        ...(v.officeKey ? { officeKey: v.officeKey } : {})
       }))
     const mbScrutiny = mbFromCollection.length > 0 ? mbFromCollection : (m.mbScrutiny ?? [])
     return {
@@ -519,6 +521,7 @@ export async function pushState(state: PersistedState): Promise<void> {
           targetDate: t.targetDate,
           done: t.done,
           ...(t.completedDate ? { completedDate: t.completedDate } : {}),
+          ...(t.officeKey ? { officeKey: t.officeKey } : {}),
           order: i,
           updatedAt: serverTimestamp(),
           lastWriter: sessionId
@@ -554,6 +557,7 @@ export async function pushState(state: PersistedState): Promise<void> {
           ...(it.targetDate ? { targetDate: it.targetDate } : {}),
           ...(it.completedDate ? { completedDate: it.completedDate } : {}),
           ...(it.remarks ? { remarks: it.remarks } : {}),
+          ...(it.officeKey ? { officeKey: it.officeKey } : {}),
           order: i,
           updatedAt: serverTimestamp(),
           lastWriter: sessionId
