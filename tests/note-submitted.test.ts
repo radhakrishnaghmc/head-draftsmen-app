@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   summarizeNonResponsiveness,
   buildNoteSubmittedHtml,
+  noteSubmittedFromRow,
+  tenderPctMagnitude,
   type NoteSubmittedData,
   type NonRespLine
 } from '../core/noteSubmitted'
@@ -80,6 +82,28 @@ describe('summarizeNonResponsiveness', () => {
 
   it('returns zero when there is no distinct comments column', () => {
     expect(summarizeNonResponsiveness([header(100), footer(120)])).toEqual({ count: 0, detail: '' })
+  })
+
+  // Real GRRC sheet (Tender 720492): three agencies, each with a SINGLE-line
+  // comment and a two-line name. Comment gaps are all row-height (~33), so the
+  // old comment-median threshold saw one long block → 1 bidder. The name column's
+  // wrapped lines (gap ~13) give the true line height, splitting all three.
+  const THREE_SINGLE_LINE_COMMENTS: NonRespLine[] = [
+    header(0),
+    name('KAILA SHIVA', 45),
+    comment('not uploaded turnover', 46),
+    name('KUMAR', 58),
+    name('MSR', 78),
+    comment('low bid capacity', 79),
+    name('CONSTRUCTIONS', 91),
+    name('Shri Karthikeya', 111),
+    comment('low bid capacity', 112),
+    name('Enterprises', 124),
+    footer(157)
+  ]
+
+  it('counts three agencies each with a single-line comment (was collapsing to one)', () => {
+    expect(summarizeNonResponsiveness(THREE_SINGLE_LINE_COMMENTS).count).toBe(3)
   })
 })
 
@@ -167,5 +191,46 @@ describe('buildNoteSubmittedHtml — participant / rejected counts', () => {
   it('gives the EMD Online Receipt No a full-line blank when unset (20-char number)', () => {
     const html = buildNoteSubmittedHtml(noteData({ receiptNo: '' }))
     expect(html).toContain(`Online Receipt No: ${'_'.repeat(45)} `)
+  })
+
+  it('shows ASD for a RESERVED work quoted >25% below — EMD exempted, ASD still charged, with receipt', () => {
+    const html = buildNoteSubmittedHtml(
+      noteData({ reservation: 'SC', l1PctNumber: 32, ecvRupees: 3120000, receiptNo: 'R-123', receiptDate: '05.08.2026' })
+    )
+    expect(html).toContain('the EMD is Exempted and submitted ASD amount of Rs.')
+    expect(html).toContain('vide Online Receipt No: R-123 Dt: 05.08.2026')
+  })
+
+  it('shows only "EMD is Exempted" for a reserved work at 25% or less (no ASD due)', () => {
+    const html = buildNoteSubmittedHtml(noteData({ reservation: 'SC', l1PctNumber: 20, ecvRupees: 3120000 }))
+    expect(html).toContain('the EMD is Exempted')
+    expect(html).not.toContain('ASD amount')
+  })
+
+  it('first-line indents every note paragraph (a tab of space)', () => {
+    const html = buildNoteSubmittedHtml(noteData({}))
+    // Body paragraphs open with an em-space indent (html-to-docx ignores CSS text-indent).
+    expect(html).toContain('text-align:justify">&emsp;&emsp;&emsp;')
+    expect(html).toContain('text-align:left">&emsp;&emsp;&emsp;')
+  })
+})
+
+describe('tender percentage magnitude (drives ASD)', () => {
+  it('reads the magnitude from every stored shape', () => {
+    expect(tenderPctMagnitude('(-)32.00')).toBe(32)
+    expect(tenderPctMagnitude('32 % Less')).toBe(32)
+    expect(tenderPctMagnitude('(-) 32%-Less')).toBe(32)
+    expect(tenderPctMagnitude('-32')).toBe(32)
+    expect(tenderPctMagnitude('')).toBeNull()
+    expect(tenderPctMagnitude(null)).toBeNull()
+  })
+
+  it('keeps l1PctNumber (and thus ASD) alive when the row percentage is formatted — was NaN→null before', () => {
+    const d = noteSubmittedFromRow({
+      'Name of the work': 'RCC drain (Reserved for SC only)',
+      ECV: '3120000',
+      'Tender Percentage': '32 % Less'
+    })
+    expect(d.l1PctNumber).toBe(32)
   })
 })

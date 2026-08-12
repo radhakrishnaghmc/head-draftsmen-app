@@ -16,6 +16,15 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.17.1',
+    changes: [
+      'Intimation & Note Submitted: for a reserved-category work quoted more than 25% below, the ASD amount now shows (only the EMD is exempted for reserved works, not the ASD).',
+      'Note Submitted: the non-responsive sheet now counts every disqualified agency, not just the first one.',
+      'Note Submitted: each paragraph now opens with a first-line indent for a cleaner, letter-style layout.',
+      'Work Order: the Executive Engineer signature is now a neat centered block on the right — Executive Engineer, circle, and corporation aligned under one another.'
+    ]
+  },
+  {
     version: '1.17.0',
     changes: [
       'To Do List and MB Scrutiny list are now kept separately for each office — what you add under one circle no longer shows under another.',

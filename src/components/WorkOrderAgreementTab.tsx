@@ -31,6 +31,7 @@ import {
   buildNoteSubmittedHtml,
   noteSubmittedFromRow,
   summarizeNonResponsiveness,
+  tenderPctMagnitude,
   type NoteSubmittedData,
   type NoteBidder
 } from '@core/noteSubmitted'
@@ -887,6 +888,11 @@ export default function WorkOrderAgreementTab({
       seed.l1Name = l1.name
       seed.l1PctText = l1.pct
       seed.l1Tcv = l1.tcv
+      // Drive the EMD/ASD clause off the L1 sheet's own quoted percentage (the
+      // source of truth), not just the Works List column — so ASD reflects even
+      // when the row's Tender Percentage is blank or formatted (e.g. "32 % Less").
+      const mag = tenderPctMagnitude(l1.pct)
+      if (mag != null) seed.l1PctNumber = mag
     }
     // The Intimation date is the L1 sheet's server date (its bottom-right
     // "Server Time: …"), so prefer it over the (often blank here) Works List

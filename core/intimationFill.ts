@@ -133,7 +133,11 @@ export function resolveIntimationValue(
       return money2(contract)
     case 'emd':
     case 'emd 1.5%':
-      if (reserved) return 'Rs. 1 ½ Rs.Exempted/-'
+      // EMD @ 1.5% is exempted for reserved works, but the ASD (charged when the
+      // quote is >25% below) is independent of that exemption — keep it here so a
+      // reserved work quoted >25% below still shows its ASD, not just "Exempted".
+      if (reserved)
+        return asd != null && asd > 0 ? `Rs. 1 ½ Rs.Exempted,ASD Rs.${asd}/-` : 'Rs. 1 ½ Rs.Exempted/-'
       if (emd == null) return ''
       return asd != null && asd > 0 ? `Rs. 1 ½ Rs.${emd},ASD Rs.${asd}/-` : `Rs. 1 ½ Rs.${emd}/-`
     case 'emd 1%':

@@ -237,6 +237,9 @@ export function workOrderPlaceholders(f: WorkOrderAgreementFields): Record<strin
   return {
     Circle: f.circle,
     CNO: f.cno,
+    // Corporation abbreviation for the EE sign-off block (was a hard-coded "CMC"
+    // in the template — now the work's actual corporation).
+    Corporation: f.corporation,
     Financialyear: f.financialYear,
     'Agreement date': f.workOrderDate.trim() || DATE_BLANK,
     'Name of the agency': f.agencyName,

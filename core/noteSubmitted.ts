@@ -127,17 +127,33 @@ export function summarizeNonResponsiveness(lines: NonRespLine[]): { count: numbe
   const maxX = Math.max(...region.map((l) => l.x))
   const minX = Math.min(...region.map((l) => l.x))
   if (maxX - minX < 150) return { count: 0, detail: '' }
-  const comments = region.filter((l) => l.x >= maxX - 45)
+  const comments = region.filter((l) => l.x >= maxX - 45).sort((a, b) => a.y - b.y)
   if (comments.length === 0) return { count: 0, detail: '' }
 
   // One comment block per bidder: cluster the (top-to-bottom) comment lines by
-  // vertical gap. Threshold adapts to the line height (median gap) so it works
-  // across font sizes, with a floor for the single-line-comment case.
+  // vertical gap, splitting where the gap is more than one text line tall.
+  //
+  // The line height is taken from the NAME column, not the comments. Company
+  // names routinely wrap across two lines, so the name column's gaps reveal one
+  // line's height; comment cells are frequently a single line each, so their own
+  // gaps are ALL row-height and reveal nothing — deriving the threshold from the
+  // comment gaps' median (as before) made every single-line-comment sheet
+  // collapse to a single bidder (e.g. three agencies read as one). Fall back to
+  // the comment gaps only when the name column has no measurable spacing.
+  const med = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] : 0)
+  const nameYs = region
+    .filter((l) => l.x < maxX - 45)
+    .map((l) => l.y)
+    .sort((a, b) => a - b)
+  const nameGaps: number[] = []
+  for (let i = 1; i < nameYs.length; i++) {
+    const g = nameYs[i] - nameYs[i - 1]
+    if (g > 2) nameGaps.push(g) // skip near-duplicate y (same visual line)
+  }
   const gaps: number[] = []
   for (let i = 1; i < comments.length; i++) gaps.push(comments[i].y - comments[i - 1].y)
-  const sorted = [...gaps].sort((a, b) => a - b)
-  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0
-  const threshold = Math.max(18, median * 1.8)
+  const lineHeight = nameGaps.length ? med(nameGaps) : med(gaps)
+  const threshold = Math.max(18, lineHeight * 1.8)
   let count = 1
   for (const g of gaps) if (g > threshold) count++
 
@@ -160,6 +176,20 @@ const money = (n: number): string => String(Math.round(n))
 
 /** "1.99", "4.99", "0.11" — the ASD percentage (tender% − 25), trimmed. */
 const pct2 = (n: number): string => String(Math.round(n * 100) / 100)
+
+/**
+ * The tender-percentage magnitude from whatever shape the value arrives in —
+ * a plain number, "(-)32.00", "32 % Less", "(-) 32%-Less", "-32". Every one of
+ * these is a quote *below* estimate, so the magnitude is what matters: ASD is
+ * charged on the part of the reduction above 25%. Returns null when there's no
+ * number to read. (The old `Number(str)` parse returned NaN on the formatted
+ * shapes, which zeroed the ASD — including for reserved works.)
+ */
+export function tenderPctMagnitude(v: string | number | null | undefined): number | null {
+  if (v == null) return null
+  const m = String(v).match(/\d+(?:\.\d+)?/)
+  return m ? Number(m[0]) : null
+}
 
 /**
  * The variable clause in note 6, following the office's exact four shapes:
@@ -217,12 +247,17 @@ const RECEIPT_BLANK = '_'.repeat(45)
 // Note paragraphs are justified (text-align:justify → w:jc "both"); the Word
 // 2007 sanitiser keeps <w:jc> in schema order after html-to-docx (see
 // sanitizeHtmlDocxForWord2007).
-const P = (html: string): string => `<p style="margin:0 0 6px;line-height:1.45;text-align:justify">${html}</p>`
+// A first-line indent ("tab") opening every note paragraph. html-to-docx IGNORES
+// CSS text-indent/margin, but preserves leading em-spaces (≈0.5in at 12pt) as
+// real leading whitespace — and, being non-breaking, they indent only the first
+// line, rendering identically in the browser preview and the exported .docx.
+const INDENT = '&emsp;&emsp;&emsp;'
+const P = (html: string): string => `<p style="margin:0 0 6px;line-height:1.45;text-align:justify">${INDENT}${html}</p>`
 // Left-aligned variant for paragraphs that carry a full-line hand-writable
 // blank (the 65/45-char underlines). Justifying such a paragraph stretches the
 // short line before the blank into huge inter-word gaps, so those paragraphs are
 // left-aligned instead.
-const PL = (html: string): string => `<p style="margin:0 0 6px;line-height:1.45;text-align:left">${html}</p>`
+const PL = (html: string): string => `<p style="margin:0 0 6px;line-height:1.45;text-align:left">${INDENT}${html}</p>`
 const SUB = '<p style="margin:14px 0 4px;font-weight:bold">Submitted: -</p>'
 
 /**
@@ -349,9 +384,8 @@ export function buildNoteSubmittedHtml(d: NoteSubmittedData): string {
 export function noteSubmittedFromRow(row: Record<string, string>, defaultCircle = ''): NoteSubmittedData {
   const amounts = computeWorkAmounts(row)
   const reservation = (row['Reservation'] ?? '').trim() || (row['Name of the work'] ?? '').match(/reserved\s+for\s+([A-Za-z]+)/i)?.[1] || ''
-  const pctRaw = tenderPercentFromRow(row).replace(/[%,\s]/g, '')
-  const pctNum = pctRaw === '' ? null : Number(pctRaw)
-  const l1Pct = pctNum == null || !Number.isFinite(pctNum) ? '' : pctNum > 0 ? `(-)${pctNum}` : String(pctNum)
+  const pctNum = tenderPctMagnitude(tenderPercentFromRow(row))
+  const l1Pct = pctNum == null ? '' : pctNum > 0 ? `(-)${pctNum}` : String(pctNum)
   const ecv = amounts.ecv
   const tcv = amounts.contractAmount
 
@@ -391,7 +425,7 @@ export function noteSubmittedFromRow(row: Record<string, string>, defaultCircle 
     l1Tcv: tcv != null ? tcv.toFixed(2) : '',
     intimationDate: (row['Intimation Date'] ?? '').trim(),
     reservation,
-    l1PctNumber: pctNum != null && Number.isFinite(pctNum) ? pctNum : null,
+    l1PctNumber: pctNum,
     ecvRupees: ecv,
     receiptNo: '',
     receiptDate: ''
