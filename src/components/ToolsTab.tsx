@@ -17,6 +17,7 @@ import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
 import { circlesOf, corporationByName } from '../zoneCircleDirectory'
 import type { CreatedDocument, ExcelTable } from '@core/types'
 import type { Office } from '../office'
+import { closeOnBackdropMouseDown } from '../overlayClose'
 
 // Tones cycled across the document tiles so the row of blank-form tiles reads
 // like the rest of the frosted-glass grid.
@@ -428,7 +429,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
       {/* Zone-only office: ask which circle's office details to stamp, since a
           zonal Head Draughtsman spans every circle in the zone. */}
       {circlePrompt && (
-        <div className="editor-overlay" onClick={() => setCirclePrompt(null)}>
+        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setCirclePrompt(null))}>
           <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <h3>Which circle?</h3>
             <p className="confirm-hint">

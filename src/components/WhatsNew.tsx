@@ -1,5 +1,6 @@
 import type { ChangelogEntry } from '@core/changelog'
 import { IconBolt, IconCheck } from './Icons'
+import { closeOnBackdropMouseDown } from '../overlayClose'
 
 interface Props {
   /** Versions to announce, newest first (already filtered to what's new since last seen). */
@@ -16,7 +17,7 @@ export default function WhatsNew({ entries, onClose }: Props) {
   const heading = entries.length === 1 ? `What's new in v${entries[0].version}` : "What's new"
 
   return (
-    <div className="editor-overlay" onClick={onClose}>
+    <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(onClose)}>
       <div
         className="confirm-modal whatsnew-modal"
         role="dialog"

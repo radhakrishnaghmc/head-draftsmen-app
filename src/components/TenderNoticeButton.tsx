@@ -8,6 +8,7 @@ import type { BidDocumentBatch } from '@core/types'
 import type { TenderNoticeInput } from '../../electron/ipc-contract'
 import { indianFinancialYear } from '@core/workOrderAgreement'
 import { type Office } from '../office'
+import { closeOnBackdropMouseDown } from '../overlayClose'
 
 interface Props {
   tables: ExcelTable[]
@@ -50,19 +51,25 @@ function defaultEmailFor(office?: Office): string {
 }
 
 /**
- * Whether the full NIT No can be composed from the office — needs its Circle,
- * Circle number and Corporation. When it can, the user only supplies the
- * running serial and the circle/corporation/year come from the office, so the
- * NIT number can never disagree with the rest of the document.
+ * Whether the full NIT No can be composed from the office — needs its
+ * Corporation, plus either (Circle + Circle number) or, for a Zone-level (SE)
+ * office with no circle of its own, just the Zone. When it can, the user only
+ * supplies the running serial and the rest comes from the office, so the NIT
+ * number can never disagree with the rest of the document.
  */
 function canComposeNit(office?: Office): boolean {
-  return !!(office?.circle && office?.circleNumber && office?.corporation)
+  if (!office?.corporation) return false
+  if (office.circle && office.circleNumber) return true
+  return !!(office.zone && !office.circle)
 }
 
-/** Build the full NIT No from the running serial + the office's circle/corporation/financial-year. */
+/** Build the full NIT No from the running serial + the office's circle-or-zone/corporation/financial-year. */
 function composeNitNo(serial: string, office?: Office): string {
   const s = serial.trim() || '16'
-  return `${s}/DB/EE/${office?.circle} Circle-${office?.circleNumber}/${office?.corporation}/${indianFinancialYear()}`
+  // A Zone-level office has no Circle of its own — name the Zone instead of
+  // "Circle Circle-<CNO>", which would otherwise print "undefined".
+  const place = office?.circle ? `${office.circle} Circle-${office.circleNumber}` : `${office?.zone} Zone`
+  return `${s}/DB/EE/${place}/${office?.corporation}/${indianFinancialYear()}`
 }
 
 function todayISO(): string {
@@ -114,7 +121,10 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
   // Running serial only (office-composed path); the full hand-typed NIT No
   // (fallback path when the office isn't fully chosen).
   const [nitSerial, setNitSerial] = useState('16')
-  const [nitNoManual, setNitNoManual] = useState('16/DB/EE/Gajularamaram Circle-57/CMC/2026-27')
+  // Starts blank — only an example ever showed in the `placeholder` below —
+  // so a user who doesn't type their own NIT No can't accidentally submit
+  // this example text as if it were real.
+  const [nitNoManual, setNitNoManual] = useState('')
   const nitNo = useMemo(
     () => (composeReady ? composeNitNo(nitSerial, office) : nitNoManual),
     [composeReady, nitSerial, office, nitNoManual]
@@ -320,7 +330,7 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
       )}
 
       {open && (
-        <div className="editor-overlay" onClick={() => setOpen(false)}>
+        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setOpen(false))}>
           <div
             className={`tender-modal ${previewing ? 'tender-modal-wide' : ''}`}
             onClick={(e) => e.stopPropagation()}

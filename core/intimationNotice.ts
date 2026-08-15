@@ -5,6 +5,8 @@ export interface IntimationNotice {
   address?: string
   /** NIT / e-Proc tender notice number (without the trailing "item N"/"Dated" tail). */
   nitNo?: string
+  /** The NIT's own date, from the "…Dated:24.07.2026" tail right after the NIT No. */
+  nitDate?: string
   /** Estimated Contract Value, in rupees (the portal lists it in rupees, not Lakhs). */
   ecvRupees?: number
   /** Accepted contract value, in rupees. */
@@ -61,6 +63,17 @@ export function parseIntimationNotice(html: string): IntimationNotice {
   if (nit) {
     const value = clean(nit[1])
     if (value) result.nitNo = value
+  }
+
+  // NIT's own date, in the same "…item N Dated:24.07.2026" tail the NIT No
+  // capture above stops before. Searched in a short window right after "NIT
+  // No" (not the whole page) so an unrelated "Dated" further down the letter
+  // is never picked up instead.
+  const nitIdx = html.search(/NIT\s*No\b/i)
+  if (nitIdx >= 0) {
+    const window = clean(html.slice(nitIdx, nitIdx + 400))
+    const nitDate = /(?<![A-Za-z])(?:Dated|Dt)\b\.?\s*:?\s*(\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4})/i.exec(window)
+    if (nitDate) result.nitDate = nitDate[1]
   }
 
   // Accepted contract value: "contract price of Rs. … <b> 1416455.93 ( … )".
@@ -122,16 +135,32 @@ export function parseIntimationNoticeText(lines: string[]): IntimationNotice {
   // In the printed LOA the code wraps onto the next line ("…Gajularamaram" then
   // "Circle-57/QBZ/CMC/2026-27 Dt.…"), so when the code on the NIT line alone
   // looks truncated (no 20XX-XX year yet), stitch the following line first.
+  // Also stitch when the NIT line has nothing at all after "NIT No" (e.g.
+  // "…for execution of the NIT No" ends the line, the code starts on the
+  // next) — checking `!value` alone, not `value &&`, would otherwise skip
+  // the stitch precisely when it's needed most.
   const nitIdx = lines.findIndex((l) => /Nit\s*No/i.test(l))
   if (nitIdx >= 0) {
     const nitRe = /Nit\s*No\.?\s*:?\s*(.+?)\s*(?:\d\s*\)|Your\s+Tender|Date\s*:|Dt\b|Item\b|at\s+contract|$)/i
     const capture = (text: string): string => nitRe.exec(text)?.[1].replace(/\s+/g, ' ').trim() ?? ''
     let value = capture(lines[nitIdx])
-    if (value && !/20\d\d\s*-\s*\d{2}/.test(value) && lines[nitIdx + 1]) {
+    if (!/20\d\d\s*-\s*\d{2}/.test(value) && lines[nitIdx + 1]) {
       const stitched = capture(`${lines[nitIdx]} ${lines[nitIdx + 1]}`)
       if (stitched) value = stitched
     }
     if (value) result.nitNo = value
+
+    // NIT's own date, e.g. "…ITEM 7Dated:24.07.2026" right after the NIT No —
+    // read from the same one/two-line window used above (not the whole
+    // letter) so an unrelated "Dated" further down the body — e.g. a GO
+    // reference's own date — is never picked up instead. No \b before the
+    // anchor: the item number often runs straight into "Dated" with no space,
+    // which a word boundary would reject (digit-into-letter isn't a
+    // boundary) — the lookbehind instead just rules out landing inside
+    // another word ("Updated"/"Mandated").
+    const dateWindow = `${lines[nitIdx]} ${lines[nitIdx + 1] ?? ''}`
+    const nitDate = /(?<![A-Za-z])(?:Dated|Dt)\b\.?\s*:?\s*(\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4})/i.exec(dateWindow)
+    if (nitDate) result.nitDate = nitDate[1]
   }
 
   // ECV — "…estimated value Rs 1593493.00…" (may drop the paise).

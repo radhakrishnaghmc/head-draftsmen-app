@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
 import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice } from '@core/intimationNotice'
-import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
+import { parseTenderEvaluation, parseAllBidders, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
 import { computeWorkAmounts, tenderPercentFromRow } from '@core/worksAmounts'
@@ -14,12 +14,23 @@ import {
   amountInWords
 } from '@core/loaSe'
 import { resolveIntimationValue } from '@core/intimationFill'
+import { type NoteBidder, summarizeNonResponsiveness } from '@core/noteSubmitted'
+import {
+  buildBidEvaluationHtml,
+  buildAgencyApprovalHtml,
+  type BidEvaluationData,
+  type AgencyApprovalData
+} from '@core/seEvaluationNotes'
+import { parseCementSteelRateLines } from '@core/cementSteelRate'
+import { resolveFromDirectory, entriesOf } from '../zoneCircleDirectory'
 import type { Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
-import { pdfToTextLines } from '../pdfToText'
+import { pdfToTextLines, pdfToPositionedLines } from '../pdfToText'
+import { pdfPagesToDataUrls } from '../pdfToImages'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH, normalizeDocxTextboxes } from './docPage'
-import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell } from './Icons'
+import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell, IconCheck } from './Icons'
 import type { ExcelTable } from '@core/types'
+import type { AgreementBundleFile } from '../../electron/ipc-contract'
 
 interface Props {
   tables: ExcelTable[]
@@ -28,15 +39,74 @@ interface Props {
   office: Office
 }
 
-/** Fields the SE LOA needs that no source (Works List / notice / L-1) can supply — the user types them. */
+/** The Intimation letter (or SE LOA) plus its 4 SE companion notes — each shown as a tile that expands into the preview modal, same layout as the Agreement page's document tiles. */
+type ExpandedDoc = 'intimation' | 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval'
+
+/** Fields the SE LOA (and its 4 companion notes) need that no source (Works List / notice / L-1) can supply — the user types them. */
 interface LoaManualFields {
   adminSanction: string
   period: string
   itemNo: string
   loaDate: string
+  /** Which authority approved Administrative Sanction — varies per work; the TS Note / Eligibility Criteria / Bid Evaluation / Agency Approval notes all cite it. */
+  asAuthority: 'zonal' | 'commissioner'
+  /** Only used when asAuthority is 'commissioner' — the zonal form's Ref line carries no date in the office's own samples. */
+  asDate: string
+  tsNo: string
+  tsDate: string
+  techBidOpenDate: string
+  bidEvalApprovedDate: string
+  /** Cement & Steel rate circular (OCR-read from the uploaded PDF, then editable — see uploadCementSteelRates). */
+  cementRate: string
+  steelRate: string
+  msFlatsRate: string
+  memoRef: string
+  memoDate: string
+  rateMonth: string
 }
 
-const LOA_MANUAL_DEFAULTS: LoaManualFields = { adminSanction: '', period: '3 Months', itemNo: '', loaDate: '' }
+const LOA_MANUAL_DEFAULTS: LoaManualFields = {
+  adminSanction: '',
+  period: '3 Months',
+  itemNo: '',
+  loaDate: '',
+  asAuthority: 'commissioner',
+  asDate: '',
+  tsNo: '',
+  tsDate: '',
+  techBidOpenDate: '',
+  bidEvalApprovedDate: '',
+  cementRate: '',
+  steelRate: '',
+  msFlatsRate: '',
+  memoRef: '',
+  memoDate: '',
+  rateMonth: ''
+}
+
+/** "<Circle> Circle-<CNO>" from the Works List row, falling back to parsing it out of the name of the work (a Zone login issuing a work from an unmatched circle still needs this — same directory lookup the Work Order/Agreement page uses). */
+function circleLine(row: Record<string, string>, workName: string, office: Office): string {
+  let circle = (row['Circle'] ?? '').trim()
+  let cno = (row['CNO'] ?? row['Circle number'] ?? '').trim()
+  if (!circle) {
+    const resolved = resolveFromDirectory(workName, entriesOf(office.corporation))
+    circle = resolved.circle ?? ''
+    cno = resolved.cno ?? ''
+  }
+  if (!circle) return ''
+  return cno ? `${circle} Circle-${cno}` : `${circle} Circle`
+}
+
+/** "Zonal Commissioner, QBZ, CMC" or "Commissioner, CMC" — the AS-approving authority, per the manual toggle. */
+function asAuthorityText(zoneAbbrCode: string, m: LoaManualFields): string {
+  return m.asAuthority === 'zonal' ? `Zonal Commissioner, ${zoneAbbrCode}, CMC` : 'Commissioner, CMC'
+}
+
+/** The Ref-1 sentence tail: the authority, plus ", dated:DD.MM.YYYY" only for the Commissioner form — the zonal form's Ref line carries no date in the office's own samples. */
+function asRefLineText(zoneAbbrCode: string, m: LoaManualFields): string {
+  const authority = asAuthorityText(zoneAbbrCode, m)
+  return m.asAuthority === 'zonal' ? authority : `${authority}, dated:${m.asDate.trim() || '__________'}`
+}
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
 
@@ -141,16 +211,12 @@ function resolveLoaValue(
       return work.name
     case 'reserved tag':
       return work.tag
-    case 'circle line': {
-      const circle = (row['Circle'] ?? '').trim()
-      const cno = (row['CNO'] ?? '').trim()
-      if (!circle) return ''
-      return cno ? `${circle} Circle-${cno}` : `${circle} Circle`
-    }
+    case 'circle line':
+      return circleLine(row, work.name, office)
     case 'nit no':
       return notice.nitNo ?? pdf.noticeNo ?? row['Tender Notice No'] ?? ''
     case 'nit date':
-      return pdf.noticeDate ?? ''
+      return notice.nitDate ?? pdf.noticeDate ?? ''
     case 'tender id':
       return pdf.tenderId ?? ''
     case 'price bid opening date':
@@ -187,6 +253,109 @@ function resolveLoaValue(
 }
 
 /**
+ * Resolves one placeholder shared by the TS Note and Eligibility Criteria
+ * templates (SE-office, issued alongside the LOA) — a single switch since the
+ * two templates' placeholder sets overlap heavily; each template's fill only
+ * consumes the labels it actually contains, same convention as
+ * zonalDocsPlaceholders in core/workOrderAgreement.ts.
+ */
+function resolveTsNoteValue(
+  label: string,
+  pdf: TenderEvaluation,
+  row: Record<string, string>,
+  office: Office,
+  manual: LoaManualFields
+): string {
+  const work = reservedInfo(row, pdf)
+  const zoneAbbrCode = zoneAbbr(office.zone)
+  const est = computeWorkAmounts(row)
+  const ecv = pdf.ecvRupees ?? est.ecv ?? null
+  const estimateLakhs = (row['Amount of estimate'] ?? '').replace(/,/g, '').trim()
+
+  const key = norm(label)
+  switch (key) {
+    case 'zone':
+      return office.zone ?? ''
+    case 'zone abbr':
+      return zoneAbbrCode
+    case 'financial year':
+      return financialYearFromDate(pdf.noticeDate)
+    case 'name of the work':
+      return work.name
+    case 'item no':
+      return manual.itemNo
+    case 'ee circle':
+      return circleLine(row, work.name, office)
+    case 'estimate lakhs':
+      return estimateLakhs
+    case 'ecv':
+      return ecv != null ? formatIndianAmount(ecv, 2) : ''
+    case 'ecv lakhs':
+      return ecv != null ? (ecv / 100000).toFixed(2) : ''
+    case 'emd 1%':
+      return ecv != null ? formatIndianAmount(Math.round(ecv * 0.01), 0) : ''
+    case 'period of completion':
+      return manual.period.trim()
+    case 'as authority':
+      return asAuthorityText(zoneAbbrCode, manual)
+    case 'as ref line':
+      return asRefLineText(zoneAbbrCode, manual)
+    case 'ts no':
+      return manual.tsNo.trim()
+    case 'ts date':
+      return manual.tsDate.trim()
+    case 'cement rate':
+      return manual.cementRate.trim()
+    case 'steel rate':
+      return manual.steelRate.trim()
+    case 'ms flats rate':
+      return manual.msFlatsRate.trim()
+    case 'memo ref':
+      return manual.memoRef.trim()
+    case 'memo date':
+      return manual.memoDate.trim()
+    case 'rate month':
+      return manual.rateMonth.trim()
+    default:
+      return ''
+  }
+}
+
+/** Assembles the Sub/Ref fields shared by the Bid Evaluation and Agency Approval notes (see core/seEvaluationNotes.ts). */
+function seRefsFor(
+  pdf: TenderEvaluation,
+  notice: IntimationNotice,
+  row: Record<string, string>,
+  office: Office,
+  manual: LoaManualFields
+) {
+  const work = reservedInfo(row, pdf)
+  const zoneAbbrCode = zoneAbbr(office.zone)
+  return {
+    zoneAbbr: zoneAbbrCode,
+    workName: work.name,
+    estimateLakhs: (row['Amount of estimate'] ?? '').replace(/,/g, '').trim(),
+    asAuthority: asAuthorityText(zoneAbbrCode, manual),
+    asRefLine: asRefLineText(zoneAbbrCode, manual),
+    tsNo: manual.tsNo.trim(),
+    tsDate: manual.tsDate.trim(),
+    financialYear: financialYearFromDate(pdf.noticeDate),
+    nitNo: notice_nitNo(pdf, row),
+    nitDate: notice.nitDate || pdf.noticeDate || '',
+    itemNo: manual.itemNo.trim(),
+    // The L-1 sheet's own "Server Time" footer (bottom-right corner) is when
+    // the technical bid was opened — falls back to the hand-typed field only
+    // when no L-1 was uploaded.
+    techBidOpenDate: pdf.serverDate || manual.techBidOpenDate.trim()
+  }
+}
+
+/** NIT No for the SE evaluation notes — the L-1 sheet's own notice number, falling back to the Works List row. */
+function notice_nitNo(pdf: TenderEvaluation, row: Record<string, string>): string {
+  return pdf.noticeNo || row['Tender Notice No'] || ''
+}
+
+/**
  * Give Intimation — fills the bundled Intimation format (a .docx mail-merge
  * template with {{placeholders}}) for a Works List work: most fields come from
  * the picked row, while the agency address (and, when present, agency name /
@@ -220,22 +389,53 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
   const [worksRowMatched, setWorksRowMatched] = useState<boolean | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
 
-  const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf'>(null)
+  const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf' | 'bundle'>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
-  const [previewPages, setPreviewPages] = useState(0)
+  // Which document tile is expanded into the full preview modal — mirrors the
+  // Agreement page's tile-grid layout instead of showing every document's full
+  // preview inline at once.
+  const [expanded, setExpanded] = useState<ExpandedDoc | null>(null)
+  const [expandedPages, setExpandedPages] = useState(0)
+
+  // SE-only: 4 companion documents issued alongside the LOA. TS Note and
+  // Eligibility Criteria are docx templates (like the LOA itself, keyed by
+  // 'tsNote' / 'eligibility'); Bid Evaluation and Agency Approval are built as
+  // HTML (dynamic bidder tables), same technique as the EE Note Submitted.
+  const [seDocB64, setSeDocB64] = useState<Record<string, string>>({})
+  const [seDocLabels, setSeDocLabels] = useState<Record<string, string[]>>({})
+  // Every bidder on the uploaded L-1 selection form (not just L-1) — feeds the
+  // Bid Evaluation / Agency Approval notes' tables.
+  const [allBidders, setAllBidders] = useState<NoteBidder[]>([])
+  const [cementSteelBusy, setCementSteelBusy] = useState(false)
+  const [cementSteelError, setCementSteelError] = useState<string | null>(null)
+  const [cementSteelFileName, setCementSteelFileName] = useState('')
+  // From the uploaded "List of Bidders Made Non-Responsive" sheet — feeds the
+  // Bid Evaluation note's participated/responsive/non-responsive counts, the
+  // same way the EE Note Submitted's non-responsive upload works.
+  const [nonRespCount, setNonRespCount] = useState(0)
+  const [nonRespFileName, setNonRespFileName] = useState('')
 
   const noticeInputRef = useRef<HTMLInputElement>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
+  const cementSteelInputRef = useRef<HTMLInputElement>(null)
+  const nonRespInputRef = useRef<HTMLInputElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
+  const tsNotePreviewRef = useRef<HTMLDivElement>(null)
+  const eligibilityPreviewRef = useRef<HTMLDivElement>(null)
+  const bidEvalPreviewRef = useRef<HTMLDivElement>(null)
+  const agencyApprovalPreviewRef = useRef<HTMLDivElement>(null)
   const printScratchRef = useRef<HTMLDivElement>(null)
+  const expandedRef = useRef<HTMLDivElement>(null)
 
   const selectedRow = table && table.rows.length > 0 ? table.rows[Math.min(rowIndex, table.rows.length - 1)] : null
   // The row whose details (Circle, Reservation, …) support the letter. When the
   // uploaded L-1 matched no Works List row, `selectedRow` is just row 0 (a
   // different work), so ignore it — the SE LOA fills those details blank rather
   // than borrowing another work's. A matched L-1 sets rowIndex to that row.
-  const detailsRow = worksRowMatched === false ? {} : (selectedRow ?? {})
+  // Before either upload, stay blank too — SE mode shows its document catalog
+  // pre-upload (see seDocsReady) and must not show row 0's unrelated work.
+  const detailsRow = !notice || !pdfEval ? {} : worksRowMatched === false ? {} : (selectedRow ?? {})
 
   // A reserved (SC/ST) work uses the LOA variant that omits the EMD balance item.
   const seReserved = seMode && isReservedWork(detailsRow, pdfEval ?? {})
@@ -262,6 +462,31 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
       cancelled = true
     }
   }, [seMode, seReserved])
+
+  // Load the TS Note / Eligibility Criteria docx templates once, when the
+  // office is zone-level — the 2 SE companion notes that use a fixed template
+  // (Bid Evaluation / Agency Approval are HTML-built instead, see below).
+  useEffect(() => {
+    if (!seMode) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const [tsB64, eligB64] = await Promise.all([api.tsNoteTemplate(), api.eligibilityCriteriaTemplate()])
+        const [tsLabels, eligLabels] = await Promise.all([
+          api.findPlaceholdersInDocument(tsB64),
+          api.findPlaceholdersInDocument(eligB64)
+        ])
+        if (cancelled) return
+        setSeDocB64({ tsNote: tsB64, eligibility: eligB64 })
+        setSeDocLabels({ tsNote: tsLabels, eligibility: eligLabels })
+      } catch (e) {
+        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [seMode])
 
   // Re-fill every placeholder whenever the row / notice / PDF / manual fields change.
   useEffect(() => {
@@ -309,6 +534,9 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
       setPdfEval(ev)
       setPdfName(file.name)
       setWorksRowMatched(null)
+      // Every bidder on the sheet (not just L-1) — feeds the SE Bid Evaluation /
+      // Agency Approval notes' tables.
+      setAllBidders(parseAllBidders(lines))
 
       if (table && ev.nameOfWork) {
         let embeddings: { rowNameVectors: number[][]; evalNameVectors: number[][] } | undefined
@@ -363,12 +591,16 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
   // supporting details when its name matched. It's surfaced as a soft note only.
   const noWorksRowMatch = worksRowMatched === false
   const bothUploaded = !!templateB64 && !!notice && !!pdfEval && !workMismatch
+  // SE mode shows its document catalog (LOA + companion notes) as soon as the
+  // office is known — Zone-filled, everything else blank — instead of hiding
+  // it until both uploads are done; EE mode keeps the original upload gate
+  // (the single Intimation letter has no "browse before you upload" ask).
+  const showBody = bothUploaded || seMode
 
-  // Live docx preview of the filled letter — refreshed whenever the values change.
+  // Live docx thumbnail of the filled letter (tile preview) — refreshed whenever the values change.
   useEffect(() => {
-    if (!bothUploaded) {
+    if (!templateB64 || !showBody) {
       if (previewRef.current) previewRef.current.innerHTML = ''
-      setPreviewPages(0)
       return
     }
     const container = previewRef.current
@@ -380,13 +612,255 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
         container.innerHTML = ''
         await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
         normalizeDocxTextboxes(container)
-        setPreviewPages(container.querySelectorAll('section.docx').length)
       } catch (e) {
         setActionError(e instanceof Error ? e.message : String(e))
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateB64, values, bothUploaded])
+  }, [templateB64, values, showBody])
+
+  // ---- SE-only companion notes: TS Note, Eligibility Criteria (docx
+  // templates), Bid Evaluation & Agency Approval (HTML-built, dynamic bidder
+  // tables). Shown as soon as their templates load — same "always browsable"
+  // catalog as the LOA above, not gated on bothUploaded. ----
+  const seDocsReady = seMode && !!seDocB64.tsNote && !!seDocB64.eligibility
+
+  const seDocValues = useMemo(() => {
+    const out: Record<string, Record<string, string>> = {}
+    for (const kind of ['tsNote', 'eligibility']) {
+      const kindLabels = seDocLabels[kind] ?? []
+      const vals: Record<string, string> = {}
+      for (const label of kindLabels) vals[label] = resolveTsNoteValue(label, pdfEval ?? {}, detailsRow, office, manual)
+      out[kind] = vals
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seDocLabels, pdfEval, detailsRow, office, manual])
+
+  const bidEvalData: BidEvaluationData = useMemo(
+    () => ({
+      ...seRefsFor(pdfEval ?? {}, notice ?? {}, detailsRow, office, manual),
+      bidders: allBidders,
+      nonRespCount
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pdfEval, notice, detailsRow, office, manual, allBidders, nonRespCount]
+  )
+  const agencyApprovalData: AgencyApprovalData = useMemo(
+    () => ({
+      ...seRefsFor(pdfEval ?? {}, notice ?? {}, detailsRow, office, manual),
+      zone: office.zone ?? '',
+      // The L-1 sheet's own Server Time is also when the Technical Bid
+      // evaluation was approved (same sitting), same fallback as techBidOpenDate.
+      bidEvalApprovedDate: pdfEval?.serverDate || manual.bidEvalApprovedDate.trim(),
+      bidders: allBidders
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pdfEval, notice, detailsRow, office, manual, allBidders]
+  )
+
+  async function fillSeDoc(kind: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval'): Promise<string> {
+    if (kind === 'bidEval') return api.noteSubmittedDocx(buildBidEvaluationHtml(bidEvalData))
+    if (kind === 'agencyApproval') return api.noteSubmittedDocx(buildAgencyApprovalHtml(agencyApprovalData))
+    const b64 = seDocB64[kind]
+    if (!b64) throw new Error('Format not loaded yet.')
+    const kindLabels = seDocLabels[kind] ?? []
+    const resolved: PlaceholderMatch[] = kindLabels.map((label) => ({ label, column: label, score: 1 }))
+    return api.fillPlaceholdersInDocument(b64, resolved, seDocValues[kind] ?? {})
+  }
+
+  async function renderSeDocInto(kind: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval', container: HTMLElement) {
+    const filled = await fillSeDoc(kind)
+    container.innerHTML = ''
+    await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
+    normalizeDocxTextboxes(container)
+  }
+
+  // Live previews for the 4 SE companion notes — refreshed whenever their inputs change.
+  useEffect(() => {
+    if (!seDocsReady) return
+    if (tsNotePreviewRef.current) void renderSeDocInto('tsNote', tsNotePreviewRef.current).catch(() => {})
+    if (eligibilityPreviewRef.current) void renderSeDocInto('eligibility', eligibilityPreviewRef.current).catch(() => {})
+    if (bidEvalPreviewRef.current) void renderSeDocInto('bidEval', bidEvalPreviewRef.current).catch(() => {})
+    if (agencyApprovalPreviewRef.current) void renderSeDocInto('agencyApproval', agencyApprovalPreviewRef.current).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seDocsReady, seDocValues, bidEvalData, agencyApprovalData])
+
+  const DOC_LABEL: Record<ExpandedDoc, string> = {
+    intimation: seMode ? 'Letter of Acceptance' : 'Intimation',
+    tsNote: 'TS Note',
+    eligibility: 'Eligibility Criteria',
+    bidEval: 'Bid Evaluation Note',
+    agencyApproval: 'Agency Approval Note'
+  }
+
+  function openDoc(kind: ExpandedDoc) {
+    setExpanded(kind)
+  }
+
+  // Full-size preview inside the expanded modal — rendered lazily (only the
+  // clicked document), same pattern as the Agreement page's document tiles.
+  useEffect(() => {
+    if (!expanded) return
+    const container = expandedRef.current
+    if (!container) return
+    setActionError(null)
+    void (async () => {
+      try {
+        if (expanded === 'intimation') {
+          const filled = await fillTemplate()
+          container.innerHTML = ''
+          await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
+          normalizeDocxTextboxes(container)
+        } else {
+          await renderSeDocInto(expanded, container)
+        }
+        setExpandedPages(container.querySelectorAll('section.docx').length)
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : String(e))
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, values, seDocValues, bidEvalData, agencyApprovalData])
+
+  async function downloadSeDoc(kind: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval', formats: ('docx' | 'pdf')[]) {
+    setBusy(formats[0] === 'pdf' ? 'pdf' : 'download')
+    setActionError(null)
+    setActionSaved(null)
+    try {
+      const filled = await fillSeDoc(kind)
+      const names: Record<typeof kind, string> = {
+        tsNote: 'TS Note',
+        eligibility: 'Eligibility Criteria',
+        bidEval: 'Bid Evaluation',
+        agencyApproval: 'Agency Approval'
+      }
+      const agencyName = notice?.agencyName ?? selectedRow?.['Name of the Agency']
+      const name = `${names[kind]}${agencyName ? ` - ${agencyName}` : ''}`
+      const res = await api.exportCreatedDocument(filled, name, formats)
+      setActionSaved(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function printSeDoc(kind: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval') {
+    setBusy('print')
+    setActionError(null)
+    try {
+      const filled = await fillSeDoc(kind)
+      const container = printScratchRef.current
+      if (!container) throw new Error('Print failed to initialize.')
+      container.innerHTML = ''
+      await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
+      normalizeDocxTextboxes(container)
+      await api.printCreatedDocument(container.innerHTML)
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // Bundle every ready document into one saved folder — same bundle API and
+  // "Download all documents" bar as the Agreement page.
+  async function downloadAll() {
+    setBusy('bundle')
+    setActionError(null)
+    setActionSaved(null)
+    try {
+      const files: AgreementBundleFile[] = []
+      const agencyName = notice?.agencyName ?? selectedRow?.['Name of the Agency']
+      if (showBody && templateB64) {
+        files.push({
+          name: `${seMode ? 'Letter of Acceptance' : 'Intimation'}${agencyName ? ` - ${agencyName}` : ''}`,
+          format: 'docx',
+          docxBase64: await fillTemplate()
+        })
+      }
+      if (seMode && seDocsReady) {
+        const names: Record<'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval', string> = {
+          tsNote: 'TS Note',
+          eligibility: 'Eligibility Criteria',
+          bidEval: 'Bid Evaluation',
+          agencyApproval: 'Agency Approval'
+        }
+        for (const kind of ['tsNote', 'eligibility', 'bidEval', 'agencyApproval'] as const) {
+          files.push({
+            name: `${names[kind]}${agencyName ? ` - ${agencyName}` : ''}`,
+            format: 'docx',
+            docxBase64: await fillSeDoc(kind)
+          })
+        }
+      }
+      if (files.length === 0) {
+        setActionError('No documents are ready to download yet.')
+        return
+      }
+      const res = await api.exportAgreementBundle(files)
+      if (!res) {
+        setActionSaved('Cancelled.')
+      } else if (res.failed.length > 0) {
+        setActionSaved(`Saved ${res.written.length} document(s).`)
+        setActionError(
+          `${res.failed.length} document(s) could not be saved: ${res.failed.join(', ')}. ` +
+            `PDFs need LibreOffice installed — install it from libreoffice.org, or download those as Word (.docx) instead.`
+        )
+      } else {
+        setActionSaved(`Saved ${res.written.length} document(s) to the chosen folder.`)
+      }
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /** Cement & Steel rate circular upload (SE only) — OCR'd the same way as an
+   * estimate photo (see src/pdfToImages.ts), then parsed for the TS Note's
+   * rate sentence. Populates editable fields rather than baking values in
+   * unreviewed, since OCR on a scanned circular can misread a digit. */
+  async function uploadCementSteelRates(file: File) {
+    setCementSteelBusy(true)
+    setCementSteelError(null)
+    try {
+      const dataUrls = await pdfPagesToDataUrls(file)
+      const sheet = await api.ocrEstimatePhotos(dataUrls)
+      const lines = sheet.grid.map((row) => row[0] ?? '')
+      const rates = parseCementSteelRateLines(lines)
+      setCementSteelFileName(file.name)
+      setManual((m) => ({
+        ...m,
+        cementRate: rates.cementRate ?? m.cementRate,
+        steelRate: rates.steelRate ?? m.steelRate,
+        msFlatsRate: rates.msFlatsRate ?? m.msFlatsRate,
+        memoRef: rates.memoRef ?? m.memoRef,
+        memoDate: rates.memoDate ?? m.memoDate,
+        rateMonth: rates.monthYear ?? m.rateMonth
+      }))
+    } catch (e) {
+      setCementSteelError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setCementSteelBusy(false)
+    }
+  }
+
+  // Optional non-responsiveness statement for the Bid Evaluation note — same
+  // "List of Bidders Made Non-Responsive" sheet and reader the EE Note
+  // Submitted flow uses (see WorkOrderAgreementTab's handleNonRespFile).
+  async function handleNonRespFile(file: File) {
+    setActionError(null)
+    try {
+      const lines = await pdfToPositionedLines(file)
+      const { count } = summarizeNonResponsiveness(lines)
+      setNonRespCount(count)
+      setNonRespFileName(file.name)
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    }
+  }
 
   async function downloadIntimation(formats: ('docx' | 'pdf')[]) {
     setBusy(formats[0] === 'pdf' ? 'pdf' : 'download')
@@ -425,13 +899,166 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
 
   const noWorks = !table || table.rows.length === 0
 
+  // The SE fields no source can supply — grouped by which document(s) they
+  // actually feed (matched against each template's own placeholder set), so
+  // the expanded modal for a document shows only the fields it needs instead
+  // of one big form for every document up front. Same `wo-date-row` /
+  // `wo-date-field` markup as the Agreement page's own field rows, so fields
+  // flow one after another (wrapping as needed) instead of a grid.
+  const itemNoField = (
+    <label className="wo-date-field">
+      <span>Item No</span>
+      <input type="text" placeholder="e.g. 01" value={manual.itemNo} onChange={(e) => setManual((m) => ({ ...m, itemNo: e.target.value }))} />
+    </label>
+  )
+  const periodField = (
+    <label className="wo-date-field">
+      <span>Period of Completion</span>
+      <input type="text" placeholder="e.g. 3 Months" value={manual.period} onChange={(e) => setManual((m) => ({ ...m, period: e.target.value }))} />
+    </label>
+  )
+  const asAuthorityFields = (
+    <>
+      <label className="wo-date-field">
+        <span>Admin Sanction Authority</span>
+        <select value={manual.asAuthority} onChange={(e) => setManual((m) => ({ ...m, asAuthority: e.target.value as 'zonal' | 'commissioner' }))}>
+          <option value="commissioner">Commissioner, CMC</option>
+          <option value="zonal">Zonal Commissioner</option>
+        </select>
+      </label>
+      {manual.asAuthority === 'commissioner' && (
+        <label className="wo-date-field">
+          <span>Admin Sanction Date</span>
+          <input type="text" placeholder="e.g. 21.07.2026" value={manual.asDate} onChange={(e) => setManual((m) => ({ ...m, asDate: e.target.value }))} />
+        </label>
+      )}
+    </>
+  )
+  const tsNoDateFields = (
+    <>
+      <label className="wo-date-field">
+        <span>TS No</span>
+        <input type="text" placeholder="e.g. 33" value={manual.tsNo} onChange={(e) => setManual((m) => ({ ...m, tsNo: e.target.value }))} />
+      </label>
+      <label className="wo-date-field">
+        <span>TS Date</span>
+        <input type="text" placeholder="e.g. 04.07.2026" value={manual.tsDate} onChange={(e) => setManual((m) => ({ ...m, tsDate: e.target.value }))} />
+      </label>
+    </>
+  )
+  const techBidOpenField = (
+    <label className="wo-date-field">
+      <span>Technical Bid Opened Date</span>
+      <input
+        type="text"
+        placeholder="e.g. 06.08.2026"
+        value={manual.techBidOpenDate}
+        onChange={(e) => setManual((m) => ({ ...m, techBidOpenDate: e.target.value }))}
+      />
+    </label>
+  )
+  const bidEvalApprovedField = (
+    <label className="wo-date-field">
+      <span>Bid Evaluation Approved Date</span>
+      <input
+        type="text"
+        placeholder="e.g. 06.08.2026"
+        value={manual.bidEvalApprovedDate}
+        onChange={(e) => setManual((m) => ({ ...m, bidEvalApprovedDate: e.target.value }))}
+      />
+    </label>
+  )
+
+  // Fields grouped per document, matched to each template's actual placeholder set.
+  const modalFields: Partial<Record<ExpandedDoc, ReactNode>> = {
+    intimation: (
+      <>
+        <label className="wo-date-field">
+          <span>Admin. Sanction Value</span>
+          <input
+            type="text"
+            placeholder="e.g. 16850000"
+            value={manual.adminSanction}
+            onChange={(e) => setManual((m) => ({ ...m, adminSanction: e.target.value }))}
+          />
+        </label>
+        {periodField}
+        {itemNoField}
+        <label className="wo-date-field">
+          <span>LOA Date</span>
+          <input type="text" placeholder="e.g. 20.03.2026" value={manual.loaDate} onChange={(e) => setManual((m) => ({ ...m, loaDate: e.target.value }))} />
+        </label>
+      </>
+    ),
+    tsNote: (
+      <>
+        {tsNoDateFields}
+        {asAuthorityFields}
+        <label className="wo-date-field">
+          <span>Cement Rate (Rs./MT)</span>
+          <input type="text" placeholder="e.g. 5,100" value={manual.cementRate} onChange={(e) => setManual((m) => ({ ...m, cementRate: e.target.value }))} />
+        </label>
+        <label className="wo-date-field">
+          <span>Steel TMT/HYSD Rate (Rs./MT)</span>
+          <input type="text" placeholder="e.g. 50,000" value={manual.steelRate} onChange={(e) => setManual((m) => ({ ...m, steelRate: e.target.value }))} />
+        </label>
+        <label className="wo-date-field">
+          <span>M.S. Flats Rate (Rs./MT)</span>
+          <input type="text" placeholder="e.g. 55,000" value={manual.msFlatsRate} onChange={(e) => setManual((m) => ({ ...m, msFlatsRate: e.target.value }))} />
+        </label>
+        <label className="wo-date-field">
+          <span>Memo Ref</span>
+          <input
+            type="text"
+            placeholder="e.g. 146/Cement & Steel/T3/May/2025-26"
+            value={manual.memoRef}
+            onChange={(e) => setManual((m) => ({ ...m, memoRef: e.target.value }))}
+          />
+        </label>
+        <label className="wo-date-field">
+          <span>Memo Date</span>
+          <input type="text" placeholder="e.g. 29.05.2026" value={manual.memoDate} onChange={(e) => setManual((m) => ({ ...m, memoDate: e.target.value }))} />
+        </label>
+        <label className="wo-date-field">
+          <span>Rate Month</span>
+          <input type="text" placeholder="e.g. May-2026" value={manual.rateMonth} onChange={(e) => setManual((m) => ({ ...m, rateMonth: e.target.value }))} />
+        </label>
+      </>
+    ),
+    eligibility: (
+      <>
+        {itemNoField}
+        {periodField}
+        {asAuthorityFields}
+        {tsNoDateFields}
+      </>
+    ),
+    bidEval: (
+      <>
+        {asAuthorityFields}
+        {tsNoDateFields}
+        {itemNoField}
+        {techBidOpenField}
+      </>
+    ),
+    agencyApproval: (
+      <>
+        {asAuthorityFields}
+        {tsNoDateFields}
+        {itemNoField}
+        {techBidOpenField}
+        {bidEvalApprovedField}
+      </>
+    )
+  }
+
   return (
     <div className="card">
       <div ref={printScratchRef} style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }} aria-hidden />
 
       <div className="empty empty--tight">
         <IconBell />
-        <div className="boq-actions">
+        <div className="boq-actions boq-actions--grid">
           <button className="primary upload-btn" onClick={() => noticeInputRef.current?.click()} disabled={!templateB64}>
             <IconFolder /> {notice ? 'Change Online Intimation' : 'Upload Online Intimation'}
           </button>
@@ -442,6 +1069,21 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
           >
             <IconFolder /> {busy === 'pdf' ? 'Reading PDF…' : pdfEval ? 'Change L1 selection form' : 'Upload L1 selection form'}
           </button>
+          {seMode && (
+            <button
+              className="primary upload-btn"
+              onClick={() => cementSteelInputRef.current?.click()}
+              disabled={cementSteelBusy}
+            >
+              <IconFolder />{' '}
+              {cementSteelBusy ? 'Reading…' : cementSteelFileName ? 'Change Cement & Steel rates' : 'Upload Cement & Steel rates'}
+            </button>
+          )}
+          {seMode && (
+            <button className="primary upload-btn" onClick={() => nonRespInputRef.current?.click()} disabled={!pdfEval}>
+              <IconFolder /> {nonRespFileName ? 'Change Non-responsive form' : 'Upload Non-responsive form'}
+            </button>
+          )}
           <input
             ref={noticeInputRef}
             type="file"
@@ -464,12 +1106,49 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
               e.target.value = ''
             }}
           />
+          <input
+            ref={cementSteelInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void uploadCementSteelRates(file)
+              e.target.value = ''
+            }}
+          />
+          <input
+            ref={nonRespInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void handleNonRespFile(file)
+              e.target.value = ''
+            }}
+          />
         </div>
         {noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
         {pdfName && <p className="estimate-hint">Tender details read from {pdfName}</p>}
+        {cementSteelFileName && (
+          <p className="estimate-hint">
+            Cement/Steel/M.S.Flats rates read from {cementSteelFileName} — used in the TS Note; check them below before generating.
+          </p>
+        )}
+        {nonRespFileName && (
+          <p className="estimate-hint">
+            Non-responsive bidders read from {nonRespFileName}: ({nonRespCount}) of ({allBidders.length}) — used in the Bid Evaluation note.
+          </p>
+        )}
         {pdfStatus && (
           <div className="notice ok">
             <IconBell /> {pdfStatus}
+          </div>
+        )}
+        {cementSteelError && (
+          <div className="notice error">
+            <IconWarn /> {cementSteelError}
           </div>
         )}
       </div>
@@ -494,79 +1173,139 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
 
       {noWorks ? (
         <div className="notice">Add works to the Works List first — the Intimation letter is filled from a work's row.</div>
-      ) : bothUploaded ? (
-        <div className="estimate-body">
-          {seMode && (
-            <div className="loa-manual-fields">
-              <span className="estimate-preview-title">
-                Superintending Engineer (LOA) — fields to fill in
-              </span>
-              <div className="loa-manual-grid">
-                <label>
-                  Admin. Sanction Value
-                  <input
-                    type="text"
-                    placeholder="e.g. 16850000"
-                    value={manual.adminSanction}
-                    onChange={(e) => setManual((m) => ({ ...m, adminSanction: e.target.value }))}
-                  />
-                </label>
-                <label>
-                  Period of Completion
-                  <input
-                    type="text"
-                    placeholder="e.g. 3 Months"
-                    value={manual.period}
-                    onChange={(e) => setManual((m) => ({ ...m, period: e.target.value }))}
-                  />
-                </label>
-                <label>
-                  Item No
-                  <input
-                    type="text"
-                    placeholder="e.g. 01"
-                    value={manual.itemNo}
-                    onChange={(e) => setManual((m) => ({ ...m, itemNo: e.target.value }))}
-                  />
-                </label>
-                <label>
-                  LOA Date
-                  <input
-                    type="text"
-                    placeholder="e.g. 20.03.2026"
-                    value={manual.loaDate}
-                    onChange={(e) => setManual((m) => ({ ...m, loaDate: e.target.value }))}
-                  />
-                </label>
-              </div>
+      ) : showBody ? (
+        <>
+          {seMode && !bothUploaded && (
+            <div className="notice">
+              Showing every document this office issues, with the Zone filled in — upload the Online Intimation and L1
+              selection form above to fill in the rest.
             </div>
           )}
-          <div className="estimate-preview">
-            <span className="estimate-preview-title">Live Preview{previewPages > 1 ? ` — ${previewPages} pages` : ''}</span>
-            <div className="estimate-preview-scroll">
-              <div ref={previewRef} className="intimation-docx-preview" />
+          {actionSaved && !expanded && (
+            <div className="notice ok">
+              <IconCheck /> {actionSaved}
             </div>
-            <div className="doc-sheet-footer">
-              <span className="estimate-hint">Updates live as the details fill in.</span>
-              <button className="primary" onClick={() => downloadIntimation(['docx'])} disabled={busy !== null}>
-                <IconDownload /> {busy === 'download' ? 'Saving…' : 'Word'}
-              </button>
-              <button className="primary" onClick={() => downloadIntimation(['pdf'])} disabled={busy !== null}>
-                <IconDownload /> {busy === 'pdf' ? 'Saving…' : 'PDF'}
-              </button>
-              <button className="primary" onClick={printIntimation} disabled={busy !== null}>
-                <IconPrint /> {busy === 'print' ? 'Opening…' : 'Print'}
+          )}
+          {actionError && !expanded && (
+            <div className="notice error">
+              <IconWarn /> {actionError}
+            </div>
+          )}
+
+          <div className="wo-download-all">
+            <button className="primary" disabled={busy === 'bundle'} onClick={downloadAll}>
+              <IconDownload /> {busy === 'bundle' ? 'Preparing documents…' : 'Download all documents'}
+            </button>
+            <span className="wo-download-all-note">
+              {seMode
+                ? 'Letter of Acceptance, TS Note, Eligibility Criteria, Bid Evaluation & Agency Approval — all as Word, into one folder you choose.'
+                : 'The Intimation letter as Word, into a folder you choose.'}
+            </span>
+          </div>
+
+          <div className="wo-tiles">
+            <button className="wo-tile" onClick={() => openDoc('intimation')}>
+              <div className="wo-tile-preview">
+                <div ref={previewRef} className="wo-tile-doc" />
+                <span className="wo-tile-open">Click to preview</span>
+              </div>
+              <div className="wo-tile-foot">{DOC_LABEL.intimation}</div>
+            </button>
+
+            {seMode && seDocsReady && (
+              <>
+                <button className="wo-tile" onClick={() => openDoc('tsNote')}>
+                  <div className="wo-tile-preview">
+                    <div ref={tsNotePreviewRef} className="wo-tile-doc" />
+                    <span className="wo-tile-open">Click to preview</span>
+                  </div>
+                  <div className="wo-tile-foot">{DOC_LABEL.tsNote}</div>
+                </button>
+                <button className="wo-tile" onClick={() => openDoc('eligibility')}>
+                  <div className="wo-tile-preview">
+                    <div ref={eligibilityPreviewRef} className="wo-tile-doc" />
+                    <span className="wo-tile-open">Click to preview</span>
+                  </div>
+                  <div className="wo-tile-foot">{DOC_LABEL.eligibility}</div>
+                </button>
+                <button className="wo-tile" onClick={() => openDoc('bidEval')}>
+                  <div className="wo-tile-preview">
+                    <div ref={bidEvalPreviewRef} className="wo-tile-doc" />
+                    <span className="wo-tile-open">Click to preview</span>
+                  </div>
+                  <div className="wo-tile-foot">{DOC_LABEL.bidEval}</div>
+                </button>
+                <button className="wo-tile" onClick={() => openDoc('agencyApproval')}>
+                  <div className="wo-tile-preview">
+                    <div ref={agencyApprovalPreviewRef} className="wo-tile-doc" />
+                    <span className="wo-tile-open">Click to preview</span>
+                  </div>
+                  <div className="wo-tile-foot">{DOC_LABEL.agencyApproval}</div>
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      ) : null}
+
+      {expanded && (
+        <div className="wo-modal-overlay" onClick={() => setExpanded(null)}>
+          <div className="wo-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="wo-modal-head">
+              <span className="wo-modal-title">
+                {DOC_LABEL[expanded]}
+                {expandedPages > 1 ? ` — ${expandedPages} pages` : ''}
+              </span>
+              <button className="wo-modal-close" onClick={() => setExpanded(null)} title="Close" aria-label="Close">
+                ×
               </button>
             </div>
-            {actionError && (
-              <div className="notice error">
-                <IconWarn /> {actionError}
+
+            {seMode && modalFields[expanded] && (
+              <div className="wo-date-row" style={{ padding: '14px 18px 0', marginTop: 0 }}>
+                {modalFields[expanded]}
               </div>
             )}
-            {actionSaved && <p className="estimate-hint">{actionSaved}</p>}
+
+            <div className="wo-modal-body">
+              <div ref={expandedRef} className="intimation-docx-preview" />
+            </div>
+
+            <div className="wo-modal-foot">
+              {actionError && (
+                <div className="notice error" style={{ marginRight: 'auto' }}>
+                  <IconWarn /> {actionError}
+                </div>
+              )}
+              {expanded === 'intimation' ? (
+                <>
+                  <button className="primary" onClick={() => downloadIntimation(['docx'])} disabled={busy !== null}>
+                    <IconDownload /> {busy === 'download' ? 'Saving…' : 'Word'}
+                  </button>
+                  <button className="primary" onClick={() => downloadIntimation(['pdf'])} disabled={busy !== null}>
+                    <IconDownload /> {busy === 'pdf' ? 'Saving…' : 'PDF'}
+                  </button>
+                  <button className="primary" onClick={printIntimation} disabled={busy !== null}>
+                    <IconPrint /> {busy === 'print' ? 'Opening…' : 'Print'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="primary" onClick={() => downloadSeDoc(expanded, ['docx'])} disabled={busy !== null}>
+                    <IconDownload /> {busy === 'download' ? 'Saving…' : 'Word'}
+                  </button>
+                  <button className="primary" onClick={() => downloadSeDoc(expanded, ['pdf'])} disabled={busy !== null}>
+                    <IconDownload /> {busy === 'pdf' ? 'Saving…' : 'PDF'}
+                  </button>
+                  <button className="primary" onClick={() => printSeDoc(expanded)} disabled={busy !== null}>
+                    <IconPrint /> {busy === 'print' ? 'Opening…' : 'Print'}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   )
 }

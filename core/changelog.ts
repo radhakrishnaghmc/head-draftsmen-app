@@ -16,6 +16,19 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.18.0',
+    changes: [
+      'Give Intimation (SE/Zone offices): 4 new companion documents — TS Note, Eligibility Criteria, Bid Evaluation Note, Agency Approval Note — with Cement & Steel rate circular upload.',
+      'Agreement and Work Order (SE/Zone offices): 3 new documents — Agreement Bond, Agreement Put-up Note, Contract Deed — plus an SE-formatted Schedule A, and Balance EMD receipt upload.',
+      'Schedule A now shows automatically alongside the other documents, filled in blank — no need to upload the estimate first just to see it.',
+      'Give Intimation page redesigned to match the Agreement page: documents now show as a tile grid with a preview popup, plus a "Download all documents" button.',
+      'Photos to PDF: added a crop, rotate, and filter (black & white / contrast / auto-enhance) step before converting photos.',
+      'Fixed: SE Agreement Bond date wasn’t filling in; several documents’ signature blocks (SE Agreement Bond, Agreement Note, Contract Deed, Forwarding Slip, TS Note) now line up the title and office/zone line properly.',
+      'Fixed: Balance EMD upload button no longer appears for EE (Circle) offices.',
+      'Small fix: clicking outside a popup to close it no longer misfires while selecting text inside it.'
+    ]
+  },
+  {
     version: '1.17.1',
     changes: [
       'Intimation & Note Submitted: for a reserved-category work quoted more than 25% below, the ASD amount now shows (only the EMD is exempted for reserved works, not the ASD).',

@@ -28,6 +28,8 @@ export interface ScheduleAMeta {
   circle?: string
   /** The zone, e.g. "Quthbullapur" — replaces the template's sample zone in the preamble. */
   zone?: string
+  /** Corporation abbreviation (e.g. "CMC") — fills the SE Schedule A's {{Corp}} token in its Superintending-Engineer signature block. */
+  corporation?: string
 }
 
 /**
@@ -133,7 +135,11 @@ function numOrStr(s: string): number | string {
  * is left blank since we have no source for it. Used for both the on-screen
  * preview and the saved workbook, so they always match.
  */
-export function buildScheduleARows(items: ScheduleAItem[], meta?: ScheduleAMeta): (string | number)[][] {
+export function buildScheduleARows(
+  items: ScheduleAItem[],
+  meta?: ScheduleAMeta,
+  signatoryTitle: string = 'Executive Engineer'
+): (string | number)[][] {
   const total = items.reduce((sum, it) => sum + (Number(String(it.amount).replace(/,/g, '')) || 0), 0)
   // Fallback only when there's no Works List match at all — the item table's
   // own total, Indian-formatted the same way metaFromWorksRow's figures are.
@@ -186,7 +192,7 @@ export function buildScheduleARows(items: ScheduleAItem[], meta?: ScheduleAMeta)
     ['', '', 'Tender Quoted', numOrStr(meta?.tenderPercentage ?? ''), meta?.tenderPercentage ? '%' : '', 'Less'],
     ['', '', 'Excess:'],
     ['', '', 'Less:'],
-    ['', '', '', 'Executive Engineer']
+    ['', '', '', signatoryTitle]
   ]
 }
 

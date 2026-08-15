@@ -3,6 +3,7 @@ import { api } from '../ipc'
 import appLogo from '../assets/app-logo.png'
 import { type Office, isOfficeReady, normalizeOffice } from '../office'
 import { CORPORATIONS, zonesOf, circlesOf } from '../zoneCircleDirectory'
+import { closeOnBackdropMouseDown } from '../overlayClose'
 import {
   IconTable,
   IconPrint,
@@ -237,7 +238,7 @@ export default function Sidebar(props: Props) {
       </div>
 
       {officeOpen && (
-        <div className="editor-overlay" onClick={() => setOfficeOpen(false)}>
+        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setOfficeOpen(false))}>
           <div className="confirm-modal office-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <h3>Your office</h3>
             <div className="office-fields">

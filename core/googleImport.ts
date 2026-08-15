@@ -39,8 +39,13 @@ export function resolveGoogleDownloadUrl(link: string, opts?: { wholeWorkbook?: 
   return url
 }
 
-/** Download a binary resource, following redirects. */
-export function download(url: string, redirectsLeft = 5): Promise<Buffer> {
+class HttpStatusError extends Error {
+  constructor(public statusCode: number, message: string) {
+    super(message)
+  }
+}
+
+function downloadOnce(url: string, redirectsLeft = 5): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('http://') ? http : https
     const req = client.get(url, { headers: { 'user-agent': USER_AGENT } }, (res) => {
@@ -52,12 +57,13 @@ export function download(url: string, redirectsLeft = 5): Promise<Buffer> {
           return
         }
         const next = new URL(headers.location, url).toString()
-        download(next, redirectsLeft - 1).then(resolve, reject)
+        downloadOnce(next, redirectsLeft - 1).then(resolve, reject)
         return
       }
       if (statusCode && statusCode >= 400) {
         reject(
-          new Error(
+          new HttpStatusError(
+            statusCode,
             `The link returned an error (HTTP ${statusCode}). Make sure it's shared as "Anyone with the link can view".`
           )
         )
@@ -71,6 +77,28 @@ export function download(url: string, redirectsLeft = 5): Promise<Buffer> {
     req.on('error', reject)
     req.setTimeout(20000, () => req.destroy(new Error('Timed out downloading the link.')))
   })
+}
+
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504])
+
+/**
+ * Download a binary resource, following redirects. Retries transient
+ * failures (timeouts, dropped connections, rate-limiting/server errors) a
+ * couple of times with backoff — the login check re-downloads the whole
+ * credentials sheet on every single attempt with no caching, so a momentary
+ * blip or a brief Google rate-limit shouldn't lock someone out.
+ */
+export async function download(url: string, attempts = 3): Promise<Buffer> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await downloadOnce(url)
+    } catch (e) {
+      const retryable = !(e instanceof HttpStatusError) || RETRYABLE_STATUS.has(e.statusCode)
+      if (!retryable || i === attempts - 1) throw e
+      await new Promise((r) => setTimeout(r, 500 * (i + 1)))
+    }
+  }
+  throw new Error('unreachable')
 }
 
 /** Download a Google Sheets / Drive spreadsheet link and parse it into an ExcelTable. */

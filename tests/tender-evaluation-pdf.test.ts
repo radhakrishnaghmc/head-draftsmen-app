@@ -121,6 +121,28 @@ describe('parseTenderEvaluation', () => {
     expect(r.noticeNo).toBe('02/DB/EE/Gajularamaram Circle-57/QBZ/CMC/2026-27')
   })
 
+  it('drops the same wedged Tender ID from a "C-<n>" short circle code, not just "Circle-<n>"', () => {
+    // Real EE-III/DB layout ("13/DB/EE-III/CNL/C-54/QBZ/CMC/2026-27") — a
+    // division office identifies its circle as "C-54", not a named-place
+    // "Circle-54", but pdf.js still wedges the Tender ID between the wrapped
+    // halves the same way. Reported bug: with only the "Circle-" anchor, the
+    // wedge survived uncleaned and made this NIT compare as a different work
+    // from the same NIT read off the LOA (which has no such wedge).
+    const r = parseTenderEvaluation([
+      'Current Tender Details',
+      'NIT No.13/DB/EE-III/CNL/C-',
+      'Enquiry/IFB/Tender',
+      '723483 54/QBZ/CMC/2026-27, Dt:31.07.2026',
+      'Tender ID',
+      'Notice Number',
+      '(Item no. 1)',
+      'Name of Work Development of Muslim graveyard',
+      'VADDI MANISH REDDY 1091236.00 Less 3.01 1058389.80 L-1'
+    ])
+    expect(r.noticeNo).toBe('13/DB/EE-III/CNL/C-54/QBZ/CMC/2026-27')
+    expect(r.tenderId).toBeUndefined()
+  })
+
   it('reads the SE-office Tender ID when the NIT date year sits right before the label', () => {
     // Real SE (zone) L1 layout: "… Dt. 27.07.2026 Tender ID 722264 (Item No.11)".
     // The "2026" of the NIT date abuts the label; the old \d+ grabbed it (leftmost).

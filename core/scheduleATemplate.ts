@@ -71,22 +71,13 @@ function replaceOfficeText(ws: ExcelJS.Worksheet, meta?: ScheduleAMeta): void {
 }
 
 /**
- * Fill the bundled Schedule-A template in place — preserving its fonts,
- * borders, merged cells and formulas — instead of rebuilding the document
- * from scratch. Item rows are inserted or removed to match the uploaded
- * BOQ's row count, using the template's own item row as the style/formula
- * reference, and its Amount cells stay live formulas (qty × rate, and a
- * SUM total) rather than static numbers, matching the original design.
+ * Fill the item table, meta rows (Name of work / Estimate / ECV / Contract /
+ * Contractor) and tender-quoted-% rows of a loaded Schedule-A worksheet — the
+ * part shared by both the EE and SE (Zone-office) templates, which differ
+ * only in the signature block / preamble office wording each applies
+ * afterwards (see replaceOfficeText / replaceSeOfficeText).
  */
-export async function fillScheduleATemplate(
-  templateBuffer: Buffer,
-  items: ScheduleAItem[],
-  meta?: ScheduleAMeta
-): Promise<Buffer> {
-  const workbook = new ExcelJS.Workbook()
-  await workbook.xlsx.load(templateBuffer as unknown as ArrayBuffer)
-  const ws = workbook.worksheets[0]
-  if (!ws) throw new Error('Schedule A template has no sheet.')
+function fillScheduleAWorksheet(ws: ExcelJS.Worksheet, items: ScheduleAItem[], meta?: ScheduleAMeta): void {
   stripDataValidations(ws)
 
   let headerRow = -1
@@ -207,9 +198,79 @@ export async function fillScheduleATemplate(
       formula: `+F${totalRow}-(F${totalRow}*D${tenderQuotedRow}%)`
     }
   }
+}
 
+/**
+ * Fill the bundled EE Schedule-A template in place — preserving its fonts,
+ * borders, merged cells and formulas — instead of rebuilding the document
+ * from scratch. Item rows are inserted or removed to match the uploaded
+ * BOQ's row count, using the template's own item row as the style/formula
+ * reference, and its Amount cells stay live formulas (qty × rate, and a
+ * SUM total) rather than static numbers, matching the original design.
+ */
+export async function fillScheduleATemplate(
+  templateBuffer: Buffer,
+  items: ScheduleAItem[],
+  meta?: ScheduleAMeta
+): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(templateBuffer as unknown as ArrayBuffer)
+  const ws = workbook.worksheets[0]
+  if (!ws) throw new Error('Schedule A template has no sheet.')
+  fillScheduleAWorksheet(ws, items, meta)
   replaceOfficeText(ws, meta)
+  const out = await workbook.xlsx.writeBuffer()
+  return Buffer.from(out)
+}
 
+/**
+ * Swap the SE (Zone-office) Schedule-A template's literal {{Zone}}/{{Corp}}
+ * tokens for the work's actual zone/corporation — used in its preamble
+ * ("the O/o SE, {{Zone}} Zone does not accept…") and its Superintending
+ * Engineer signature block. Unlike the EE template's replaceOfficeText (which
+ * regex-matches a specific sample word), the SE template carries real
+ * placeholder tokens, so this is a plain literal substitution.
+ */
+function replaceSeOfficeText(ws: ExcelJS.Worksheet, meta?: ScheduleAMeta): void {
+  const zone = meta?.zone?.trim()
+  const corp = meta?.corporation?.trim()
+  if (!zone && !corp) return
+
+  const swap = (text: string): string => {
+    let s = text
+    if (zone) s = s.split('{{Zone}}').join(zone)
+    if (corp) s = s.split('{{Corp}}').join(corp)
+    return s
+  }
+
+  ws.eachRow({ includeEmpty: false }, (row) => {
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      const v = cell.value
+      if (typeof v === 'string') {
+        const s = swap(v)
+        if (s !== v) cell.value = s
+      }
+    })
+  })
+}
+
+/**
+ * Fill the bundled SE (Zone-office) Schedule-A template — same item-table /
+ * meta-row logic as the EE template, but its preamble and signature block
+ * name the Superintending Engineer's Zone office instead of the work's
+ * Executive Engineer / Circle (see replaceSeOfficeText).
+ */
+export async function fillSeScheduleATemplate(
+  templateBuffer: Buffer,
+  items: ScheduleAItem[],
+  meta?: ScheduleAMeta
+): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(templateBuffer as unknown as ArrayBuffer)
+  const ws = workbook.worksheets[0]
+  if (!ws) throw new Error('SE Schedule A template has no sheet.')
+  fillScheduleAWorksheet(ws, items, meta)
+  replaceSeOfficeText(ws, meta)
   const out = await workbook.xlsx.writeBuffer()
   return Buffer.from(out)
 }

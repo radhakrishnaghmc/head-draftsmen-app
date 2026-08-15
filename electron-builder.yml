@@ -48,10 +48,22 @@ extraResources:
     to: zonal-concluding-agreement-template.docx
   - from: resources/zonal-memo-ee-template.docx
     to: zonal-memo-ee-template.docx
+  - from: resources/se-agreement-note-template.docx
+    to: se-agreement-note-template.docx
+  - from: resources/se-agreement-bond-template.docx
+    to: se-agreement-bond-template.docx
+  - from: resources/se-contract-deed-template.docx
+    to: se-contract-deed-template.docx
+  - from: resources/se-schedule-a-template.xlsx
+    to: se-schedule-a-template.xlsx
   - from: resources/loa-se-template.docx
     to: loa-se-template.docx
   - from: resources/loa-se-reserved-template.docx
     to: loa-se-reserved-template.docx
+  - from: resources/ts-note-template.docx
+    to: ts-note-template.docx
+  - from: resources/eligibility-criteria-template.docx
+    to: eligibility-criteria-template.docx
   - from: resources/public-participation-book-template.docx
     to: public-participation-book-template.docx
   - from: resources/action-taken-report-template.docx

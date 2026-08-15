@@ -5,6 +5,7 @@ import { IconDoc, IconEye, IconDownload, IconTrash, IconCheck, IconWarn } from '
 import { base64ToUint8 } from './docPage'
 import type { BidDocumentBatch, BidDocumentWork } from '@core/types'
 import type { BidDocumentInput } from '../../electron/ipc-contract'
+import { closeOnBackdropMouseDown } from '../overlayClose'
 
 interface Props {
   batches: BidDocumentBatch[]
@@ -190,7 +191,7 @@ export default function BidDocumentsPanel({ batches, onRemove }: Props) {
       ))}
 
       {previewing && (
-        <div className="editor-overlay" onClick={() => setPreviewing(null)}>
+        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setPreviewing(null))}>
           <div className="tender-modal tender-modal-wide" onClick={(e) => e.stopPropagation()}>
             <h3>
               BID Document {previewing.work.serial} — {previewing.work.name || 'preview'}

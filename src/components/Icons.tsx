@@ -80,6 +80,13 @@ export const IconImage = (p: P) => (
   </svg>
 )
 
+export const IconCrop = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+    <path d="M2 6h14a2 2 0 0 1 2 2v14" />
+  </svg>
+)
+
 export const IconOpen = (p: P) => (
   <svg {...base(p)}>
     <path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />

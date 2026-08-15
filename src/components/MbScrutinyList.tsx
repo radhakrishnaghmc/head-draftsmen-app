@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { IconPlus, IconTrash, IconCheck, IconRefresh, IconEye, IconChevronRight, IconSearch } from './Icons'
 import type { MBScrutinyItem } from '@core/types'
+import { closeOnBackdropMouseDown } from '../overlayClose'
 
 function nextSerialNo(items: MBScrutinyItem[]): number {
   return items.reduce((max, it) => Math.max(max, it.serialNo || 0), 0) + 1
@@ -322,7 +323,7 @@ export default function MbScrutinyList({ items, onChange }: Props) {
       )}
 
       {pendingDelete && (
-        <div className="editor-overlay" onClick={() => setPendingDelete(null)}>
+        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setPendingDelete(null))}>
           <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="confirm-ic">
               <IconTrash />

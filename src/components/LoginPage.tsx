@@ -45,8 +45,9 @@ export default function LoginPage({ onSuccess }: Props) {
       else if (result.maxSessions)
         setError(`Already signed in on ${MAX_CONCURRENT_SESSIONS} devices. Log out from one of them and try again.`)
       else setError('Incorrect login ID or password.')
-    } catch {
-      setError('Could not verify login — check your internet connection and try again.')
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e)
+      setError(`Could not verify login — ${detail}`)
     } finally {
       setBusy(false)
     }

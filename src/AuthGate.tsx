@@ -35,8 +35,13 @@ export default function AuthGate() {
     saveOffice(next)
   }
 
+  // Gated on `authed`, not just mount: the main process only points its saved-state
+  // file at THIS login (state-${loginId}.json) once login succeeds — reading before
+  // that would hit the generic, never-written state.json and never find the office,
+  // silently defeating this whole fallback (masked on Mac, where localStorage rarely
+  // needs it; the exact failure reported on Windows, where it needs it more often).
   useEffect(() => {
-    if (officeReady) return
+    if (!authed || officeReady) return
     let cancelled = false
     ;(async () => {
       try {
@@ -49,7 +54,7 @@ export default function AuthGate() {
     return () => {
       cancelled = true
     }
-  }, [officeReady])
+  }, [authed, officeReady])
 
   if (!authed) {
     return (

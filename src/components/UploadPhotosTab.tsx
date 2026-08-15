@@ -17,6 +17,7 @@ import { IconFolder, IconImage, IconTrash, IconDownload, IconWarn } from './Icon
 import ExcelInline from './ExcelInline'
 import type { ExcelTable } from '@core/types'
 import type { EstimateWorkItem } from '@core/estimateExtract'
+import { closeOnBackdropMouseDown } from '../overlayClose'
 
 interface Photo {
   id: string
@@ -555,7 +556,7 @@ export default function UploadPhotosTab({ tables, onChange, autoOpen = false, on
       )}
 
       {ecvConfirm && (
-        <div className="editor-overlay" onClick={() => setEcvConfirm(null)}>
+        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setEcvConfirm(null))}>
           <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <h3>Update ECV in the Works List?</h3>
             <p className="confirm-warn">

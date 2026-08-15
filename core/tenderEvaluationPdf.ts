@@ -135,18 +135,29 @@ function tightenCode(s: string): string {
 
 /**
  * Reassemble a NIT No that pdf.js interleaved with the header's right column.
- * These NITs read "<code>/DB/EE/<place> Circle-<circleNo>/[QBZ/]CMC/<year>", but
- * the Tender ID, an "Enquiry/IFB/Tender Notice" label fragment, or a stray digit
- * run routinely lands between the wrapped "…Circle-" prefix and the
+ * These NITs read "<code>/DB/EE/<place> Circle-<circleNo>/[QBZ/]CMC/<year>" (a
+ * named-place office) or "<code>/DB/EE-<div>/<dept>/C-<circleNo>/[QBZ/]CMC/<year>"
+ * (a division office using the short "C-<n>" circle code instead), but the
+ * Tender ID, an "Enquiry/IFB/Tender Notice" label fragment, or a stray digit run
+ * routinely lands between the wrapped "…Circle-"/"…C-" prefix and the
  * "<circleNo>/[QBZ/]CMC/<year>" tail (e.g. "…Circle- Enquiry/IFB/Tender 699588
- * 57/QBZ/CMC/2026-27"). Keep just the prefix and that tail, dropping whatever's
- * wedged between — and, because the tail ends at the year, this also trims any
- * trailing "date:…" / work-name text the value regex over-captured. Falls back
- * to the tightened raw value when the string doesn't fit this canonical shape.
+ * 57/QBZ/CMC/2026-27", or "…/C- Enquiry/IFB/Tender 723483 54/QBZ/CMC/2026-27").
+ * Keep just the prefix and that tail, dropping whatever's wedged between — and,
+ * because the tail ends at the year, this also trims any trailing "date:…" /
+ * work-name text the value regex over-captured. Falls back to the tightened raw
+ * value when the string doesn't fit either canonical shape.
  */
 function cleanNit(raw: string): string {
-  const m = /^(.*?Circle-)\s*(?:.*?\s)?(\d{1,3}\/(?:QBZ\/)?CMC\/\d{4}\s*-\s*\d{2,4})/i.exec(raw)
-  return tightenCode(m ? `${m[1]}${m[2]}` : raw)
+  // Drop any label preamble before the NIT's own code — e.g. "NIT No" landing
+  // right next to a secondary "Enquiry/IFB/Tender <tenderId> " sub-label on
+  // some L1 layouts leaves that whole label wedged in front of the real
+  // "13/DB/EE/…" code ("Enquiry/IFB/Tender 720716 13/DB/EE/…").
+  const codeStart = /\d{1,3}\/DB\/EE\b/i.exec(raw)
+  const s = codeStart ? raw.slice(codeStart.index) : raw
+  // "Circle-?": some sheets run the place name straight into the circle
+  // number with no hyphen at all ("NizampetCircle58"), not just "Circle-58".
+  const m = /^(.*?(?:Circle-?|\/C-))\s*(?:.*?\s)?(\d{1,3}\/(?:QBZ\/)?CMC\/\d{4}\s*-\s*\d{2,4})/i.exec(s)
+  return tightenCode(m ? `${m[1]}${m[2]}` : s)
 }
 
 /**
@@ -171,17 +182,25 @@ export function parseTenderEvaluation(lines: string[]): TenderEvaluation {
   // layout) the NIT date's year — "…Dt. 27.07.2026 Tender ID 722264…" — sits
   // right before the label, and an unconstrained "\d+" matched that "2026"
   // (leftmost) instead of the real id.
-  const tenderId = /Tender ID\s+(\d{5,8})\b|\b(\d{5,8})\s+Tender ID/i.exec(joined)
-  if (tenderId) result.tenderId = tenderId[1] ?? tenderId[2]
+  // A third layout runs the two columns' values together on one row with
+  // both labels on a later row — "720716 13/DB/EE/…/2026-27 Tender ID
+  // Notice Number …" — so the id ends up adjacent to the NIT No's own
+  // opening ("<id> <nitNo>"), nowhere near the "Tender ID" label at all.
+  const tenderId = /Tender ID\s+(\d{5,8})\b|\b(\d{5,8})\s+Tender ID|\b(\d{5,8})\s+(?=\d{1,3}\/DB\/EE\/)/i.exec(joined)
+  if (tenderId) result.tenderId = tenderId[1] ?? tenderId[2] ?? tenderId[3]
 
   // NIT No spans the header's left column and is interrupted by the right
   // column ("Tender ID <id>" / the "Notice Number" label) landing between its
   // wrapped halves in reading order — e.g. "…Circle- 699549 Tender ID
   // 57/QBZ/…". Strip that Tender ID label+value in either order and the
   // "Notice Number" label so the NIT's two halves rejoin, then take what's
-  // between "NIT No." and the "item"/"Dt"/"Dated" tail.
+  // between "NIT No." and the "item"/"Dt"/"Dated" tail. Same 5–8 digit
+  // constraint as the tenderId regex above — an unconstrained "\d+ Tender ID"
+  // ate the trailing "27" off a wrapped "…CMC/2026-27 Tender ID…" (a bare
+  // "Tender ID" label with no value of its own on that row), truncating the
+  // NIT No to "…CMC/2026-".
   const cleaned = joined
-    .replace(/Tender ID\s+\d+|\d+\s+Tender ID/gi, ' ')
+    .replace(/Tender ID\s+\d{5,8}\b|\b\d{5,8}\s+Tender ID/gi, ' ')
     .replace(/Notice Number/gi, ' ')
   // Capture through to the tail (or the line's end), then cleanNit drops any
   // Tender ID / "Enquiry/IFB/Tender" / date fragment wedged into the value.
@@ -207,7 +226,11 @@ export function parseTenderEvaluation(lines: string[]): TenderEvaluation {
   // "Dt: 15-07-2026" — split out as the Tender notice Date. "Dated"/"Dt" is
   // the reliable anchor (bid-submission/server dates on the page carry no
   // such label), so an unrelated date is never misread as the notice date.
-  const date = /\b(?:Dated|Dt)\b\.?\s*:?\s*(\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4})/i.exec(joined)
+  // No \b before the anchor: the item number often runs straight into it with
+  // no space ("ITEM 7Dated:24.07.2026"), which a word boundary would reject
+  // since digit-into-letter isn't a boundary — the lookbehind instead just
+  // rules out landing inside another word ("Updated"/"Mandated").
+  const date = /(?<![A-Za-z])(?:Dated|Dt)\b\.?\s*:?\s*(\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4})/i.exec(joined)
   if (date) result.noticeDate = date[1]
 
   // The page footer (bottom-right) prints "Server Time: 02/07/2026 03:59:31 PM"

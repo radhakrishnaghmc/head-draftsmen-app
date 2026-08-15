@@ -25,6 +25,7 @@ import { IconFolder, IconDownload, IconWarn, IconTrash, IconTable } from './Icon
 import type { ExcelTable } from '@core/types'
 import type { Office } from '../office'
 import { corporationByName } from '../zoneCircleDirectory'
+import { closeOnBackdropMouseDown } from '../overlayClose'
 
 type ActionKey = 'boq' | 'scheduleA' | 'deviation' | 'material'
 
@@ -796,7 +797,7 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
       )}
 
       {ecvConfirm && (
-        <div className="editor-overlay" onClick={() => setEcvConfirm(null)}>
+        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setEcvConfirm(null))}>
           <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(ev) => ev.stopPropagation()}>
             <h3>Update ECV in the Works List?</h3>
             <p className="confirm-warn">

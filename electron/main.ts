@@ -17,7 +17,7 @@ import type { CellEdit } from '../core/technicalSanction'
 import { embedTexts } from './embeddings'
 import { buildScheduleAWorkbook, rowsToScheduleAItems } from '../core/scheduleA'
 import type { ScheduleAMeta } from '../core/scheduleA'
-import { fillScheduleATemplate } from '../core/scheduleATemplate'
+import { fillScheduleATemplate, fillSeScheduleATemplate } from '../core/scheduleATemplate'
 import { fillBoqTemplate, rowsToBoqData } from '../core/boqTemplate'
 import { fillDeviationTemplate } from '../core/deviationTemplate'
 import { buildEvaluationSheet } from '../core/evaluationSheet'
@@ -351,6 +351,26 @@ function registerHandlers(): void {
       const buffer = templatePath
         ? await fillScheduleATemplate(fs.readFileSync(templatePath), items, meta)
         : buildScheduleAWorkbook(items, meta) // fallback if the bundled template is missing
+
+      fs.writeFileSync(result.filePath, buffer)
+      return result.filePath
+    }
+  )
+
+  ipcMain.handle(
+    IPC.exportSeScheduleA,
+    async (_e, table: ExcelTable, suggestedName: string, meta?: ScheduleAMeta): Promise<string | null> => {
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        title: `Save ${suggestedName}`,
+        defaultPath: `${suggestedName}.xlsx`,
+        filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
+      })
+      if (result.canceled || !result.filePath) return null
+
+      const items = rowsToScheduleAItems(table)
+      const templatePath = seScheduleATemplateFile()
+      if (!templatePath) throw new Error('SE Schedule A format is missing from the app bundle.')
+      const buffer = await fillSeScheduleATemplate(fs.readFileSync(templatePath), items, meta)
 
       fs.writeFileSync(result.filePath, buffer)
       return result.filePath
@@ -1127,10 +1147,40 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
+  ipcMain.handle(IPC.seAgreementNoteTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('se-agreement-note-template.docx')
+    if (!templatePath) throw new Error('SE Agreement Put-up Note format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
+  ipcMain.handle(IPC.seAgreementBondTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('se-agreement-bond-template.docx')
+    if (!templatePath) throw new Error('SE Agreement Bond format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
+  ipcMain.handle(IPC.seContractDeedTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('se-contract-deed-template.docx')
+    if (!templatePath) throw new Error('SE Contract Deed format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
   ipcMain.handle(IPC.loaSeTemplate, async (_e, reserved: boolean): Promise<string> => {
     const file = reserved ? 'loa-se-reserved-template.docx' : 'loa-se-template.docx'
     const templatePath = bundledResourceFile(file)
     if (!templatePath) throw new Error('Superintending Engineer LOA format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
+  ipcMain.handle(IPC.tsNoteTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('ts-note-template.docx')
+    if (!templatePath) throw new Error('TS Note format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
+  ipcMain.handle(IPC.eligibilityCriteriaTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('eligibility-criteria-template.docx')
+    if (!templatePath) throw new Error('Eligibility Criteria format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
 
@@ -1173,6 +1223,8 @@ function registerHandlers(): void {
       }
     })
   }
+
+  const seScheduleATemplateFile = () => bundledResourceFile('se-schedule-a-template.xlsx')
 
   const boqTemplateFile = () => {
     const candidates = [
@@ -1448,11 +1500,14 @@ function registerHandlers(): void {
   // v19: Completion Report — Technical Sanction No & Date is one {{TS No and Date}}
   // placeholder so the " dt. " separator only shows when a value is present (a
   // no-work preview no longer prints a stray "dt.").
-  const CURRENT_DEFAULT_DOC_VERSION = 19
+  // v20: Public Participation Log Book, Action Taken Report and Completion Report
+  // are circle-scoped (EE office only) — the SE (zonal) office's Issue Documents
+  // tab should show only its EOT proposal, not these EE-oriented reports.
+  const CURRENT_DEFAULT_DOC_VERSION = 20
   const DEFAULT_DOCUMENTS: { id: string; name: string; file: string; officeScope?: 'zonal' | 'circle' }[] = [
-    { id: 'doc_public_participation', name: 'Public Participation Log Book', file: 'public-participation-book-template.docx' },
-    { id: 'doc_action_taken_report', name: 'Action Taken Report', file: 'action-taken-report-template.docx' },
-    { id: 'doc_completion_report', name: 'Completion Report', file: 'completion-report-template.docx' },
+    { id: 'doc_public_participation', name: 'Public Participation Log Book', file: 'public-participation-book-template.docx', officeScope: 'circle' },
+    { id: 'doc_action_taken_report', name: 'Action Taken Report', file: 'action-taken-report-template.docx', officeScope: 'circle' },
+    { id: 'doc_completion_report', name: 'Completion Report', file: 'completion-report-template.docx', officeScope: 'circle' },
     // The Superintending Engineer's EOT proposal belongs to the zone (SE) office;
     // the Executive Engineer's variant to a circle (EE) office. Scoped so each
     // shows only where it applies — see CreatedDocument.officeScope.

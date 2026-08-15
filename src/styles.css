@@ -1867,6 +1867,24 @@ button.upload-btn {
   flex: 2 1 360px;
   min-width: 280px;
 }
+
+/* The SE companion notes (TS Note / Eligibility / Bid Evaluation / Agency
+   Approval) each get their own full-width row below the LOA fields+preview
+   row, instead of packing into that row's flex-wrap alongside it. */
+.se-docs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  margin-top: 16px;
+}
+.se-docs-section .estimate-preview {
+  flex: none;
+  width: 100%;
+}
+.se-docs-section .estimate-preview-scroll {
+  max-height: 480px;
+}
 .estimate-preview-title {
   font-size: 12.5px;
   font-weight: 650;
@@ -2445,7 +2463,6 @@ input[type='text']:focus {
   color: var(--ok);
   border-color: #a7f3d0;
 }
-
 .link-import {
   margin-bottom: 16px;
 }
@@ -3960,6 +3977,261 @@ button.danger:disabled {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.photo-tile-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 0;
+}
+.photo-tile-crop {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.photo-tile-crop svg {
+  width: 12px;
+  height: 12px;
+}
+.photo-tile-crop:hover {
+  background: var(--surface-3, var(--surface-2));
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.photo-tile-cropped-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rose-500);
+}
+
+/* Photos → PDF: "Adjust photo" modal (crop / flatten / filter) */
+.photo-adjust-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-width: 94vw;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.4);
+}
+.photo-adjust-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+.photo-adjust-tabs button {
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.photo-adjust-tabs button.active {
+  color: var(--rose-500);
+  border-bottom-color: var(--rose-500);
+}
+.photo-adjust-subbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.photo-adjust-modebtns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.photo-adjust-modebtns button {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.photo-adjust-modebtns button.active {
+  background: var(--rose-500);
+  border-color: var(--rose-500);
+  color: #fff;
+}
+.photo-adjust-modebtns button.primary {
+  background: var(--rose-500);
+  border-color: var(--rose-500);
+  color: #fff;
+}
+.photo-crop-notice {
+  margin: 12px 16px 0;
+}
+.photo-crop-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: #2b2c33;
+}
+.photo-crop-stage {
+  position: relative;
+  line-height: 0;
+  touch-action: none;
+}
+.photo-crop-img {
+  display: block;
+  user-select: none;
+}
+.photo-crop-mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+.photo-crop-box {
+  position: absolute;
+  border: 2px solid var(--rose-500);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6);
+  cursor: move;
+}
+.photo-crop-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: var(--rose-500);
+  border: 2px solid #fff;
+  border-radius: 50%;
+}
+.photo-crop-handle-nw {
+  top: -8px;
+  left: -8px;
+  cursor: nwse-resize;
+}
+.photo-crop-handle-ne {
+  top: -8px;
+  right: -8px;
+  cursor: nesw-resize;
+}
+.photo-crop-handle-sw {
+  bottom: -8px;
+  left: -8px;
+  cursor: nesw-resize;
+}
+.photo-crop-handle-se {
+  bottom: -8px;
+  right: -8px;
+  cursor: nwse-resize;
+}
+.photo-crop-hint {
+  margin: 0;
+  padding: 10px 16px 16px;
+}
+.photo-crop-quad-svg {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+.photo-crop-quad-handle {
+  fill: var(--rose-500);
+  stroke: #fff;
+  stroke-width: 2;
+  cursor: grab;
+}
+.photo-crop-quad-handle:active {
+  cursor: grabbing;
+}
+
+/* "Adjust photo" — Filter tab */
+.photo-adjust-filter {
+  display: flex;
+  gap: 20px;
+  padding: 20px;
+  align-items: flex-start;
+}
+.photo-adjust-filter-preview {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #2b2c33;
+  border-radius: var(--radius-sm);
+  max-height: 56vh;
+  overflow: hidden;
+}
+.photo-adjust-filter-preview img {
+  max-width: 100%;
+  max-height: 56vh;
+  display: block;
+}
+.photo-adjust-filter-busy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(20, 20, 24, 0.62);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+.photo-adjust-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+}
+.photo-adjust-filter-opts {
+  width: 220px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.photo-adjust-filter-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.photo-adjust-filter-opt.active {
+  border-color: var(--rose-500);
+  background: color-mix(in srgb, var(--rose-500) 8%, var(--surface));
+}
+.photo-adjust-filter-opt input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.photo-adjust-filter-label {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+.photo-adjust-filter-hint {
+  font-size: 11.5px;
+  color: var(--text-2);
 }
 
 .ocr-grid-preview {

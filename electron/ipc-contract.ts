@@ -112,7 +112,13 @@ export const IPC = {
   zonalWorkOrderTemplate: 'doc:zonalWorkOrderTemplate',
   zonalConcludingAgreementTemplate: 'doc:zonalConcludingAgreementTemplate',
   zonalMemoEeTemplate: 'doc:zonalMemoEeTemplate',
+  seAgreementNoteTemplate: 'doc:seAgreementNoteTemplate',
+  seAgreementBondTemplate: 'doc:seAgreementBondTemplate',
+  seContractDeedTemplate: 'doc:seContractDeedTemplate',
+  exportSeScheduleA: 'data:exportSeScheduleA',
   loaSeTemplate: 'doc:loaSeTemplate',
+  tsNoteTemplate: 'doc:tsNoteTemplate',
+  eligibilityCriteriaTemplate: 'doc:eligibilityCriteriaTemplate',
   loadState: 'state:load',
   saveState: 'state:save',
   remoteStateUpdate: 'state:remoteUpdate',
@@ -270,8 +276,20 @@ export interface DocuGenApi {
   zonalConcludingAgreementTemplate(): Promise<string>
   /** Reads the bundled Zone-level (SE office) Memo forwarding the Agreement Bond to the EE (.docx). Base64-encoded, for filling its {{placeholders}}. */
   zonalMemoEeTemplate(): Promise<string>
+  /** Reads the bundled Zone-level (SE office) Agreement Put-up Note (.docx) — the cover note requesting sign-off on the agreement + memo to EE. Base64-encoded, for filling its {{placeholders}}. */
+  seAgreementNoteTemplate(): Promise<string>
+  /** Reads the bundled Zone-level (SE office) Agreement Bond paper (.docx) — the "A G R E E M E N T" cover page signed by the Superintending Engineer. Base64-encoded, for filling its {{placeholders}}. */
+  seAgreementBondTemplate(): Promise<string>
+  /** Reads the bundled Zone-level (SE office) Contract Deed (.docx) — the Form No.6 legal deed. Base64-encoded, for filling its {{placeholders}}. */
+  seContractDeedTemplate(): Promise<string>
+  /** Fills and saves the Zone-level (SE office) Schedule A / BOQ workbook — same item table as exportScheduleA, but its preamble and signature name the Superintending Engineer's Zone office. Prompts for a save location; returns the saved path, or null if cancelled. */
+  exportSeScheduleA(table: ExcelTable, suggestedName: string, meta?: ScheduleAMeta): Promise<string | null>
   /** Reads the bundled Superintending-Engineer LOA format (.docx) — used for the Give Intimation letter when the office is zone-level (a Zone with no Circle). `reserved` picks the SC/ST-reserved variant (no EMD balance item). Returns it base64-encoded, for filling its {{placeholders}}. */
   loaSeTemplate(reserved: boolean): Promise<string>
+  /** Reads the bundled Zone-level (SE office) TS (Technical Sanction) Note (.docx) — issued alongside the LOA. Base64-encoded, for filling its {{placeholders}}. */
+  tsNoteTemplate(): Promise<string>
+  /** Reads the bundled Zone-level (SE office) Eligibility Criteria note (.docx) — issued alongside the LOA. Base64-encoded, for filling its {{placeholders}}. */
+  eligibilityCriteriaTemplate(): Promise<string>
   loadState(): Promise<PersistedState | null>
   /** Persist the workspace. `skipCloud` writes only to local disk and does NOT push to the cloud — used when the change being saved *came from* a remote sync, so it isn't echoed straight back and made to ping-pong between concurrent sessions. */
   saveState(state: PersistedState, skipCloud?: boolean): Promise<void>

@@ -12,6 +12,7 @@ import { amountToWords, dateToWords, integerToIndianWords } from './numberToWord
 import { zoneAbbr } from './loaSe'
 import type { IntimationNotice } from './intimationNotice'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
+import type { BalanceEmdReceipt } from './balanceEmdReceipt'
 
 // The agency's postal address prints in a narrow "To," block, under the agency
 // name — so it must wrap to short lines instead of running the full page width.
@@ -447,17 +448,19 @@ function groupedAmount(n: number): string {
  * The office is a Zone (no Circle of its own), so the Executive Engineer /
  * "{{EE Circle}}" named throughout is the *work's* own Circle, taken from the
  * derived fields (NIT / directory), never the office. Serial numbers, dates,
- * page counts and the EMD receipt/UTR/CMS references are left blank in the
- * templates for the office to hand-write; only the EMD 1.5% / 1% *amounts* are
- * filled here (derived from ECV), per the office's convention.
+ * page counts and the EMD 1% Payment ID/UTR/CMS references (a separate, bank-
+ * transferred payment the uploaded Balance EMD receipt doesn't cover) are left
+ * blank in the templates for the office to hand-write.
  */
 export function zonalDocsPlaceholders(
   f: WorkOrderAgreementFields,
   notice: IntimationNotice,
-  pdf: TenderEvaluation
+  pdf: TenderEvaluation,
+  emd: BalanceEmdReceipt = {}
 ): Record<string, string> {
   const ecv = num(f.ecvRupees)
   const contract = num(f.contractRupees)
+  const estLakhs = num(f.estimateLakhs)
   const zone = (f.zone ?? '').trim()
   const eeCircle = f.circle ? `${f.circle} Circle${f.cno ? `-${f.cno}` : ''}` : ''
   return {
@@ -475,15 +478,33 @@ export function zonalDocsPlaceholders(
     'Agency Phone': f.phone,
     'Name of Work': f.nameOfWork,
     'NIT No': notice.nitNo || pdf.noticeNo || '',
-    'NIT Date': pdf.noticeDate ?? '',
-    // The agency's tender date isn't carried by either upload — left blank to hand-write.
-    'Tender Date': '',
-    'Estimate Lakhs': num(f.estimateLakhs) != null ? num(f.estimateLakhs)!.toFixed(2) : f.estimateLakhs,
+    'NIT Date': notice.nitDate || pdf.noticeDate || '',
+    'Tender ID': pdf.tenderId ?? '',
+    'Estimate Lakhs': estLakhs != null ? estLakhs.toFixed(2) : f.estimateLakhs,
+    // The Agreement Bond paper prints the estimate as a full grouped rupee
+    // figure ("Rs. 3,53,00,000.00"), not "X Lakhs" like the other SE docs.
+    'Estimate Rupees': estLakhs != null ? groupedAmount(estLakhs * 100000) : '',
     ECV: ecv != null ? groupedAmount(ecv) : '',
     Contract: contract != null ? groupedAmount(contract) : '',
+    // The Contract Deed's consideration clause spells the contract value out
+    // in words, the same way the circle-level Agreement Bond does.
+    'Contract Words': contract != null ? amountToWords(contract) : '',
     'Tender Percent': f.tenderPercent,
     Period: f.completionMonths.trim(),
-    'EMD 1.5%': ecv != null ? indianDigitGroups(Math.round(ecv * 0.015)) : '',
-    'EMD 1%': ecv != null ? indianDigitGroups(Math.round(ecv * 0.01)) : ''
+    // The uploaded Balance EMD receipt gives the amount actually paid — more
+    // reliable than a re-derived 1.5% guess (which, unlike the receipt, never
+    // accounts for the 2.5% reserved-work rate) — so prefer it when present.
+    'EMD 1.5%': emd.balanceEmdRupees != null ? indianDigitGroups(Math.round(emd.balanceEmdRupees)) : ecv != null ? indianDigitGroups(Math.round(ecv * 0.015)) : '',
+    'EMD 1%': ecv != null ? indianDigitGroups(Math.round(ecv * 0.01)) : '',
+    // e-Corpus Fund contribution to the Managing Director, TSTS — 0.04% of ECV
+    // (matches the SE Letter of Acceptance's own e-Corpus derivation).
+    'E-Corpus': ecv != null ? indianDigitGroups(Math.round(ecv * 0.0004)) : '',
+    'EMD Receipt No': emd.receiptNo ?? '',
+    'EMD Receipt Date': emd.paymentDate ?? '',
+    // The Agreement Bond's own execution date — same shared date picked for the
+    // EE Work Order / Agreement Bond (f.agreementDate), left blank the same way
+    // when unset rather than guessing at a date.
+    'Agreement Date': f.agreementDate.trim() || DATE_BLANK,
+    'Agreement date in words': dateToWords(f.agreementDate) || DATE_WORDS_BLANK
   }
 }

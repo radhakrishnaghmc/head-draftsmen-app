@@ -9,6 +9,7 @@ import type { Office } from '../office'
 import { IconDoc, IconEye, IconPrint, IconDownload, IconSearch } from './Icons'
 import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
 import DocThumbnail from './DocThumbnail'
+import { closeOnBackdropMouseDown } from '../overlayClose'
 
 interface Props {
   tables: ExcelTable[]
@@ -521,7 +522,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
       </section>
 
       {preview && (
-        <div className="editor-overlay" onClick={() => setPreview(null)}>
+        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setPreview(null))}>
           <div className="editor-modal" onClick={(e) => e.stopPropagation()}>
             <div className="editor-head">
               <span className="editor-title">{previewTitle} — preview</span>
