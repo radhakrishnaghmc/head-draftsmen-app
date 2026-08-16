@@ -41,6 +41,15 @@ export interface SplitProgress {
   sheet: string
 }
 
+export interface AgreementBundleProgress {
+  /** Files finished so far (written or failed). */
+  done: number
+  /** Total files in the bundle. */
+  total: number
+  /** Name of the file currently being written/converted. */
+  name: string
+}
+
 export const IPC = {
   pickExcels: 'dialog:pickExcels',
   pickExcelGrids: 'dialog:pickExcelGrids',
@@ -60,6 +69,7 @@ export const IPC = {
   exportScheduleA: 'data:exportScheduleA',
   exportEvaluationSheet: 'data:exportEvaluationSheet',
   exportAgreementBundle: 'doc:exportAgreementBundle',
+  agreementBundleProgress: 'doc:agreementBundleProgress',
   exportBoq: 'data:exportBoq',
   exportBoqBatch: 'data:exportBoqBatch',
   pickWorkbookForSplit: 'tools:pickWorkbookForSplit',
@@ -154,6 +164,8 @@ export interface DocuGenApi {
   exportEvaluationSheet(input: EvaluationSheetInput, suggestedName: string): Promise<string | null>
   /** Save several agreement-workspace documents into ONE chosen folder, each in its given format (docx/pdf/xlsx). Returns the written paths plus any that failed (e.g. PDF conversion), or null if cancelled. */
   exportAgreementBundle(files: AgreementBundleFile[]): Promise<{ written: string[]; failed: string[] } | null>
+  /** Fires as each file in an exportAgreementBundle call is written/converted, so the UI can show live progress instead of a single static "Preparing…". Returns an unsubscribe function. */
+  onAgreementBundleProgress(callback: (progress: AgreementBundleProgress) => void): () => void
   exportBoq(table: ExcelTable, suggestedName: string, workName?: string): Promise<string | null>
   exportBoqBatch(
     entries: { table: ExcelTable; suggestedName: string; workName?: string }[]

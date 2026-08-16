@@ -63,13 +63,25 @@ function canComposeNit(office?: Office): boolean {
   return !!(office.zone && !office.circle)
 }
 
-/** Build the full NIT No from the running serial + the office's circle-or-zone/corporation/financial-year. */
-function composeNitNo(serial: string, office?: Office): string {
+/** yyyy-mm-dd (an <input type="date">'s raw value) -> a local-time Date, so the financial year comes out right regardless of timezone (new Date("yyyy-mm-dd") parses as UTC midnight, which can roll to the wrong local day). Blank/invalid -> today. */
+function parseIsoDateLocal(iso: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date()
+}
+
+/**
+ * Build the full NIT No from the running serial + the office's
+ * circle-or-zone/corporation/financial-year. The financial year comes from
+ * the notice's own Dated field (falling back to today when it's blank) —
+ * not today's date — so it's the NIT's actual financial year, and changing
+ * Dated updates it live.
+ */
+function composeNitNo(serial: string, office: Office | undefined, datedIso: string): string {
   const s = serial.trim() || '16'
   // A Zone-level office has no Circle of its own — name the Zone instead of
   // "Circle Circle-<CNO>", which would otherwise print "undefined".
   const place = office?.circle ? `${office.circle} Circle-${office.circleNumber}` : `${office?.zone} Zone`
-  return `${s}/DB/EE/${place}/${office?.corporation}/${indianFinancialYear()}`
+  return `${s}/DB/EE/${place}/${office?.corporation}/${indianFinancialYear(parseIsoDateLocal(datedIso))}`
 }
 
 function todayISO(): string {
@@ -125,12 +137,12 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
   // so a user who doesn't type their own NIT No can't accidentally submit
   // this example text as if it were real.
   const [nitNoManual, setNitNoManual] = useState('')
-  const nitNo = useMemo(
-    () => (composeReady ? composeNitNo(nitSerial, office) : nitNoManual),
-    [composeReady, nitSerial, office, nitNoManual]
-  )
-
   const [datedDate, setDatedDate] = useState(todayISO)
+  // Not memoized — the financial year depends on `datedDate` (live) and,
+  // when that's blank, on today's real date, so it needs to re-run on every
+  // render rather than only when nitSerial/office/datedDate change.
+  const nitNo = composeReady ? composeNitNo(nitSerial, office, datedDate) : nitNoManual
+
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [email, setEmail] = useState('')

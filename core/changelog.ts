@@ -16,6 +16,21 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.20.0',
+    changes: [
+      'Agreement and Work Order: "Download all documents" is now available for SE (Zone) offices too, in the page header, with the same Word/PDF toggle as EE offices — and now shows live progress ("Preparing 3 of 8…", "Saving 5 of 8…") instead of a plain "Preparing…" that could look frozen.',
+      'Fixed: Bid Evaluation and Agency Approval notes failed to open with an "Invalid XML name" error — now generate correctly.',
+      'Fixed: SE Work Order date was never filling in ("DT." stayed blank).',
+      'Fixed: Memo to EE showed a blank circle ("Executive Engineer, , Zone") when no Works List row matched — now fills in from the NIT/work name.',
+      'Fixed: the Item No. tag was printing inside the Name of Work text on every document — now shown only in its own Item No. field.',
+      'Fixed: SE Agreement Bond page layout (blank top third for the letterhead) and the Agmt. No./Date line alignment.',
+      'Fixed: SE Agreement Put-up Note — Sub/Ref block alignment and a missing Item No. in the reference line.',
+      'Fixed: Memo Concluding Agreement and Contract Deed — the agency address block no longer collapses to the left margin partway through.',
+      'Fixed: TS Note — a stray blank space in the "Lr no." reference line.',
+      'Works List: removed the duplicate "Change your Office" link (use the office picker in the sidebar).'
+    ]
+  },
+  {
     version: '1.19.0',
     changes: [
       'New: Bid Document for SE (Zone) offices — its own format with Item No., Technical Sanction and Administrative Sanction fields, replacing the Circle-office format automatically for a Zone office.',

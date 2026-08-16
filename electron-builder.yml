@@ -21,6 +21,28 @@ files:
   # (a stray 665MB Qwen2.5-0.5B cache is what blew up v1.18.0's installer
   # size — see MEMORY/PROJECT notes). Exclude on principle, not just once.
   - '!**/node_modules/**/.cache/**'
+  # @huggingface/transformers ships its raw TypeScript source (src/) and
+  # type declarations (types/) alongside the compiled dist/ it actually
+  # resolves to (its own package.json "main"/"exports" point only at
+  # dist/transformers.node.cjs) — src/ and types/ are never require()'d at
+  # runtime, only useful to a TypeScript compiler, so they're dead weight
+  # in a packaged app (6.4MB).
+  - '!**/node_modules/@huggingface/transformers/src/**'
+  - '!**/node_modules/@huggingface/transformers/types/**'
+  # Likewise @techstark/opencv-js (a transitive dep of the OCR pipeline)
+  # ships a full generated .d.ts type tree under dist/src/types/ — again
+  # compile-time only, never required at runtime (1.1MB).
+  - '!**/node_modules/@techstark/opencv-js/dist/src/types/**'
+  # lodash/fp (the functional-programming variant) is a separate opt-in
+  # entry point nobody in this app or its dependencies imports — confirmed
+  # no 'lodash/fp' require anywhere in our code or html-to-docx's bundled
+  # dist (1.6MB).
+  - '!**/node_modules/lodash/fp/**'
+  # dayjs ships a locale file per language; exceljs (the only thing that
+  # pulls dayjs in) never calls dayjs.locale() or requires dayjs/locale/*,
+  # so every locale but the built-in default (English) is unused (1.2MB).
+  - '!**/node_modules/dayjs/locale/**'
+  - '!**/node_modules/dayjs/esm/locale/**'
 # sharp ships platform-native binaries: a *.node addon plus libvips shared
 # libraries (.dll on Windows, .dylib on macOS). Windows DLLs in particular
 # cannot be dlopen'd from inside the asar archive, so unpack sharp and its

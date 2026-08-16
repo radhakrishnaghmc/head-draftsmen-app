@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
 import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice } from '@core/intimationNotice'
@@ -20,6 +21,7 @@ import {
   indianFinancialYear
 } from '@core/workOrderAgreement'
 import type { WorkOrderAgreementFields } from '@core/workOrderAgreement'
+import { extractItemNo, stripItemNoTag } from '@core/bidDocument'
 import { corporationByName, resolveFromDirectory, entriesOf } from '../zoneCircleDirectory'
 import { type Office } from '../office'
 import { boqToScheduleA, buildBoqFromEstimate, extractWorkNameFromBoq } from '../boqTransform'
@@ -91,6 +93,13 @@ interface Props {
   zoneLogin?: boolean
   /** The chosen office (Works List page) — supplies Corporation/Circle/CNO for the Forwarding Slip. */
   office?: Office
+  /**
+   * DOM node (rendered by the page header, App.tsx) to portal the "Download
+   * all documents" button into — puts it in the page-head-action slot next
+   * to the title, matching Calendar's "Issue tender notice" placement,
+   * instead of buried in the body below several upload/field sections.
+   */
+  headerActionRef?: RefObject<HTMLDivElement | null>
 }
 
 function stripExt(name: string): string {
@@ -253,7 +262,8 @@ function fieldsFromManual(m: ManualEntry): WorkOrderAgreementFields {
     circle: m.circle.trim(),
     cno: m.cno.trim(),
     zone: m.zone.trim(),
-    nameOfWork: m.nameOfWork.trim(),
+    nameOfWork: stripItemNoTag(m.nameOfWork.trim()),
+    itemNo: extractItemNo(m.nameOfWork) ?? '',
     agencyName: m.agencyName.trim(),
     address: m.address.trim(),
     phone: m.phone.trim(),
@@ -294,10 +304,24 @@ export default function WorkOrderAgreementTab({
   autoOpen = false,
   onContent,
   zoneLogin = false,
-  office
+  office,
+  headerActionRef
 }: Props) {
   const standalone = standaloneProp || scheduleAOnly || !!only
   const table = tables[0] ?? null
+
+  // Whether headerActionRef's DOM node is actually mounted yet — reading
+  // headerActionRef.current directly during render is unreliable (refs
+  // attach during commit, after render runs, so the very first render
+  // always sees it as null and never gets another render to correct that
+  // unless something else also changes). This effect re-renders once the
+  // node is there, so the "Download all documents" button reliably ends up
+  // in the header instead of silently staying in its (now-removed) inline
+  // fallback forever.
+  const [headerMounted, setHeaderMounted] = useState(false)
+  useLayoutEffect(() => {
+    setHeaderMounted(!!headerActionRef?.current)
+  })
 
   // Zone-level (SE office) mode: a Zone chosen with no Circle of its own. The
   // page then produces the three SE documents (Work Order, Concluding Agreement,
@@ -353,6 +377,16 @@ export default function WorkOrderAgreementTab({
   const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf' | 'bundle'>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
+  // Which format "Download all documents" saves every document as (Schedule
+  // A is always Excel regardless — the one format it actually has). Defaults
+  // to Word since PDF needs LibreOffice installed.
+  const [bundleFormat, setBundleFormat] = useState<'docx' | 'pdf'>('docx')
+  // Live "Download all documents" progress — filling each document locally,
+  // then (a separate, often slower phase, especially for PDF: LibreOffice per
+  // file) the main process writing/converting them — so the button reads
+  // "Preparing 3 of 8…" / "Saving 3 of 8…" instead of a single static
+  // "Preparing…" that looks frozen on a big bundle.
+  const [bundleProgress, setBundleProgress] = useState<{ phase: 'preparing' | 'saving'; done: number; total: number } | null>(null)
   const [expandedPages, setExpandedPages] = useState(0)
 
   // Schedule A (from an uploaded technical-sanctioned estimate / BOQ).
@@ -366,6 +400,15 @@ export default function WorkOrderAgreementTab({
   const [scheduleA, setScheduleA] = useState<ExcelTable | null>(null)
   const [scheduleAError, setScheduleAError] = useState<string | null>(null)
   const [scheduleABusy, setScheduleABusy] = useState(false)
+
+  // "No. of items in Schedule 'A'" is just the uploaded estimate's own item
+  // count — auto-fill it from there instead of asking the office to count and
+  // type it in by hand. Still a plain editable field (not derived inline at
+  // render time) so it can be corrected if the estimate ever needs it, and so
+  // it stays blank — not "0" — until an estimate is actually uploaded.
+  useEffect(() => {
+    if (scheduleA) setScheduleAItems(String(scheduleA.rows.length))
+  }, [scheduleA])
 
   // One agreement date, shared by the Work Order and the Agreement Bond (both
   // its A.B.No line and the "…day of…" wording). Held as an ISO date-input
@@ -539,6 +582,21 @@ export default function WorkOrderAgreementTab({
     }
   }, [seMode])
 
+  // Circle/CNO for the work, read off the NIT No ("…/EE/Gajularamaram
+  // Circle-57/…") of either upload, falling back to a directory scan of the
+  // L-1's work name — the same resolution the circle-mismatch guard below
+  // uses. Serves two purposes: that guard's comparison value, and (for a Zone
+  // office, which has no circle of its own) the fallback that fills the
+  // zonal documents' "{{EE Circle}}" when no Works List row matched.
+  const l1CircleInfo = useMemo(() => {
+    const fromEval = circleFromNit(pdfEval?.noticeNo || '')
+    if (fromEval.circle) return fromEval
+    const fromNotice = circleFromNit(notice?.nitNo || '')
+    if (fromNotice.circle) return fromNotice
+    const d = resolveFromDirectory(pdfEval?.nameOfWork || '', entriesOf(office?.corporation))
+    return { circle: d.circle ?? '', cno: d.cno ?? '' }
+  }, [pdfEval, notice, office])
+
   // Everything the two documents print, resolved from the uploaded Online
   // Intimation + L-1 selection form + the matched Works List row.
   const fields = useMemo(() => {
@@ -572,15 +630,15 @@ export default function WorkOrderAgreementTab({
       // In the Tools single-document panels (`only`) the office is ignored for
       // the *uploaded* flow — those are "any circle/zone" and take the L-1's own
       // circle — so an L-1 for a different circle isn't relabelled to the office.
-      circle: (only ? '' : office?.circle) || f.circle || manualCircle,
-      cno: (only ? '' : office?.circleNumber) || f.cno || manualCno,
+      circle: (only ? '' : office?.circle) || f.circle || l1CircleInfo.circle || manualCircle,
+      cno: (only ? '' : office?.circleNumber) || f.cno || l1CircleInfo.cno || manualCno,
       zone: (only ? '' : office?.zone) || f.zone || manualZone,
       corporation: (only ? '' : office?.corporation) ?? '',
       corporationFullName: (only ? '' : corporationByName(office?.corporation)?.fullName) ?? '',
       tsNoDate,
       completionMonths
     }
-  }, [manualMode, manual, notice, pdfEval, selectedRow, agreementDate, office, tsNoDate, completionMonths, manualCircle, manualCno, manualZone])
+  }, [manualMode, manual, notice, pdfEval, selectedRow, agreementDate, office, tsNoDate, completionMonths, manualCircle, manualCno, manualZone, l1CircleInfo])
 
   // Tools/standalone: the uploaded L-1 gave neither a Circle nor a Zone (and no
   // office was chosen to supply them), so the prompt must collect them by hand.
@@ -790,19 +848,11 @@ export default function WorkOrderAgreementTab({
   const noWorksRowMatch = !standalone && worksRowMatched === false
 
   // Guard: the uploaded Circle must match the Circle the documents will fill
-  // from. The Circle comes from the NIT No ("…/EE/Gajularamaram Circle-57/…") of
-  // EITHER upload — the L-1 selection form or the Online Intimation — so the
-  // check fires even when only the Online Intimation has been uploaded; it falls
-  // back to inferring the circle from the L-1's work name via the directory. We
-  // compare it against the office's Circle (Works List page) when set, otherwise
-  // the matched Works List row's Circle — so an upload from another circle that
-  // fuzzy-matched a row here is caught and blocked (it would otherwise issue e.g.
-  // a Nizampet work's agreement under Gajularamaram).
-  const l1Circle = useMemo(() => {
-    const fromNit = circleFromNit(pdfEval?.noticeNo || '').circle || circleFromNit(notice?.nitNo || '').circle
-    if (fromNit) return fromNit
-    return resolveFromDirectory(pdfEval?.nameOfWork || '', entriesOf(office?.corporation)).circle ?? ''
-  }, [pdfEval, notice, office])
+  // from — compared against the office's Circle (Works List page) when set,
+  // otherwise the matched Works List row's Circle — so an upload from another
+  // circle that fuzzy-matched a row here is caught and blocked (it would
+  // otherwise issue e.g. a Nizampet work's agreement under Gajularamaram).
+  const l1Circle = l1CircleInfo.circle
   const officeCircle = (office?.circle ?? '').trim()
   const rowCircle = (selectedRow?.['Circle'] ?? '').trim()
   const targetCircle = officeCircle || rowCircle
@@ -813,25 +863,14 @@ export default function WorkOrderAgreementTab({
   }
   const circleMismatch = !standalone && !!l1Circle && !!targetCircle && !sameCircleId(l1Circle, targetCircle)
 
-  // Only build the documents once BOTH the Online Intimation and the L1
-  // selection form are uploaded, they belong to the same work, the L1's work is
-  // actually in the Works List, and it's this office's own Circle — no tiles are
-  // shown before that.
-  // "Fill details manually" is ready once the name of work is typed in — the
-  // other fields are optional (blank prints blank). Otherwise both files must be
-  // uploaded (and pass the same-work / circle checks).
-  const bothUploaded = manualMode
-    ? !!manual.nameOfWork.trim()
-    : !!notice && !!pdfEval && !workMismatch && !circleMismatch
   const templatesReady = seMode
     ? ZONAL_KINDS.every((k) => !!zonalB64[k])
     : !!workOrderB64 && !!fileBackerB64 && !!agreementB64 && !!forwardingSlipB64 && !!civilTenderB64
-  // SE mode shows its document catalog (all 7 zonal docs) as soon as the
-  // templates load — Zone/Circle-of-the-office filled, everything else blank
-  // — instead of hiding it until both uploads are done; EE mode keeps the
-  // original upload gate (its tiles carry the extra circle-mismatch safety
-  // check, which needs a real upload to evaluate).
-  const docsReady = templatesReady && (bothUploaded || seMode)
+  // The document catalog always shows as soon as its templates load,
+  // regardless of office (EE or SE) or whether anything's been uploaded yet
+  // — blank fields fill in as uploads land. EE no longer needs an upload
+  // just to see its tiles (matches SE, which always worked this way).
+  const docsReady = templatesReady
 
   // Live thumbnails in the document tiles, refreshed whenever the filled values
   // change. The Forwarding Slip shows only on the main tab (not the Tools-mode
@@ -907,19 +946,46 @@ export default function WorkOrderAgreementTab({
     }
   }
 
-  // Generate every agreement-workspace document at once, each in its preferred
-  // format, into one folder the user picks: Tender / QCC Intimation / Work Order
-  // as PDF, Schedule A as Excel, and the rest (Forwarding Slip / Agreement Bond
-  // / Note Submitted) as Word. Only the outputs that are ready are included.
+  // Generate every agreement-workspace document at once, into one folder the
+  // user picks — each in the format chosen by the toggle next to the button
+  // (Word or PDF). Schedule A is always Excel, the one format it actually
+  // has. Only the outputs that are ready are included.
   async function downloadAll() {
     setBusy('bundle')
     setActionError(null)
     setActionSaved(null)
+    const totalPrep = seMode
+      ? ZONAL_KINDS.filter((k) => !!zonalB64[k]).length
+      : [fileBackerB64, civilTenderB64, forwardingSlipB64, agreementB64, qccIntimationB64, workOrderB64, noteReady].filter(
+          Boolean
+        ).length
+    let prepDone = 0
+    setBundleProgress({ phase: 'preparing', done: 0, total: totalPrep })
+    const unsubscribe = api.onAgreementBundleProgress(({ done, total }) =>
+      setBundleProgress({ phase: 'saving', done, total })
+    )
     try {
       const files: AgreementBundleFile[] = []
-      // File Backer — the cover page — as Word, first in the bundle.
-      if (fileBackerB64) files.push({ name: docName('fileBacker'), format: 'docx', docxBase64: await fillDoc('fileBacker') })
-      if (civilTenderB64) files.push({ name: docName('civilTender'), format: 'pdf', docxBase64: await fillDoc('civilTender') })
+      const add = (name: string, docxBase64: string) => {
+        files.push({ name, format: bundleFormat, docxBase64 })
+        prepDone += 1
+        setBundleProgress({ phase: 'preparing', done: prepDone, total: totalPrep })
+      }
+      if (seMode) {
+        for (const kind of ZONAL_KINDS) {
+          if (zonalB64[kind]) add(docName(kind), await fillDoc(kind))
+        }
+      } else {
+        // File Backer — the cover page — first in the bundle.
+        if (fileBackerB64) add(docName('fileBacker'), await fillDoc('fileBacker'))
+        if (civilTenderB64) add(docName('civilTender'), await fillDoc('civilTender'))
+        if (forwardingSlipB64) add(docName('forwardingSlip'), await fillDoc('forwardingSlip'))
+        // Work Order & Agreement Bond print a blank, hand-writable date in the bundle.
+        if (agreementB64) add(docName('agreement'), await fillDoc('agreement', { blankDate: true }))
+        if (qccIntimationB64) add(docName('qccIntimation'), await fillDoc('qccIntimation'))
+        if (workOrderB64) add(docName('workOrder'), await fillDoc('workOrder', { blankDate: true }))
+        if (noteReady) add(noteSubmittedFileName(noteData?.workName), await api.noteSubmittedDocx(notePreviewHtml))
+      }
       if (scheduleA)
         files.push({
           name: `Schedule A${fields.agencyName ? ` - ${fields.agencyName}` : ''}`,
@@ -927,21 +993,11 @@ export default function WorkOrderAgreementTab({
           scheduleATable: scheduleA,
           scheduleAMeta
         })
-      if (forwardingSlipB64) files.push({ name: docName('forwardingSlip'), format: 'docx', docxBase64: await fillDoc('forwardingSlip') })
-      // Work Order & Agreement Bond print a blank, hand-writable date in the bundle.
-      if (agreementB64) files.push({ name: docName('agreement'), format: 'docx', docxBase64: await fillDoc('agreement', { blankDate: true }) })
-      if (qccIntimationB64) files.push({ name: docName('qccIntimation'), format: 'pdf', docxBase64: await fillDoc('qccIntimation') })
-      if (workOrderB64) files.push({ name: docName('workOrder'), format: 'pdf', docxBase64: await fillDoc('workOrder', { blankDate: true }) })
-      if (noteReady)
-        files.push({
-          name: noteSubmittedFileName(noteData?.workName),
-          format: 'docx',
-          docxBase64: await api.noteSubmittedDocx(notePreviewHtml)
-        })
       if (files.length === 0) {
         setActionError('No documents are ready to download yet.')
         return
       }
+      setBundleProgress({ phase: 'saving', done: 0, total: files.length })
       const res = await api.exportAgreementBundle(files)
       if (!res) {
         setActionSaved('Cancelled.')
@@ -959,6 +1015,8 @@ export default function WorkOrderAgreementTab({
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
+      unsubscribe()
+      setBundleProgress(null)
       setBusy(null)
     }
   }
@@ -1300,8 +1358,44 @@ export default function WorkOrderAgreementTab({
   // placeholder panel.
   if (autoOpen && scheduleAOnly && !boq && !scheduleAError) return null
 
+  const bundleProgressLabel = bundleProgress
+    ? `${bundleProgress.phase === 'preparing' ? 'Preparing' : 'Saving'} ${bundleProgress.done} of ${bundleProgress.total}…`
+    : 'Preparing…'
+
+  const downloadAllButton = docsReady && !only && (
+    <div className="download-all-group">
+      <div className="format-toggle" role="group" aria-label="Download format">
+        <button
+          type="button"
+          className={bundleFormat === 'docx' ? 'on' : ''}
+          disabled={busy === 'bundle'}
+          onClick={() => setBundleFormat('docx')}
+        >
+          Word
+        </button>
+        <button
+          type="button"
+          className={bundleFormat === 'pdf' ? 'on' : ''}
+          disabled={busy === 'bundle'}
+          onClick={() => setBundleFormat('pdf')}
+        >
+          PDF
+        </button>
+      </div>
+      <button
+        className="primary"
+        disabled={busy === 'bundle'}
+        onClick={downloadAll}
+        title={`Every document as ${bundleFormat === 'pdf' ? 'PDF' : 'Word'}, into one folder you choose`}
+      >
+        <IconDownload /> {busy === 'bundle' ? bundleProgressLabel : 'Download all documents'}
+      </button>
+    </div>
+  )
+
   return (
     <div className={only ? 'wo-compact' : 'card'}>
+      {headerMounted && headerActionRef?.current && createPortal(downloadAllButton, headerActionRef.current)}
       <div ref={printScratchRef} style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }} aria-hidden />
 
       <div className={only ? 'wo-compact-body' : 'empty empty--tight'}>
@@ -1490,18 +1584,11 @@ export default function WorkOrderAgreementTab({
           </div>
         )}
         {!scheduleAOnly && !only && (
-          <div className="wo-date-row">
+          <div className="wo-manual-form">
             <label className="wo-date-field">
               <span>Agreement date</span>
               <input type="date" value={agreementDate} onChange={(e) => setAgreementDate(e.target.value)} />
             </label>
-            <span className="estimate-hint">
-              Same date fills the Work Order and the Agreement Bond. Leave blank to print a ruled date line to fill in by hand.
-            </span>
-          </div>
-        )}
-        {!scheduleAOnly && !only && (
-          <div className="wo-date-row">
             <label className="wo-date-field">
               <span>Technical Sanction No &amp; Date</span>
               <input
@@ -1538,7 +1625,7 @@ export default function WorkOrderAgreementTab({
                 onChange={(e) => setScheduleAItems(e.target.value)}
               />
             </label>
-            <span className="estimate-hint">For the Forwarding Slip &amp; Tender Document.</span>
+            <span className="estimate-hint wo-manual-wide">For the Forwarding Slip &amp; Tender Document.</span>
           </div>
         )}
         {!only && noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
@@ -1605,22 +1692,15 @@ export default function WorkOrderAgreementTab({
         </div>
       )}
 
-      {noWorks ? (
-        <div className="notice">Add works to the Works List first — the outputs are filled from a work's row.</div>
-      ) : anyOutput ? (
+      {anyOutput ? (
         <>
-          {docsReady && !seMode && !only && (
-            <div className="wo-download-all">
-              <button className="primary" disabled={busy === 'bundle'} onClick={downloadAll}>
-                <IconDownload /> {busy === 'bundle' ? 'Preparing documents…' : 'Download all documents'}
-              </button>
-              <span className="wo-download-all-note">
-                Tender, QCC Intimation &amp; Work Order as PDF · Schedule A as Excel · Forwarding Slip, Agreement Bond &amp;
-                Note Submitted as Word — all into one folder you choose.
-              </span>
-              {busy === 'bundle' && <span className="wo-download-all-note">This can take a moment (PDF conversion).</span>}
+          {noWorks && (
+            <div className="notice">
+              Works List is empty — supporting details (Wincode, estimate, TS No/date, …) will be blank until you add
+              the work there; the documents below still fill from your uploads.
             </div>
           )}
+          {!headerMounted && downloadAllButton}
           <div className="wo-tiles">
           {docsReady && seMode && (
             <>
@@ -1764,6 +1844,11 @@ export default function WorkOrderAgreementTab({
           )}
           </div>
         </>
+      ) : noWorks ? (
+        <div className="notice">
+          Add works to the Works List first, or upload the L1 selection form / Online Intimation above — either fills
+          the outputs.
+        </div>
       ) : null}
 
       {datePromptOpen && (

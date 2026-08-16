@@ -50,6 +50,11 @@ const api: DocuGenApi = {
     ipcRenderer.on(IPC.splitProgress, listener)
     return () => ipcRenderer.removeListener(IPC.splitProgress, listener)
   },
+  onAgreementBundleProgress: (callback) => {
+    const listener = (_e: unknown, progress: import('./ipc-contract').AgreementBundleProgress) => callback(progress)
+    ipcRenderer.on(IPC.agreementBundleProgress, listener)
+    return () => ipcRenderer.removeListener(IPC.agreementBundleProgress, listener)
+  },
   exportDeviation: (items, meta, suggestedName) =>
     ipcRenderer.invoke(IPC.exportDeviation, items, meta, suggestedName),
   exportDetailedEstimate: (items, meta, suggestedName) =>

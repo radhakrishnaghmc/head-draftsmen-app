@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
 import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice } from '@core/intimationNotice'
@@ -7,6 +8,7 @@ import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
 import { computeWorkAmounts, tenderPercentFromRow } from '@core/worksAmounts'
 import { wrapAgencyAddress } from '@core/workOrderAgreement'
+import { stripItemNoTag } from '@core/bidDocument'
 import {
   zoneAbbr,
   financialYearFromDate,
@@ -37,6 +39,13 @@ interface Props {
   onChange: (table: ExcelTable) => void
   /** The chosen office. A Zone with no Circle = Superintending Engineer (zonal) office → the LOA format. */
   office: Office
+  /**
+   * DOM node (rendered by the page header, App.tsx) to portal the "Download
+   * all documents" button into — puts it in the page-head-action slot next
+   * to the title, matching the Agreement page, instead of buried in the
+   * body below the upload buttons.
+   */
+  headerActionRef?: RefObject<HTMLDivElement | null>
 }
 
 /** The Intimation letter (or SE LOA) plus its 4 SE companion notes — each shown as a tile that expands into the preview modal, same layout as the Agreement page's document tiles. */
@@ -153,7 +162,9 @@ function reservedInfo(
     ? col.replace(/reserved\s*(for)?/i, '').replace(/\bonly\b/i, '').replace(/[()]/g, '').trim()
     : ''
   if (!cat) cat = (paren?.[1] ?? bare?.[1] ?? '').replace(/\bonly\b/i, '').trim()
-  return { name, tag: cat ? `(Reserved for ${cat} only)` : '', isReserved: !!cat }
+  // The item number (SE multi-item NITs tag it onto the name, e.g. "...(Item
+  // No.3)") has its own field elsewhere — never print it as part of the name.
+  return { name: stripItemNoTag(name), tag: cat ? `(Reserved for ${cat} only)` : '', isReserved: !!cat }
 }
 
 /** Whether a work is SC/ST-reserved (picks the LOA variant that omits the EMD line). */
@@ -364,8 +375,21 @@ function notice_nitNo(pdf: TenderEvaluation, row: Record<string, string>): strin
  * docx-preview of the filled letter with Word / PDF / Print. (Note Submitted
  * lives on the Agreement & Work Order tab.)
  */
-export default function GiveIntimationTab({ tables, onChange, office }: Props) {
+export default function GiveIntimationTab({ tables, onChange, office, headerActionRef }: Props) {
   const table = tables[0] ?? null
+
+  // Whether headerActionRef's DOM node is actually mounted yet — reading
+  // headerActionRef.current directly during render is unreliable (refs
+  // attach during commit, after render runs, so the very first render
+  // always sees it as null and never gets another render to correct that
+  // unless something else also changes). This effect re-renders once the
+  // node is there, so the "Download all documents" button reliably ends up
+  // in the header instead of silently staying in its (now-removed) inline
+  // fallback forever.
+  const [headerMounted, setHeaderMounted] = useState(false)
+  useLayoutEffect(() => {
+    setHeaderMounted(!!headerActionRef?.current)
+  })
 
   // A Zone chosen with no Circle is the Superintending Engineer (zonal) office,
   // which issues the "Letter of Acceptance" format instead of the EE Intimation.
@@ -392,6 +416,14 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
   const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf' | 'bundle'>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
+  // Which format "Download all documents" saves every document as. Defaults
+  // to Word since PDF needs LibreOffice installed.
+  const [bundleFormat, setBundleFormat] = useState<'docx' | 'pdf'>('docx')
+  // Live "Download all documents" progress (see the same field on the
+  // Agreement/Work Order tab) — filling locally, then the main process
+  // writing/converting, so the button doesn't sit on a static "Preparing…"
+  // that reads as a frozen screen on a multi-document SE bundle.
+  const [bundleProgress, setBundleProgress] = useState<{ phase: 'preparing' | 'saving'; done: number; total: number } | null>(null)
   // Which document tile is expanded into the full preview modal — mirrors the
   // Agreement page's tile-grid layout instead of showing every document's full
   // preview inline at once.
@@ -590,12 +622,11 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
   // — so a no-match never blocks the letter; the Works List is only used to fill
   // supporting details when its name matched. It's surfaced as a soft note only.
   const noWorksRowMatch = worksRowMatched === false
-  const bothUploaded = !!templateB64 && !!notice && !!pdfEval && !workMismatch
-  // SE mode shows its document catalog (LOA + companion notes) as soon as the
-  // office is known — Zone-filled, everything else blank — instead of hiding
-  // it until both uploads are done; EE mode keeps the original upload gate
-  // (the single Intimation letter has no "browse before you upload" ask).
-  const showBody = bothUploaded || seMode
+  // The document tile(s) always show, regardless of office (EE or SE) or
+  // whether anything's been uploaded yet — blank fields fill in as uploads
+  // land, same as SE's catalog already did; EE no longer needs an upload
+  // just to see the Intimation tile.
+  const showBody = true
 
   // Live docx thumbnail of the filled letter (tile preview) — refreshed whenever the values change.
   useEffect(() => {
@@ -622,7 +653,7 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
   // ---- SE-only companion notes: TS Note, Eligibility Criteria (docx
   // templates), Bid Evaluation & Agency Approval (HTML-built, dynamic bidder
   // tables). Shown as soon as their templates load — same "always browsable"
-  // catalog as the LOA above, not gated on bothUploaded. ----
+  // catalog as the LOA above. ----
   const seDocsReady = seMode && !!seDocB64.tsNote && !!seDocB64.eligibility
 
   const seDocValues = useMemo(() => {
@@ -770,15 +801,23 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
     setBusy('bundle')
     setActionError(null)
     setActionSaved(null)
+    const totalPrep = (showBody && templateB64 ? 1 : 0) + (seMode && seDocsReady ? 4 : 0)
+    let prepDone = 0
+    setBundleProgress({ phase: 'preparing', done: 0, total: totalPrep })
+    const unsubscribe = api.onAgreementBundleProgress(({ done, total }) =>
+      setBundleProgress({ phase: 'saving', done, total })
+    )
     try {
       const files: AgreementBundleFile[] = []
       const agencyName = notice?.agencyName ?? selectedRow?.['Name of the Agency']
       if (showBody && templateB64) {
         files.push({
           name: `${seMode ? 'Letter of Acceptance' : 'Intimation'}${agencyName ? ` - ${agencyName}` : ''}`,
-          format: 'docx',
+          format: bundleFormat,
           docxBase64: await fillTemplate()
         })
+        prepDone += 1
+        setBundleProgress({ phase: 'preparing', done: prepDone, total: totalPrep })
       }
       if (seMode && seDocsReady) {
         const names: Record<'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval', string> = {
@@ -790,15 +829,18 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
         for (const kind of ['tsNote', 'eligibility', 'bidEval', 'agencyApproval'] as const) {
           files.push({
             name: `${names[kind]}${agencyName ? ` - ${agencyName}` : ''}`,
-            format: 'docx',
+            format: bundleFormat,
             docxBase64: await fillSeDoc(kind)
           })
+          prepDone += 1
+          setBundleProgress({ phase: 'preparing', done: prepDone, total: totalPrep })
         }
       }
       if (files.length === 0) {
         setActionError('No documents are ready to download yet.')
         return
       }
+      setBundleProgress({ phase: 'saving', done: 0, total: files.length })
       const res = await api.exportAgreementBundle(files)
       if (!res) {
         setActionSaved('Cancelled.')
@@ -814,6 +856,8 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
+      unsubscribe()
+      setBundleProgress(null)
       setBusy(null)
     }
   }
@@ -1052,8 +1096,44 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
     )
   }
 
+  const bundleProgressLabel = bundleProgress
+    ? `${bundleProgress.phase === 'preparing' ? 'Preparing' : 'Saving'} ${bundleProgress.done} of ${bundleProgress.total}…`
+    : 'Preparing…'
+
+  const downloadAllButton = seMode && (
+    <div className="download-all-group">
+      <div className="format-toggle" role="group" aria-label="Download format">
+        <button
+          type="button"
+          className={bundleFormat === 'docx' ? 'on' : ''}
+          disabled={busy === 'bundle'}
+          onClick={() => setBundleFormat('docx')}
+        >
+          Word
+        </button>
+        <button
+          type="button"
+          className={bundleFormat === 'pdf' ? 'on' : ''}
+          disabled={busy === 'bundle'}
+          onClick={() => setBundleFormat('pdf')}
+        >
+          PDF
+        </button>
+      </div>
+      <button
+        className="primary"
+        disabled={busy === 'bundle'}
+        onClick={downloadAll}
+        title={`Letter of Acceptance, TS Note, Eligibility Criteria, Bid Evaluation & Agency Approval — all as ${bundleFormat === 'pdf' ? 'PDF' : 'Word'}, into one folder you choose`}
+      >
+        <IconDownload /> {busy === 'bundle' ? bundleProgressLabel : 'Download all documents'}
+      </button>
+    </div>
+  )
+
   return (
     <div className="card">
+      {headerMounted && headerActionRef?.current && createPortal(downloadAllButton, headerActionRef.current)}
       <div ref={printScratchRef} style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }} aria-hidden />
 
       <div className="empty empty--tight">
@@ -1171,14 +1251,12 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
         </div>
       )}
 
-      {noWorks ? (
-        <div className="notice">Add works to the Works List first — the Intimation letter is filled from a work's row.</div>
-      ) : showBody ? (
+      {showBody ? (
         <>
-          {seMode && !bothUploaded && (
+          {noWorks && (
             <div className="notice">
-              Showing every document this office issues, with the Zone filled in — upload the Online Intimation and L1
-              selection form above to fill in the rest.
+              Works List is empty — supporting details (Circle, etc.) will be blank until you add the work there; the
+              documents below still fill their name of work and amounts from your uploads.
             </div>
           )}
           {actionSaved && !expanded && (
@@ -1192,16 +1270,7 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
             </div>
           )}
 
-          <div className="wo-download-all">
-            <button className="primary" disabled={busy === 'bundle'} onClick={downloadAll}>
-              <IconDownload /> {busy === 'bundle' ? 'Preparing documents…' : 'Download all documents'}
-            </button>
-            <span className="wo-download-all-note">
-              {seMode
-                ? 'Letter of Acceptance, TS Note, Eligibility Criteria, Bid Evaluation & Agency Approval — all as Word, into one folder you choose.'
-                : 'The Intimation letter as Word, into a folder you choose.'}
-            </span>
-          </div>
+          {!headerMounted && downloadAllButton}
 
           <div className="wo-tiles">
             <button className="wo-tile" onClick={() => openDoc('intimation')}>
@@ -1246,6 +1315,11 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
             )}
           </div>
         </>
+      ) : noWorks ? (
+        <div className="notice">
+          Add works to the Works List first, or upload the Online Intimation and L1 selection form above — either fills
+          the Intimation letter.
+        </div>
       ) : null}
 
       {expanded && (

@@ -545,10 +545,14 @@ code {
   gap: 6px;
   /* Take the space between the fixed brand and footer, and scroll only this
      list (never the whole sidebar) when the items don't fit. min-height:0 lets
-     a flex child actually shrink below its content height so the scroll works. */
+     a flex child actually shrink below its content height so the scroll works.
+     overflow-x is set explicitly (not left to default) — per the CSS spec, an
+     element with only overflow-y set gets overflow-x auto-promoted to 'auto'
+     too, which was silently enabling a horizontal scrollbar on long labels. */
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .nav-item {
@@ -638,6 +642,7 @@ code {
   font-size: 14px;
   font-weight: 650;
   color: var(--text);
+  overflow-wrap: anywhere;
 }
 .nav-sub {
   font-size: 11.5px;
@@ -853,8 +858,12 @@ code {
   top: 0;
   z-index: 5;
   background: var(--bg-grad-a);
+  /* padding is fully offset by matching negative margins on both sides — it
+     only exists to give the sticky background a bit of breathing room while
+     stuck, not to add net vertical space (that regressed every page's
+     spacing when only the top side was offset). */
   padding: 14px 0;
-  margin-top: -14px;
+  margin: -14px 0;
 }
 .page-head-action {
   margin-left: auto;
@@ -2084,6 +2093,42 @@ button.upload-btn {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
+/* "Download all documents" button + its Word/PDF format toggle — compact
+   enough to sit in a page-head-action slot next to the title. Same
+   segmented-pill look as .doc-tabs. */
+.download-all-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.format-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--indigo-50);
+  border-radius: var(--radius-pill);
+}
+.format-toggle button {
+  border: none;
+  background: transparent;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--muted);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.format-toggle button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.format-toggle button.on {
+  background: #fff;
+  color: var(--indigo-600, var(--indigo-500));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
 /* The "sheet" itself — styled like an actual spreadsheet page (a title
    band, a label/value meta block for that document's header fields, then
    its item grid) rather than a plain data table. */
@@ -2312,27 +2357,6 @@ button.upload-btn {
   gap: 16px;
   margin: 18px 0 4px;
 }
-/* "Download all documents" bar above the document tiles. */
-.wo-download-all {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 14px;
-  margin-top: 16px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-2, rgba(0, 0, 0, 0.02));
-}
-.wo-download-all .primary {
-  white-space: nowrap;
-}
-.wo-download-all-note {
-  flex: 1;
-  min-width: 220px;
-  font-size: 12.5px;
-  color: var(--muted);
-}
 .wo-tile {
   display: flex;
   flex-direction: column;
@@ -2498,22 +2522,26 @@ button.upload-btn {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  text-align: left;
   gap: 6px;
+  max-width: none;
 }
 .wo-modal-sidebar .wo-date-field input,
 .wo-modal-sidebar .wo-date-field select {
-  padding: 7px 10px;
+  height: 38px;
+  padding: 0 12px;
   border-radius: var(--radius-sm);
-  border: 1.5px solid var(--border);
+  border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   font-family: inherit;
 }
 .wo-modal-sidebar .wo-date-field input:focus,
 .wo-modal-sidebar .wo-date-field select:focus {
   outline: none;
   border-color: var(--indigo-500);
+  background: #fff;
 }
 .wo-modal-foot {
   display: flex;
@@ -7488,34 +7516,52 @@ tr.on .rp-box span {
   margin-top: 0;
 }
 
-/* Agreement/Work Order shared date field + prompt modal */
+/* Agreement/Work Order shared date field + prompt modal — matches
+   .tender-field's look (Issue Tender Notice) exactly: label stacked above a
+   fixed-height input, same border/background/focus treatment, so this form
+   reads as the same design as that one instead of a visibly different one. */
 .wo-date-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 14px;
   flex-wrap: wrap;
   margin-top: 12px;
 }
 .wo-date-field {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  text-align: left;
+  gap: 6px;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-2);
+  /* One field stretches to fill its row (matching the Tender Notice modal's
+     fields, which fill its width) instead of shrink-wrapping to content —
+     but capped so it doesn't sprawl the full page width in this wider,
+     non-modal context. align-items/text-align are set explicitly (not just
+     relying on the flex-column default) since this sits inside a
+     centered-text section elsewhere on the page. */
+  flex: 1 1 auto;
+  max-width: 420px;
 }
-.wo-date-field input[type='date'] {
-  padding: 7px 10px;
+.wo-date-field input,
+.wo-date-field select {
+  height: 38px;
+  padding: 0 12px;
   border-radius: var(--radius-sm);
-  border: 1.5px solid var(--border);
-  background: var(--surface);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   font-family: inherit;
+  width: 100%;
 }
-.wo-date-field input[type='date']:focus {
+.wo-date-field input:focus,
+.wo-date-field select:focus {
   outline: none;
   border-color: var(--indigo-500);
+  background: #fff;
 }
 /* Tools "Fill details manually" form: a responsive grid of stacked label+input
    fields (some spanning the full row). */
@@ -7529,21 +7575,27 @@ tr.on .rp-box span {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  text-align: left;
   gap: 5px;
+  max-width: none;
 }
 .wo-manual-form .wo-date-field > span {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-2);
 }
+/* Matches .tender-field input's look (Issue Tender Notice) exactly — same
+   fixed height, border, background and focus treatment — so this form and
+   that one read as the same design instead of two slightly different ones. */
 .wo-manual-form input,
 .wo-manual-form select {
-  padding: 8px 10px;
+  height: 38px;
+  padding: 0 12px;
   border-radius: var(--radius-sm);
-  border: 1.5px solid var(--border);
-  background: var(--surface);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   font-family: inherit;
   width: 100%;
 }
@@ -7551,6 +7603,7 @@ tr.on .rp-box span {
 .wo-manual-form select:focus {
   outline: none;
   border-color: var(--indigo-500);
+  background: #fff;
 }
 .wo-manual-wide {
   grid-column: 1 / -1;

@@ -10,6 +10,7 @@
 import { computeWorkAmounts, formatRupees, indianDigitGroups, tenderPercentFromRow } from './worksAmounts'
 import { amountToWords, dateToWords, integerToIndianWords } from './numberToWords'
 import { zoneAbbr } from './loaSe'
+import { extractItemNo, stripItemNoTag } from './bidDocument'
 import type { IntimationNotice } from './intimationNotice'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
 import type { BalanceEmdReceipt } from './balanceEmdReceipt'
@@ -87,6 +88,8 @@ export interface WorkOrderAgreementFields {
   completionMonths: string
   /** Reservation category on the work ("SC" / "ST" / ""), for the Forwarding Slip's EMD/ASD exemption. */
   reservation: string
+  /** The NIT's item number (e.g. "3"), extracted from a "(Item No.3)" tag in the work name — SE offices tender multiple items under one NIT number. "" when no such tag is present. */
+  itemNo: string
 }
 
 /** SC/ST reservation drives EMD/ASD exemption — read from the work name's "(Reserved to SC/ST)" tag or a Reservation column. */
@@ -196,12 +199,17 @@ export function deriveFields(
   // The name of work comes from the uploaded L-1 sheet — the Works List row only
   // supplies supporting details (Circle/CNO/estimate/…) when its name matched.
   const workName = pdf.nameOfWork || row['Name of the work'] || ''
+  // SE offices tag the item number onto the work name itself ("...(Item No.3)")
+  // — pull it into its own field and strip the tag back out, so it doesn't also
+  // print as part of the printed work name.
+  const itemNo = extractItemNo(workName) ?? ''
 
   return {
     circle: row['Circle'] ?? '',
     cno: row['Circle number'] ?? row['CNO'] ?? '',
     zone: row['Zone'] ?? '',
-    nameOfWork: workName,
+    nameOfWork: stripItemNoTag(workName),
+    itemNo,
     agencyName: notice.agencyName ?? pdf.l1AgencyName ?? row['Name of the Agency'] ?? '',
     address: notice.address ?? row['Address of the agency'] ?? '',
     phone: row['Phone number of the agency'] ?? '',
@@ -477,6 +485,7 @@ export function zonalDocsPlaceholders(
     'Agency Address': wrapAgencyAddress(f.address),
     'Agency Phone': f.phone,
     'Name of Work': f.nameOfWork,
+    'Item No': f.itemNo,
     'NIT No': notice.nitNo || pdf.noticeNo || '',
     'NIT Date': notice.nitDate || pdf.noticeDate || '',
     'Tender ID': pdf.tenderId ?? '',
@@ -505,6 +514,9 @@ export function zonalDocsPlaceholders(
     // EE Work Order / Agreement Bond (f.agreementDate), left blank the same way
     // when unset rather than guessing at a date.
     'Agreement Date': f.agreementDate.trim() || DATE_BLANK,
-    'Agreement date in words': dateToWords(f.agreementDate) || DATE_WORDS_BLANK
+    'Agreement date in words': dateToWords(f.agreementDate) || DATE_WORDS_BLANK,
+    // The zonal Work Order's own "DT." line — same shared date as the
+    // Agreement Bond above, left blank the same way when unset.
+    'Work Order Date': f.workOrderDate.trim() || DATE_BLANK
   }
 }

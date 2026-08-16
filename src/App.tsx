@@ -16,7 +16,6 @@ import { type Office, officeKey, isOfficeReady } from './office'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import { mergeTables } from '@core/merge'
 import Sidebar, { type TabKey } from './components/Sidebar'
-import OfficeSelector from './components/OfficeSelector'
 import QcPartiesEditor from './components/QcPartiesEditor'
 import ExcelInline from './components/ExcelInline'
 import CollisionPanel from './components/CollisionPanel'
@@ -142,6 +141,13 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // "What's New" changes to announce on the first launch after an update (empty
   // until the version check below runs; a fresh install announces nothing).
   const [whatsNew, setWhatsNew] = useState<ChangelogEntry[]>([])
+
+  // Portal targets for the Agreement/Work Order and Intimation pages' own
+  // "Download all documents" buttons — rendered in each page-head so they
+  // sit next to the title (like Calendar's "Issue tender notice") instead
+  // of in the body.
+  const workOrderHeaderActionRef = useRef<HTMLDivElement>(null)
+  const intimationHeaderActionRef = useRef<HTMLDivElement>(null)
 
   const [tab, setTab] = useState<TabKey>('dashboard')
   // Keep-alive bookkeeping: every tab the user has visited stays mounted (hidden)
@@ -955,7 +961,6 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 )}
               </div>
             </div>
-            <OfficeSelector office={office} onChange={changeOffice} />
             <QcPartiesEditor
               parties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
               circleSelected={!!office.circle}
@@ -1070,13 +1075,16 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                     : 'Upload the portal’s “View Bidders” PDF to issue the Bid Capacity Evaluation Sheet — one column per participating bidder.'}
                 </p>
               </div>
+              {intimationSubTab === 'intimation' && (
+                <div className="page-head-action" ref={intimationHeaderActionRef} />
+              )}
             </div>
             <div className="doc-tabs">
               <button
                 className={`doc-tab ${intimationSubTab === 'intimation' ? 'active' : ''}`}
                 onClick={() => setIntimationSubTab('intimation')}
               >
-                Give Intimation
+                Issue Intimation
               </button>
               <button
                 className={`doc-tab ${intimationSubTab === 'evaluation' ? 'active' : ''}`}
@@ -1086,7 +1094,12 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               </button>
             </div>
             {intimationSubTab === 'intimation' ? (
-              <GiveIntimationTab tables={tables} onChange={updateTable} office={office} />
+              <GiveIntimationTab
+                tables={tables}
+                onChange={updateTable}
+                office={office}
+                headerActionRef={intimationHeaderActionRef}
+              />
             ) : (
               <EvaluationSheetTab office={office} />
             )}
@@ -1103,12 +1116,14 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 <h1>Agreement and Work order</h1>
                 <p>Fill the Work Order and Agreement for a work, and generate its Schedule A from the estimate / BOQ.</p>
               </div>
+              <div className="page-head-action" ref={workOrderHeaderActionRef} />
             </div>
             <WorkOrderAgreementTab
               tables={tables}
               onChange={updateTable}
               zoneLogin={!!loginZone && !loginCircle}
               office={office}
+              headerActionRef={workOrderHeaderActionRef}
             />
           </section>
         </KeepAlive>

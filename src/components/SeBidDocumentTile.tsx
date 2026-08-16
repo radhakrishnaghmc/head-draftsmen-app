@@ -5,6 +5,8 @@ import { IconDoc, IconEye, IconDownload, IconWarn, IconCheck } from './Icons'
 import { base64ToUint8 } from './docPage'
 import type { ExcelTable } from '@core/types'
 import type { BidDocumentInput } from '../../electron/ipc-contract'
+import { indianFinancialYear } from '@core/workOrderAgreement'
+import { zoneAbbr } from '@core/loaSe'
 import { type Office } from '../office'
 import { closeOnBackdropMouseDown } from '../overlayClose'
 
@@ -15,6 +17,24 @@ interface Props {
 
 function findHeader(headers: string[], name: string): string | undefined {
   return headers.find((h) => h.trim().toLowerCase() === name.toLowerCase())
+}
+
+/** yyyy-mm-dd (an <input type="date">'s raw value) -> a local-time Date, so the financial year comes out right regardless of timezone (new Date("yyyy-mm-dd") parses as UTC midnight, which can roll to the wrong local day). Blank/invalid -> today. */
+function parseIsoDateLocal(iso: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date()
+}
+
+/**
+ * "16/SE/QBZ/CMC/2026-27" — same idea as TenderNoticeButton's composeNitNo
+ * for EE, but the SE-office NIT shape (Zone abbreviation, no Circle). The
+ * financial year comes from the NIT's own Dated field (falling back to
+ * today when it's blank) — not today's date — so it's the NIT's actual
+ * financial year, and changing Dated updates it live.
+ */
+function composeSeNitNo(serial: string, office: Office | undefined, datedIso: string): string {
+  const s = serial.trim() || '16'
+  return `${s}/SE/${zoneAbbr(office?.zone)}/${office?.corporation ?? ''}/${indianFinancialYear(parseIsoDateLocal(datedIso))}`
 }
 
 function todayISO(): string {
@@ -30,26 +50,22 @@ function toDDMMYYYY(iso: string): string {
 }
 
 interface FormState {
-  nitNo: string
   dated: string
   amount: string
   ecv: string
   completionPeriod: string
   itemNo: string
-  tsNo: string
   tsDate: string
   asAuthority: 'zonal' | 'commissioner'
   asDate: string
 }
 
 const EMPTY_FORM: FormState = {
-  nitNo: '',
   dated: todayISO(),
   amount: '',
   ecv: '',
   completionPeriod: '',
   itemNo: '',
-  tsNo: '',
   tsDate: '',
   asAuthority: 'commissioner',
   asDate: ''
@@ -87,6 +103,18 @@ export default function SeBidDocumentTile({ tables, office }: Props) {
   const [workName, setWorkName] = useState('')
   const [zone, setZone] = useState('')
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
+  // Running serial only — the rest of the NIT No. (Zone code/Corporation/
+  // financial year) is composed from the office and the Dated field, same
+  // idea as TenderNoticeButton's EE flow, so it can never disagree with
+  // either. Not memoized — the financial year depends on `form.dated`
+  // (live) and, when that's blank, on today's real date, so it needs to
+  // re-run on every render rather than only when nitSerial/office change.
+  const [nitSerial, setNitSerial] = useState('16')
+  const nitNo = composeSeNitNo(nitSerial, office, form.dated)
+  // T.S. No. has the exact same "N/SE/Zone/Corp/FY" shape as the NIT No. —
+  // just a different running number — so it composes the same way.
+  const [tsSerial, setTsSerial] = useState('')
+  const tsNo = composeSeNitNo(tsSerial, office, form.dated)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
@@ -106,7 +134,15 @@ export default function SeBidDocumentTile({ tables, office }: Props) {
     setPreviewing(false)
     setWorkName('')
     setZone(office?.zone ?? '')
-    setForm(EMPTY_FORM)
+    // T.S. Serial No. resets — unlike the NIT, each item typically has its
+    // own Technical Sanction number, so carrying one over would be wrong
+    // more often than right.
+    setTsSerial('')
+    // NIT Serial No. and Dated carry over from the last work issued in this
+    // session instead of resetting — a batch of items almost always shares
+    // the same NIT, so once it's set there's no need to reset it for every
+    // item. Everything else is specific to the work being issued now.
+    setForm((prev) => ({ ...EMPTY_FORM, dated: prev.dated }))
   }
 
   // Pre-fill Amount/ECV/Zone/Completion Period from the matching Works List
@@ -127,12 +163,12 @@ export default function SeBidDocumentTile({ tables, office }: Props) {
   }
 
   function buildInput(): BidDocumentInput | null {
-    if (!workName.trim() || !form.nitNo.trim() || !form.dated) {
-      setError('Pick a work, and fill in the NIT number and Dated.')
+    if (!workName.trim() || !form.dated) {
+      setError('Pick a work, and fill in the Dated.')
       return null
     }
     return {
-      nitNo: form.nitNo.trim(),
+      nitNo,
       dated: toDDMMYYYY(form.dated),
       downloadStartDate: '',
       downloadEndDate: '',
@@ -144,7 +180,11 @@ export default function SeBidDocumentTile({ tables, office }: Props) {
         zone,
         completionPeriod: form.completionPeriod,
         itemNo: form.itemNo,
-        tsNo: form.tsNo,
+        // Unlike the NIT (which defaults its serial to "16" so it's never
+        // blank), T.S. No. has no sensible default — leave the document's
+        // field genuinely blank until a real T.S. Serial No. is typed,
+        // rather than baking in a fabricated number.
+        tsNo: tsSerial.trim() ? tsNo : '',
         tsDate: form.tsDate,
         asAuthority: form.asAuthority,
         asDate: form.asDate
@@ -282,18 +322,19 @@ export default function SeBidDocumentTile({ tables, office }: Props) {
 
                 <div className="tender-field-row">
                   <label className="tender-field tender-field-nitno">
-                    <span>NIT No.</span>
-                    <input
-                      value={form.nitNo}
-                      onChange={(e) => set('nitNo', e.target.value)}
-                      placeholder="13/SE/QBZ/CMC/2026-27"
-                    />
+                    <span>NIT Serial No.</span>
+                    <input value={nitSerial} onChange={(e) => setNitSerial(e.target.value)} placeholder="16" />
                   </label>
                   <label className="tender-field tender-field-dated">
                     <span>Dated</span>
                     <input type="date" value={form.dated} onChange={(e) => set('dated', e.target.value)} />
                   </label>
                 </div>
+
+                <p className="hint">
+                  NIT No.: <strong>{nitNo}</strong> — Zone &amp; Corporation come from the office selected on the Works
+                  List.
+                </p>
 
                 <div className="tender-field-row bid-se-fields">
                   <label className="tender-field">
@@ -322,13 +363,13 @@ export default function SeBidDocumentTile({ tables, office }: Props) {
                 </div>
 
                 <label className="tender-field">
-                  <span>T.S. No.</span>
-                  <input
-                    value={form.tsNo}
-                    onChange={(e) => set('tsNo', e.target.value)}
-                    placeholder="29/SE/QBZ/CMC/2026-27"
-                  />
+                  <span>T.S. Serial No.</span>
+                  <input value={tsSerial} onChange={(e) => setTsSerial(e.target.value)} placeholder="29" />
                 </label>
+
+                <p className="hint">
+                  T.S. No.: <strong>{tsNo}</strong>
+                </p>
 
                 <div className="tender-field-row bid-se-fields">
                   <label className="tender-field">

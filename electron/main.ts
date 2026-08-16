@@ -427,7 +427,9 @@ function registerHandlers(): void {
 
       const written: string[] = []
       const failed: string[] = []
+      let doneCount = 0
       for (const f of files) {
+        mainWindow?.webContents.send(IPC.agreementBundleProgress, { done: doneCount, total: files.length, name: f.name })
         try {
           if (f.format === 'xlsx') {
             if (!f.scheduleATable) continue
@@ -454,6 +456,8 @@ function registerHandlers(): void {
           // to vanish silently).
           console.error(`exportAgreementBundle: failed to write "${f.name}" (${f.format})`, e)
           failed.push(`${f.name} (${f.format.toUpperCase()})`)
+        } finally {
+          doneCount += 1
         }
       }
       return written.length > 0 || failed.length > 0 ? { written, failed } : null
