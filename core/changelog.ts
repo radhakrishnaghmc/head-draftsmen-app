@@ -16,6 +16,17 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.19.0',
+    changes: [
+      'New: Bid Document for SE (Zone) offices — its own format with Item No., Technical Sanction and Administrative Sanction fields, replacing the Circle-office format automatically for a Zone office.',
+      'New: an "Issue Bid Document" tile below the Calendar for SE (Zone) offices — pick a work from the Works List and generate its Bid Document directly, without issuing a tender notice first.',
+      'Give Intimation (SE/Zone offices): document previews (Intimation, TS Note, Eligibility Criteria, Bid Evaluation, Agency Approval) now show their fill-in fields beside the preview instead of above it, so the preview is easier to see.',
+      'Every page now keeps its title bar in place while you scroll its contents, instead of the title scrolling out of view.',
+      'Fixed: the Forwarding Slip’s Technical Sanction No & Date was printing in tiny, misplaced text.',
+      'Sidebar: added a background image and a button to reopen this "What’s New" list at any time.'
+    ]
+  },
+  {
     version: '1.18.0',
     changes: [
       'Give Intimation (SE/Zone offices): 4 new companion documents — TS Note, Eligibility Criteria, Bid Evaluation Note, Agency Approval Note — with Cement & Steel rate circular upload.',

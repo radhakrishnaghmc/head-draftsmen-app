@@ -1,10 +1,16 @@
 import { listParagraphs, setParagraphText } from './docx-edit'
 import { lakhsToRupees, rupeesFromCell, indianDigitGroups, formatRupees } from './worksAmounts'
+import { zoneAbbr } from './loaSe'
 
 // Placeholder tokens present in the bundled Bid Document template, and the
 // zip parts they can appear in — {{Circle}} repeats in the running footer
 // (footer2/footer5), everything else lives in the body (document.xml).
 const DOC_PARTS = ['word/document.xml', 'word/footer2.xml', 'word/footer5.xml']
+
+// Same idea for the SE-office (zone-only, no Circle) template — {{Zone}}
+// repeats in its running footer (footer1/footer2/footer4; footer3/footer5
+// carry no placeholders in the bundled template).
+const SE_DOC_PARTS = ['word/document.xml', 'word/footer1.xml', 'word/footer2.xml', 'word/footer4.xml']
 
 export interface BidDocumentWorkItem {
   /** Serial number within the tender notice's item table (1-based) — becomes "BID Document N". */
@@ -17,6 +23,16 @@ export interface BidDocumentWorkItem {
   zone?: string
   circle?: string
   completionPeriod?: string
+  /** SE template only — the NIT's item number, e.g. "3" for "(Item No.3)". Falls back to a "(Item No.N)" tag parsed out of `name`, then to `serial`, when not given (a Works List "Item No" column, if present). */
+  itemNo?: string
+  /** SE template only — full value as the office types it, e.g. "29/SE/QBZ/CMC/2026-27" (mirrors how `nitNo` is supplied whole). */
+  tsNo?: string
+  /** SE template only — DD-MM-YYYY, the Technical Sanction date. */
+  tsDate?: string
+  /** SE template only — which authority approved Administrative Sanction; the Bid Document's own AS line reads differently for each. Defaults to 'commissioner'. */
+  asAuthority?: 'zonal' | 'commissioner'
+  /** SE template only — DD.MM.YYYY (or DD-MM-YYYY), the Administrative Sanction date. Left out of the AS line entirely when blank, matching the office's own samples. */
+  asDate?: string
 }
 
 export interface BidDocumentInput {
@@ -33,9 +49,9 @@ export interface BidDocumentInput {
 export { lakhsToRupees }
 
 /** Replace every occurrence of literal `{{Token}}` placeholders across the given zip parts, preserving run formatting (via core/docx-edit's diff-based rewrite) — mirrors the substitution approach in core/tenderNotice.ts, generalized to headers/footers. */
-function fillPlaceholders(buffer: Buffer, swaps: Array<[string, string]>): Buffer {
+function fillPlaceholders(buffer: Buffer, swaps: Array<[string, string]>, parts: string[] = DOC_PARTS): Buffer {
   let current = buffer
-  for (const part of DOC_PARTS) {
+  for (const part of parts) {
     let paragraphs: string[]
     try {
       paragraphs = listParagraphs(current, part)
@@ -94,4 +110,78 @@ export function fillBidDocument(buffer: Buffer, input: BidDocumentInput): Buffer
   ]
 
   return fillPlaceholders(buffer, swaps)
+}
+
+/** A Lakhs figure (as entered on the Works List, e.g. "63") to the 2-decimal display the SE documents use, e.g. "63.00". Blank/unparseable -> ''. */
+function lakhsFixed2(lakhs: string | undefined): string {
+  const n = Number((lakhs ?? '').replace(/,/g, '').trim())
+  return Number.isFinite(n) ? n.toFixed(2) : ''
+}
+
+/**
+ * ECV in Lakhs, TRUNCATED (not rounded) to 2 decimals — matches the SE
+ * office's own convention in the source documents this template was built
+ * from (e.g. an ECV of Rs 49,98,557 prints as "49.98 Lakhs", not the
+ * arithmetically-rounded "49.99").
+ */
+function ecvLakhsTruncated(ecvRupees: number): string {
+  return (Math.floor(ecvRupees / 1000) / 100).toFixed(2)
+}
+
+/** Pulls "3" out of a work name ending "...(Item No.3)" — the office's own convention for naming items within a multi-item NIT. Undefined when no such tag is present. */
+function extractItemNo(name: string): string | undefined {
+  return /\(Item No\.?\s*(\d+)\)/i.exec(name)?.[1]
+}
+
+/**
+ * The Administrative Sanction line, which reads structurally differently
+ * per authority (not just a date swap) — the Zonal Commissioner form names
+ * the zone, the plain Commissioner form doesn't. Either form omits its date
+ * clause entirely when the date isn't available yet, matching how the
+ * office's own documents look before the AS date is filled in.
+ */
+function adminSanctionLine(authority: 'zonal' | 'commissioner', zoneAbbrCode: string, asDate: string | undefined): string {
+  const date = (asDate ?? '').trim()
+  if (authority === 'zonal') {
+    return `Administrative Sanction approved by the Zonal Commissioner, ${zoneAbbrCode}, CMC` + (date ? ` vide Dt. ${date}.` : '')
+  }
+  return `Administrative Sanction approved by the Commissioner, CMC` + (date ? ` Dt:${date}` : '')
+}
+
+/**
+ * Fill the bundled SE-office (Superintending Engineer, zone-level — no
+ * Circle) Bid Document template — used in place of `fillBidDocument` when
+ * the issuing office has a Zone but no Circle of its own (see `seMode`
+ * elsewhere in the app: `!!office.zone && !office.circle`). This document
+ * carries several fields the EE template doesn't (Item No., Technical
+ * Sanction No./Date, Administrative Sanction, and the Amount of
+ * Estimate/ECV shown again in Lakhs), so — unlike the EE variant — it needs
+ * `work.itemNo`/`tsNo`/`tsDate`/`asAuthority`/`asDate` filled in by the
+ * caller; ECV and EMD @ 1% are still computed the same way, and still left
+ * blank rather than falling back to the estimate, when ECV isn't available.
+ */
+export function fillSeBidDocument(buffer: Buffer, input: BidDocumentInput): Buffer {
+  const ecvRupees = input.work.ecv?.trim() ? rupeesFromCell(input.work.ecv) : null
+  const emdRupees = ecvRupees !== null ? Math.round(ecvRupees * 0.01) : null
+  const zoneAbbrCode = zoneAbbr(input.work.zone)
+  const itemNo = input.work.itemNo?.trim() || extractItemNo(input.work.name) || String(input.work.serial)
+
+  const swaps: Array<[string, string]> = [
+    ['{{Name of the work}}', input.work.name],
+    ['{{Item No}}', itemNo],
+    ['{{Amount of Estimate}}', lakhsFixed2(input.work.amount)],
+    ['{{Administrative Sanction}}', adminSanctionLine(input.work.asAuthority ?? 'commissioner', zoneAbbrCode, input.work.asDate)],
+    ['{{TS No}}', input.work.tsNo ?? ''],
+    ['{{TS Date}}', input.work.tsDate ?? ''],
+    ['{{ECV}}', ecvRupees !== null ? `${indianDigitGroups(ecvRupees)}/-` : ''],
+    ['{{ECV Lakhs}}', ecvRupees !== null ? ecvLakhsTruncated(ecvRupees) : ''],
+    ['{{EMD 1%}}', emdRupees !== null ? `${indianDigitGroups(emdRupees)}/-` : ''],
+    ['{{Completion period}}', input.work.completionPeriod ?? ''],
+    ['{{Dated}}', input.dated],
+    ['{{Nit no.}}', input.nitNo],
+    ['{{Zone}}', input.work.zone ?? ''],
+    ['{{Zone Abbr}}', zoneAbbrCode]
+  ]
+
+  return fillPlaceholders(buffer, swaps, SE_DOC_PARTS)
 }

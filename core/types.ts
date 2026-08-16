@@ -200,6 +200,12 @@ export interface BidDocumentWork {
   zone?: string
   circle?: string
   completionPeriod?: string
+  /** SE-office (zone-only, no circle) template fields — see core/bidDocument.ts's BidDocumentWorkItem for what each becomes on the document. Unused for an EE (circle) work. */
+  itemNo?: string
+  tsNo?: string
+  tsDate?: string
+  asAuthority?: 'zonal' | 'commissioner'
+  asDate?: string
 }
 
 /**

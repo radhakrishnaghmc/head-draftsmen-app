@@ -108,17 +108,93 @@ body::before {
 }
 
 /* ---------- decorative background skyline ---------- */
+/* Line art derived from real reference photographs of Charminar and the
+   Thousand Pillar Temple (edge-detected, not freehand-drawn), fixed behind
+   the workspace at very low opacity — clear of the 320px sidebar. */
 .skyline-bg {
   position: fixed;
-  inset: auto 0 0 0;
-  width: 100%;
+  inset: auto 0 0 320px;
+  width: calc(100% - 320px);
   height: 26vh;
   min-height: 190px;
   max-height: 320px;
-  color: var(--indigo-200);
-  opacity: 0.55;
   z-index: 0;
   pointer-events: none;
+  overflow: hidden;
+}
+
+.skyline-charminar,
+.skyline-temple {
+  position: absolute;
+  bottom: 0;
+  height: 100%;
+  width: auto;
+  object-fit: contain;
+}
+
+.skyline-charminar {
+  left: 6%;
+  animation: skyline-breathe-charminar 9s ease-in-out infinite;
+}
+
+.skyline-temple {
+  left: 34%;
+  height: 100%;
+  animation: skyline-breathe-temple 9s ease-in-out infinite;
+  animation-delay: 1.5s;
+}
+
+@keyframes skyline-breathe-charminar {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.22;
+  }
+}
+
+@keyframes skyline-breathe-temple {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* The Telangana Thalli statue photo, fixed very lightly behind the
+   sidebar's own content — bottom-aligned, kept below the brand/nav/footer
+   in the stacking order (each of those gets z-index:1 to paint above it).
+   A slow opacity breathe is the "animated version" requested in place of a
+   redrawn silhouette. */
+.sidebar-art-bg {
+  position: absolute;
+  inset: auto 0 0 0;
+  width: 100%;
+  height: 92%;
+  object-fit: contain;
+  object-position: bottom center;
+  opacity: 0.09;
+  z-index: 0;
+  pointer-events: none;
+  animation: sidebar-art-breathe 7s ease-in-out infinite;
+}
+@keyframes sidebar-art-breathe {
+  0%,
+  100% {
+    opacity: 0.06;
+  }
+  50% {
+    opacity: 0.13;
+  }
+}
+.side-brand,
+.side-nav,
+.side-foot {
+  position: relative;
+  z-index: 1;
 }
 
 .profile-menu {
@@ -653,6 +729,28 @@ code {
   margin: 8px auto 0;
   display: flex;
 }
+.side-credits-links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Small secondary link, next to the WhatsApp pill, that re-opens the
+   "What's New" dialog on demand — it otherwise only shows itself once,
+   automatically, right after an update. */
+.whatsnew-link {
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+  font-size: 10.5px;
+  font-weight: 650;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.whatsnew-link:hover {
+  color: var(--indigo-600);
+}
 .side-update-btn {
   flex: none;
   display: grid;
@@ -694,16 +792,26 @@ code {
 }
 
 /* ---------- workspace ---------- */
+/* The workspace itself is a fixed box now (no scrollbar of its own) — each
+   tab's own .page scrolls internally instead (see .tab-pane/.page below), so
+   switching tabs never shows one pane's content shifted by another's leftover
+   scroll offset (each pane's scroll position is now genuinely its own). */
 .workspace {
   flex: 1;
   min-width: 0;
   height: 100vh;
-  overflow-y: auto;
+  overflow: hidden;
   padding: 68px 44px 80px;
   background: radial-gradient(900px 520px at 12% 0%, rgba(255, 153, 51, 0.22), transparent 60%),
     radial-gradient(820px 480px at 88% 15%, rgba(255, 255, 255, 0.5), transparent 55%),
     radial-gradient(760px 460px at 95% 75%, rgba(19, 136, 8, 0.14), transparent 55%),
     radial-gradient(1000px 620px at 30% 100%, rgba(19, 136, 8, 0.16), transparent 60%);
+}
+
+/* KeepAlive's wrapper (App.tsx) — fills the workspace's content box so the
+   .page inside it has a definite height to size its own height:100% against. */
+.tab-pane {
+  height: 100%;
 }
 
 .page {
@@ -715,6 +823,11 @@ code {
   flex-direction: column;
   gap: 20px;
   animation: page-in 0.32s var(--ease);
+  /* This — not .workspace — is what actually scrolls; see .page-head's
+     position:sticky, which sticks relative to this. */
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
 }
 @keyframes page-in {
   from {
@@ -732,6 +845,16 @@ code {
   align-items: center;
   gap: 16px;
   margin-bottom: 2px;
+  /* Stuck to the top of .page (its scrolling ancestor — .workspace itself
+     doesn't scroll) so the page title/action stays in place while everything
+     below it scrolls, instead of the whole page — including the title —
+     scrolling as one. */
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg-grad-a);
+  padding: 14px 0;
+  margin-top: -14px;
 }
 .page-head-action {
   margin-left: auto;
@@ -1979,6 +2102,11 @@ button.upload-btn {
    docx-preview (same as Issue Document), scaled down to fit the workspace
    column while keeping the real page proportions. */
 .intimation-docx-preview {
+  /* Scaled down to fit IntimationToolTab's narrow .estimate-preview-scroll
+     column (as narrow as ~280px) — see the .wo-modal-body override below for
+     the wide-modal usages (GiveIntimationTab / WorkOrderAgreementTab), which
+     must NOT scale down: at 0.62 the page is simply narrower than those
+     modals, leaving a big gap either side when centered. */
   transform: scale(0.62);
   transform-origin: top left;
   width: 161%; /* 1 / 0.62 — so the scaled content still fills the column width */
@@ -1991,6 +2119,13 @@ button.upload-btn {
 .intimation-docx-preview section.docx {
   margin: 0 auto 12px;
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12);
+}
+/* The expanded-preview modal (GiveIntimationTab / WorkOrderAgreementTab) is
+   wide enough for the real page size — render at native size instead of the
+   scaled-down column version above. */
+.wo-modal-body .intimation-docx-preview {
+  transform: none;
+  width: auto;
 }
 .doc-sheet-title {
   position: sticky;
@@ -2330,6 +2465,56 @@ button.upload-btn {
   display: flex;
   justify-content: center;
 }
+/* Wraps wo-modal-body + (when present) wo-modal-sidebar side by side, so the
+   SE manual fields sit to the right of the preview instead of stacked above
+   it and pushing it down. Widened like .wide, but keeps wo-modal-body's own
+   justify-content:center (NOT .wide's stretch, meant for the fluid Note
+   Submitted HTML preview) — the docx preview is a fixed page width, so
+   stretching it just shoves it to one side and leaves a dead gap before the
+   sidebar; centering it in the space left of the sidebar removes that gap. */
+.wo-modal.has-sidebar {
+  width: min(1180px, 100%);
+}
+.wo-modal-main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.wo-modal-main .wo-modal-body {
+  min-width: 0;
+}
+.wo-modal-sidebar {
+  flex: none;
+  width: 260px;
+  overflow-y: auto;
+  padding: 18px;
+  border-left: 1px solid var(--border-strong);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.wo-modal-sidebar .wo-date-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.wo-modal-sidebar .wo-date-field input,
+.wo-modal-sidebar .wo-date-field select {
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+.wo-modal-sidebar .wo-date-field input:focus,
+.wo-modal-sidebar .wo-date-field select:focus {
+  outline: none;
+  border-color: var(--indigo-500);
+}
 .wo-modal-foot {
   display: flex;
   align-items: center;
@@ -2429,6 +2614,10 @@ input[type='text']:focus {
 .badge.err {
   background: var(--danger-bg);
   color: var(--danger);
+}
+.badge.info {
+  background: var(--indigo-100);
+  color: var(--indigo-500);
 }
 
 /* ---------- notices ---------- */
@@ -2965,6 +3154,33 @@ input[type='text']:focus {
   outline: none;
   border-color: var(--indigo-500);
   background: #fff;
+}
+.tender-field select {
+  height: 38px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 14px;
+  color: var(--text);
+}
+.tender-field select:focus {
+  outline: none;
+  border-color: var(--indigo-500);
+  background: #fff;
+}
+.bid-se-fields {
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.bid-se-fields .tender-field {
+  flex: 1 1 130px;
+  min-width: 130px;
+  margin-bottom: 0;
+}
+.bid-se-row {
+  align-items: flex-start;
+  flex-wrap: wrap;
 }
 .tender-wincode-list {
   max-height: 160px;

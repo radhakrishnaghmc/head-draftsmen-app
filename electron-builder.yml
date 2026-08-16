@@ -6,6 +6,21 @@ directories:
 files:
   - out/**/*
   - package.json
+  # onnxruntime-web (the browser/WASM backend) is a dependency of
+  # @huggingface/transformers, but our embedding feature only ever runs in
+  # the Electron main process (electron/embeddingsWorker.ts, invoked over
+  # IPC) — transformers.js auto-selects onnxruntime-node there, so the web
+  # backend is never loaded. Confirmed no import of 'onnxruntime-web' or
+  # '@huggingface/transformers' outside that one main-process worker file.
+  - '!**/node_modules/onnxruntime-web/**'
+  # transformers.js caches any model it's asked to load into a `.cache/`
+  # folder INSIDE its own node_modules dir (not something npm installs — it
+  # only appears if a model was actually run locally, e.g. while testing).
+  # It's easy to forget it's there since node_modules isn't in git, and
+  # electron-builder will otherwise happily ship whatever's sitting in it
+  # (a stray 665MB Qwen2.5-0.5B cache is what blew up v1.18.0's installer
+  # size — see MEMORY/PROJECT notes). Exclude on principle, not just once.
+  - '!**/node_modules/**/.cache/**'
 # sharp ships platform-native binaries: a *.node addon plus libvips shared
 # libraries (.dll on Windows, .dylib on macOS). Windows DLLs in particular
 # cannot be dlopen'd from inside the asar archive, so unpack sharp and its
@@ -22,6 +37,8 @@ extraResources:
     to: tender-notice-template.docx
   - from: resources/bid-document-template.docx
     to: bid-document-template.docx
+  - from: resources/bid-document-se-template.docx
+    to: bid-document-se-template.docx
   - from: resources/intimation-template.docx
     to: intimation-template.docx
   - from: resources/work-order-template.docx
@@ -98,10 +115,28 @@ mac:
     - dmg
     - zip
   category: public.app-category.productivity
+  # onnxruntime-node ships prebuilt native binaries for every platform in one
+  # npm package (win32/linux/darwin × x64/arm64) — and @huggingface/transformers
+  # pulls in a SECOND, differently-versioned copy of the same package nested in
+  # its own node_modules. Neither is split into per-platform optional packages
+  # (unlike sharp/@img, which npm already installs only the matching one of),
+  # so both copies' other-platform folders ship dead weight unless stripped here.
+  files:
+    - '!**/node_modules/onnxruntime-node/bin/napi-v6/win32/**'
+    - '!**/node_modules/onnxruntime-node/bin/napi-v6/linux/**'
+    - '!**/node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/win32/**'
+    - '!**/node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/linux/**'
 win:
   icon: build/icon.ico
   target:
     - nsis
+  files:
+    - '!**/node_modules/onnxruntime-node/bin/napi-v6/darwin/**'
+    - '!**/node_modules/onnxruntime-node/bin/napi-v6/linux/**'
+    - '!**/node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**'
+    - '!**/node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/darwin/**'
+    - '!**/node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/linux/**'
+    - '!**/node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**'
 linux:
   icon: build/icon.png
   target:

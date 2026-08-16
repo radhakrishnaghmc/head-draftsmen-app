@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../ipc'
 import appLogo from '../assets/app-logo.png'
+import telanganaThalli from '../assets/telangana-thalli.jpg'
 import { type Office, isOfficeReady, normalizeOffice } from '../office'
 import { CORPORATIONS, zonesOf, circlesOf } from '../zoneCircleDirectory'
 import { closeOnBackdropMouseDown } from '../overlayClose'
@@ -47,6 +48,8 @@ interface Props {
   office: Office
   /** Change the office — lets the sidebar's own picker set it, same as the Works List one. */
   onOfficeChange: (office: Office) => void
+  /** Re-open the "What's New" dialog on demand (it otherwise only shows once, automatically, right after an update). */
+  onShowWhatsNew: () => void
 }
 
 interface Item {
@@ -164,6 +167,7 @@ export default function Sidebar(props: Props) {
 
   return (
     <aside className="sidebar">
+      <img src={telanganaThalli} alt="" className="sidebar-art-bg" aria-hidden="true" />
       <div className="side-brand">
         <img src={appLogo} alt="" className="logo" />
         <div className="side-brand-text">
@@ -216,14 +220,19 @@ export default function Sidebar(props: Props) {
         <div className="side-foot-row">
           <span className="side-credits">
             App developed by Radhakrishna, HD{version ? ` · v${version}` : ''}
-            <button
-              type="button"
-              className="wa-contact"
-              title="Contact Admin on WhatsApp"
-              onClick={() => api.openPath('https://wa.me/919063836115?text=Hello')}
-            >
-              <IconWhatsApp /> Contact Admin on WhatsApp
-            </button>
+            <span className="side-credits-links">
+              <button
+                type="button"
+                className="wa-contact"
+                title="Contact Admin on WhatsApp"
+                onClick={() => api.openPath('https://wa.me/919063836115?text=Hello')}
+              >
+                <IconWhatsApp /> Contact Admin on WhatsApp
+              </button>
+              <button type="button" className="whatsnew-link" title="What's new in this version" onClick={props.onShowWhatsNew}>
+                Log
+              </button>
+            </span>
           </span>
           <button
             className={`side-update-btn ${checkingUpdate ? 'spinning' : ''}`}

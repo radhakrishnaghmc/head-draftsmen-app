@@ -1250,7 +1250,10 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
 
       {expanded && (
         <div className="wo-modal-overlay" onClick={() => setExpanded(null)}>
-          <div className="wo-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            className={`wo-modal ${seMode && modalFields[expanded] ? 'has-sidebar' : ''}`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="wo-modal-head">
               <span className="wo-modal-title">
                 {DOC_LABEL[expanded]}
@@ -1261,14 +1264,14 @@ export default function GiveIntimationTab({ tables, onChange, office }: Props) {
               </button>
             </div>
 
-            {seMode && modalFields[expanded] && (
-              <div className="wo-date-row" style={{ padding: '14px 18px 0', marginTop: 0 }}>
-                {modalFields[expanded]}
+            <div className="wo-modal-main">
+              <div className="wo-modal-body">
+                <div ref={expandedRef} className="intimation-docx-preview" />
               </div>
-            )}
 
-            <div className="wo-modal-body">
-              <div ref={expandedRef} className="intimation-docx-preview" />
+              {seMode && modalFields[expanded] && (
+                <div className="wo-modal-sidebar">{modalFields[expanded]}</div>
+              )}
             </div>
 
             <div className="wo-modal-foot">

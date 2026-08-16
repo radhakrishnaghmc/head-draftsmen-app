@@ -27,6 +27,7 @@ import ProfileMenu from './components/ProfileMenu'
 import UpdateBanner from './components/UpdateBanner'
 import TenderNoticeButton from './components/TenderNoticeButton'
 import BidDocumentsPanel from './components/BidDocumentsPanel'
+import SeBidDocumentTile from './components/SeBidDocumentTile'
 import GoogleLinkImport from './components/GoogleLinkImport'
 import WorksListL1Update from './components/WorksListL1Update'
 import EstimateWorkspaceTab from './components/EstimateWorkspaceTab'
@@ -39,7 +40,7 @@ import ToolsTab from './components/ToolsTab'
 import TodoList from './components/TodoList'
 import MbScrutinyList from './components/MbScrutinyList'
 import WhatsNew from './components/WhatsNew'
-import { changesSince, type ChangelogEntry } from '@core/changelog'
+import { changesSince, CHANGELOG, type ChangelogEntry } from '@core/changelog'
 import TenderReminders from './components/TenderReminders'
 import {
   IconTable,
@@ -68,6 +69,7 @@ import type {
   TenderReminderItem,
   CreatedDocument,
   BidDocumentBatch,
+  BidDocumentWork,
   QcOfficeParties
 } from '@core/types'
 import type { CalendarData } from '@core/calendar'
@@ -151,14 +153,6 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   useEffect(() => {
     setMountedTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)))
   }, [tab])
-  // All panes share the one workspace scroller, so reset it to the top on a tab
-  // switch — otherwise a short pane can open looking blank at a previous pane's
-  // scroll offset. (Work/state is preserved; only the scroll position resets.)
-  const workspaceRef = useRef<HTMLElement>(null)
-  useEffect(() => {
-    workspaceRef.current?.scrollTo(0, 0)
-  }, [tab])
-
   // Show "What's New" once after an update: compare the running app version with
   // the one last seen on this machine (localStorage, so it persists across
   // updates but not across a reinstall). Newer → list what changed, then record
@@ -756,6 +750,15 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     setBidDocumentBatches((prev) => prev.filter((b) => b.id !== id))
   }
 
+  /** Edits one work's SE-only manual fields (Item No, TS No/Date, Admin Sanction) in place — the EE fields (Name/Amount/ECV/Zone/Circle) always come from the Works List and are never user-edited here. */
+  function updateBidWork(batchId: string, serial: number, patch: Partial<BidDocumentWork>) {
+    setBidDocumentBatches((prev) =>
+      prev.map((b) =>
+        b.id !== batchId ? b : { ...b, works: b.works.map((w) => (w.serial !== serial ? w : { ...w, ...patch })) }
+      )
+    )
+  }
+
   // Add (or fold into, if a reminder with the same NIT number already
   // exists) a reminder straight from a Search Tender result row — no extra
   // lookup needed, the data's already at hand. A single NIT number can
@@ -893,9 +896,10 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
         createdDocCount={createdDocuments.length}
         office={office}
         onOfficeChange={changeOffice}
+        onShowWhatsNew={() => setWhatsNew(CHANGELOG.slice(0, 1))}
       />
 
-      <main className="workspace" ref={workspaceRef}>
+      <main className="workspace">
         <Fragment key={resetNonce}>
         <KeepAlive active={tab === 'dashboard'} mounted={mountedTabs.has('dashboard')}>
           <section className="page wide">
@@ -917,7 +921,8 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               </div>
             </div>
             <Dashboard cached={calendar} onData={setCalendar} />
-            <BidDocumentsPanel batches={bidDocumentBatches} onRemove={removeBidBatch} />
+            <SeBidDocumentTile tables={tables} office={office} />
+            <BidDocumentsPanel batches={bidDocumentBatches} onRemove={removeBidBatch} onUpdateWork={updateBidWork} />
           </section>
         </KeepAlive>
 

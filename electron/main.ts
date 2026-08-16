@@ -35,7 +35,7 @@ import { validateLogin } from '../core/auth'
 import type { LoginResult } from '../core/auth'
 import { fillTenderNotice } from '../core/tenderNotice'
 import type { TenderNoticeInput } from '../core/tenderNotice'
-import { fillBidDocument } from '../core/bidDocument'
+import { fillBidDocument, fillSeBidDocument } from '../core/bidDocument'
 import type { BidDocumentInput } from '../core/bidDocument'
 import type { CalendarData } from '../core/calendar'
 import { convertHtmlToDocx } from '../core/htmlToDocx'
@@ -1306,6 +1306,40 @@ function registerHandlers(): void {
     })
   }
 
+  const bidDocumentSeTemplateFile = () => {
+    const candidates = [
+      path.join(process.resourcesPath, 'bid-document-se-template.docx'),
+      path.join(app.getAppPath(), 'resources', 'bid-document-se-template.docx'),
+      path.join(app.getAppPath(), '..', 'resources', 'bid-document-se-template.docx')
+    ]
+    return candidates.find((p) => {
+      try {
+        fs.accessSync(p)
+        return true
+      } catch {
+        return false
+      }
+    })
+  }
+
+  // A Zone-level (SE) office has no Circle of its own — same "seMode" test
+  // used throughout the app (GiveIntimationTab, WorkOrderAgreementTab,
+  // TenderNoticeButton's canComposeNit) — so the SE Bid Document template
+  // replaces the EE one for that work, rather than the two coexisting.
+  const isSeWork = (work: BidDocumentInput['work']) => !!work.zone?.trim() && !work.circle?.trim()
+
+  /** Picks the right bundled template + fill function for a work's office type, throwing a clear error if that template isn't in the app bundle. */
+  const resolveBidDocumentFiller = (work: BidDocumentInput['work']) => {
+    if (isSeWork(work)) {
+      const templatePath = bidDocumentSeTemplateFile()
+      if (!templatePath) throw new Error('SE Bid Document template is missing from the app bundle.')
+      return { templatePath, fill: fillSeBidDocument }
+    }
+    const templatePath = bidDocumentTemplateFile()
+    if (!templatePath) throw new Error('Bid Document template is missing from the app bundle.')
+    return { templatePath, fill: fillBidDocument }
+  }
+
   // Make an arbitrary label safe to use as a single file name. Win Codes and
   // work names can contain path separators (e.g. "16/DB/EE/…") and other
   // reserved characters; left unescaped these make path.join build a
@@ -1352,8 +1386,7 @@ function registerHandlers(): void {
   ipcMain.handle(
     IPC.generateBidDocument,
     async (_e, input: BidDocumentInput, suggestedName: string): Promise<string | null> => {
-      const templatePath = bidDocumentTemplateFile()
-      if (!templatePath) throw new Error('Bid Document template is missing from the app bundle.')
+      const { templatePath, fill } = resolveBidDocumentFiller(input.work)
 
       const result = await dialog.showSaveDialog(mainWindow!, {
         title: 'Save Bid Document',
@@ -1362,7 +1395,7 @@ function registerHandlers(): void {
       })
       if (result.canceled || !result.filePath) return null
 
-      const filled = fillBidDocument(fs.readFileSync(templatePath), input)
+      const filled = fill(fs.readFileSync(templatePath), input)
       fs.writeFileSync(result.filePath, filled)
       return result.filePath
     }
@@ -1374,9 +1407,6 @@ function registerHandlers(): void {
       _e,
       entries: { input: BidDocumentInput; suggestedName: string }[]
     ): Promise<string[] | null> => {
-      const templatePath = bidDocumentTemplateFile()
-      if (!templatePath) throw new Error('Bid Document template is missing from the app bundle.')
-
       const result = await dialog.showOpenDialog(mainWindow!, {
         title: 'Choose a folder to save all Bid Documents into',
         properties: ['openDirectory', 'createDirectory']
@@ -1384,10 +1414,20 @@ function registerHandlers(): void {
       if (result.canceled || result.filePaths.length === 0) return null
       const dir = result.filePaths[0]
 
-      const templateBuffer = fs.readFileSync(templatePath)
+      // A single tender notice's works all share one office, so every entry
+      // resolves to the same template — but each is still resolved on its
+      // own (cheap: just a file-existence check) rather than assumed, so a
+      // mixed batch (however unlikely) still gets the right template per row.
+      const templateCache = new Map<string, Buffer>()
       const used = new Set<string>()
       const written: string[] = []
       for (const entry of entries) {
+        const { templatePath, fill } = resolveBidDocumentFiller(entry.input.work)
+        let templateBuffer = templateCache.get(templatePath)
+        if (!templateBuffer) {
+          templateBuffer = fs.readFileSync(templatePath)
+          templateCache.set(templatePath, templateBuffer)
+        }
         const base = sanitizeFileName(entry.suggestedName || 'Bid Document')
         let fileName = `${base}.docx`
         let n = 2
@@ -1396,7 +1436,7 @@ function registerHandlers(): void {
           n += 1
         }
         used.add(fileName)
-        fs.writeFileSync(path.join(dir, fileName), fillBidDocument(templateBuffer, entry.input))
+        fs.writeFileSync(path.join(dir, fileName), fill(templateBuffer, entry.input))
         written.push(path.join(dir, fileName))
       }
       return written
@@ -1406,9 +1446,8 @@ function registerHandlers(): void {
   ipcMain.handle(
     IPC.previewBidDocument,
     async (_e, input: BidDocumentInput): Promise<string> => {
-      const templatePath = bidDocumentTemplateFile()
-      if (!templatePath) throw new Error('Bid Document template is missing from the app bundle.')
-      const filled = fillBidDocument(fs.readFileSync(templatePath), input)
+      const { templatePath, fill } = resolveBidDocumentFiller(input.work)
+      const filled = fill(fs.readFileSync(templatePath), input)
       return filled.toString('base64')
     }
   )

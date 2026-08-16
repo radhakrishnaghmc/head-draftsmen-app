@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { api } from '../ipc'
 import { pdfToTextLines } from '../pdfToText'
 import { parseTenderEvaluation } from '@core/tenderEvaluationPdf'
@@ -29,6 +29,7 @@ export default function EvaluationSheetTab({ office }: Props) {
   const [busy, setBusy] = useState<null | 'pdf' | 'download'>(null)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
+  const pdfInputRef = useRef<HTMLInputElement>(null)
 
   function defaultSignature(): string {
     const circle = (office.circle ?? '').trim()
@@ -110,19 +111,20 @@ export default function EvaluationSheetTab({ office }: Props) {
       <div className="empty empty--tight">
         <IconChecklist />
         <div className="boq-actions">
-          <label className="primary upload-btn" style={{ cursor: 'pointer' }}>
+          <button className="primary upload-btn" onClick={() => pdfInputRef.current?.click()} disabled={busy === 'pdf'}>
             <IconFolder /> {busy === 'pdf' ? 'Reading PDF…' : pdfName ? 'Change View Bidders PDF' : 'Upload View Bidders PDF'}
-            <input
-              type="file"
-              accept="application/pdf,.pdf"
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file) void handlePdf(file)
-                e.target.value = ''
-              }}
-            />
-          </label>
+          </button>
+          <input
+            ref={pdfInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void handlePdf(file)
+              e.target.value = ''
+            }}
+          />
           {ready && (
             <button className="primary" onClick={download} disabled={busy === 'download'}>
               <IconTable /> {busy === 'download' ? 'Building…' : 'Download evaluation sheet'}

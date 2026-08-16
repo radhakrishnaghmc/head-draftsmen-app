@@ -10,6 +10,13 @@ import { closeOnBackdropMouseDown } from '../overlayClose'
 interface Props {
   batches: BidDocumentBatch[]
   onRemove: (id: string) => void
+  /** Edits one work's SE-only manual fields (Item No, TS No/Date, Admin Sanction) in place. */
+  onUpdateWork: (batchId: string, serial: number, patch: Partial<BidDocumentWork>) => void
+}
+
+/** A Zone-level (SE) office has no Circle of its own — same "seMode" test used throughout the app — so the SE Bid Document template replaces the EE one for this work, rather than the two coexisting. */
+function isSeWork(work: BidDocumentWork): boolean {
+  return !!work.zone?.trim() && !work.circle?.trim()
 }
 
 function buildInput(batch: BidDocumentBatch, work: BidDocumentWork): BidDocumentInput {
@@ -41,7 +48,7 @@ function suggestedName(work: BidDocumentWork): string {
  * Document template with that work's own Name/Estimate/Zone/Circle/
  * Completion Period/EMD plus the notice's NIT No. and dates.
  */
-export default function BidDocumentsPanel({ batches, onRemove }: Props) {
+export default function BidDocumentsPanel({ batches, onRemove, onUpdateWork }: Props) {
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [savedKey, setSavedKey] = useState<string | null>(null)
   const [batchBusyId, setBatchBusyId] = useState<string | null>(null)
@@ -154,11 +161,61 @@ export default function BidDocumentsPanel({ batches, onRemove }: Props) {
           <ul className="todo-list boq-entries">
             {batch.works.map((work) => {
               const key = rowKey(batch.id, work.serial)
+              const se = isSeWork(work)
+              const set = (patch: Partial<BidDocumentWork>) => onUpdateWork(batch.id, work.serial, patch)
               return (
-                <li key={key} className="todo-item">
+                <li key={key} className={`todo-item ${se ? 'bid-se-row' : ''}`}>
                   <div className="todo-body">
-                    <span className="todo-text">BID Document {work.serial}</span>
+                    <span className="todo-text">
+                      BID Document {work.serial} {se && <span className="badge info">SE office</span>}
+                    </span>
                     <span className="todo-dates">{work.name || 'Unnamed work'}</span>
+                    {se && (
+                      <div className="tender-field-row bid-se-fields">
+                        <label className="tender-field">
+                          <span>Item No.</span>
+                          <input
+                            value={work.itemNo ?? ''}
+                            onChange={(e) => set({ itemNo: e.target.value })}
+                            placeholder={String(work.serial)}
+                          />
+                        </label>
+                        <label className="tender-field">
+                          <span>T.S. No.</span>
+                          <input
+                            value={work.tsNo ?? ''}
+                            onChange={(e) => set({ tsNo: e.target.value })}
+                            placeholder="29/SE/QBZ/CMC/2026-27"
+                          />
+                        </label>
+                        <label className="tender-field">
+                          <span>T.S. Date</span>
+                          <input
+                            value={work.tsDate ?? ''}
+                            onChange={(e) => set({ tsDate: e.target.value })}
+                            placeholder="04-07-2026"
+                          />
+                        </label>
+                        <label className="tender-field">
+                          <span>AS Authority</span>
+                          <select
+                            value={work.asAuthority ?? 'commissioner'}
+                            onChange={(e) => set({ asAuthority: e.target.value as 'zonal' | 'commissioner' })}
+                          >
+                            <option value="commissioner">Commissioner, CMC</option>
+                            <option value="zonal">Zonal Commissioner</option>
+                          </select>
+                        </label>
+                        <label className="tender-field">
+                          <span>AS Date</span>
+                          <input
+                            value={work.asDate ?? ''}
+                            onChange={(e) => set({ asDate: e.target.value })}
+                            placeholder="23.06.2026"
+                          />
+                        </label>
+                      </div>
+                    )}
                   </div>
                   <button
                     className="ghost"
