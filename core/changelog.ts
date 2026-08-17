@@ -16,6 +16,13 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.20.1',
+    changes: [
+      'Fixed: Word showed "unreadable content, recover?" when opening a downloaded Agreement Bond, Agreement Put-up Note, Contract Deed, Eligibility Criteria, or TS Note — a leftover invalid reference inside the file is now removed.',
+      'Fixed: SE Agreement Bond layout — more space above "AGREEMENT", tighter spacing around Name of Work, and the body paragraphs are flush left instead of oddly indented.'
+    ]
+  },
+  {
     version: '1.20.0',
     changes: [
       'Agreement and Work Order: "Download all documents" is now available for SE (Zone) offices too, in the page header, with the same Word/PDF toggle as EE offices — and now shows live progress ("Preparing 3 of 8…", "Saving 5 of 8…") instead of a plain "Preparing…" that could look frozen.',
