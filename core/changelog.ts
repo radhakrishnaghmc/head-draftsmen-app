@@ -16,6 +16,12 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.21.1',
+    changes: [
+      'Fixed: on Windows, uploading a photo or PDF anywhere in Tools (estimate from photos, photos to a Word/Excel document) failed with a "sharp module" error — every OCR-based tool now works correctly again.'
+    ]
+  },
+  {
     version: '1.21.0',
     changes: [
       'Fixed: Note Submitted could show a different work\'s name, agency, ECV, tender %, NIT No, and contract amount than the rest of the Agreement/Work Order documents — every field now comes from the uploaded L-1 sheet / Online Intimation, same as every other document.',
