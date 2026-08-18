@@ -141,13 +141,18 @@ mac:
   # npm package (win32/linux/darwin × x64/arm64) — and @huggingface/transformers
   # pulls in a SECOND, differently-versioned copy of the same package nested in
   # its own node_modules. Neither is split into per-platform optional packages
-  # (unlike sharp/@img, which npm already installs only the matching one of),
-  # so both copies' other-platform folders ship dead weight unless stripped here.
+  # (unlike sharp/@img, which npm normally installs only the matching one of —
+  # EXCEPT when a build machine has manually fetched an extra platform's @img/
+  # package too, e.g. to cross-build a Windows release from a Mac, in which
+  # case that extra platform's package sits in node_modules right alongside the
+  # host's own and ships dead weight into this target unless stripped here too).
   files:
     - '!**/node_modules/onnxruntime-node/bin/napi-v6/win32/**'
     - '!**/node_modules/onnxruntime-node/bin/napi-v6/linux/**'
     - '!**/node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/win32/**'
     - '!**/node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/linux/**'
+    - '!**/node_modules/@img/sharp-win32-*/**'
+    - '!**/node_modules/@img/sharp-linux*/**'
 win:
   icon: build/icon.ico
   target:
@@ -159,6 +164,9 @@ win:
     - '!**/node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/darwin/**'
     - '!**/node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/linux/**'
     - '!**/node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**'
+    - '!**/node_modules/@img/sharp-darwin-*/**'
+    - '!**/node_modules/@img/sharp-libvips-darwin-*/**'
+    - '!**/node_modules/@img/sharp-linux*/**'
 linux:
   icon: build/icon.png
   target:
