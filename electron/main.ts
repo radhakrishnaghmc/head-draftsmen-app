@@ -725,8 +725,12 @@ function registerHandlers(): void {
       if (result.canceled || !result.filePath) return null
       const docxBuffers: Buffer[] = []
       for (const pdf of pdfs) docxBuffers.push(await convertPdfToDocx(Buffer.from(pdf.bytes)))
-      const out = docxBuffers.length === 1 ? docxBuffers[0] : mergeDocxBuffers(docxBuffers)
-      fs.writeFileSync(result.filePath, out)
+      const merged = docxBuffers.length === 1 ? docxBuffers[0] : mergeDocxBuffers(docxBuffers)
+      // convertPdfToDocx shells out to LibreOffice's own PDF->docx conversion —
+      // the same authoring tool responsible for every other bidi/child-order
+      // corruption found in this codebase, so its output needs the same
+      // defensive sanitizing before it reaches a real Word install.
+      fs.writeFileSync(result.filePath, sanitizeDocxForWord2007(merged))
       return result.filePath
     }
   )
@@ -1371,7 +1375,7 @@ function registerHandlers(): void {
       })
       if (result.canceled || !result.filePath) return null
 
-      const filled = fillTenderNotice(fs.readFileSync(templatePath), input)
+      const filled = sanitizeDocxForWord2007(fillTenderNotice(fs.readFileSync(templatePath), input))
       fs.writeFileSync(result.filePath, filled)
       return result.filePath
     }
@@ -1399,7 +1403,7 @@ function registerHandlers(): void {
       })
       if (result.canceled || !result.filePath) return null
 
-      const filled = fill(fs.readFileSync(templatePath), input)
+      const filled = sanitizeDocxForWord2007(fill(fs.readFileSync(templatePath), input))
       fs.writeFileSync(result.filePath, filled)
       return result.filePath
     }
@@ -1440,7 +1444,7 @@ function registerHandlers(): void {
           n += 1
         }
         used.add(fileName)
-        fs.writeFileSync(path.join(dir, fileName), fill(templateBuffer, entry.input))
+        fs.writeFileSync(path.join(dir, fileName), sanitizeDocxForWord2007(fill(templateBuffer, entry.input)))
         written.push(path.join(dir, fileName))
       }
       return written

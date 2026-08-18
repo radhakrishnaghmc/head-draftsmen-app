@@ -5,6 +5,7 @@ import PizZip from 'pizzip'
 import { fillPlaceholdersInDocx, findPlaceholdersInDocx } from '../core/docx-edit'
 import { sanitizeDocxForWord2007 } from '../core/word2007Compat'
 import type { PlaceholderMatch } from '../core/createDocument'
+import type { Element } from '@xmldom/xmldom'
 
 const TENDER = resolve(__dirname, '../resources/civil-tender-template.docx')
 
@@ -87,6 +88,102 @@ describe('sanitizeDocxForWord2007', () => {
     const twice = sanitizeDocxForWord2007(once)
     expect(part(twice, 'word/document.xml')).not.toContain('<w:start ')
     expect(part(twice, 'word/document.xml')).not.toContain('<w:end ')
+  })
+
+  it('reorders out-of-sequence <w:pPr> children on a template-authored (not html-to-docx) .docx', () => {
+    // Found via a live "SE docs won't open in Word 2007" report: several
+    // bundled LibreOffice templates (this one included — 16 real violations)
+    // have <w:pPr> children out of the OOXML CT_PPr sequence, independently
+    // of the bidirectional-construct bug above. This was previously only
+    // fixed for html-to-docx output (sanitizeHtmlDocxForWord2007) — templates
+    // filled via docxtemplater got no equivalent treatment until now.
+    const buf = readFileSync(resolve(__dirname, '../resources/eligibility-criteria-template.docx'))
+    const PPR_ORDER = [
+      'w:pStyle','w:keepNext','w:keepLines','w:pageBreakBefore','w:framePr','w:widowControl','w:numPr',
+      'w:suppressLineNumbers','w:pBdr','w:shd','w:tabs','w:suppressAutoHyphens','w:kinsoku','w:wordWrap',
+      'w:overflowPunct','w:topLinePunct','w:autoSpaceDE','w:autoSpaceDN','w:bidi','w:adjustRightInd',
+      'w:snapToGrid','w:spacing','w:ind','w:contextualSpacing','w:mirrorIndents','w:suppressOverlap','w:jc',
+      'w:textDirection','w:textAlignment','w:textboxTightWrap','w:outlineLvl','w:divId','w:cnfStyle','w:rPr',
+      'w:sectPr','w:pPrChange'
+    ]
+    const countOutOfOrder = (xmlText: string): number => {
+      const xml = new DOMParser().parseFromString(xmlText, 'text/xml')
+      const pPrs = Array.from(xml.getElementsByTagName('w:pPr')) as unknown as Element[]
+      let bad = 0
+      for (const pPr of pPrs) {
+        const direct = (Array.from(pPr.childNodes) as unknown as Element[]).filter((n) => n.nodeType === 1)
+        const ranks = direct.map((c) => {
+          const i = PPR_ORDER.indexOf(c.nodeName)
+          return i === -1 ? 999 : i
+        })
+        for (let i = 1; i < ranks.length; i++) {
+          if (ranks[i] < ranks[i - 1]) {
+            bad++
+            break
+          }
+        }
+      }
+      return bad
+    }
+
+    expect(countOutOfOrder(part(buf, 'word/document.xml'))).toBeGreaterThan(0)
+    const out = sanitizeDocxForWord2007(buf)
+    expect(countOutOfOrder(part(out, 'word/document.xml'))).toBe(0)
+  })
+
+  it('strips explicit directory entries from the zip — the real cause of "unreadable content" that survived the bidi and child-order fixes', () => {
+    // Real bug, found live: a downloaded Agreement Bond ("Agreement Bond -
+    // Ganta Narasimha Rao.docx") still showed Word's "unreadable content"
+    // prompt in Office 365 too, not just Word 2007 — proving the bidi/
+    // child-order fixes above (both Word-2007-specific schema strictness)
+    // were never going to fix this one, because it's a different corruption
+    // class entirely: resources/agreement-template.docx has 5 explicit
+    // directory entries (_rels/, docProps/, word/, word/theme/, word/_rels/)
+    // baked into the raw template, dated separately from its other parts —
+    // added by some later re-export/re-zip tool. Word rejects a package with
+    // these in EVERY version (not just 2007), which is exactly why the
+    // Word-2007-only fixes didn't help.
+    const buf = readFileSync(resolve(__dirname, '../resources/agreement-template.docx'))
+    const zipBefore = new PizZip(buf)
+    const dirsBefore = Object.keys(zipBefore.files).filter((f) => (zipBefore.files as any)[f].dir)
+    expect(dirsBefore.length).toBeGreaterThan(0)
+
+    const out = sanitizeDocxForWord2007(buf)
+    const zipAfter = new PizZip(out)
+    const dirsAfter = Object.keys(zipAfter.files).filter((f) => (zipAfter.files as any)[f].dir)
+    expect(dirsAfter).toEqual([])
+    // Every real file must survive the folder-entry removal (only the
+    // zero-length directory marker entries should be dropped).
+    expect(zipAfter.file('word/document.xml')).not.toBeNull()
+    expect(zipAfter.file('word/styles.xml')).not.toBeNull()
+    expect(zipAfter.file('word/_rels/document.xml.rels')).not.toBeNull()
+  })
+
+  it('fixes the invalid <w:sz-cs> element name — the ACTUAL cause of the SE Agreement Bond still failing after the directory-entry fix', () => {
+    // Real bug, continued: directory-entries turned out to be a DIFFERENT
+    // template (agreement-template.docx, the Tools tab's EE "Agreement
+    // Bond") than the one the user was actually generating — the SE zonal
+    // workflow's se-agreement-bond-template.docx. Re-reproduced live through
+    // the real SE Agreement/Work Order workflow (uploaded the same L-1 +
+    // Intimation, downloaded the real Agreement Bond tile) and found
+    // <w:sz-cs w:val="20"/> in the output — NOT a valid OOXML element at all
+    // (the real one is <w:szCs>, camelCase, no hyphen). This is WELL-FORMED
+    // XML (a hyphen in an element name is syntactically legal), so it passed
+    // every earlier check (bidi, child-order, directory-entries, XML
+    // well-formedness) — only Word's own OOXML *schema* validation catches
+    // it, which is why it broke every Word version including Office 365, and
+    // why three earlier fixes in a row didn't touch it. Found systemically
+    // in 5 SE templates (318 occurrences total): eligibility-criteria (25),
+    // se-agreement-bond (41), se-agreement-note (57), se-contract-deed (165),
+    // ts-note (30) — all sharing some earlier edit that introduced the typo.
+    const buf = readFileSync(resolve(__dirname, '../resources/se-agreement-bond-template.docx'))
+    expect(part(buf, 'word/document.xml')).toMatch(/<w:sz-cs\b/)
+
+    const out = sanitizeDocxForWord2007(buf)
+    const fixedDoc = part(out, 'word/document.xml')
+    expect(fixedDoc).not.toMatch(/<w:sz-cs\b/)
+    expect(fixedDoc).not.toMatch(/<\/w:sz-cs>/)
+    expect(fixedDoc).toContain('<w:szCs w:val="20"/>')
   })
 })
 

@@ -307,4 +307,19 @@ describe('noteSubmittedFromRow prefers the uploaded L-1 / Online Intimation over
     expect(d.l1Name).toBe('SOME OTHER CONTRACTOR')
     expect(d.tenderNoticeNo).toBe('7/DB/EE/Old')
   })
+
+  it('strips a "(Item No.N)" tag from the L-1 sheet\'s name — even when it appears at BOTH the start and end', () => {
+    // Real SE work name from a live bug report: the tag duplicated at both
+    // ends of the uploaded L-1 sheet's own name field. deriveFields already
+    // strips this for every other document (via stripItemNoTag) — Note
+    // Submitted was the one place that didn't, so noteWorkMismatch fired
+    // even though the work was genuinely the same.
+    const taggedPdf = {
+      nameOfWork:
+        '(Item No.8) Number Laying of CC roads in internal lanes of Bathukamma banda (Reserved for SC Only) (Item No.8)'
+    }
+    const d = noteSubmittedFromRow({}, taggedPdf, {})
+    expect(d.workName).toBe('Number Laying of CC roads in internal lanes of Bathukamma banda (Reserved for SC Only)')
+    expect(d.workName).not.toContain('Item No')
+  })
 })

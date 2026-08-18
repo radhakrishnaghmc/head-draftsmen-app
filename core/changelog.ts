@@ -16,6 +16,13 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.21.2',
+    changes: [
+      'Fixed: several SE documents (Agreement Bond, Bid Document, Agreement Put-up Note, Contract Deed, Eligibility Criteria, TS Note, and others) could show Word\'s "unreadable content, recover?" prompt — on Windows Word AND Office 365 — when downloaded. Several distinct causes are now all fixed: invalid formatting tags in 5 templates, documents whose layout elements were out of order, and some documents saved without Word-compatibility cleanup applied at all.',
+      'Fixed: a stray "Number" word from the L-1 sheet could leak into the printed Name of Work on Agreement/Work Order documents.'
+    ]
+  },
+  {
     version: '1.21.1',
     changes: [
       'Fixed: on Windows, uploading a photo or PDF anywhere in Tools (estimate from photos, photos to a Word/Excel document) failed with a "sharp module" error — every OCR-based tool now works correctly again.'

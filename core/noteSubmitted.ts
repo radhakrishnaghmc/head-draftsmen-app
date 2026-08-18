@@ -6,6 +6,7 @@
 // converted to .docx for export via core/htmlToDocx.ts. See the plan in
 // project memory (project_note_submitted_doc) for the field mapping.
 import { computeWorkAmounts, tenderPercentFromRow } from './worksAmounts'
+import { stripItemNoTag } from './bidDocument'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
 import type { IntimationNotice } from './intimationNotice'
 
@@ -398,7 +399,12 @@ export function noteSubmittedFromRow(
   defaultCircle = ''
 ): NoteSubmittedData {
   const amounts = computeWorkAmounts(row)
-  const workName = (pdf.nameOfWork || row['Name of the work'] || '').trim()
+  // SE offices tag the item number onto the work name itself, sometimes at
+  // both the start AND the end ("(Item No.8) …work… (Item No.8)") — strip it
+  // here the same way deriveFields does for every other document, so it
+  // doesn't also leak into Note Submitted's printed name / the cross-document
+  // consistency check.
+  const workName = stripItemNoTag((pdf.nameOfWork || row['Name of the work'] || '').trim())
   const reservation = (row['Reservation'] ?? '').trim() || workName.match(/reserved\s+for\s+([A-Za-z]+)/i)?.[1] || ''
   const pctNum = pdf.tenderPercentage ?? tenderPctMagnitude(tenderPercentFromRow(row))
   const l1Pct = pctNum == null ? '' : pctNum > 0 ? `(-)${pctNum}` : String(pctNum)

@@ -76,9 +76,17 @@ function isWorkNameBoundary(line: string): boolean {
 
 // A line that's one of the page's own field labels (not part of the work
 // name) — so it's never picked up as the value line preceding "Name of Work".
+// "Number" alone is a column-header fragment that lands on its own line right
+// above the title on some layouts (between an "(Item No.N)" tag and the title
+// itself) — exact-line matched (not a prefix, unlike the others below) since
+// it's a single common word that could otherwise false-match real title text.
 function isFieldLabelLine(line: string): boolean {
   const t = line.trim()
-  return t === '' || /^(notice number|tender id|enquiry|ifb|current tender|commercial evaluation|preliminary responsiveness|name of work)\b/i.test(t)
+  return (
+    t === '' ||
+    /^number$/i.test(t) ||
+    /^(notice number|tender id|enquiry|ifb|current tender|commercial evaluation|preliminary responsiveness|name of work)\b/i.test(t)
+  )
 }
 
 /**

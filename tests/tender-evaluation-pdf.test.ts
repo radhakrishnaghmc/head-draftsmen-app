@@ -207,6 +207,33 @@ describe('parseTenderEvaluation', () => {
     )
   })
 
+  it('drops a stray "Number" column-header fragment wedged between an "(Item No.N)" tag and the title', () => {
+    // Real SE L1 sheet (8-L1.pdf): the page stacks "(Item No.8)" then a bare
+    // "Number" line then the title, right above the "Name of Work" label —
+    // the old parser walked past both and printed "(Item No.8) Number Laying
+    // of CC roads…" as the work name (the "(Item No.8)" tags are cleaned up
+    // downstream by stripItemNoTag, but nothing removed the leaked "Number").
+    const r = parseTenderEvaluation([
+      'Commercial Evaluation',
+      'Current Tender Details',
+      'Enquiry/IFB/Tender Notice NIT No. 15/SE/QBZ/CMC/2026-27, Dt. 27.07.2026',
+      'Tender ID 722257',
+      '(Item No.8)',
+      'Number',
+      'Laying of CC roads in internal lanes of Bathukamma banda 01/113/ER/446, S.no 1247, 1-113/A/ER/466, 1-113/ER/530/1, 1-113/A/ER/151C,',
+      'Name of Work',
+      'graveyard) of ward no. 277, Mahadevapuram, Gajularamaram Circle-57, CMC (Reserved for SC Only) (Item No.8)',
+      'Tender Category Works Tender Evaluation Type Percentage',
+      'Tender Type OPEN - NCB Estimated Contract Value 6262019.00',
+      'J.J. Constructions 6262019.00 Less 25 4696514.25 L-1'
+    ])
+    expect(r.nameOfWork).not.toMatch(/^number/i)
+    expect(r.nameOfWork).not.toContain('Number Laying')
+    expect(r.nameOfWork).toBe(
+      'Laying of CC roads in internal lanes of Bathukamma banda 01/113/ER/446, S.no 1247, 1-113/A/ER/466, 1-113/ER/530/1, 1-113/A/ER/151C, graveyard) of ward no. 277, Mahadevapuram, Gajularamaram Circle-57, CMC (Reserved for SC Only) (Item No.8)'
+    )
+  })
+
   it('takes the L-1 row, not L-2, for the winning bid', () => {
     const r = parseTenderEvaluation(COMMERCIAL_LINES)
     expect(r.l1AgencyName).toBe('M V S CONSTRUCTIONS')

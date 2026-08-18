@@ -41,6 +41,20 @@ const IND_ATTRS: [from: string, to: string][] = [
 // numbering start value safe there.
 const FIXABLE_PART_RE = /^word\/(document|header\d+|footer\d+|footnotes|endnotes|styles|numbering)\.xml$/
 
+// `<w:sz-cs>` is not a valid OOXML element at all (the real one is
+// `<w:szCs>`, camelCase, no hyphen) — found baked into 5 SE templates
+// (318 occurrences total: eligibility-criteria, se-agreement-bond,
+// se-agreement-note, se-contract-deed, ts-note), all sharing some earlier
+// edit that introduced the same typo. This is well-formed XML (hyphens are
+// legal in element names), so it passes an XML-syntax check — Word's own
+// OOXML *schema* validation is what rejects it, in every Word version,
+// which is why this survived the Word-2007-specific bidi/child-order fixes
+// AND the directory-entries fix (a different template) unnoticed. A plain
+// tag-name string fix, not a DOM operation.
+function fixInvalidSzCsTag(xmlText: string): string {
+  return xmlText.replace(/<w:sz-cs\b/g, '<w:szCs').replace(/<\/w:sz-cs>/g, '</w:szCs>')
+}
+
 // Cheap pre-filter so a part with none of the constructs is never reparsed.
 const MAYBE_RE = /<w:start[ />]|<w:end[ />]|w:val="start"|w:val="end"|w:start(Chars)?="|w:end(Chars)?="/
 
@@ -106,40 +120,6 @@ function fixIndentAttrs(xml: Document): boolean {
   return changed
 }
 
-/**
- * Rewrite every Word-2007-incompatible bidirectional construct in a filled
- * .docx so it opens in Word 2007. A no-op — the same buffer is returned — when
- * there's nothing to fix, so it's safe to run over every exported document.
- */
-export function sanitizeDocxForWord2007(buffer: Buffer): Buffer {
-  const zip = new PizZip(buffer)
-  let changed = false
-  for (const name of Object.keys(zip.files)) {
-    if (!FIXABLE_PART_RE.test(name)) continue
-    const xmlText = zip.file(name)?.asText()
-    if (!xmlText || !MAYBE_RE.test(xmlText)) continue
-    const xml = new DOMParser().parseFromString(xmlText, 'text/xml')
-    const partChanged = [fixSideElements(xml), fixJustification(xml), fixIndentAttrs(xml)].some(Boolean)
-    if (partChanged) {
-      zip.file(name, new XMLSerializer().serializeToString(xml))
-      changed = true
-    }
-  }
-  return changed ? zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }) : buffer
-}
-
-// ── html-to-docx → Word 2007 ──────────────────────────────────────────────
-// The html-to-docx library emits OOXML that Word 2010+ opens but Word 2007
-// rejects ("… problems with the contents"), for two reasons this fixes:
-//   1. [Content_Types].xml carries invalid <Override> entries for the .rels
-//      relationship parts — those are typed only via the `rels` Default, and
-//      Word 2007's stricter OPC reader refuses the package over the duplicate.
-//   2. Property containers (<w:pPr>, <w:tblPr>, <w:tblCellMar>, …) come out with
-//      their child elements in the WRONG order — e.g. tblPr as
-//      "tblBorders,tblCellSpacing,tblW,tblCellMar,jc" — and Word 2007 validates
-//      the CT_* child SEQUENCE strictly (Word 2010+ is lenient). Reordering to
-//      the schema sequence is lossless.
-
 // Canonical child-element order for each ordered property container (the OOXML
 // CT_* sequence). A child not listed keeps its relative position after the known
 // ones. Both the physical (left/right) and logical (start/end) side names are
@@ -173,6 +153,84 @@ function reorderChildren(parent: Element, order: string[]): boolean {
   for (const el of sorted) parent.appendChild(el)
   return true
 }
+
+/**
+ * Rewrite every Word-incompatible construct in a filled .docx so it opens
+ * cleanly. A no-op — the same buffer is returned — when there's nothing to
+ * fix, so it's safe to run over every exported document. Fixes:
+ *   1. Bidirectional border/justification/indent constructs (see above) —
+ *      Word 2007-specific schema strictness (Word 2010+ tolerates them).
+ *   2. Property-container children out of the OOXML CT_* schema sequence —
+ *      LibreOffice-authored .docx templates routinely emit these out of
+ *      order. Also Word-2007-specific strictness.
+ *   3. Explicit directory entries in the zip (e.g. "word/", "_rels/" as
+ *      their own zero-length entries, not just implied by file paths) —
+ *      found in `resources/agreement-template.docx` (5 of them, dated
+ *      separately from the file's other parts — added by some later
+ *      re-export/re-zip tool) and `public-participation-book-template.docx`
+ *      (6). Unlike (1)/(2), Word REJECTS these in every version, including
+ *      Office 365 — a genuine "unreadable content" failure was traced to this
+ *      specifically (bidi + child-order fixes alone did not resolve it,
+ *      because this is a fundamentally different corruption class: a zip/OPC
+ *      package-structure problem, not a schema-strictness one).
+ *   4. The invalid `<w:sz-cs>` element name (see fixInvalidSzCsTag) — found
+ *      in 5 SE templates, 318 occurrences total. Also rejected in every
+ *      Word version (it's simply not a real OOXML element), and — unlike
+ *      (1)-(3) — passes an XML well-formedness check, since a hyphen in an
+ *      element name is syntactically legal; only OOXML's own schema (which
+ *      Word validates against, not a generic XML parser) rejects it.
+ * Every FIXABLE_PART_RE part is parsed unconditionally (not gated behind
+ * MAYBE_RE) because a child-order problem can exist with none of the bidi
+ * patterns present.
+ */
+export function sanitizeDocxForWord2007(buffer: Buffer): Buffer {
+  const zip = new PizZip(buffer)
+  let changed = false
+  for (const name of Object.keys(zip.files)) {
+    if (!FIXABLE_PART_RE.test(name)) continue
+    let xmlText = zip.file(name)?.asText()
+    if (!xmlText) continue
+    const fixedTag = fixInvalidSzCsTag(xmlText)
+    let partChanged = fixedTag !== xmlText
+    xmlText = fixedTag
+    const xml = new DOMParser().parseFromString(xmlText, 'text/xml')
+    if ([fixSideElements(xml), fixJustification(xml), fixIndentAttrs(xml)].some(Boolean)) partChanged = true
+    for (const [container, order] of Object.entries(CHILD_ORDER)) {
+      for (const node of els(xml, container)) if (reorderChildren(node, order)) partChanged = true
+    }
+    if (partChanged) {
+      zip.file(name, new XMLSerializer().serializeToString(xml))
+      changed = true
+    }
+  }
+
+  // Delete only the folder ENTRY from the map (zip.remove() would cascade
+  // and delete the files inside the folder too — e.g. removing "word/"
+  // would drop word/document.xml, which is a separate key and must survive).
+  const files = zip.files as Record<string, { dir?: boolean }>
+  for (const name of Object.keys(files)) {
+    if (files[name]?.dir) {
+      delete files[name]
+      changed = true
+    }
+  }
+
+  return changed ? zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }) : buffer
+}
+
+// ── html-to-docx → Word 2007 ──────────────────────────────────────────────
+// The html-to-docx library emits OOXML that Word 2010+ opens but Word 2007
+// rejects ("… problems with the contents"), for two reasons this fixes:
+//   1. [Content_Types].xml carries invalid <Override> entries for the .rels
+//      relationship parts — those are typed only via the `rels` Default, and
+//      Word 2007's stricter OPC reader refuses the package over the duplicate.
+//   2. Property containers (<w:pPr>, <w:tblPr>, <w:tblCellMar>, …) come out with
+//      their child elements in the WRONG order — e.g. tblPr as
+//      "tblBorders,tblCellSpacing,tblW,tblCellMar,jc" — and Word 2007 validates
+//      the CT_* child SEQUENCE strictly (Word 2010+ is lenient). Reordering to
+//      the schema sequence is lossless. (CHILD_ORDER/reorderChildren for this
+//      now live above, shared with sanitizeDocxForWord2007 — template-authored
+//      LibreOffice .docx files have the exact same child-order problem.)
 
 /**
  * Move the body-level <w:sectPr> to be the LAST child of <w:body>. html-to-docx
