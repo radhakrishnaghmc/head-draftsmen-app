@@ -119,6 +119,14 @@ function asRefLineText(zoneAbbrCode: string, m: LoaManualFields): string {
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
 
+// A stable empty-row reference for `detailsRow` below — a fresh `{}` literal
+// on every render would break the memoization of everything downstream
+// (seDocValues/bidEvalData/agencyApprovalData and the SE companion notes'
+// live-preview effect), re-filling and re-rendering all 4 SE documents on
+// every render instead of only when the data actually changes. Same root
+// cause as the Agreement/Work Order tab's selectedRow bug.
+const EMPTY_ROW: Record<string, string> = {}
+
 /** "18%", " -5 " -> 18, -5. Blank/unparseable -> undefined. */
 function parsePct(v: string | undefined): number | undefined {
   const s = String(v ?? '').replace(/[%,\s]/g, '')
@@ -281,7 +289,12 @@ function resolveTsNoteValue(
   const zoneAbbrCode = zoneAbbr(office.zone)
   const est = computeWorkAmounts(row)
   const ecv = pdf.ecvRupees ?? est.ecv ?? null
-  const estimateLakhs = (row['Amount of estimate'] ?? '').replace(/,/g, '').trim()
+  // No Works List row (or a blank "Amount of estimate" cell) shouldn't leave
+  // the SE companion notes' Estimate Cost printing blank when the uploaded L-1
+  // sheet's own Estimated Contract Value is right there — same fallback
+  // deriveFields/standaloneRowFromSources use for the Agreement/Work Order.
+  const rowEstimateLakhs = (row['Amount of estimate'] ?? '').replace(/,/g, '').trim()
+  const estimateLakhs = rowEstimateLakhs || (ecv != null ? (ecv / 100000).toFixed(2) : '')
 
   const key = norm(label)
   switch (key) {
@@ -342,10 +355,12 @@ function seRefsFor(
 ) {
   const work = reservedInfo(row, pdf)
   const zoneAbbrCode = zoneAbbr(office.zone)
+  const ecv = pdf.ecvRupees ?? computeWorkAmounts(row).ecv ?? null
+  const rowEstimateLakhs = (row['Amount of estimate'] ?? '').replace(/,/g, '').trim()
   return {
     zoneAbbr: zoneAbbrCode,
     workName: work.name,
-    estimateLakhs: (row['Amount of estimate'] ?? '').replace(/,/g, '').trim(),
+    estimateLakhs: rowEstimateLakhs || (ecv != null ? (ecv / 100000).toFixed(2) : ''),
     asAuthority: asAuthorityText(zoneAbbrCode, manual),
     asRefLine: asRefLineText(zoneAbbrCode, manual),
     tsNo: manual.tsNo.trim(),
@@ -467,7 +482,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   // than borrowing another work's. A matched L-1 sets rowIndex to that row.
   // Before either upload, stay blank too — SE mode shows its document catalog
   // pre-upload (see seDocsReady) and must not show row 0's unrelated work.
-  const detailsRow = !notice || !pdfEval ? {} : worksRowMatched === false ? {} : (selectedRow ?? {})
+  const detailsRow = !notice || !pdfEval ? EMPTY_ROW : worksRowMatched === false ? EMPTY_ROW : (selectedRow ?? EMPTY_ROW)
 
   // A reserved (SC/ST) work uses the LOA variant that omits the EMD balance item.
   const seReserved = seMode && isReservedWork(detailsRow, pdfEval ?? {})

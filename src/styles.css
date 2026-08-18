@@ -4666,6 +4666,15 @@ table.sheet tbody tr {
   content-visibility: auto;
   contain-intrinsic-size: auto 34px;
 }
+/* A filtered (searched) result set is always small — virtualization buys
+   nothing there, and Chromium's content-visibility:auto on <tr> elements can
+   under-measure the scroll container's real height once a table goes from a
+   large unfiltered list to a handful of filtered rows, leaving the last row(s)
+   clipped with no scrollbar to reach them. Render filtered rows normally. */
+table.sheet.sheet-filtered tbody tr {
+  content-visibility: visible;
+  contain-intrinsic-size: auto;
+}
 table.sheet th {
   position: sticky;
   top: 0;

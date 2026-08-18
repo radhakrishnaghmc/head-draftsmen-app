@@ -102,7 +102,11 @@ export function reservationFromRow(row: Record<string, string>): string {
 
 /** The Circle name and number out of a NIT No ("…/EE/Gajularamaram Circle-57/QBZ/CMC/…" -> {circle:"Gajularamaram", cno:"57"}). */
 export function circleFromNit(nit: string | undefined): { circle: string; cno: string } {
-  const m = /\/EE\/\s*(.+?)\s*Circle-\s*(\d+)/i.exec(nit ?? '')
+  // The separator between the circle's name and its number varies by portal
+  // export: "…Circle-58…" (hyphen), "…Circle 58…" (space), or "…Circle58…"
+  // (none at all, e.g. "NizampetCircle58" — seen on a real L-1 sheet's "NIT
+  // No" cell) — accept all three.
+  const m = /\/EE\/\s*(.+?)\s*Circle[\s-]*(\d+)/i.exec(nit ?? '')
   return m ? { circle: m[1].trim(), cno: m[2] } : { circle: '', cno: '' }
 }
 
@@ -116,11 +120,18 @@ export function circleFromNit(nit: string | undefined): { circle: string; cno: s
  */
 export function standaloneRowFromSources(pdf: TenderEvaluation, notice: IntimationNotice): Record<string, string> {
   const { circle, cno } = circleFromNit(pdf.noticeNo || notice.nitNo)
+  // Neither upload carries the ORIGINAL "Amount of estimate" (that lives only
+  // in the Works List) — but with no row to draw it from, the Estimated
+  // Contract Value they both do carry is the best available stand-in, so the
+  // documents don't print a blank Amount of Estimate just because the work
+  // isn't in the Works List yet. Same source order deriveFields uses for ECV.
+  const ecv = notice.ecvRupees ?? pdf.ecvRupees
   return {
     Circle: circle,
     'Circle number': cno,
     Zone: '',
     'Name of the work': pdf.nameOfWork ?? '',
+    'Amount of estimate': ecv != null ? (ecv / 100000).toFixed(2) : '',
     // The tender Notice No (= NIT No) and its date, from the uploaded L-1 sheet
     // (falling back to the Intimation) — so the Note Submitted's "NIT No:" fills
     // here just like it would from a Works List row.

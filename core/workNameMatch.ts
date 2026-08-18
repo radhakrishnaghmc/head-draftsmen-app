@@ -1,4 +1,4 @@
-import { cosineSimilarity } from './embeddingMatch'
+import { cosineSimilarity, WORK_IDENTITY_MATCH_THRESHOLD } from './embeddingMatch'
 
 /**
  * Decide whether two "Name of Work" strings describe the same work — used to
@@ -11,15 +11,16 @@ import { cosineSimilarity } from './embeddingMatch'
  * word it slightly differently (abbreviations, punctuation, rephrasing). So an
  * exact normalized match is only the fast path: when it fails, the caller can
  * supply embedding vectors for the two names and the cosine similarity decides
- * against the same 0.5 threshold used for column/placeholder matching
- * elsewhere. Without embeddings we fall back to word-overlap (Jaccard) so
- * trivial wording differences still count as the same work while a genuinely
- * different work is flagged. When either name is blank there's nothing to
- * compare and the status is 'unknown' (the caller shouldn't block).
+ * against WORK_IDENTITY_MATCH_THRESHOLD (core/embeddingMatch.ts) — higher than
+ * the threshold used for short-string column/placeholder matching, because
+ * full work-name sentences share enough civic boilerplate that two DIFFERENT
+ * works can otherwise score as a match. Without embeddings we fall back to
+ * word-overlap (Jaccard) so trivial wording differences still count as the
+ * same work while a genuinely different work is flagged. When either name is
+ * blank there's nothing to compare and the status is 'unknown' (the caller
+ * shouldn't block).
  */
 
-// Same threshold used for placeholder/column and Works List matching.
-const EMBEDDING_THRESHOLD = 0.5
 // Word-overlap fallback when no embeddings are available.
 const OVERLAP_THRESHOLD = 0.5
 
@@ -52,7 +53,7 @@ export function compareWorkNames(
 
   if (embeddings) {
     const score = cosineSimilarity(embeddings.aVector, embeddings.bVector)
-    return { status: score >= EMBEDDING_THRESHOLD ? 'match' : 'mismatch', score }
+    return { status: score >= WORK_IDENTITY_MATCH_THRESHOLD ? 'match' : 'mismatch', score }
   }
 
   const setA = new Set(na.split(' '))

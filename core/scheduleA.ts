@@ -1,11 +1,7 @@
 import * as XLSX from 'xlsx'
 import type { ExcelTable } from './types'
 import { computeWorkAmounts, indianDigitGroups, tenderPercentFromRow } from './worksAmounts'
-import { rankByEmbedding } from './embeddingMatch'
-
-// A match below this score is treated as "no real match" — same threshold
-// used for placeholder/column matching elsewhere (core/columnMatch.ts).
-const EMBEDDING_THRESHOLD = 0.5
+import { rankByEmbedding, WORK_IDENTITY_MATCH_THRESHOLD } from './embeddingMatch'
 
 export interface ScheduleAItem {
   itemNo: string
@@ -103,7 +99,7 @@ export function findWorksRowByName(
 
   if (embeddings) {
     const [best] = rankByEmbedding(embeddings.workNameVector, embeddings.rowNameVectors)
-    if (best && best.score >= EMBEDDING_THRESHOLD) {
+    if (best && best.score >= WORK_IDENTITY_MATCH_THRESHOLD) {
       return { row: worksTable.rows[best.index], matchedViaAi: true }
     }
   }

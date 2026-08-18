@@ -188,6 +188,14 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     setResetNonce((n) => n + 1)
     setTab(next)
   }
+  // Intimation and Agreement/Work Order keep their uploaded documents and
+  // filled fields alive across tab switches (see KeepAlive above) — a "Clear"
+  // button in each page's header lets the office wipe just THAT workspace's
+  // in-progress upload before starting the next work, without losing every
+  // other open tab's state the way the sidebar's whole-app reset would.
+  // Bumping the key remounts only that one component from scratch.
+  const [intimationInstanceKey, setIntimationInstanceKey] = useState(0)
+  const [workOrderInstanceKey, setWorkOrderInstanceKey] = useState(0)
   // Sub-tabs within the Intimation workspace: the Intimation letter, or the
   // Bid Capacity Evaluation Sheet issued from a "View Bidders" PDF.
   const [intimationSubTab, setIntimationSubTab] = useState<'intimation' | 'evaluation'>('intimation')
@@ -1076,7 +1084,16 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 </p>
               </div>
               {intimationSubTab === 'intimation' && (
-                <div className="page-head-action" ref={intimationHeaderActionRef} />
+                <div className="page-head-action">
+                  <button
+                    className="ghost"
+                    onClick={() => setIntimationInstanceKey((k) => k + 1)}
+                    title="Clear the uploaded documents and filled fields to start a new work"
+                  >
+                    <IconRefresh /> Clear
+                  </button>
+                  <div ref={intimationHeaderActionRef} />
+                </div>
               )}
             </div>
             <div className="doc-tabs">
@@ -1095,6 +1112,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
             </div>
             {intimationSubTab === 'intimation' ? (
               <GiveIntimationTab
+                key={intimationInstanceKey}
                 tables={tables}
                 onChange={updateTable}
                 office={office}
@@ -1116,9 +1134,19 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 <h1>Agreement and Work order</h1>
                 <p>Fill the Work Order and Agreement for a work, and generate its Schedule A from the estimate / BOQ.</p>
               </div>
-              <div className="page-head-action" ref={workOrderHeaderActionRef} />
+              <div className="page-head-action">
+                <button
+                  className="ghost"
+                  onClick={() => setWorkOrderInstanceKey((k) => k + 1)}
+                  title="Clear the uploaded documents and filled fields to start a new work"
+                >
+                  <IconRefresh /> Clear
+                </button>
+                <div ref={workOrderHeaderActionRef} />
+              </div>
             </div>
             <WorkOrderAgreementTab
+              key={workOrderInstanceKey}
               tables={tables}
               onChange={updateTable}
               zoneLogin={!!loginZone && !loginCircle}

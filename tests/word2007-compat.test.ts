@@ -118,6 +118,8 @@ describe('convertHtmlToDocx → Word 2007 (html-to-docx sanitising)', () => {
         'Name of the Agency': 'L SURENDER',
         Reservation: 'ST'
       },
+      {},
+      {},
       'Nizampet'
     )
     const buf = await convertHtmlToDocx(buildNoteSubmittedHtml(data))

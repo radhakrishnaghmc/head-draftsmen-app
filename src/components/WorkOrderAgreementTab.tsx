@@ -29,7 +29,7 @@ import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
 import { extractEstimateItems, extractWorkName } from '@core/estimateExtract'
 import { buildScheduleARows, rowsToScheduleAItems, metaFromWorksRow, findWorksRowByName } from '@core/scheduleA'
 import { indianDigitGroups } from '@core/worksAmounts'
-import { compareWorkNames, workNameMismatchMessage } from '@core/workNameMatch'
+import { compareWorkNames, workNameMismatchMessage, normWorkName } from '@core/workNameMatch'
 import {
   buildNoteSubmittedHtml,
   noteSubmittedFromRow,
@@ -479,17 +479,39 @@ export default function WorkOrderAgreementTab({
   // matched row is still used for the extra Works-List-only columns.
   const deriveFromUploads = standalone || worksRowMatched === false
 
-  const selectedRow = deriveFromUploads
-    ? notice || pdfEval
-      ? standaloneRowFromSources(pdfEval ?? {}, notice ?? {})
-      : null
-    : !notice && !pdfEval
-      ? null // Neither uploaded yet — stay blank rather than leaking row 0's
-        // unrelated work (SE mode shows its document catalog before either
-        // upload; see docsReady).
-      : table && table.rows.length > 0
-        ? table.rows[Math.min(rowIndex, table.rows.length - 1)]
-        : null
+  // Memoized: standaloneRowFromSources builds a brand-new plain object every
+  // call, so leaving this as a plain `const` (recomputed on every render, not
+  // just when its inputs change) meant `selectedRow` never held a stable
+  // reference in standalone/Tools mode or whenever the L-1's work matched no
+  // Works List row — which broke `fields`' memoization below it, which broke
+  // the live-preview effect's memoization, which re-filled and re-rendered
+  // every document tile (6, or 12 in SE mode) via docx-preview on EVERY
+  // render of this component, not just on real data changes. That's what
+  // made the whole page feel sluggish after uploading: any click anywhere
+  // that re-rendered this component re-triggered the full document re-render
+  // burst, whether or not the underlying data had actually changed.
+  const selectedRow = useMemo(
+    () =>
+      deriveFromUploads
+        ? notice || pdfEval
+          ? standaloneRowFromSources(pdfEval ?? {}, notice ?? {})
+          : null
+        : !notice && !pdfEval
+          ? null // Neither uploaded yet — stay blank rather than leaking row 0's
+            // unrelated work (SE mode shows its document catalog before either
+            // upload; see docsReady).
+          : worksRowMatched === null
+            ? null // An L-1/Notice upload just landed and its Works List match
+              // (syncWorksListRow's embedding check) hasn't resolved yet — stay
+              // blank for this brief async window rather than leaking whatever
+              // row[rowIndex] currently points to (often row 0's unrelated work).
+              // Note Submitted's own seeding effect watches selectedRow, so this
+              // is what actually stops it momentarily showing the wrong work.
+            : table && table.rows.length > 0
+              ? table.rows[Math.min(rowIndex, table.rows.length - 1)]
+              : null,
+    [deriveFromUploads, notice, pdfEval, worksRowMatched, table, rowIndex]
+  )
 
   // Load both bundled formats once, and read their placeholders.
   useEffect(() => {
@@ -966,25 +988,32 @@ export default function WorkOrderAgreementTab({
     )
     try {
       const files: AgreementBundleFile[] = []
-      const add = (name: string, docxBase64: string) => {
+      // Safety net: a template placeholder that never got a value stays as
+      // literal "{{Label}}" text in the filled document — catch that here,
+      // before the office downloads a document with a visible unfilled blank,
+      // instead of only finding out from a printed copy.
+      const unresolvedWarnings: string[] = []
+      const add = async (name: string, docxBase64: string) => {
         files.push({ name, format: bundleFormat, docxBase64 })
         prepDone += 1
         setBundleProgress({ phase: 'preparing', done: prepDone, total: totalPrep })
+        const leftover = await api.findPlaceholdersInDocument(docxBase64)
+        if (leftover.length > 0) unresolvedWarnings.push(`${name} (${leftover.join(', ')})`)
       }
       if (seMode) {
         for (const kind of ZONAL_KINDS) {
-          if (zonalB64[kind]) add(docName(kind), await fillDoc(kind))
+          if (zonalB64[kind]) await add(docName(kind), await fillDoc(kind))
         }
       } else {
         // File Backer — the cover page — first in the bundle.
-        if (fileBackerB64) add(docName('fileBacker'), await fillDoc('fileBacker'))
-        if (civilTenderB64) add(docName('civilTender'), await fillDoc('civilTender'))
-        if (forwardingSlipB64) add(docName('forwardingSlip'), await fillDoc('forwardingSlip'))
+        if (fileBackerB64) await add(docName('fileBacker'), await fillDoc('fileBacker'))
+        if (civilTenderB64) await add(docName('civilTender'), await fillDoc('civilTender'))
+        if (forwardingSlipB64) await add(docName('forwardingSlip'), await fillDoc('forwardingSlip'))
         // Work Order & Agreement Bond print a blank, hand-writable date in the bundle.
-        if (agreementB64) add(docName('agreement'), await fillDoc('agreement', { blankDate: true }))
-        if (qccIntimationB64) add(docName('qccIntimation'), await fillDoc('qccIntimation'))
-        if (workOrderB64) add(docName('workOrder'), await fillDoc('workOrder', { blankDate: true }))
-        if (noteReady) add(noteSubmittedFileName(noteData?.workName), await api.noteSubmittedDocx(notePreviewHtml))
+        if (agreementB64) await add(docName('agreement'), await fillDoc('agreement', { blankDate: true }))
+        if (qccIntimationB64) await add(docName('qccIntimation'), await fillDoc('qccIntimation'))
+        if (workOrderB64) await add(docName('workOrder'), await fillDoc('workOrder', { blankDate: true }))
+        if (noteReady) await add(noteSubmittedFileName(noteData?.workName), await api.noteSubmittedDocx(notePreviewHtml))
       }
       if (scheduleA)
         files.push({
@@ -999,6 +1028,10 @@ export default function WorkOrderAgreementTab({
       }
       setBundleProgress({ phase: 'saving', done: 0, total: files.length })
       const res = await api.exportAgreementBundle(files)
+      const unresolvedNote =
+        unresolvedWarnings.length > 0
+          ? ` Warning: ${unresolvedWarnings.length} document(s) have an unfilled field — ${unresolvedWarnings.join('; ')}.`
+          : ''
       if (!res) {
         setActionSaved('Cancelled.')
       } else if (res.failed.length > 0) {
@@ -1007,10 +1040,12 @@ export default function WorkOrderAgreementTab({
         setActionSaved(`Saved ${res.written.length} document(s).`)
         setActionError(
           `${res.failed.length} document(s) could not be saved: ${res.failed.join(', ')}. ` +
-            `PDFs need LibreOffice installed — install it from libreoffice.org, or download those as Word (.docx) instead.`
+            `PDFs need LibreOffice installed — install it from libreoffice.org, or download those as Word (.docx) instead.` +
+            unresolvedNote
         )
       } else {
         setActionSaved(`Saved ${res.written.length} document(s) to the chosen folder.`)
+        if (unresolvedNote) setActionError(unresolvedNote.trim())
       }
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
@@ -1030,7 +1065,15 @@ export default function WorkOrderAgreementTab({
       setNoteData(null)
       return
     }
-    const seed = noteSubmittedFromRow(selectedRow, table?.rows[0]?.['Circle'] ?? '')
+    // noteSubmittedFromRow now takes the uploads (pdf/notice) directly and
+    // prefers them over the matched row's own columns for every identifying
+    // fact (name, ECV, tender %, contract value, agency, NIT No/date) — a
+    // Works List match is name-similarity based (falls back to embeddings
+    // when there's no exact text match) and can land on a different, merely
+    // similar-sounding work, so the row is only trusted for what the uploads
+    // don't carry (Circle, Financial Year, estimate). Same precedence as
+    // every other document in this workspace (see deriveFields).
+    const seed = noteSubmittedFromRow(selectedRow, pdfEval ?? {}, notice ?? {}, table?.rows[0]?.['Circle'] ?? '')
     if (allBidders.length > 0) {
       seed.bidders = allBidders
       const l1 = allBidders[0]
@@ -1043,25 +1086,9 @@ export default function WorkOrderAgreementTab({
       const mag = tenderPctMagnitude(l1.pct)
       if (mag != null) seed.l1PctNumber = mag
     }
-    // The Intimation date is the L1 sheet's server date (its bottom-right
-    // "Server Time: …"), so prefer it over the (often blank here) Works List
-    // Intimation Date column.
-    if (pdfEval?.serverDate) seed.intimationDate = pdfEval.serverDate
-    // The tender notice No & date live on the uploaded L1 sheet itself (its
-    // "Enquiry/IFB/Tender … Notice Number … Dt:" line). Fall back to them when
-    // the Works List row hasn't been updated from L1 yet, so the note reflects
-    // the sheet directly rather than sitting blank. NIT No mirrors the notice No.
-    if (!seed.tenderNoticeNo && pdfEval?.noticeNo) {
-      seed.tenderNoticeNo = pdfEval.noticeNo
-      seed.nitNo = pdfEval.noticeNo
-    }
-    if (!seed.tenderNoticeDate && pdfEval?.noticeDate) {
-      seed.tenderNoticeDate = pdfEval.noticeDate
-      seed.nitDate = pdfEval.noticeDate
-    }
     setNoteData(seed)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowIndex, table, allBidders, pdfEval])
+  }, [rowIndex, table, allBidders, pdfEval, notice, deriveFromUploads, selectedRow])
 
   const notePreviewHtml = useMemo(() => (noteData ? buildNoteSubmittedHtml(noteData) : ''), [noteData])
   // Same gate as the Work Order / Agreement tiles: don't build the Note
@@ -1070,6 +1097,17 @@ export default function WorkOrderAgreementTab({
   // from the selected row), or the L1's circle isn't this office's circle —
   // otherwise it would show the wrong work/agency or the wrong circle's note.
   const noteReady = !!noteData && !!pdfEval && !workMismatch && !circleMismatch
+
+  // Defence-in-depth: Note Submitted is seeded independently of every other
+  // document (its own effect, above) from the same upload/matched row — if it
+  // ever falls out of sync (e.g. a missed re-seed after the match changes),
+  // this catches it before the office downloads mismatched documents instead
+  // of silently shipping them, the way today's "wrong work in Note Submitted"
+  // bug did.
+  const noteWorkMismatch =
+    !!noteData?.workName && !!fields.nameOfWork && normWorkName(noteData.workName) !== normWorkName(fields.nameOfWork)
+  const noteEstimateMismatch =
+    !!noteData?.estimateLakhs && !!fields.estimateLakhs && noteData.estimateLakhs.trim() !== fields.estimateLakhs.trim()
 
   // Optional non-responsiveness statement — pre-fills the note's rejection line.
   async function handleNonRespFile(file: File) {
@@ -1679,6 +1717,24 @@ export default function WorkOrderAgreementTab({
           <IconWarn /> “{pdfEval.nameOfWork}” isn’t in your Works List, so the documents fill the name of work, agency and
           amounts from the uploaded L1 / Intimation (Circle/CNO from the NIT No). Add it to the Works List if you want its
           extra columns (Wincode, estimate, TS No/date, …) filled in automatically.
+        </div>
+      )}
+      {(noteWorkMismatch || noteEstimateMismatch) && (
+        <div className="notice error">
+          <IconWarn /> Note Submitted doesn’t match the other documents in this workspace
+          {noteWorkMismatch && (
+            <>
+              {' '}
+              — Name of Work: “{noteData?.workName}” here vs “{fields.nameOfWork}” everywhere else
+            </>
+          )}
+          {noteEstimateMismatch && (
+            <>
+              {' '}
+              — Amount of Estimate: {noteData?.estimateLakhs} Lakhs here vs {fields.estimateLakhs} Lakhs everywhere else
+            </>
+          )}
+          . Re-pick the work or re-upload the L1 sheet before downloading.
         </div>
       )}
       {actionSaved && !expanded && (

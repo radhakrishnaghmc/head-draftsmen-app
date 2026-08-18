@@ -274,7 +274,7 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
 
       <div className="sheet-wrap">
         <table
-          className="sheet"
+          className={`sheet${query.trim() ? ' sheet-filtered' : ''}`}
           style={{ tableLayout: 'fixed', width: Math.max(ROWNUM_W + headers.length * COL_W + ROWDEL_W, 0) || undefined }}
         >
           <colgroup>

@@ -1,12 +1,8 @@
 import type { ExcelTable } from './types'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
 import type { IntimationNotice } from './intimationNotice'
-import { rankByEmbedding } from './embeddingMatch'
+import { rankByEmbedding, WORK_IDENTITY_MATCH_THRESHOLD } from './embeddingMatch'
 import { rupeesToCell } from './worksAmounts'
-
-// A match below this score is treated as "no real match" — same threshold
-// used for work-name matching elsewhere (core/scheduleA.ts).
-const EMBEDDING_THRESHOLD = 0.5
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
 
@@ -111,7 +107,7 @@ export function updateWorksListFromEvaluations(
     let idx = rowKeyToIndex.get(target)
     if (idx == null && embeddings) {
       const [best] = rankByEmbedding(embeddings.evalNameVectors[evIndex], embeddings.rowNameVectors)
-      if (best && best.score >= EMBEDDING_THRESHOLD) idx = best.index
+      if (best && best.score >= WORK_IDENTITY_MATCH_THRESHOLD) idx = best.index
     }
     if (idx == null) {
       unmatched.push(ev.nameOfWork!)

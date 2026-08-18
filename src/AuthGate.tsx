@@ -79,10 +79,15 @@ export default function AuthGate() {
       onLogout={() => {
         void api.logout()
         sessionStorage.removeItem(SESSION_KEY)
-        // Keep the chosen office remembered across logout — it's a property of
-        // this machine's Head Draughtsman, not of the login session, so the app
-        // should never re-ask for it once picked. (It can still be changed any
-        // time from the sidebar's office selector.)
+        // Office is scoped per login, not per machine: a shared machine can see
+        // different people log in, each with their own office, so the outgoing
+        // user's office must not leak into the next login. Clear it locally and
+        // drop back to "not ready" so the fallback effect re-fires on the next
+        // login and resolves THAT user's own saved office (or asks fresh if
+        // they don't have one yet) instead of reusing what's still in memory.
+        saveOffice({})
+        setOfficeState({})
+        setOfficeReady(false)
         setAuthed(false)
       }}
     />

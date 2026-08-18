@@ -59,7 +59,16 @@ function isNameContinuation(line: string): boolean {
 // the work-name value. "Works Percentage" is the merged value of the next two
 // fields (Tender Category = "Works", Tender Evaluation Type = "Percentage")
 // that this page's layout drops onto one line right after the work name.
+// The NIT's own "ITEM <n> Dated:<date>" tag — the wrapped continuation of the
+// "Enquiry/IFB/Tender Notice Number" cell — routinely lands on its own line
+// right next to (and, depending on the PDF's exact y-rounding, sometimes
+// immediately above) the Name of Work value, and would otherwise be swept up
+// as if it were part of the title (e.g. "ITEM 5 Dated:12.08.2026 Laying of CC
+// Road …").
+const ITEM_DATED_LINE = /^item\s*\d+\s*dated\s*:?\s*[\d./-]*\s*$/i
+
 function isWorkNameBoundary(line: string): boolean {
+  if (ITEM_DATED_LINE.test(line.trim())) return true
   return /^(works\s+percentage|tender\s+category|tender\s+type|tender\s+evaluation\s+type|estimated\s+contract|price\s+bid|bid\s+submission)\b/i.test(
     line.trim()
   )
@@ -120,7 +129,15 @@ function extractNameOfWork(lines: string[]): string | undefined {
     parts.push(t)
     if (parts.join(' ').length > 400) break
   }
-  const name = parts.join(' ').replace(/\s+/g, ' ').trim()
+  // Belt-and-suspenders: if the ITEM/Dated tag ended up glued onto the same
+  // line as the title instead of its own line (pdf.js's y-rounding can go
+  // either way), strip it off the front rather than relying solely on the
+  // line-boundary check above.
+  const name = parts
+    .join(' ')
+    .replace(/^item\s*\d+\s*dated\s*:?\s*[\d./-]*\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
   return name || undefined
 }
 

@@ -16,6 +16,21 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.21.0',
+    changes: [
+      'Fixed: Note Submitted could show a different work\'s name, agency, ECV, tender %, NIT No, and contract amount than the rest of the Agreement/Work Order documents — every field now comes from the uploaded L-1 sheet / Online Intimation, same as every other document.',
+      'Fixed: an unrelated work could occasionally get matched to the uploaded L-1 sheet in the Works List, Schedule A, and Note Submitted — matching now requires a much closer name match.',
+      'New: "Clear" button on the Intimation and Agreement/Work Order pages to start a fresh work without switching tabs.',
+      'Fixed: office (Corporation/Zone/Circle) was remembered per computer — logging in as a different person on the same machine skipped the office picker. Now remembered per login.',
+      'Fixed: the Works List search box could hide the scrollbar, making rows below the visible area unreachable while searching.',
+      'Fixed: an "ITEM N Dated:" tag from the L-1 sheet could leak into the printed Name of Work.',
+      'Fixed: a Tender Notice No. with no separator before "Circle" (e.g. "NizampetCircle58") wasn\'t recognized — Circle came back blank.',
+      'Fixed: Amount of Estimate could show blank on the Intimation and Agreement/Work Order pages even when the L-1 sheet\'s own ECV was available.',
+      'Fixed: the Agreement/Work Order page could feel slow to respond to clicks after uploading the Online Intimation and L-1 sheet.',
+      'SE Agreement Bond: further signature-block position adjustment.'
+    ]
+  },
+  {
     version: '1.20.1',
     changes: [
       'Fixed: Word showed "unreadable content, recover?" when opening a downloaded Agreement Bond, Agreement Put-up Note, Contract Deed, Eligibility Criteria, or TS Note — a leftover invalid reference inside the file is now removed.',

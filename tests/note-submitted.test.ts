@@ -234,3 +234,77 @@ describe('tender percentage magnitude (drives ASD)', () => {
     expect(d.l1PctNumber).toBe(32)
   })
 })
+
+describe('noteSubmittedFromRow prefers the uploaded L-1 / Online Intimation over a mismatched Works List row', () => {
+  // Reproduces the real bug: the Works List match is name-similarity based
+  // (falls back to embeddings), so it can land on an unrelated-but-similar
+  // row that carries ITS OWN name/ECV/agency/NIT — a different work than the
+  // one actually described by the uploaded L-1 sheet / Online Intimation.
+  // Every field Note Submitted shows must come from the uploads, not this row.
+  const wrongRow = {
+    'Name of the work': 'Laying of CC road from Shubamkaree temple to babu Jagjivan park in Pragathi nagar ward no 276',
+    Circle: 'Nizampet',
+    'Amount of estimate': '35.00',
+    ECV: '1450000',
+    'Tender Percentage': '9.20',
+    'Name of the Agency': 'SOME OTHER CONTRACTOR',
+    'Tender Notice No': '7/DB/EE/Old',
+    'Tender notice Date': '01.01.2026'
+  }
+  const pdf = {
+    nameOfWork: 'Laying of CC Road from RGK STP to Children Park in Bhandari Layout ward no 275',
+    ecvRupees: 2080503,
+    tenderPercentage: 18.66,
+    contractRupees: 1692281.14,
+    l1AgencyName: 'NANDU CONSTRUCTIONS',
+    noticeNo: '15/DB/EE/Nizampet-58',
+    noticeDate: '12.08.2026',
+    serverDate: '13.08.2026'
+  }
+
+  it('takes the work name from the L-1 sheet, not the matched row', () => {
+    const d = noteSubmittedFromRow(wrongRow, pdf, {})
+    expect(d.workName).toBe(pdf.nameOfWork)
+    expect(d.workName).not.toContain('Shubamkaree')
+  })
+
+  it('takes ECV, tender %, contract value and agency from the L-1 sheet, not the matched row', () => {
+    const d = noteSubmittedFromRow(wrongRow, pdf, {})
+    expect(d.ecvRupees).toBe(pdf.ecvRupees)
+    expect(d.l1PctNumber).toBe(pdf.tenderPercentage)
+    expect(d.l1Tcv).toBe(pdf.contractRupees.toFixed(2))
+    expect(d.l1Name).toBe(pdf.l1AgencyName)
+  })
+
+  it('takes the NIT No/date and Intimation date from the L-1 sheet, not the matched row', () => {
+    const d = noteSubmittedFromRow(wrongRow, pdf, {})
+    expect(d.tenderNoticeNo).toBe(pdf.noticeNo)
+    expect(d.nitNo).toBe(pdf.noticeNo)
+    expect(d.tenderNoticeDate).toBe(pdf.noticeDate)
+    expect(d.nitDate).toBe(pdf.noticeDate)
+    expect(d.intimationDate).toBe(pdf.serverDate)
+  })
+
+  it('the Online Intimation outranks even the L-1 sheet for agency/ECV/contract/NIT when both are present', () => {
+    const notice = {
+      agencyName: 'INTIMATION AGENCY',
+      ecvRupees: 3000000,
+      contractRupees: 2500000,
+      nitNo: '99/DB/EE/Intimation',
+      nitDate: '20.08.2026'
+    }
+    const d = noteSubmittedFromRow(wrongRow, pdf, notice)
+    expect(d.l1Name).toBe(notice.agencyName)
+    expect(d.ecvRupees).toBe(notice.ecvRupees)
+    expect(d.l1Tcv).toBe(notice.contractRupees.toFixed(2))
+    expect(d.tenderNoticeNo).toBe(notice.nitNo)
+    expect(d.tenderNoticeDate).toBe(notice.nitDate)
+  })
+
+  it('still falls back to the row when no L-1 / Intimation was uploaded', () => {
+    const d = noteSubmittedFromRow(wrongRow, {}, {})
+    expect(d.workName).toContain('Shubamkaree')
+    expect(d.l1Name).toBe('SOME OTHER CONTRACTOR')
+    expect(d.tenderNoticeNo).toBe('7/DB/EE/Old')
+  })
+})

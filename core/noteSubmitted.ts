@@ -6,6 +6,8 @@
 // converted to .docx for export via core/htmlToDocx.ts. See the plan in
 // project memory (project_note_submitted_doc) for the field mapping.
 import { computeWorkAmounts, tenderPercentFromRow } from './worksAmounts'
+import type { TenderEvaluation } from './tenderEvaluationPdf'
+import type { IntimationNotice } from './intimationNotice'
 
 /** One row of the tender comparison table (display strings, echoed as-is). */
 export interface NoteBidder {
@@ -375,21 +377,40 @@ export function buildNoteSubmittedHtml(d: NoteSubmittedData): string {
 }
 
 /**
- * Pre-fills the note's data from a Works List row: work name, estimate, circle,
- * dates, NIT/notice numbers, L-1 agency/%/TCV, reservation and ECV — plus the
- * computed EMD/ASD inputs. The bidder table is seeded with the L-1 row alone;
- * callers replace it with the full list parsed from the evaluation PDF.
- * Fields absent from the row are left blank for the user to fill.
+ * Pre-fills the note's data from a Works List row plus the uploaded L-1 sheet
+ * / Online Intimation: work name, estimate, circle, dates, NIT/notice
+ * numbers, L-1 agency/%/TCV, reservation and ECV — plus the computed EMD/ASD
+ * inputs. The bidder table is seeded with the L-1 row alone; callers replace
+ * it with the full list parsed from the evaluation PDF.
+ *
+ * A Works List match is name-similarity based (falls back to embeddings when
+ * there's no exact text match) and can land on a different, merely
+ * similar-sounding work — so, like every other document in this workspace
+ * (see deriveFields in workOrderAgreement.ts), the uploads are the source of
+ * truth for the work's own identifying facts (name, ECV, tender %, contract
+ * value, agency, NIT No/date); the row only supplies what the uploads don't
+ * carry (Circle, Financial Year) plus the estimate figure.
  */
-export function noteSubmittedFromRow(row: Record<string, string>, defaultCircle = ''): NoteSubmittedData {
+export function noteSubmittedFromRow(
+  row: Record<string, string>,
+  pdf: TenderEvaluation = {},
+  notice: IntimationNotice = {},
+  defaultCircle = ''
+): NoteSubmittedData {
   const amounts = computeWorkAmounts(row)
-  const reservation = (row['Reservation'] ?? '').trim() || (row['Name of the work'] ?? '').match(/reserved\s+for\s+([A-Za-z]+)/i)?.[1] || ''
-  const pctNum = tenderPctMagnitude(tenderPercentFromRow(row))
+  const workName = (pdf.nameOfWork || row['Name of the work'] || '').trim()
+  const reservation = (row['Reservation'] ?? '').trim() || workName.match(/reserved\s+for\s+([A-Za-z]+)/i)?.[1] || ''
+  const pctNum = pdf.tenderPercentage ?? tenderPctMagnitude(tenderPercentFromRow(row))
   const l1Pct = pctNum == null ? '' : pctNum > 0 ? `(-)${pctNum}` : String(pctNum)
-  const ecv = amounts.ecv
-  const tcv = amounts.contractAmount
+  const ecv = notice.ecvRupees ?? pdf.ecvRupees ?? amounts.ecv ?? null
+  const tcv =
+    notice.contractRupees ??
+    pdf.contractRupees ??
+    (ecv != null && pctNum != null ? Math.round(ecv * (1 - pctNum / 100) * 100) / 100 : amounts.contractAmount)
 
-  const l1Name = (row['Name of the Agency'] ?? '').trim()
+  const l1Name = (notice.agencyName ?? pdf.l1AgencyName ?? row['Name of the Agency'] ?? '').trim()
+  const tenderNoticeNo = (notice.nitNo || pdf.noticeNo || row['Tender Notice No'] || '').trim()
+  const tenderNoticeDate = (notice.nitDate || pdf.noticeDate || row['Tender notice Date'] || '').trim()
   const bidders: NoteBidder[] = l1Name
     ? [
         {
@@ -406,14 +427,14 @@ export function noteSubmittedFromRow(row: Record<string, string>, defaultCircle 
   return {
     body: 'CMC',
     circle: (row['Circle'] ?? '').trim() || defaultCircle,
-    workName: (row['Name of the work'] ?? '').trim(),
+    workName,
     estimateLakhs: (row['Amount of estimate'] ?? '').trim(),
     asDate: '',
     financialYear: (row['Financial Year'] ?? '').trim() || financialYearOf(),
-    tenderNoticeNo: (row['Tender Notice No'] ?? '').trim(),
-    tenderNoticeDate: (row['Tender notice Date'] ?? '').trim(),
-    nitNo: (row['Tender Notice No'] ?? '').trim(),
-    nitDate: (row['Tender notice Date'] ?? '').trim(),
+    tenderNoticeNo,
+    tenderNoticeDate,
+    nitNo: tenderNoticeNo,
+    nitDate: tenderNoticeDate,
     // Left blank by default so the note prints a fill-in line — the office
     // writes the actual newspapers by hand (or types them in the editor).
     newspapers: '',
@@ -423,7 +444,7 @@ export function noteSubmittedFromRow(row: Record<string, string>, defaultCircle 
     l1Name,
     l1PctText: l1Pct,
     l1Tcv: tcv != null ? tcv.toFixed(2) : '',
-    intimationDate: (row['Intimation Date'] ?? '').trim(),
+    intimationDate: (pdf.serverDate || row['Intimation Date'] || '').trim(),
     reservation,
     l1PctNumber: pctNum,
     ecvRupees: ecv,

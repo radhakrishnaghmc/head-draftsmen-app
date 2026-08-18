@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cosineSimilarity, rankByEmbedding } from '../core/embeddingMatch'
+import { cosineSimilarity, rankByEmbedding, WORK_IDENTITY_MATCH_THRESHOLD } from '../core/embeddingMatch'
 
 describe('cosineSimilarity', () => {
   it('is 1 for identical vectors', () => {
@@ -39,5 +39,31 @@ describe('rankByEmbedding', () => {
 
   it('returns an empty list for an empty candidate set', () => {
     expect(rankByEmbedding([1, 0], [])).toEqual([])
+  })
+})
+
+describe('WORK_IDENTITY_MATCH_THRESHOLD', () => {
+  // Pins the threshold against the actual cosine scores measured on the
+  // bundled all-MiniLM-L6-v2 model for a real bug: "Laying of CC Road from
+  // RGK STP to Children Park … Nizampet Circle-58 …" was wrongly matched to
+  // the Works List's unrelated "Laying of CC road from Shubamkaree temple to
+  // babu Jagjivan park … Nizampet circle-58 …" (score 0.81) under the old 0.5
+  // threshold, while a genuine same-work wording-drift pair scored 0.88. If
+  // this threshold ever drifts back down, this is the regression it exists
+  // to prevent.
+  it('rejects a same-boilerplate-different-work score (~0.81, the real false match)', () => {
+    const a = [1, 0]
+    const b = [0.81, 0.586] // cosine(a, b) ≈ 0.81
+    expect(cosineSimilarity(a, b)).toBeLessThan(WORK_IDENTITY_MATCH_THRESHOLD)
+  })
+
+  it('accepts a genuine wording-drift score (~0.88, the real true match)', () => {
+    const a = [1, 0]
+    const b = [0.88, 0.475] // cosine(a, b) ≈ 0.88
+    expect(cosineSimilarity(a, b)).toBeGreaterThan(WORK_IDENTITY_MATCH_THRESHOLD)
+  })
+
+  it('is set above the old 0.5 default that let the real false match through', () => {
+    expect(WORK_IDENTITY_MATCH_THRESHOLD).toBeGreaterThan(0.5)
   })
 })
