@@ -8,12 +8,12 @@
 // the portal "View Intimation Notice" HTML -> the L-1 selection / evaluation
 // PDF -> the picked Works List row.
 import { computeWorkAmounts, formatRupees, indianDigitGroups, tenderPercentFromRow } from './worksAmounts'
-import { amountToWords, dateToWords, integerToIndianWords } from './numberToWords'
+import { amountToWords, dateToWords, integerToIndianWords, parseDateParts } from './numberToWords'
+import { MONTH_NAMES } from './calendar'
 import { zoneAbbr } from './loaSe'
 import { extractItemNo, stripItemNoTag } from './bidDocument'
 import type { IntimationNotice } from './intimationNotice'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
-import type { BalanceEmdReceipt } from './balanceEmdReceipt'
 
 // The agency's postal address prints in a narrow "To," block, under the agency
 // name — so it must wrap to short lines instead of running the full page width.
@@ -84,12 +84,16 @@ export interface WorkOrderAgreementFields {
   corporationFullName: string
   /** Technical Sanction No & Date, hand-entered for the Forwarding Slip (e.g. "11/26-27, Dt: 29.05.2026"). */
   tsNoDate: string
+  /** Chief Engineer's administrative-sanction letter No & Date, hand-entered for the SE zonal Work Order / Agreement Put-up Note (e.g. "CE/CMC/TA-I/K6/2026-27/202, dated: 06.07.2026"). */
+  ceLetterNoDate: string
   /** Period of completion in months, hand-entered for the Forwarding Slip (e.g. "02"). */
   completionMonths: string
   /** Reservation category on the work ("SC" / "ST" / ""), for the Forwarding Slip's EMD/ASD exemption. */
   reservation: string
   /** The NIT's item number (e.g. "3"), extracted from a "(Item No.3)" tag in the work name — SE offices tender multiple items under one NIT number. "" when no such tag is present. */
   itemNo: string
+  /** The EMD 1.5%/2.5% (Balance EMD) payment line in the Agreement Note's EMD/payment-particulars paragraph, hand-entered or read off an uploaded receipt (e.g. "EMD 1.5% Online payment Rs.79,911 & ASD Rs.1,06,549.00, Receipt No:...") — free text, varies per work (online split payment vs. Bank Guarantee), never derivable from the Works List. The Note's own template carries blank ruled lines for the separate EMD 1% and TSTS corpus-fund particulars, which have no automated source and are always hand-filled on the printed copy — same as the Concluding Agreement's EMD-details row. Newlines print as real line breaks. */
+  emdDetails: string
 }
 
 /** SC/ST reservation drives EMD/ASD exemption — read from the work name's "(Reserved to SC/ST)" tag or a Reservation column. */
@@ -164,6 +168,12 @@ function groupedRupees(n: number): string {
   return `Rs.${indianDigitGroups(Number(whole))}.${frac}`
 }
 
+/** Indian-grouped rupees with paise, WITHOUT the "Rs." prefix — for templates that print "Rs." themselves. */
+function groupedAmount(n: number): string {
+  const [whole, frac] = n.toFixed(2).split('.')
+  return `${indianDigitGroups(Number(whole))}.${frac}`
+}
+
 /** Tender percentage to the office's fixed 2-decimal wording ("16.50", "27.45"). */
 function formatPercent(pct: number): string {
   return pct.toFixed(2)
@@ -236,8 +246,10 @@ export function deriveFields(
     corporation: '',
     corporationFullName: '',
     tsNoDate: '',
+    ceLetterNoDate: '',
     completionMonths: '',
-    reservation: reservationFromRow({ ...row, 'Name of the work': workName })
+    reservation: reservationFromRow({ ...row, 'Name of the work': workName }),
+    emdDetails: ''
   }
 }
 
@@ -300,6 +312,100 @@ export function agreementPlaceholders(f: WorkOrderAgreementFields): Record<strin
     'Agreement date in words': dateToWords(f.agreementDate) || DATE_WORDS_BLANK,
     'Agency Name': f.agencyName,
     'Contract value in rupees': contract != null ? amountToWords(contract) : ''
+  }
+}
+
+/**
+ * The {{Label}} -> value map for the Zone-level (SE office) Agreement Bond
+ * paper — the "A G R E E M E N T" cover page signed by the Superintending
+ * Engineer. Rebuilt from a real filled sample (Quthbullapur Zone). The two
+ * "this ___ day of ___" blanks (the header Date: line and the body's
+ * execution date) both print the same picked Agreement date — day number,
+ * month name, and the FY's first calendar year separately, since the
+ * template's own wording ("this 15 day of July 2026") isn't the app's usual
+ * "dd.mm.yyyy" or ordinal-words style. Left as ruled blanks (matching the
+ * sample) when no date has been picked yet, exactly like the Work Order /
+ * Agreement's own DATE_BLANK convention.
+ */
+export function seAgreementBondPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
+  const estLakhs = num(f.estimateLakhs)
+  const ecv = num(f.ecvRupees)
+  const pct = num(f.tenderPercent)
+  const contract = num(f.contractRupees)
+  const dateParts = parseDateParts(f.agreementDate)
+  return {
+    Zone: f.zone,
+    ZoneAbbr: zoneAbbr(f.zone),
+    Corp: f.corporation,
+    'Corp Full': f.corporationFullName,
+    FY: f.financialYear,
+    'Agmt Year': f.financialYear.split('-')[0] ?? '',
+    'Agmt Date DD': dateParts ? String(dateParts.day).padStart(2, '0') : '______',
+    'Agmt Date MM': dateParts ? String(dateParts.month).padStart(2, '0') : '______',
+    'Agmt Date Day': dateParts ? String(dateParts.day) : '______',
+    'Agmt Date Month': dateParts ? MONTH_NAMES[dateParts.month - 1] : '_______',
+    'Name of Work': f.nameOfWork,
+    'Estimate Rupees': estLakhs != null ? groupedAmount(estLakhs * 100000) : '',
+    ECV: ecv != null ? groupedAmount(ecv) : '',
+    'Tender Percent': pct != null ? formatPercent(pct) : '',
+    Contract: contract != null ? groupedAmount(contract) : '',
+    'Agency Name': f.agencyName
+  }
+}
+
+/**
+ * The {{Label}} -> value map shared by the Zone-level (SE office) Work Order,
+ * Concluding Agreement, Memo to EE, and Agreement Put-up Note — all four
+ * rebuilt from real filled samples (Quthbullapur Zone, Kompally Circle-56).
+ * One combined map serves all four: each template's fill only consumes the
+ * labels it actually contains. NIT No/Date come from the uploaded L-1
+ * evaluation (falling back to the Online Intimation), matching the other
+ * doc's own NIT resolution. EMD/payment-reference specifics (Payment ID, UTR
+ * No, Receipt No, bank collection references) are deliberately NOT modelled
+ * here — those are hand-typed bank-transaction confirmations entered after
+ * the fact, not derivable from the L-1/Intimation uploads, so the templates
+ * print a ruled hand-write blank for them instead.
+ */
+export function zonalDocsPlaceholders(f: WorkOrderAgreementFields, notice: IntimationNotice, pdf: TenderEvaluation): Record<string, string> {
+  const estLakhs = num(f.estimateLakhs)
+  const ecv = num(f.ecvRupees)
+  const pct = num(f.tenderPercent)
+  const contract = num(f.contractRupees)
+  const zone = (f.zone ?? '').trim()
+  const eeCircle = f.circle ? `${f.circle} Circle${f.cno ? `-${f.cno}` : ''}` : ''
+  // "Your tender dt." — the L-1's own bid-submission date ("Bid Submission
+  // Closing" on the sheet, e.g. "22/06/2026 04:00 PM") — drop the time and
+  // switch to the app's dd.mm.yyyy convention.
+  const tenderDateMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(pdf.bidClose ?? '')
+  const tenderDate = tenderDateMatch ? `${tenderDateMatch[1]}.${tenderDateMatch[2]}.${tenderDateMatch[3]}` : ''
+  return {
+    Zone: zone,
+    'Zone Caps': zone.toUpperCase(),
+    ZoneAbbr: zoneAbbr(zone),
+    Corp: f.corporation,
+    'Corp Full Caps': (f.corporationFullName ?? '').toUpperCase(),
+    FY: f.financialYear,
+    'Agmt Year': f.financialYear.split('-')[0] ?? '',
+    'EE Circle': eeCircle,
+    'Name of Work': f.nameOfWork,
+    'Item No': f.itemNo,
+    'NIT No': notice.nitNo || pdf.noticeNo || '',
+    'NIT Date': notice.nitDate || pdf.noticeDate || '',
+    'Estimate Lakhs': estLakhs != null ? estLakhs.toFixed(2) : '',
+    ECV: ecv != null ? groupedAmount(ecv) : '',
+    Contract: contract != null ? groupedAmount(contract) : '',
+    'Tender Percent': pct != null ? formatPercent(pct) : '',
+    Period: f.completionMonths.trim() ? f.completionMonths.trim().padStart(2, '0') : '',
+    'Agency Name': f.agencyName,
+    'Agency Address': wrapAgencyAddress(f.address),
+    'Agency Phone': f.phone,
+    'Tender Date': tenderDate,
+    'CE Letter No Date': f.ceLetterNoDate,
+    // Uploaded/typed if present; otherwise a ruled hand-write blank, same as
+    // the rest of the EMD/payment-particulars paragraph (see the doc comment
+    // above) — so the line still reads as fill-in-ready when nothing's been
+    // uploaded yet, instead of silently vanishing.
+    'EMD Details': f.emdDetails.trim() || 'EMD 1.5%/2.5% details: _________________________________________________'
   }
 }
 
@@ -452,82 +558,3 @@ export function civilTenderPlaceholders(
   }
 }
 
-/** Indian-grouped rupees with paise, WITHOUT the "Rs." prefix (the zonal templates print "Rs." themselves). */
-function groupedAmount(n: number): string {
-  const [whole, frac] = n.toFixed(2).split('.')
-  return `${indianDigitGroups(Number(whole))}.${frac}`
-}
-
-/**
- * Placeholders for the three Zone-level (SE office) documents — the Work Order,
- * the Memo Concluding Agreement, and the Memo forwarding the Agreement Bond to
- * the EE. One combined map serves all three: each template's fill only consumes
- * the labels it actually contains.
- *
- * The office is a Zone (no Circle of its own), so the Executive Engineer /
- * "{{EE Circle}}" named throughout is the *work's* own Circle, taken from the
- * derived fields (NIT / directory), never the office. Serial numbers, dates,
- * page counts and the EMD 1% Payment ID/UTR/CMS references (a separate, bank-
- * transferred payment the uploaded Balance EMD receipt doesn't cover) are left
- * blank in the templates for the office to hand-write.
- */
-export function zonalDocsPlaceholders(
-  f: WorkOrderAgreementFields,
-  notice: IntimationNotice,
-  pdf: TenderEvaluation,
-  emd: BalanceEmdReceipt = {}
-): Record<string, string> {
-  const ecv = num(f.ecvRupees)
-  const contract = num(f.contractRupees)
-  const estLakhs = num(f.estimateLakhs)
-  const zone = (f.zone ?? '').trim()
-  const eeCircle = f.circle ? `${f.circle} Circle${f.cno ? `-${f.cno}` : ''}` : ''
-  return {
-    Zone: zone,
-    'Zone Caps': zone ? `${zone.toUpperCase()} ZONE` : '',
-    ZoneAbbr: zoneAbbr(zone),
-    Corp: f.corporation,
-    'Corp Full': (f.corporationFullName ?? '').toUpperCase(),
-    FY: f.financialYear,
-    'EE Circle': eeCircle,
-    'Agency Name': f.agencyName,
-    // Wrap the address across lines (as the circle-level Work Order does) so it
-    // doesn't run off in one long line — the fill turns the \n into hard breaks.
-    'Agency Address': wrapAgencyAddress(f.address),
-    'Agency Phone': f.phone,
-    'Name of Work': f.nameOfWork,
-    'Item No': f.itemNo,
-    'NIT No': notice.nitNo || pdf.noticeNo || '',
-    'NIT Date': notice.nitDate || pdf.noticeDate || '',
-    'Tender ID': pdf.tenderId ?? '',
-    'Estimate Lakhs': estLakhs != null ? estLakhs.toFixed(2) : f.estimateLakhs,
-    // The Agreement Bond paper prints the estimate as a full grouped rupee
-    // figure ("Rs. 3,53,00,000.00"), not "X Lakhs" like the other SE docs.
-    'Estimate Rupees': estLakhs != null ? groupedAmount(estLakhs * 100000) : '',
-    ECV: ecv != null ? groupedAmount(ecv) : '',
-    Contract: contract != null ? groupedAmount(contract) : '',
-    // The Contract Deed's consideration clause spells the contract value out
-    // in words, the same way the circle-level Agreement Bond does.
-    'Contract Words': contract != null ? amountToWords(contract) : '',
-    'Tender Percent': f.tenderPercent,
-    Period: f.completionMonths.trim(),
-    // The uploaded Balance EMD receipt gives the amount actually paid — more
-    // reliable than a re-derived 1.5% guess (which, unlike the receipt, never
-    // accounts for the 2.5% reserved-work rate) — so prefer it when present.
-    'EMD 1.5%': emd.balanceEmdRupees != null ? indianDigitGroups(Math.round(emd.balanceEmdRupees)) : ecv != null ? indianDigitGroups(Math.round(ecv * 0.015)) : '',
-    'EMD 1%': ecv != null ? indianDigitGroups(Math.round(ecv * 0.01)) : '',
-    // e-Corpus Fund contribution to the Managing Director, TSTS — 0.04% of ECV
-    // (matches the SE Letter of Acceptance's own e-Corpus derivation).
-    'E-Corpus': ecv != null ? indianDigitGroups(Math.round(ecv * 0.0004)) : '',
-    'EMD Receipt No': emd.receiptNo ?? '',
-    'EMD Receipt Date': emd.paymentDate ?? '',
-    // The Agreement Bond's own execution date — same shared date picked for the
-    // EE Work Order / Agreement Bond (f.agreementDate), left blank the same way
-    // when unset rather than guessing at a date.
-    'Agreement Date': f.agreementDate.trim() || DATE_BLANK,
-    'Agreement date in words': dateToWords(f.agreementDate) || DATE_WORDS_BLANK,
-    // The zonal Work Order's own "DT." line — same shared date as the
-    // Agreement Bond above, left blank the same way when unset.
-    'Work Order Date': f.workOrderDate.trim() || DATE_BLANK
-  }
-}

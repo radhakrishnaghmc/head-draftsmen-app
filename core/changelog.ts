@@ -16,6 +16,16 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.22.0',
+    changes: [
+      'Agreement/Work Order: the EMD Details line can now be filled automatically by uploading either the CURE portal\'s Balance EMD payment receipt or a Bank Guarantee certificate (for offices that pay EMD/ASD via BG instead) — the BG\'s amounts are matched to EMD vs. ASD automatically from the work\'s ECV.',
+      'Works List import: works whose Circle differs from your office\'s own (e.g. left over from a circle reorganisation, like Moosapet\'s wards merging into Kukatpally) are now accepted instead of rejecting the whole import. If more than a fifth of the works belong to another circle, you\'ll be asked to confirm before importing.',
+      'Added the Serilingampally zone abbreviation (SLP) alongside Quthbullapur (QBZ) and Kukatpally (KPZ).',
+      'Fixed: document previews (opening a single document, or Print) could show garbled text for some fonts — now renders accurately.',
+      'Fixed: the app could feel very slow while previews were showing — live thumbnails are fast again; full-accuracy rendering is now used only when you open a single document or print.'
+    ]
+  },
+  {
     version: '1.21.2',
     changes: [
       'Fixed: several SE documents (Agreement Bond, Bid Document, Agreement Put-up Note, Contract Deed, Eligibility Criteria, TS Note, and others) could show Word\'s "unreadable content, recover?" prompt — on Windows Word AND Office 365 — when downloaded. Several distinct causes are now all fixed: invalid formatting tags in 5 templates, documents whose layout elements were out of order, and some documents saved without Word-compatibility cleanup applied at all.',

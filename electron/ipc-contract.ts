@@ -82,6 +82,7 @@ export const IPC = {
   savePdf: 'tools:savePdf',
   savePdfsToFolder: 'tools:savePdfsToFolder',
   docxToPdf: 'tools:docxToPdf',
+  docxToPageImages: 'tools:docxToPageImages',
   mergeDocx: 'tools:mergeDocx',
   splitDocxSections: 'tools:splitDocxSections',
   saveDocxsToFolder: 'tools:saveDocxsToFolder',
@@ -119,12 +120,11 @@ export const IPC = {
   qccIntimationTemplate: 'doc:qccIntimationTemplate',
   forwardingSlipTemplate: 'doc:forwardingSlipTemplate',
   civilTenderTemplate: 'doc:civilTenderTemplate',
+  seAgreementBondTemplate: 'doc:seAgreementBondTemplate',
   zonalWorkOrderTemplate: 'doc:zonalWorkOrderTemplate',
   zonalConcludingAgreementTemplate: 'doc:zonalConcludingAgreementTemplate',
   zonalMemoEeTemplate: 'doc:zonalMemoEeTemplate',
   seAgreementNoteTemplate: 'doc:seAgreementNoteTemplate',
-  seAgreementBondTemplate: 'doc:seAgreementBondTemplate',
-  seContractDeedTemplate: 'doc:seContractDeedTemplate',
   exportSeScheduleA: 'data:exportSeScheduleA',
   loaSeTemplate: 'doc:loaSeTemplate',
   tsNoteTemplate: 'doc:tsNoteTemplate',
@@ -190,6 +190,8 @@ export interface DocuGenApi {
   savePdfsToFolder(files: { name: string; bytes: Uint8Array }[]): Promise<{ dir: string; files: string[] } | null>
   /** Tool (Word workspace): convert one .docx (raw bytes) to PDF via LibreOffice, for a page-level preview. Returns the PDF bytes; throws a clear error if LibreOffice isn't installed. */
   docxToPdf(docxBytes: Uint8Array): Promise<Uint8Array>
+  /** Accurate document preview/print: renders one .docx (raw bytes) as one PNG per page via LibreOffice's own docx→PDF→raster pipeline (NOT pdf.js — see core/docxToPdf.ts's docxToPageImages for why). Throws the same clear error as docxToPdf if LibreOffice isn't installed. */
+  docxToPageImages(docxBytes: Uint8Array): Promise<Uint8Array[]>
   /** Tool (Word workspace): merge several .docx files (raw bytes, in order) into one .docx and save it via a dialog. Returns the saved path, or null if cancelled. */
   mergeDocx(docxBytesList: Uint8Array[]): Promise<{ file: string } | null>
   /** Tool (Word workspace): split one .docx (raw bytes) into one .docx per page at its page breaks; each keeps full formatting. Returns the section .docx byte arrays (a single item when there are no page breaks). */
@@ -282,18 +284,16 @@ export interface DocuGenApi {
   forwardingSlipTemplate(): Promise<string>
   /** Reads the bundled full Civil Tender Document (.docx) — the 41-page NIT/tender document whose page 1 is the Forwarding Slip — returns it base64-encoded for filling its {{placeholders}}. */
   civilTenderTemplate(): Promise<string>
-  /** Reads the bundled Zone-level (SE office) Work Order format (.docx), for the Work Order/Agreement page when the office is a Zone with no Circle. Base64-encoded, for filling its {{placeholders}}. */
-  zonalWorkOrderTemplate(): Promise<string>
-  /** Reads the bundled Zone-level (SE office) Memo Concluding Agreement format (.docx). Base64-encoded, for filling its {{placeholders}}. */
-  zonalConcludingAgreementTemplate(): Promise<string>
-  /** Reads the bundled Zone-level (SE office) Memo forwarding the Agreement Bond to the EE (.docx). Base64-encoded, for filling its {{placeholders}}. */
-  zonalMemoEeTemplate(): Promise<string>
-  /** Reads the bundled Zone-level (SE office) Agreement Put-up Note (.docx) — the cover note requesting sign-off on the agreement + memo to EE. Base64-encoded, for filling its {{placeholders}}. */
-  seAgreementNoteTemplate(): Promise<string>
   /** Reads the bundled Zone-level (SE office) Agreement Bond paper (.docx) — the "A G R E E M E N T" cover page signed by the Superintending Engineer. Base64-encoded, for filling its {{placeholders}}. */
   seAgreementBondTemplate(): Promise<string>
-  /** Reads the bundled Zone-level (SE office) Contract Deed (.docx) — the Form No.6 legal deed. Base64-encoded, for filling its {{placeholders}}. */
-  seContractDeedTemplate(): Promise<string>
+  /** Reads the bundled Zone-level (SE office) Work Order (.docx). Base64-encoded, for filling its {{placeholders}}. */
+  zonalWorkOrderTemplate(): Promise<string>
+  /** Reads the bundled Zone-level (SE office) Memo — Concluding Agreement (.docx), forwarding the executed Agreement Bond to the Executive Engineer. Base64-encoded, for filling its {{placeholders}}. */
+  zonalConcludingAgreementTemplate(): Promise<string>
+  /** Reads the bundled Zone-level (SE office) Memo — Copy to EE (.docx), the covering memo enclosing the Agreement Booklet. Base64-encoded, for filling its {{placeholders}}. */
+  zonalMemoEeTemplate(): Promise<string>
+  /** Reads the bundled Zone-level (SE office) Agreement Put-up Note (.docx). Base64-encoded, for filling its {{placeholders}}. */
+  seAgreementNoteTemplate(): Promise<string>
   /** Fills and saves the Zone-level (SE office) Schedule A / BOQ workbook — same item table as exportScheduleA, but its preamble and signature name the Superintending Engineer's Zone office. Prompts for a save location; returns the saved path, or null if cancelled. */
   exportSeScheduleA(table: ExcelTable, suggestedName: string, meta?: ScheduleAMeta): Promise<string | null>
   /** Reads the bundled Superintending-Engineer LOA format (.docx) — used for the Give Intimation letter when the office is zone-level (a Zone with no Circle). `reserved` picks the SC/ST-reserved variant (no EMD balance item). Returns it base64-encoded, for filling its {{placeholders}}. */

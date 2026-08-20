@@ -1,5 +1,4 @@
 import { useRef, useState } from 'react'
-import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
 import { IconTable, IconFolder, IconWarn, IconImage, IconClipboard, IconBolt, IconPrint, IconDownload, IconBell, IconDoc, IconChevronLeft } from './Icons'
 import UploadPhotosTab from './UploadPhotosTab'
@@ -13,7 +12,7 @@ import GpsPhotosPage from './GpsPhotosPage'
 import PhotosToPdfPage from './PhotosToPdfPage'
 import PhotosToDocPage from './PhotosToDocPage'
 import DocThumbnail from './DocThumbnail'
-import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
+import { base64ToUint8, PAGE_WIDTH, renderDocPreview } from './docPage'
 import { circlesOf, corporationByName } from '../zoneCircleDirectory'
 import type { CreatedDocument, ExcelTable } from '@core/types'
 import type { Office } from '../office'
@@ -144,8 +143,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
       if (action === 'print') {
         const container = printScratchRef.current
         if (!container) throw new Error('Print failed to initialize.')
-        container.innerHTML = ''
-        await renderAsync(base64ToUint8(docx), container, undefined, DOCX_PREVIEW_OPTIONS)
+        await renderDocPreview(base64ToUint8(docx), container)
         await api.printCreatedDocument(container.innerHTML)
       } else {
         await api.exportCreatedDocument(docx, doc.name, [action])

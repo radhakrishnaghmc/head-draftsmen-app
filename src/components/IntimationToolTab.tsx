@@ -10,7 +10,7 @@ import { CMC_ZONE_CIRCLES, resolveFromDirectory, corporationByName } from '../zo
 import type { Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLines } from '../pdfToText'
-import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH, normalizeDocxTextboxes } from './docPage'
+import { base64ToUint8, PAGE_WIDTH, renderDocPreview, DOCX_PREVIEW_OPTIONS, normalizeDocxTextboxes } from './docPage'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell } from './Icons'
 
 interface Props {
@@ -202,7 +202,12 @@ export default function IntimationToolTab({ office }: Props) {
   // address) and the two uploads — if both present — agree.
   const ready = !!templateB64 && !!pdfEval && !workMismatch
 
-  // Live docx preview of the filled letter.
+  // Live docx preview of the filled letter — refreshed whenever the values
+  // change, so this deliberately stays on the fast, approximate
+  // docx-preview.js render rather than the accurate LibreOffice-backed one
+  // (printIntimation, below, is where the accurate render belongs): a
+  // LibreOffice round trip on every keystroke would make typing feel
+  // sluggish.
   useEffect(() => {
     if (!ready) {
       if (previewRef.current) previewRef.current.innerHTML = ''
@@ -250,9 +255,7 @@ export default function IntimationToolTab({ office }: Props) {
       const filled = await fillTemplate()
       const container = printScratchRef.current
       if (!container) throw new Error('Print failed to initialize.')
-      container.innerHTML = ''
-      await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
-      normalizeDocxTextboxes(container)
+      await renderDocPreview(base64ToUint8(filled), container)
       await api.printCreatedDocument(container.innerHTML)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))

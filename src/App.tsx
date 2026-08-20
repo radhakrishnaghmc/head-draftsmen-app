@@ -11,6 +11,7 @@ import {
   WORKS_COLUMNS
 } from './worksSchema'
 import { autofillWorksRow, enforceZoneCircle, fillCircleNumber, splitCircleColumn } from './zoneCircleCheck'
+import { closeOnBackdropMouseDown } from './overlayClose'
 import { entriesOf, corporationByName } from './zoneCircleDirectory'
 import { type Office, officeKey, isOfficeReady } from './office'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
@@ -258,6 +259,32 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // clobbered with `[]` the moment anything else changes.
   const withheldTablesRef = useRef<ExcelTable[] | null>(null)
 
+  // A fresh import whose foreign-circle rows (see enforceZoneCircle) exceed
+  // 20% of the sheet pauses here for the user to confirm it's really their
+  // own office's works list before committing — a reorganisation can
+  // legitimately leave a few old-circle rows behind, but a sheet that's
+  // mostly someone else's circle is more likely the wrong file pasted in.
+  const [circleMismatchConfirm, setCircleMismatchConfirm] = useState<{
+    count: number
+    total: number
+    zone: string
+    circle: string
+  } | null>(null)
+  const circleMismatchResolveRef = useRef<((proceed: boolean) => void) | null>(null)
+
+  function confirmCircleMismatch(count: number, total: number, zone: string, circle: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      circleMismatchResolveRef.current = resolve
+      setCircleMismatchConfirm({ count, total, zone, circle })
+    })
+  }
+
+  function resolveCircleMismatch(proceed: boolean) {
+    circleMismatchResolveRef.current?.(proceed)
+    circleMismatchResolveRef.current = null
+    setCircleMismatchConfirm(null)
+  }
+
   // Set for exactly the next autosave whenever state was just applied FROM a
   // remote sync — so that save persists locally but is NOT pushed back to the
   // cloud. Without this, receiving a remote change re-pushes it, the other
@@ -367,7 +394,13 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
           const first = loadedTables[0] ? splitCircleColumn(loadedTables[0]) : undefined
           if (loginZone && loginCircle && first) {
             const { table: checked, mismatches } = enforceZoneCircle(first, loginZone, loginCircle, officeEntries)
-            if (mismatches.length > 0) {
+            // A circle reorganisation (e.g. Moosapet's wards split into
+            // Kukatpally) means some of the office's own works can legitimately
+            // still carry their old circle's name — those foreign-tagged rows
+            // are kept as-is, not rejected. Only block when NOT ONE row belongs
+            // to the office's own Zone/Circle (the sheet is plainly the wrong
+            // one), matching the fresh-import check below.
+            if (mismatches.length > 0 && mismatches.length === checked.rows.length) {
               const m = mismatches[0]
               withheldTablesRef.current = loadedTables
               setBlockedWorksList({ zone: m.foundZone, circle: m.foundCircle })
@@ -524,6 +557,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // these adapters slice/merge just the current office's slice for the tabs.
   const officeTodos = todos.filter((t) => (t.officeKey ?? '') === currentOfficeKey)
   const officeMb = mbScrutiny.filter((it) => (it.officeKey ?? '') === currentOfficeKey)
+  // Bid document batches, same per-office scoping — otherwise a batch issued
+  // for one office keeps showing under every other office switched to.
+  const officeBidBatches = bidDocumentBatches.filter((b) => (b.officeKey ?? '') === currentOfficeKey)
   // Short label of the office these per-office lists are scoped to, for the page header.
   const officeLabel = office.circle || office.zone || ''
   function setOfficeTodos(next: TodoItem[]) {
@@ -551,6 +587,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       prev.some((it) => !it.officeKey)
         ? prev.map((it) => (it.officeKey ? it : { ...it, officeKey: currentOfficeKey }))
         : prev
+    )
+    setBidDocumentBatches((prev) =>
+      prev.some((b) => !b.officeKey) ? prev.map((b) => (b.officeKey ? b : { ...b, officeKey: currentOfficeKey })) : prev
     )
   }, [hydrated, currentOfficeKey])
 
@@ -663,23 +702,33 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       })
     )
 
-    // Only a works list belonging to the logged-in Head Draughtsman's own
-    // Zone/Circle is accepted — a row explicitly tagged with a different
-    // Zone/Circle, or whose "Name of the work" names a different one,
-    // rejects the whole import rather than silently mixing works lists.
+    // A works list is accepted as long as at least one row belongs to the
+    // logged-in Head Draughtsman's own Zone/Circle. A row explicitly tagged
+    // with a different Zone/Circle (or whose "Name of the work" names a
+    // different one) is kept as-is rather than dropped or overwritten — CMC's
+    // circle reorganisation split some circles' wards into others (e.g.
+    // Moosapet's wards into Kukatpally), and since a work's Wincode/name never
+    // changes, a genuinely-this-office's works list can legitimately carry a
+    // handful of rows still tagged with their old, now-merged-away circle.
+    // Only when NOT ONE row matches the login's own Zone/Circle is the sheet
+    // rejected outright, as the plainly wrong file for this office.
     let result: ExcelTable
     if (loginZone && loginCircle) {
       const { table: checked, mismatches } = enforceZoneCircle(normalized, loginZone, loginCircle, officeEntries)
-      if (mismatches.length > 0) {
-        const examples = mismatches
-          .slice(0, 3)
-          .map((m) => `"${m.workName || `Row ${m.rowIndex + 1}`}" (${[m.foundZone, m.foundCircle].filter(Boolean).join(' / ')})`)
-          .join(', ')
+      if (mismatches.length > 0 && mismatches.length === checked.rows.length) {
         throw new Error(
-          `This works list doesn't match your office's Zone/Circle (${loginZone} / ${loginCircle}). ` +
-            `${mismatches.length} row${mismatches.length === 1 ? '' : 's'} conflict: ${examples}` +
-            `${mismatches.length > 3 ? ', …' : ''}.`
+          `This works list doesn't contain a single work from your office's Zone/Circle (${loginZone} / ${loginCircle}) — ` +
+            `check the "Name of the work" / Zone / Circle columns, or that this is the right sheet for this office.`
         )
+      }
+      // A handful of foreign-circle rows is expected after a reorganisation,
+      // but more than a fifth of the whole sheet is worth a second look
+      // before committing — ask, rather than silently importing or rejecting.
+      if (mismatches.length > 0 && mismatches.length / checked.rows.length > 0.2) {
+        const proceed = await confirmCircleMismatch(mismatches.length, checked.rows.length, loginZone, loginCircle)
+        if (!proceed) {
+          throw new Error("Import cancelled — the works list wasn't changed.")
+        }
       }
       result = fillCircleNumber(checked, loginCircleNumber)
     } else {
@@ -757,7 +806,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   }
 
   function addBidBatch(batch: BidDocumentBatch) {
-    setBidDocumentBatches((prev) => [...prev, batch])
+    setBidDocumentBatches((prev) => [...prev, currentOfficeKey ? { ...batch, officeKey: currentOfficeKey } : batch])
   }
 
   function removeBidBatch(id: string) {
@@ -847,6 +896,13 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       }
       setBlockedWorksList(null)
       withheldTablesRef.current = null
+      // A "Refreshed from the Google link — N works imported." banner (or its
+      // error counterpart) is a status for the office it just ran under —
+      // otherwise it keeps showing (misleadingly claiming a fresh import, or
+      // flagging an error that doesn't apply) after switching to an office
+      // that was never actually refreshed this session.
+      setRefreshSummary(null)
+      setRefreshError(null)
       setTab('data')
 
       const stored = tablesByOffice[nextKey]
@@ -934,9 +990,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 />
               </div>
             </div>
-            <Dashboard cached={calendar} onData={setCalendar} />
+            <Dashboard cached={calendar} onData={setCalendar} office={office} />
             <SeBidDocumentTile tables={tables} office={office} />
-            <BidDocumentsPanel batches={bidDocumentBatches} onRemove={removeBidBatch} onUpdateWork={updateBidWork} />
+            <BidDocumentsPanel batches={officeBidBatches} onRemove={removeBidBatch} onUpdateWork={updateBidWork} />
           </section>
         </KeepAlive>
 
@@ -952,6 +1008,11 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               <div className="page-head-action">
                 {currentTable && (
                   <WorksListL1Update
+                    // Remount on office change so its own "Updated X, Y
+                    // unmatched" result banner (internal state, has no office
+                    // awareness of its own) doesn't keep showing a stale
+                    // result from the office just switched away from.
+                    key={currentOfficeKey}
                     table={currentTable}
                     onChange={updateTable}
                     onUpdated={(rows, message) => setWorksFlash({ token: Date.now(), rows, message })}
@@ -985,6 +1046,33 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
             {refreshError && <div className="notice error">{refreshError}</div>}
             {refreshSummary && <div className="notice ok">{refreshSummary}</div>}
             <GoogleLinkImport onImport={importFromGoogleLink} />
+            {circleMismatchConfirm && (
+              <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => resolveCircleMismatch(false))}>
+                <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+                  <div className="confirm-ic">
+                    <IconWarn />
+                  </div>
+                  <h3>Works from another circle</h3>
+                  <p className="confirm-warn">
+                    <strong>{circleMismatchConfirm.count}</strong> of {circleMismatchConfirm.total} works in this list
+                    don't belong to your office's Zone/Circle (
+                    {[circleMismatchConfirm.zone, circleMismatchConfirm.circle].filter(Boolean).join(' / ')}).
+                  </p>
+                  <p className="confirm-hint">
+                    Are you sure these works belong to your circle? (A circle reorganisation can leave some works still
+                    tagged with their old circle — if that's the case here, Continue is safe.)
+                  </p>
+                  <div className="confirm-actions">
+                    <button className="ghost" onClick={() => resolveCircleMismatch(false)}>
+                      Don't Import
+                    </button>
+                    <button className="primary" onClick={() => resolveCircleMismatch(true)}>
+                      Continue
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
             {currentTable ? (
               <>
                 <ExcelInline

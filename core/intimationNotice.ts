@@ -163,13 +163,48 @@ export function parseIntimationNoticeText(lines: string[]): IntimationNotice {
     if (nitDate) result.nitDate = nitDate[1]
   }
 
+  // Some "View Intimation Notice" letters carry the code with no "NIT No"
+  // label at all — "…for execution of the E1/06/11/DB/EE/Nizampet
+  // Circle-58/CMC/2026-27, dt: 18.06.2026 at contract price of Rs. …". Fall
+  // back to the code's own canonical shape (same as the L1 sheet's fallback
+  // in tenderEvaluationPdf.ts): "<code>/DB/EE/<place> Circle-<circleNo>/
+  // [QBZ/]CMC/<year>", with an optional 1-2 segment item-number prefix
+  // ("E1/06/") each segment carrying a digit so it can't swallow a label word.
+  if (!result.nitNo) {
+    const codePrefix = '(?:[A-Za-z]{0,2}\\d{1,3}\\/){0,2}'
+    const canonical = new RegExp(
+      `${codePrefix}\\d{1,3}\\/DB\\/EE\\/.+?Circle\\s*-\\s*\\d{1,3}\\/(?:QBZ\\/)?CMC\\/\\d{4}\\s*-\\s*\\d{2,4}`,
+      'i'
+    ).exec(joined)
+    if (canonical) {
+      result.nitNo = canonical[0].replace(/\s*([/\-])\s*/g, '$1').replace(/\s+/g, ' ').trim()
+      // The date right after the code — "…2026-27, dt: 18.06.2026 at contract…".
+      const window = joined.slice(canonical.index, canonical.index + canonical[0].length + 60)
+      const date = /(?<![A-Za-z])(?:Dated|Dt)\b\.?\s*:?\s*(\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4})/i.exec(window)
+      if (date) result.nitDate = date[1]
+    }
+  }
+
   // ECV — "…estimated value Rs 1593493.00…" (may drop the paise).
   const ecv = /estimated\s+value\s+(?:of\s+)?Rs\.?\s*([\d,]+(?:\.\d+)?)/i.exec(joined)
   if (ecv) result.ecvRupees = toNumber(ecv[1])
+  // Fallback: the letters that skip the "estimated value" sentence instead
+  // carry the ECV in a summary table — "Company Name Estimated Contract
+  // Value Corpus Fund @ 0.04 %" then "<agency> <ecv> <corpus>" on the next
+  // line. Take the first of the row's two trailing amounts (the ECV; the
+  // second is the corpus fund).
+  if (result.ecvRupees == null) {
+    const headerIdx = lines.findIndex((l) => /Estimated\s+Contract\s+Value/i.test(l) && /Corpus\s+Fund/i.test(l))
+    if (headerIdx >= 0) {
+      const row = /([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s*$/.exec(lines[headerIdx + 1]?.trim() ?? '')
+      if (row) result.ecvRupees = toNumber(row[1])
+    }
+  }
 
   // Accepted contract value — "…contract value of ₹ 1416455.93…" (the "₹"/
-  // "Rs." and the amount often land on different lines, so read from joined).
-  const contract = /contract\s+value\s+of\s*[₹Rs.\s]*([\d,]+(?:\.\d+)?)/i.exec(joined)
+  // "Rs." and the amount often land on different lines, so read from joined)
+  // — or the shorter LOA wording "…at contract price of Rs. 806133.90 ( …)".
+  const contract = /contract\s+(?:value|price)\s+of\s*[₹Rs.\s]*([\d,]+(?:\.\d+)?)/i.exec(joined)
   if (contract) result.contractRupees = toNumber(contract[1])
 
   return result

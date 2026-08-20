@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { RefObject } from 'react'
+import { api } from '../ipc'
+import { renderAsync } from '../lazyDocxPreview'
 
 // A4 at 96dpi (this app is for a Telangana government department — A4, not
 // US Letter) with a 1-inch margin all round, matching Word's default page
@@ -79,6 +81,92 @@ export function normalizeDocxTextboxes(container: HTMLElement): void {
       if (el.style.transform && /scale/i.test(el.style.transform)) el.style.transform = 'none'
     })
   })
+
+  // WordArt ("v:textpath" — e.g. the same "CYBERABAD MUNICIPAL CORPORATION"
+  // letterhead, in its older VML form) renders as an <svg> that keeps VML's
+  // authored `position:absolute; margin-left:…; margin-top:…` — offsets from
+  // wherever docx-preview happens to lay out the run in normal flow, which is
+  // never where Word actually placed it, so the title drifts off the page's
+  // right edge. Word's real intent is simpler: it's the sole run on an
+  // already `text-align:center` line — so drop the absolute positioning and
+  // let it flow centered, keeping only its authored size (svg[style*=
+  // "v-text-anchor"] is a reliable VML-only marker, never emitted for
+  // anything else docx-preview renders).
+  container.querySelectorAll<SVGElement>('svg[style*="v-text-anchor"]').forEach((svg) => {
+    svg.style.position = 'static'
+    svg.style.display = 'block'
+    svg.style.margin = '0 auto'
+  })
+}
+
+/** Converts raw bytes to a base64 string in fixed-size chunks — a plain `String.fromCharCode(...bytes)` call blows the engine's argument-count limit on a multi-hundred-KB PNG. */
+function uint8ToBase64(bytes: Uint8Array): string {
+  const CHUNK = 8192
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(binary)
+}
+
+/**
+ * Renders a filled .docx as an accurate preview — via LibreOffice's own
+ * docx→PDF→PNG raster pipeline (core/docxToPdf.ts's docxToPageImages), one
+ * image per page — so preview and print show exactly what Word would
+ * produce: real font metrics, real page breaks, real WordArt, not
+ * docx-preview.js's approximate HTML re-implementation (see
+ * normalizeDocxTextboxes above for the kind of gap that leaves).
+ *
+ * Deliberately renders LibreOffice's PDF output through LibreOffice's OWN
+ * rasterizer again, rather than pdf.js: a LibreOffice-produced PDF for a
+ * font this machine doesn't have installed (e.g. "Book Antiqua", "Segoe UI")
+ * embeds a substituted font whose glyph mapping pdf.js decodes wrong,
+ * silently swapping in different characters — confirmed by rendering the
+ * exact same, byte-verified-correct PDF through Poppler (correct) and pdf.js
+ * (garbled) side by side. LibreOffice's own rasterizer renders that same
+ * substituted font correctly, because it's the same engine that chose the
+ * substitution in the first place.
+ *
+ * Falls back to the existing renderAsync/DOCX_PREVIEW_OPTIONS HTML render
+ * when LibreOffice isn't installed on this machine (core/docxToPdf.ts throws
+ * a clear error in that case) — every call site already expects
+ * docx-preview's own output shape (`div.docx-wrapper > section.docx`, one
+ * per page), so this builds THAT exact shape for the accurate path too
+ * (an `<img>` filling each `section.docx` instead of live DOM content) —
+ * every caller's existing CSS (scaling, shadows, page counting via
+ * `section.docx`) keeps working unchanged, whichever path actually rendered.
+ */
+export async function renderDocPreview(
+  docxBytes: Uint8Array,
+  container: HTMLElement
+): Promise<{ pageCount: number; accurate: boolean }> {
+  try {
+    const images = await api.docxToPageImages(docxBytes)
+    if (images.length === 0) throw new Error('LibreOffice produced no page images.')
+    container.innerHTML = ''
+    const wrapper = document.createElement('div')
+    wrapper.className = 'docx-wrapper'
+    for (const png of images) {
+      const section = document.createElement('section')
+      section.className = 'docx'
+      section.style.width = `${PAGE_WIDTH}px`
+      const img = document.createElement('img')
+      img.src = `data:image/png;base64,${uint8ToBase64(png)}`
+      img.alt = ''
+      img.style.display = 'block'
+      img.style.width = '100%'
+      img.style.height = 'auto'
+      section.appendChild(img)
+      wrapper.appendChild(section)
+    }
+    container.appendChild(wrapper)
+    return { pageCount: images.length, accurate: true }
+  } catch {
+    container.innerHTML = ''
+    await renderAsync(docxBytes, container, undefined, DOCX_PREVIEW_OPTIONS)
+    normalizeDocxTextboxes(container)
+    return { pageCount: container.querySelectorAll('section.docx').length, accurate: false }
+  }
 }
 
 export function pageShellStyle(): string {

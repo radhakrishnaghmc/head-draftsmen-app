@@ -1,5 +1,4 @@
 import { useMemo, useRef, useState } from 'react'
-import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import type { PlaceholderMatch } from '@core/createDocument'
@@ -7,7 +6,7 @@ import { withComputedAmounts } from '@core/worksAmounts'
 import type { CreatedDocument, ExcelTable, QcOfficeParties } from '@core/types'
 import type { Office } from '../office'
 import { IconDoc, IconEye, IconPrint, IconDownload, IconSearch } from './Icons'
-import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH } from './docPage'
+import { base64ToUint8, PAGE_WIDTH, renderDocPreview } from './docPage'
 import DocThumbnail from './DocThumbnail'
 import { closeOnBackdropMouseDown } from '../overlayClose'
 
@@ -237,9 +236,8 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
         void (async () => {
           const container = previewRef.current
           if (!container) return
-          container.innerHTML = ''
-          await renderAsync(base64ToUint8(result.docx), container, undefined, DOCX_PREVIEW_OPTIONS)
-          setPreviewPages(container.querySelectorAll('section.docx').length)
+          const { pageCount } = await renderDocPreview(base64ToUint8(result.docx), container)
+          setPreviewPages(pageCount)
         })()
       })
     } catch (e) {
@@ -266,8 +264,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
       const parts: string[] = []
       for (const doc of docs) {
         const { docx } = await resolveForRow(doc)
-        scratch.innerHTML = ''
-        await renderAsync(base64ToUint8(docx), scratch, undefined, DOCX_PREVIEW_OPTIONS)
+        await renderDocPreview(base64ToUint8(docx), scratch)
         parts.push(scratch.innerHTML)
       }
       const combined = parts.join('<div style="page-break-after:always"></div>')
@@ -315,8 +312,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
         const parts: string[] = []
         for (const doc of docs) {
           const { docx } = await resolveForRow(doc)
-          container.innerHTML = ''
-          await renderAsync(base64ToUint8(docx), container, undefined, DOCX_PREVIEW_OPTIONS)
+          await renderDocPreview(base64ToUint8(docx), container)
           parts.push(container.innerHTML)
         }
         const combined = parts.join('<div style="page-break-after:always"></div>')

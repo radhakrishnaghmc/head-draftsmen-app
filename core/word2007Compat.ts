@@ -43,9 +43,10 @@ const FIXABLE_PART_RE = /^word\/(document|header\d+|footer\d+|footnotes|endnotes
 
 // `<w:sz-cs>` is not a valid OOXML element at all (the real one is
 // `<w:szCs>`, camelCase, no hyphen) — found baked into 5 SE templates
-// (318 occurrences total: eligibility-criteria, se-agreement-bond,
-// se-agreement-note, se-contract-deed, ts-note), all sharing some earlier
-// edit that introduced the same typo. This is well-formed XML (hyphens are
+// (318 occurrences total: eligibility-criteria, ts-note, and three SE
+// Work Order/Agreement templates since removed and slated for a from-
+// scratch rebuild), all sharing some earlier edit that introduced the
+// same typo. This is well-formed XML (hyphens are
 // legal in element names), so it passes an XML-syntax check — Word's own
 // OOXML *schema* validation is what rejects it, in every Word version,
 // which is why this survived the Word-2007-specific bidi/child-order fixes

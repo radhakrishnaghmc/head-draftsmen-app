@@ -3236,6 +3236,7 @@ input[type='text']:focus {
   max-height: 90vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .tender-preview-scroll {
   flex: 1;
@@ -3244,7 +3245,7 @@ input[type='text']:focus {
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   margin-bottom: 14px;
-  min-height: 300px;
+  min-height: 0;
 }
 button.danger {
   height: 38px;
@@ -4657,23 +4658,18 @@ table.sheet {
   min-width: 100%;
   font-size: 13px;
 }
-/* Native row virtualization: Chromium (bundled with Electron) skips the layout
-   and paint of off-screen rows, so a 200+ row Works List stays smooth to scroll
-   and quick to open. Safe now that columns are fixed-width (see table-layout:
-   fixed) — skipped rows can't change any column's width. `contain-intrinsic-size:
-   auto` remembers each row's real height; 34px is the fallback for unseen rows. */
+/* Native row virtualization via content-visibility:auto was tried here to keep
+   a 200+ row Works List smooth (Chromium skips layout/paint of off-screen
+   rows), but Chromium's own scroll-height estimate for not-yet-measured rows
+   (contain-intrinsic-size's fallback) doesn't reliably match every row's real
+   height once accumulated over hundreds of rows — the scroll container's
+   computed max-scroll ends up short of the content's true height, stranding
+   the last row(s) unreachable ("scrolled to the end" isn't actually the end).
+   Already found and fixed for the filtered (searched) case below; the same
+   under-measurement can happen on the full unfiltered list too, so render
+   every row normally rather than virtualized. */
 table.sheet tbody tr {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 34px;
-}
-/* A filtered (searched) result set is always small — virtualization buys
-   nothing there, and Chromium's content-visibility:auto on <tr> elements can
-   under-measure the scroll container's real height once a table goes from a
-   large unfiltered list to a handful of filtered rows, leaving the last row(s)
-   clipped with no scrollbar to reach them. Render filtered rows normally. */
-table.sheet.sheet-filtered tbody tr {
   content-visibility: visible;
-  contain-intrinsic-size: auto;
 }
 table.sheet th {
   position: sticky;
@@ -6878,6 +6874,8 @@ tr.on .rp-box span {
 /* Tender-window mode checkboxes under the counter heading. */
 .cal-tender-modes {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 18px;
   margin-top: 10px;
 }
@@ -6895,6 +6893,31 @@ tr.on .rp-box span {
   height: 15px;
   accent-color: var(--indigo-500);
   cursor: pointer;
+}
+/* EE/SE + Head Draughtsman phone, always visible beside the tender-mode
+   toggle so they're entered once per office instead of re-typed inside the
+   "Issue Tender Notice" dialog every time. */
+.cal-tender-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+.cal-tender-phone input {
+  width: 128px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+}
+.cal-tender-phone input:focus {
+  outline: none;
+  border-color: var(--indigo-500);
 }
 
 /* Link to the official source calendar, sits in the legend row. */
@@ -7597,7 +7620,8 @@ tr.on .rp-box span {
    fixed height, border, background and focus treatment — so this form and
    that one read as the same design instead of two slightly different ones. */
 .wo-manual-form input,
-.wo-manual-form select {
+.wo-manual-form select,
+.wo-manual-form textarea {
   height: 38px;
   padding: 0 12px;
   border-radius: var(--radius-sm);
@@ -7608,8 +7632,15 @@ tr.on .rp-box span {
   font-family: inherit;
   width: 100%;
 }
+.wo-manual-form textarea {
+  height: auto;
+  padding: 8px 12px;
+  resize: vertical;
+  line-height: 1.4;
+}
 .wo-manual-form input:focus,
-.wo-manual-form select:focus {
+.wo-manual-form select:focus,
+.wo-manual-form textarea:focus {
   outline: none;
   border-color: var(--indigo-500);
   background: #fff;

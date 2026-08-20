@@ -2,9 +2,8 @@ import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } fro
 import { IconPlus, IconTrash, IconSearch } from './Icons'
 import type { ExcelTable } from '@core/types'
 
-// Fixed column widths (px) — the sheet uses table-layout:fixed so that skipping
-// off-screen rows (content-visibility, below) can't make columns jump: their
-// widths no longer depend on which rows happen to be rendered. The table
+// Fixed column widths (px) — the sheet uses table-layout:fixed so column widths
+// never depend on which rows happen to be rendered/scrolled. The table
 // overflows and scrolls horizontally when the columns don't fit.
 const COL_W = 160
 const ROWNUM_W = 44
@@ -274,7 +273,7 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
 
       <div className="sheet-wrap">
         <table
-          className={`sheet${query.trim() ? ' sheet-filtered' : ''}`}
+          className="sheet"
           style={{ tableLayout: 'fixed', width: Math.max(ROWNUM_W + headers.length * COL_W + ROWDEL_W, 0) || undefined }}
         >
           <colgroup>

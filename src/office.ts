@@ -76,6 +76,35 @@ export function officeKey(office: Office): string | undefined {
 }
 
 /**
+ * A localStorage key scoped to this office, so a value entered for one office
+ * (e.g. a contact phone number, remembered "per machine" rather than synced)
+ * doesn't leak into another office switched to later. Falls back to the bare
+ * key when no office is chosen yet.
+ */
+export function officeScopedKey(base: string, office?: Office): string {
+  const key = office ? officeKey(office) : undefined
+  return key ? `${base}:${key}` : base
+}
+
+/** A Zone chosen with no Circle of its own — a zone-level (SE) office, as opposed to a Circle (EE) office. Same test used throughout the app (WorkOrderAgreementTab's `seMode`, GiveIntimationTab, etc). */
+export function isZoneOnlyOffice(office?: Office): boolean {
+  return !!office?.zone?.trim() && !office?.circle?.trim()
+}
+
+// The Issue Tender Notice contact details (e-mail + the two mobile numbers)
+// are properties of the issuing office, not of a single notice, so they're
+// remembered per machine — scoped per office via officeScopedKey, so
+// switching offices doesn't leak one office's numbers into another — and
+// pre-filled next time rather than re-typed for every notice. Shared between
+// TenderNoticeButton's dialog and Dashboard's always-visible fields (next to
+// the 3-day/7-day tender toggle), so entering it in either place fills the other.
+export const CONTACT_KEYS = {
+  email: 'hda-tn-email',
+  eePhone: 'hda-tn-ee-phone',
+  hdPhone: 'hda-tn-hd-phone'
+} as const
+
+/**
  * Whether an office has been chosen. A Corporation + Zone is enough — that's a
  * zonal office (a zone-level Head Draughtsman, spanning every circle in the zone);
  * picking a Circle as well narrows it to a single circle office.

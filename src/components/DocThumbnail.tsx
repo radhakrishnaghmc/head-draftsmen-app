@@ -12,9 +12,14 @@ interface Props {
 
 /**
  * A live, shrunk-down render of the actual document (top of page 1) — the
- * same docx-preview render used for the full editor/preview, just displayed
- * at thumbnail size via a CSS transform: scale, and clipped to one page's
- * worth by the fixed-size, overflow:hidden .doc-thumb-box around it. Purely
+ * approximate docx-preview.js render (NOT docPage.ts's accurate,
+ * LibreOffice-backed renderDocPreview, which every full-size preview modal
+ * uses), just displayed at thumbnail size via a CSS transform: scale, and
+ * clipped to one page's worth by the fixed-size, overflow:hidden
+ * .doc-thumb-box around it. A grid can show dozens of these at once, and each
+ * accurate render is its own LibreOffice conversion — using it here would
+ * hammer LibreOffice with concurrent conversions for a decorative icon few
+ * people zoom in on, so this deliberately trades accuracy for speed. Purely
  * decorative (not interactive), so pointer events are switched off.
  */
 export default function DocThumbnail({ docx, width = DEFAULT_THUMB_WIDTH }: Props) {

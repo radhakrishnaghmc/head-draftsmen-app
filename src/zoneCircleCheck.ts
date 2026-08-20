@@ -32,12 +32,12 @@ const sameId = (a: string, b: string) => {
 }
 
 /**
- * Enforce that every row of a Works List belongs to the logged-in Head
+ * Flag which rows of a Works List don't belong to the logged-in Head
  * Draughtsman's own Zone/Circle (from the login credentials sheet), filling in
- * the Zone/Circle columns as it goes. The whole list is one Head Draughtsman's
- * own circle, so the default is to stamp every row with the login identity —
- * the checks below only exist to catch a row that plainly belongs to someone
- * else and reject it rather than silently mixing lists:
+ * the Zone/Circle columns as it goes. The whole list is normally one Head
+ * Draughtsman's own circle, so the default is to stamp every row with the
+ * login identity — the checks below only exist to flag a row that plainly
+ * belongs to someone else:
  * - An explicit Zone/Circle cell that doesn't match the login is a mismatch.
  * - A "Name of the work" that names a *different* CMC circle (an explicit
  *   "<name> circle" tag, or a bare known circle name — see
@@ -46,8 +46,18 @@ const sameId = (a: string, b: string) => {
  *   the login Zone/Circle. Work names here usually mention neither their circle
  *   nor their zone (e.g. "Improvements to Peddamma temple road"), so waiting
  *   for the name to spell them out would leave the columns blank — the reason
- *   they weren't auto-filling before. A conflicting row is never filled (its
- *   import is rejected wholesale by the caller).
+ *   they weren't auto-filling before.
+ *
+ * A flagged row is never filled/overwritten, but it is NOT dropped from the
+ * table either — CMC's circle reorganisation split some circles' wards into
+ * others (e.g. Moosapet's wards into Kukatpally), and since a work's
+ * Wincode/name never changes, a genuinely-this-office works list can
+ * legitimately carry a handful of rows still tagged with their old,
+ * now-merged-away circle. The caller decides what to do with `mismatches` —
+ * both call sites in App.tsx only reject the import outright when EVERY row
+ * is a mismatch (the sheet contains not one work from the login's own
+ * Zone/Circle), and otherwise keep the foreign-tagged rows as-is alongside
+ * the filled-in rows.
  */
 export function enforceZoneCircle(
   table: ExcelTable,

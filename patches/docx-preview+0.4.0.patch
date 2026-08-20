@@ -1,0 +1,126 @@
+diff --git a/node_modules/docx-preview/dist/docx-preview.js b/node_modules/docx-preview/dist/docx-preview.js
+index 9abd132..4b83f5d 100644
+--- a/node_modules/docx-preview/dist/docx-preview.js
++++ b/node_modules/docx-preview/dist/docx-preview.js
+@@ -1294,6 +1294,13 @@
+                 result.tagName = "foreignObject";
+                 Object.assign(result.attrs, { width: '100%', height: '100%' });
+                 break;
++            case "textpath":
++                // WordArt ("v:textpath") carries its text in the "string"
++                // attribute, not as child nodes — patched in because the
++                // upstream default case dropped it, leaving the shape's
++                // empty wrapper box with no visible text at all.
++                result.tagName = "text";
++                break;
+             default:
+                 return null;
+         }
+@@ -1305,6 +1312,9 @@
+                 case "fillcolor":
+                     result.attrs.fill = at.value;
+                     break;
++                case "string":
++                    result.vmlText = at.value;
++                    break;
+                 case "from":
+                     const [x1, y1] = parsePoint(at.value);
+                     Object.assign(result.attrs, { x1, y1 });
+@@ -3742,6 +3752,23 @@ section.${c}>footer { z-index: 1; }
+                     .then(x => result.setAttribute("href", x)));
+             }
+             container.appendChild(result);
++            // WordArt ("v:textpath") text is stretched to exactly fill the
++            // shape's own declared width/height (mirroring VML's
++            // `fitshape="t"`, which real Word letterhead titles rely on since
++            // the text's natural width rarely matches the fixed WordArt box)
++            // and vertically centered in it.
++            const widthMatch = /width\s*:\s*([\d.]+)pt/i.exec(elem.cssStyleText || '');
++            const heightMatch = /height\s*:\s*([\d.]+)pt/i.exec(elem.cssStyleText || '');
++            container.querySelectorAll('text').forEach((t) => {
++                if (widthMatch) {
++                    t.setAttribute('textLength', String(parseFloat(widthMatch[1]) * (96 / 72)));
++                    t.setAttribute('lengthAdjust', 'spacingAndGlyphs');
++                }
++                if (heightMatch) {
++                    t.setAttribute('y', String((parseFloat(heightMatch[1]) * (96 / 72)) / 2));
++                    t.setAttribute('dominant-baseline', 'middle');
++                }
++            });
+             requestAnimationFrame(() => {
+                 const bb = container.firstElementChild.getBBox();
+                 container.setAttribute("width", `${Math.ceil(bb.x + bb.width)}`);
+@@ -3752,6 +3779,10 @@ section.${c}>footer { z-index: 1; }
+         renderVmlChildElement(elem) {
+             const result = this.createSvgElement(elem.tagName);
+             Object.entries(elem.attrs).forEach(([k, v]) => result.setAttribute(k, v));
++            if (elem.cssStyleText && elem.tagName === "text")
++                result.setAttribute("style", elem.cssStyleText);
++            if (elem.vmlText)
++                result.appendChild(document.createTextNode(elem.vmlText));
+             for (let child of elem.children) {
+                 if (child.type == DomType.VmlElement) {
+                     result.appendChild(this.renderVmlChildElement(child));
+diff --git a/node_modules/docx-preview/dist/docx-preview.mjs b/node_modules/docx-preview/dist/docx-preview.mjs
+index 68d59f2..00adfea 100644
+--- a/node_modules/docx-preview/dist/docx-preview.mjs
++++ b/node_modules/docx-preview/dist/docx-preview.mjs
+@@ -1290,6 +1290,13 @@ function parseVmlElement(elem, parser) {
+             result.tagName = "foreignObject";
+             Object.assign(result.attrs, { width: '100%', height: '100%' });
+             break;
++        case "textpath":
++            // WordArt ("v:textpath") carries its text in the "string"
++            // attribute, not as child nodes — patched in because the
++            // upstream default case dropped it, leaving the shape's
++            // empty wrapper box with no visible text at all.
++            result.tagName = "text";
++            break;
+         default:
+             return null;
+     }
+@@ -1301,6 +1308,9 @@ function parseVmlElement(elem, parser) {
+             case "fillcolor":
+                 result.attrs.fill = at.value;
+                 break;
++            case "string":
++                result.vmlText = at.value;
++                break;
+             case "from":
+                 const [x1, y1] = parsePoint(at.value);
+                 Object.assign(result.attrs, { x1, y1 });
+@@ -3738,6 +3748,23 @@ section.${c}>footer { z-index: 1; }
+                 .then(x => result.setAttribute("href", x)));
+         }
+         container.appendChild(result);
++        // WordArt ("v:textpath") text is stretched to exactly fill the
++        // shape's own declared width/height (mirroring VML's
++        // `fitshape="t"`, which real Word letterhead titles rely on since
++        // the text's natural width rarely matches the fixed WordArt box)
++        // and vertically centered in it.
++        const widthMatch = /width\s*:\s*([\d.]+)pt/i.exec(elem.cssStyleText || '');
++        const heightMatch = /height\s*:\s*([\d.]+)pt/i.exec(elem.cssStyleText || '');
++        container.querySelectorAll('text').forEach((t) => {
++            if (widthMatch) {
++                t.setAttribute('textLength', String(parseFloat(widthMatch[1]) * (96 / 72)));
++                t.setAttribute('lengthAdjust', 'spacingAndGlyphs');
++            }
++            if (heightMatch) {
++                t.setAttribute('y', String((parseFloat(heightMatch[1]) * (96 / 72)) / 2));
++                t.setAttribute('dominant-baseline', 'middle');
++            }
++        });
+         requestAnimationFrame(() => {
+             const bb = container.firstElementChild.getBBox();
+             container.setAttribute("width", `${Math.ceil(bb.x + bb.width)}`);
+@@ -3748,6 +3775,10 @@ section.${c}>footer { z-index: 1; }
+     renderVmlChildElement(elem) {
+         const result = this.createSvgElement(elem.tagName);
+         Object.entries(elem.attrs).forEach(([k, v]) => result.setAttribute(k, v));
++        if (elem.cssStyleText && elem.tagName === "text")
++            result.setAttribute("style", elem.cssStyleText);
++        if (elem.vmlText)
++            result.appendChild(document.createTextNode(elem.vmlText));
+         for (let child of elem.children) {
+             if (child.type == DomType.VmlElement) {
+                 result.appendChild(this.renderVmlChildElement(child));

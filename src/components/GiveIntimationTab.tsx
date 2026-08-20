@@ -29,7 +29,7 @@ import type { Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLines, pdfToPositionedLines } from '../pdfToText'
 import { pdfPagesToDataUrls } from '../pdfToImages'
-import { base64ToUint8, DOCX_PREVIEW_OPTIONS, PAGE_WIDTH, normalizeDocxTextboxes } from './docPage'
+import { base64ToUint8, PAGE_WIDTH, renderDocPreview, DOCX_PREVIEW_OPTIONS, normalizeDocxTextboxes } from './docPage'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell, IconCheck } from './Icons'
 import type { ExcelTable } from '@core/types'
 import type { AgreementBundleFile } from '../../electron/ipc-contract'
@@ -643,7 +643,12 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   // just to see the Intimation tile.
   const showBody = true
 
-  // Live docx thumbnail of the filled letter (tile preview) — refreshed whenever the values change.
+  // Live docx thumbnail of the filled letter (tile preview) — refreshed
+  // whenever the values change, so this deliberately stays on the fast,
+  // approximate docx-preview.js render rather than the accurate
+  // LibreOffice-backed one: re-rendering on every keystroke through
+  // LibreOffice would make typing feel sluggish. The expanded modal below
+  // (opened by an explicit click) is where the accurate render belongs.
   useEffect(() => {
     if (!templateB64 || !showBody) {
       if (previewRef.current) previewRef.current.innerHTML = ''
@@ -715,7 +720,23 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     return api.fillPlaceholdersInDocument(b64, resolved, seDocValues[kind] ?? {})
   }
 
+  // The full-size, accurate (LibreOffice-backed) render — used only for the
+  // expanded preview modal, where a user is actually looking at one specific
+  // document.
   async function renderSeDocInto(kind: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval', container: HTMLElement) {
+    const filled = await fillSeDoc(kind)
+    await renderDocPreview(base64ToUint8(filled), container)
+  }
+
+  // The small, live thumbnail shown in each of the 4 SE companion-note tiles
+  // — refreshed whenever their inputs change, so this deliberately stays on
+  // the fast, approximate docx-preview.js render (mirrors the main
+  // Intimation tile's identical reasoning above): 4 concurrent LibreOffice
+  // conversions on every keystroke would make typing feel sluggish.
+  async function renderSeDocTileThumbnail(
+    kind: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval',
+    container: HTMLElement
+  ) {
     const filled = await fillSeDoc(kind)
     container.innerHTML = ''
     await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
@@ -725,10 +746,10 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   // Live previews for the 4 SE companion notes — refreshed whenever their inputs change.
   useEffect(() => {
     if (!seDocsReady) return
-    if (tsNotePreviewRef.current) void renderSeDocInto('tsNote', tsNotePreviewRef.current).catch(() => {})
-    if (eligibilityPreviewRef.current) void renderSeDocInto('eligibility', eligibilityPreviewRef.current).catch(() => {})
-    if (bidEvalPreviewRef.current) void renderSeDocInto('bidEval', bidEvalPreviewRef.current).catch(() => {})
-    if (agencyApprovalPreviewRef.current) void renderSeDocInto('agencyApproval', agencyApprovalPreviewRef.current).catch(() => {})
+    if (tsNotePreviewRef.current) void renderSeDocTileThumbnail('tsNote', tsNotePreviewRef.current).catch(() => {})
+    if (eligibilityPreviewRef.current) void renderSeDocTileThumbnail('eligibility', eligibilityPreviewRef.current).catch(() => {})
+    if (bidEvalPreviewRef.current) void renderSeDocTileThumbnail('bidEval', bidEvalPreviewRef.current).catch(() => {})
+    if (agencyApprovalPreviewRef.current) void renderSeDocTileThumbnail('agencyApproval', agencyApprovalPreviewRef.current).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seDocsReady, seDocValues, bidEvalData, agencyApprovalData])
 
@@ -755,9 +776,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       try {
         if (expanded === 'intimation') {
           const filled = await fillTemplate()
-          container.innerHTML = ''
-          await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
-          normalizeDocxTextboxes(container)
+          await renderDocPreview(base64ToUint8(filled), container)
         } else {
           await renderSeDocInto(expanded, container)
         }
@@ -799,9 +818,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       const filled = await fillSeDoc(kind)
       const container = printScratchRef.current
       if (!container) throw new Error('Print failed to initialize.')
-      container.innerHTML = ''
-      await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
-      normalizeDocxTextboxes(container)
+      await renderDocPreview(base64ToUint8(filled), container)
       await api.printCreatedDocument(container.innerHTML)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
@@ -945,9 +962,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       const filled = await fillTemplate()
       const container = printScratchRef.current
       if (!container) throw new Error('Print failed to initialize.')
-      container.innerHTML = ''
-      await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
-      normalizeDocxTextboxes(container)
+      await renderDocPreview(base64ToUint8(filled), container)
       await api.printCreatedDocument(container.innerHTML)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))

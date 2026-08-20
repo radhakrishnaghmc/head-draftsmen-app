@@ -158,6 +158,14 @@ function tightenCode(s: string): string {
     .trim()
 }
 
+// Some offices prefix the item number with 1-2 short alphanumeric segments
+// ("E1/06/23/DB/EE/…" instead of a plain "23/DB/EE/…") — each segment is at
+// most 2 letters plus up to 3 digits, always carrying a digit, so it can never
+// match a label word like "Tender"/"Enquiry"/"IFB" (all-letters) or a 5-8
+// digit Tender ID (too many digits for one segment) wedged in front of the
+// real code.
+const NIT_CODE_PREFIX = '(?:[A-Za-z]{0,2}\\d{1,3}\\/){0,2}'
+
 /**
  * Reassemble a NIT No that pdf.js interleaved with the header's right column.
  * These NITs read "<code>/DB/EE/<place> Circle-<circleNo>/[QBZ/]CMC/<year>" (a
@@ -176,8 +184,9 @@ function cleanNit(raw: string): string {
   // Drop any label preamble before the NIT's own code — e.g. "NIT No" landing
   // right next to a secondary "Enquiry/IFB/Tender <tenderId> " sub-label on
   // some L1 layouts leaves that whole label wedged in front of the real
-  // "13/DB/EE/…" code ("Enquiry/IFB/Tender 720716 13/DB/EE/…").
-  const codeStart = /\d{1,3}\/DB\/EE\b/i.exec(raw)
+  // "13/DB/EE/…" code ("Enquiry/IFB/Tender 720716 13/DB/EE/…") — but a real
+  // "E1/06/" item-number prefix right before "/DB/EE/" is kept (NIT_CODE_PREFIX).
+  const codeStart = new RegExp(`${NIT_CODE_PREFIX}\\d{1,3}\\/DB\\/EE\\b`, 'i').exec(raw)
   const s = codeStart ? raw.slice(codeStart.index) : raw
   // "Circle-?": some sheets run the place name straight into the circle
   // number with no hyphen at all ("NizampetCircle58"), not just "Circle-58".
@@ -243,7 +252,10 @@ export function parseTenderEvaluation(lines: string[]): TenderEvaluation {
   // spaces the stripped "Tender ID"/"Notice Number" labels leave inside the
   // wrapped "…/2026-  27" tail. tightenCode then rejoins it.
   if (!result.noticeNo) {
-    const canonical = /\d{1,3}\/DB\/EE\/.+?Circle\s*-\s*\d{1,3}\/(?:QBZ\/)?CMC\/\d{4}\s*-\s*\d{2,4}/i.exec(cleaned)
+    const canonical = new RegExp(
+      `${NIT_CODE_PREFIX}\\d{1,3}\\/DB\\/EE\\/.+?Circle\\s*-\\s*\\d{1,3}\\/(?:QBZ\\/)?CMC\\/\\d{4}\\s*-\\s*\\d{2,4}`,
+      'i'
+    ).exec(cleaned)
     if (canonical) result.noticeNo = tightenCode(canonical[0])
   }
 

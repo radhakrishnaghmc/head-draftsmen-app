@@ -223,6 +223,8 @@ export interface BidDocumentBatch {
   works: BidDocumentWork[]
   /** ISO date (YYYY-MM-DD) the batch was created. */
   createdDate: string
+  /** The office (key: "Corporation|Zone|Circle") this batch was issued under — like the Works List/To Do, so switching offices doesn't show another office's batches. Absent on batches created before per-office scoping. */
+  officeKey?: string
 }
 
 /** Snapshot of the workspace persisted to disk so it survives app restarts. */

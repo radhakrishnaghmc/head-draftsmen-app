@@ -43,7 +43,7 @@ import { textToParagraphsHtml, buildPhotosWorkbook, buildWorkbookFromRows } from
 import { convertPdfToDocx } from '../core/pdfToDocx'
 import { buildDocx, type DocBlock } from '../core/docxBuilder'
 import type { OcrPage } from '../core/ocrReconstruct'
-import { convertDocxToPdf } from '../core/docxToPdf'
+import { convertDocxToPdf, docxToPageImages } from '../core/docxToPdf'
 import { mergeDocxBuffers } from '../core/mergeDocx'
 import { splitDocxByPageBreaks } from '../core/splitDocx'
 import { ocrGpsOverlay } from './gpsOcr'
@@ -789,6 +789,11 @@ function registerHandlers(): void {
     return new Uint8Array(pdf)
   })
 
+  ipcMain.handle(IPC.docxToPageImages, async (_e, docxBytes: Uint8Array): Promise<Uint8Array[]> => {
+    const images = await docxToPageImages(Buffer.from(docxBytes))
+    return images.map((buf) => new Uint8Array(buf))
+  })
+
   // Whole-document merge: concatenate the .docx files (in order) into one and
   // save it via a dialog. Kept in Word format (unlike the page tool's PDF output).
   ipcMain.handle(IPC.mergeDocx, async (_e, docxBytesList: Uint8Array[]): Promise<{ file: string } | null> => {
@@ -1137,39 +1142,33 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  ipcMain.handle(IPC.zonalWorkOrderTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('zonal-work-order-template.docx')
-    if (!templatePath) throw new Error('Zonal (SE) Work Order format is missing from the app bundle.')
-    return fs.readFileSync(templatePath).toString('base64')
-  })
-
-  ipcMain.handle(IPC.zonalConcludingAgreementTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('zonal-concluding-agreement-template.docx')
-    if (!templatePath) throw new Error('Zonal (SE) Concluding Agreement format is missing from the app bundle.')
-    return fs.readFileSync(templatePath).toString('base64')
-  })
-
-  ipcMain.handle(IPC.zonalMemoEeTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('zonal-memo-ee-template.docx')
-    if (!templatePath) throw new Error('Zonal (SE) Memo to EE format is missing from the app bundle.')
-    return fs.readFileSync(templatePath).toString('base64')
-  })
-
-  ipcMain.handle(IPC.seAgreementNoteTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('se-agreement-note-template.docx')
-    if (!templatePath) throw new Error('SE Agreement Put-up Note format is missing from the app bundle.')
-    return fs.readFileSync(templatePath).toString('base64')
-  })
-
   ipcMain.handle(IPC.seAgreementBondTemplate, async (): Promise<string> => {
     const templatePath = bundledResourceFile('se-agreement-bond-template.docx')
     if (!templatePath) throw new Error('SE Agreement Bond format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  ipcMain.handle(IPC.seContractDeedTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('se-contract-deed-template.docx')
-    if (!templatePath) throw new Error('SE Contract Deed format is missing from the app bundle.')
+  ipcMain.handle(IPC.zonalWorkOrderTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('zonal-work-order-template.docx')
+    if (!templatePath) throw new Error('SE Work Order format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
+  ipcMain.handle(IPC.zonalConcludingAgreementTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('zonal-concluding-agreement-template.docx')
+    if (!templatePath) throw new Error('SE Concluding Agreement format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
+  ipcMain.handle(IPC.zonalMemoEeTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('zonal-memo-ee-template.docx')
+    if (!templatePath) throw new Error('SE Memo to EE format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
+  ipcMain.handle(IPC.seAgreementNoteTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('se-agreement-note-template.docx')
+    if (!templatePath) throw new Error('SE Agreement Put-up Note format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
 

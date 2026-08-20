@@ -3,6 +3,7 @@ import { api } from '../ipc'
 import { IconTable, IconChevronLeft, IconChevronRight } from './Icons'
 import type { CalendarData, HolidayType } from '@core/calendar'
 import { MONTH_NAMES, holidaysByDay } from '@core/calendar'
+import { type Office, officeScopedKey, isZoneOnlyOffice, CONTACT_KEYS } from '../office'
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
@@ -41,9 +42,11 @@ function colsForWidth(w: number): number {
 interface Props {
   cached: CalendarData | null
   onData: (d: CalendarData) => void
+  /** The chosen office — determines whether the contact field below the tender-mode toggle reads "Executive Engineer Phone" or "Superintending Engineer Phone", and scopes where its value (and the Head Draughtsman phone) are remembered. */
+  office?: Office
 }
 
-export default function Dashboard({ cached, onData }: Props) {
+export default function Dashboard({ cached, onData, office }: Props) {
   const [data, setData] = useState<CalendarData | null>(cached)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -54,6 +57,27 @@ export default function Dashboard({ cached, onData }: Props) {
   // Tender window: count up to the 3rd or 7th day. The final day (3 or 7) may
   // not land on a public holiday — it rolls to the next non-holiday day.
   const [tenderDays, setTenderDays] = useState<3 | 7>(7)
+
+  // The office's own Engineer phone (EE for a Circle office, SE for a Zone-only
+  // office) and Head Draughtsman phone — shown here, always visible, so they
+  // don't have to be re-typed inside the "Issue Tender Notice" dialog every
+  // time. Shares the same office-scoped localStorage keys as that dialog (see
+  // TenderNoticeButton's CONTACT_KEYS), so entering it in either place fills
+  // the other. Reloaded whenever the chosen office changes.
+  const [enginPhone, setEnginPhone] = useState('')
+  const [hdPhone, setHdPhone] = useState('')
+  useEffect(() => {
+    setEnginPhone(localStorage.getItem(officeScopedKey(CONTACT_KEYS.eePhone, office)) || '')
+    setHdPhone(localStorage.getItem(officeScopedKey(CONTACT_KEYS.hdPhone, office)) || '')
+  }, [office])
+  function saveEnginPhone(v: string) {
+    setEnginPhone(v)
+    localStorage.setItem(officeScopedKey(CONTACT_KEYS.eePhone, office), v.trim())
+  }
+  function saveHdPhone(v: string) {
+    setHdPhone(v)
+    localStorage.setItem(officeScopedKey(CONTACT_KEYS.hdPhone, office), v.trim())
+  }
 
   const load = useCallback(
     async (force = false) => {
@@ -187,6 +211,24 @@ export default function Dashboard({ cached, onData }: Props) {
                       onChange={() => setTenderDays(7)}
                     />
                     7-day tender
+                  </label>
+                  <label className="cal-tender-phone">
+                    <span>{isZoneOnlyOffice(office) ? 'SE Phone' : 'EE Phone'}</span>
+                    <input
+                      type="tel"
+                      value={enginPhone}
+                      onChange={(e) => saveEnginPhone(e.target.value)}
+                      placeholder="10-digit mobile number"
+                    />
+                  </label>
+                  <label className="cal-tender-phone">
+                    <span>HD Phone</span>
+                    <input
+                      type="tel"
+                      value={hdPhone}
+                      onChange={(e) => saveHdPhone(e.target.value)}
+                      placeholder="10-digit mobile number"
+                    />
                   </label>
                 </div>
               </div>

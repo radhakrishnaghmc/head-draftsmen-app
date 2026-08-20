@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
 import { IconDoc, IconWarn, IconCheck, IconEye } from './Icons'
-import { base64ToUint8 } from './docPage'
+import { base64ToUint8, renderDocPreview } from './docPage'
 import type { ExcelTable } from '@core/types'
 import type { BidDocumentBatch } from '@core/types'
 import type { TenderNoticeInput } from '../../electron/ipc-contract'
 import { indianFinancialYear } from '@core/workOrderAgreement'
-import { type Office } from '../office'
+import { type Office, officeScopedKey, isZoneOnlyOffice, CONTACT_KEYS } from '../office'
 import { closeOnBackdropMouseDown } from '../overlayClose'
 
 interface Props {
@@ -35,15 +34,6 @@ function toDDMMYYYY(iso: string): string {
   const [y, m, d] = iso.split('-')
   return `${d}.${m}.${y}`
 }
-
-// The contact details (e-mail + the two mobile numbers) are properties of the
-// issuing office, not of a single notice, so they're remembered per machine and
-// pre-filled next time rather than re-typed for every notice.
-const CONTACT_KEYS = {
-  email: 'hda-tn-email',
-  eePhone: 'hda-tn-ee-phone',
-  hdPhone: 'hda-tn-hd-phone'
-} as const
 
 /** The office's default e-mail, following the circle's number ("eec58.GHMC@gmail.com"). */
 function defaultEmailFor(office?: Office): string {
@@ -171,9 +161,9 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
   useEffect(() => {
     if (!open) return
     setNitSerial('16')
-    setEmail(localStorage.getItem(CONTACT_KEYS.email) || defaultEmailFor(office))
-    setEePhone(localStorage.getItem(CONTACT_KEYS.eePhone) || '')
-    setHdPhone(localStorage.getItem(CONTACT_KEYS.hdPhone) || '')
+    setEmail(localStorage.getItem(officeScopedKey(CONTACT_KEYS.email, office)) || defaultEmailFor(office))
+    setEePhone(localStorage.getItem(officeScopedKey(CONTACT_KEYS.eePhone, office)) || '')
+    setHdPhone(localStorage.getItem(officeScopedKey(CONTACT_KEYS.hdPhone, office)) || '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -269,23 +259,7 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
         void (async () => {
           const container = previewRef.current
           if (!container) return
-          container.innerHTML = ''
-          await renderAsync(base64ToUint8(b64), container, undefined, {
-            className: 'docx',
-            inWrapper: true,
-            ignoreWidth: false,
-            ignoreHeight: false,
-            ignoreFonts: false,
-            breakPages: true,
-            experimental: true,
-            trimXmlDeclaration: true,
-            useBase64URL: true,
-            renderHeaders: true,
-            renderFooters: true,
-            renderFootnotes: true,
-            renderEndnotes: true,
-            renderChanges: false
-          })
+          await renderDocPreview(base64ToUint8(b64), container)
         })()
       })
     } catch (e) {
@@ -304,10 +278,10 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
       const suggestedName = tenderNoticeFileName(input.nitNo, bidWorks[0]?.circle)
       const path = await api.generateTenderNotice(input, suggestedName)
       if (path) {
-        // Remember the contact details for next time (per machine/office).
-        localStorage.setItem(CONTACT_KEYS.email, email.trim())
-        localStorage.setItem(CONTACT_KEYS.eePhone, eePhone.trim())
-        localStorage.setItem(CONTACT_KEYS.hdPhone, hdPhone.trim())
+        // Remember the contact details for next time (per machine, per office).
+        localStorage.setItem(officeScopedKey(CONTACT_KEYS.email, office), email.trim())
+        localStorage.setItem(officeScopedKey(CONTACT_KEYS.eePhone, office), eePhone.trim())
+        localStorage.setItem(officeScopedKey(CONTACT_KEYS.hdPhone, office), hdPhone.trim())
         setSaved(path)
         setOpen(false)
         onGenerated?.(input.nitNo)
@@ -452,7 +426,7 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
 
                 <div className="tender-field-row">
                   <label className="tender-field">
-                    <span>Executive Engineer Phone</span>
+                    <span>{isZoneOnlyOffice(office) ? 'Superintending Engineer Phone' : 'Executive Engineer Phone'}</span>
                     <input
                       type="tel"
                       value={eePhone}

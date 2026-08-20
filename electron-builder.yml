@@ -81,6 +81,8 @@ extraResources:
     to: forwarding-slip-template.docx
   - from: resources/civil-tender-template.docx
     to: civil-tender-template.docx
+  - from: resources/se-agreement-bond-template.docx
+    to: se-agreement-bond-template.docx
   - from: resources/zonal-work-order-template.docx
     to: zonal-work-order-template.docx
   - from: resources/zonal-concluding-agreement-template.docx
@@ -89,10 +91,6 @@ extraResources:
     to: zonal-memo-ee-template.docx
   - from: resources/se-agreement-note-template.docx
     to: se-agreement-note-template.docx
-  - from: resources/se-agreement-bond-template.docx
-    to: se-agreement-bond-template.docx
-  - from: resources/se-contract-deed-template.docx
-    to: se-contract-deed-template.docx
   - from: resources/se-schedule-a-template.xlsx
     to: se-schedule-a-template.xlsx
   - from: resources/loa-se-template.docx

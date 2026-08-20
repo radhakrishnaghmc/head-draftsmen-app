@@ -12,14 +12,27 @@ const RENDER_SCALE = 2
  * changes needed downstream.
  */
 export async function pdfPagesToDataUrls(file: File): Promise<string[]> {
+  return pdfPagesToDataUrlsFromData(await file.arrayBuffer())
+}
+
+/**
+ * Same as pdfPagesToDataUrls, from raw bytes — used for a PDF produced
+ * in-process (e.g. LibreOffice's docx→PDF conversion, see core/docxToPdf.ts)
+ * rather than read from a file input. `scale` overrides RENDER_SCALE — the
+ * accurate document-preview renderer (see docPage.ts's renderAccurate) wants
+ * a sharper image than the OCR pipeline needs.
+ */
+export async function pdfPagesToDataUrlsFromData(
+  data: ArrayBuffer | Uint8Array,
+  scale: number = RENDER_SCALE
+): Promise<string[]> {
   // Loaded on demand — see pdfToText.ts.
   const { pdfjsLib } = await import('./pdfjsSetup')
-  const buffer = await file.arrayBuffer()
-  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise
+  const pdf = await pdfjsLib.getDocument({ data }).promise
   const dataUrls: string[] = []
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum)
-    const viewport = page.getViewport({ scale: RENDER_SCALE })
+    const viewport = page.getViewport({ scale })
     const canvas = document.createElement('canvas')
     canvas.width = viewport.width
     canvas.height = viewport.height

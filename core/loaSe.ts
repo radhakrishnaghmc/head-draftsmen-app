@@ -11,7 +11,8 @@
 /** Zone → the 3-letter code used on SE documents (e.g. "Quthbullapur" → "QBZ"). */
 const ZONE_ABBR: Record<string, string> = {
   quthbullapur: 'QBZ',
-  kukatpally: 'KPZ'
+  kukatpally: 'KPZ',
+  serilingampally: 'SLP'
   // Other CMC/GHMC/MMC zones' official codes are added here as they're confirmed.
 }
 

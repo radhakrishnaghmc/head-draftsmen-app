@@ -1,8 +1,7 @@
 import { useRef, useState } from 'react'
-import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
 import { IconDoc, IconEye, IconDownload, IconTrash, IconCheck, IconWarn } from './Icons'
-import { base64ToUint8 } from './docPage'
+import { base64ToUint8, renderDocPreview } from './docPage'
 import type { BidDocumentBatch, BidDocumentWork } from '@core/types'
 import type { BidDocumentInput } from '../../electron/ipc-contract'
 import { closeOnBackdropMouseDown } from '../overlayClose'
@@ -72,23 +71,7 @@ export default function BidDocumentsPanel({ batches, onRemove, onUpdateWork }: P
         void (async () => {
           const container = previewRef.current
           if (!container) return
-          container.innerHTML = ''
-          await renderAsync(base64ToUint8(b64), container, undefined, {
-            className: 'docx',
-            inWrapper: true,
-            ignoreWidth: false,
-            ignoreHeight: false,
-            ignoreFonts: false,
-            breakPages: true,
-            experimental: true,
-            trimXmlDeclaration: true,
-            useBase64URL: true,
-            renderHeaders: true,
-            renderFooters: true,
-            renderFootnotes: true,
-            renderEndnotes: true,
-            renderChanges: false
-          })
+          await renderDocPreview(base64ToUint8(b64), container)
         })()
       })
     } catch (e) {

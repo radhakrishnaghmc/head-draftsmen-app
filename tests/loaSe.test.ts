@@ -12,6 +12,7 @@ describe('loaSe helpers', () => {
     expect(zoneAbbr('Quthbullapur')).toBe('QBZ')
     expect(zoneAbbr('quthbullapur')).toBe('QBZ')
     expect(zoneAbbr('Kukatpally')).toBe('KPZ')
+    expect(zoneAbbr('Serilingampally')).toBe('SLP')
     expect(zoneAbbr('')).toBe('')
   })
 

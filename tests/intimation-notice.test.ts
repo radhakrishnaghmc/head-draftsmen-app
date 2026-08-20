@@ -87,6 +87,38 @@ describe('parseIntimationNotice', () => {
     expect(r.nitNo).toBe('02/DB/EE/Gajularamaram Circle-57/QBZ/CMC/2026-27')
   })
 
+  it('parses a printed LOA that carries the NIT code with no "NIT No" label at all', () => {
+    // Real GHMC Nizampet Circle-58 "View Intimation Notice" letter, printed to
+    // PDF: "…for execution of the E1/06/11/DB/EE/Nizampet Circle-58/CMC/2026-27,
+    // dt: 18.06.2026 at contract price of Rs. 806133.90 (…)". No "NIT No"
+    // label, an "E1/06/" item-number prefix, "contract price of" (not "contract
+    // value of"), and the ECV sits only in the summary table, not in a sentence.
+    // Reported bug: the tender fields came out wrong/blank in the Intimation
+    // and Agreement workspace for this letter format.
+    const lines = [
+      'DATE: Wednesday, July 01, 2026',
+      'To',
+      'SP CONSTRCUTIONS',
+      'PLOT NO 113,JANGIDIPURAM COLONY,WANAPARTHY',
+      'HYDERABAD -509103',
+      'Telangana',
+      'Sir/Madam,',
+      'This is notify you that the bid submitted by you for execution of the E1/06/11/DB/EE/Nizampet Circle-',
+      '58/CMC/2026-27, dt: 18.06.2026 at contract price of Rs. 806133.90 ( Eight Lakh Six Thousand One',
+      'Hundred and Thirty Three Rupees Ninety Paisa) as corrected and modified in accordance with the',
+      'instructions to the bidders is here by considered as successful bid .',
+      'Company Name Estimated Contract Value Corpus Fund @ 0.04 %',
+      'SP CONSTRCUTIONS 1033505.00 414.00',
+      'Yours Faithfully'
+    ]
+    const r = parseIntimationNoticeText(lines)
+    expect(r.agencyName).toBe('SP CONSTRCUTIONS')
+    expect(r.nitNo).toBe('E1/06/11/DB/EE/Nizampet Circle-58/CMC/2026-27')
+    expect(r.nitDate).toBe('18.06.2026')
+    expect(r.ecvRupees).toBe(1033505)
+    expect(r.contractRupees).toBe(806133.9)
+  })
+
   it('parses the real saved portal page if present', () => {
     const path = '/Users/radhakrishnapodugu/Downloads/viewIntimationNoticealeadp circle.html'
     let html: string

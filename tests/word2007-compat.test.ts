@@ -163,20 +163,25 @@ describe('sanitizeDocxForWord2007', () => {
     // Real bug, continued: directory-entries turned out to be a DIFFERENT
     // template (agreement-template.docx, the Tools tab's EE "Agreement
     // Bond") than the one the user was actually generating — the SE zonal
-    // workflow's se-agreement-bond-template.docx. Re-reproduced live through
-    // the real SE Agreement/Work Order workflow (uploaded the same L-1 +
-    // Intimation, downloaded the real Agreement Bond tile) and found
-    // <w:sz-cs w:val="20"/> in the output — NOT a valid OOXML element at all
-    // (the real one is <w:szCs>, camelCase, no hyphen). This is WELL-FORMED
-    // XML (a hyphen in an element name is syntactically legal), so it passed
-    // every earlier check (bidi, child-order, directory-entries, XML
-    // well-formedness) — only Word's own OOXML *schema* validation catches
-    // it, which is why it broke every Word version including Office 365, and
-    // why three earlier fixes in a row didn't touch it. Found systemically
-    // in 5 SE templates (318 occurrences total): eligibility-criteria (25),
-    // se-agreement-bond (41), se-agreement-note (57), se-contract-deed (165),
-    // ts-note (30) — all sharing some earlier edit that introduced the typo.
-    const buf = readFileSync(resolve(__dirname, '../resources/se-agreement-bond-template.docx'))
+    // workflow's (since-removed) se-agreement-bond-template.docx. Re-
+    // reproduced live through the real SE Agreement/Work Order workflow
+    // (uploaded the same L-1 + Intimation, downloaded the real Agreement
+    // Bond tile) and found <w:sz-cs w:val="20"/> in the output — NOT a valid
+    // OOXML element at all (the real one is <w:szCs>, camelCase, no hyphen).
+    // This is WELL-FORMED XML (a hyphen in an element name is syntactically
+    // legal), so it passed every earlier check (bidi, child-order,
+    // directory-entries, XML well-formedness) — only Word's own OOXML
+    // *schema* validation catches it, which is why it broke every Word
+    // version including Office 365, and why three earlier fixes in a row
+    // didn't touch it. Found systemically in 5 SE templates (318 occurrences
+    // total): eligibility-criteria (25), se-agreement-bond (41),
+    // se-agreement-note (57), se-contract-deed (165), ts-note (30) — all
+    // sharing some earlier edit that introduced the typo. The three SE Work
+    // Order/Agreement templates were later removed for a from-scratch
+    // rebuild, so this regression test now reproduces the bug against
+    // eligibility-criteria-template.docx (still bundled, still affected)
+    // instead.
+    const buf = readFileSync(resolve(__dirname, '../resources/eligibility-criteria-template.docx'))
     expect(part(buf, 'word/document.xml')).toMatch(/<w:sz-cs\b/)
 
     const out = sanitizeDocxForWord2007(buf)

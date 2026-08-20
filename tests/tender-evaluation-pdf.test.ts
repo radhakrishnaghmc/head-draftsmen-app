@@ -184,6 +184,9 @@ describe('parseTenderEvaluation', () => {
     )
     expect(r.nameOfWork).not.toContain('Works Percentage')
     expect(r.l1AgencyName).toBe('CHALLAPURAM SREE DEVAYANI')
+    // Reported bug: the "E1/06/" item-number prefix was dropped, truncating
+    // the notice number to "23/DB/EE/…" instead of the full "E1/06/23/DB/EE/…".
+    expect(r.noticeNo).toBe('E1/06/23/DB/EE/Nizampet Circle-58/CMC/2026-27')
   })
 
   it('reads a Name of Work whose value wraps onto TWO lines above the label (title + tail)', () => {
@@ -205,6 +208,37 @@ describe('parseTenderEvaluation', () => {
     expect(r.nameOfWork).toBe(
       'Laying of CC Road From SVR Infra SV Sadan to Plot no 59,60 to Sri Sai Datta Residency in Nizampet Municipal Corporation under Municipal General Funds 2025-26 (ward No 274, Bachupally Nizampet Circle-58, Quthbullapur Zone CMC) (Reserved for ST)'
     )
+    expect(r.noticeNo).toBe('E1/06/17/DB/EE/Nizampet Circle-58/CMC/2026-27')
+  })
+
+  it('keeps the full "E1/06/" item-number prefix on a real GHMC Nizampet Circle-58 L1 sheet', () => {
+    // Real Stage Selected Form (Commercial Evaluation) — the notice number
+    // wraps mid-code with no "NIT No." label at all, just "Enquiry/IFB/Tender
+    // … Notice Number". Reported bug: the app showed the wrong/truncated
+    // tender number in the Intimation and Agreement workspace.
+    const r = parseTenderEvaluation([
+      'Commercial Evaluation',
+      'Current Tender Details',
+      'Enquiry/IFB/Tender',
+      'E1/06/11/DB/EE/Nizampet Circle-',
+      'Tender ID 710618',
+      '58/CMC/2026-27, dt: 18.06.2026',
+      'Notice Number',
+      'Laying of CC road from Sunrise Homes Plot No 172 to Komaram Bheem Park in ward No 22 in Nizampet Municipal',
+      'Corporation under Municipal general funds 2025-26 (Ward No 276, Pragathi nagar Nizampet Circle-58, Quthbullapur Zone',
+      'Name of Work',
+      'CMC)',
+      'Works Percentage',
+      'Bid Submission Start Bid Submission Closing',
+      '22/06/2026 07:00 PM 29/06/2026 03:30 PM',
+      'Date & Time Date',
+      'Company Name Estimated Contract Value ( INR) Excess/Less Percentage(%) Amount ( INR) Rank Select',
+      'SP CONSTRCUTIONS 1033505.00 Less 22 806133.90 L-1'
+    ])
+    expect(r.noticeNo).toBe('E1/06/11/DB/EE/Nizampet Circle-58/CMC/2026-27')
+    expect(r.noticeDate).toBe('18.06.2026')
+    expect(r.bidClose).toBe('29/06/2026 03:30 PM')
+    expect(r.contractRupees).toBe(806133.9)
   })
 
   it('drops a stray "Number" column-header fragment wedged between an "(Item No.N)" tag and the title', () => {
