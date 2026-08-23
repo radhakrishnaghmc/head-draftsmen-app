@@ -35,6 +35,7 @@ const api: DocuGenApi = {
   savePdfsToFolder: (files) => ipcRenderer.invoke(IPC.savePdfsToFolder, files),
   docxToPdf: (docxBytes) => ipcRenderer.invoke(IPC.docxToPdf, docxBytes),
   docxToPageImages: (docxBytes) => ipcRenderer.invoke(IPC.docxToPageImages, docxBytes),
+  docxToPageImagesBatch: (docxBytesList) => ipcRenderer.invoke(IPC.docxToPageImagesBatch, docxBytesList),
   mergeDocx: (docxBytesList) => ipcRenderer.invoke(IPC.mergeDocx, docxBytesList),
   splitDocxSections: (docxBytes) => ipcRenderer.invoke(IPC.splitDocxSections, docxBytes),
   saveDocxsToFolder: (files) => ipcRenderer.invoke(IPC.saveDocxsToFolder, files),

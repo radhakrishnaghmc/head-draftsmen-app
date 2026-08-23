@@ -16,6 +16,12 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.23.2',
+    changes: [
+      'Fixed: the Work Order/Agreement document tiles could take a long time to load their previews, especially on Windows — all the tiles on a page now render together instead of one at a time.'
+    ]
+  },
+  {
     version: '1.23.1',
     changes: [
       'Windows: LibreOffice is now bundled with the app, same as Mac — no separate LibreOffice install is needed for accurate document preview, print, or PDF export.'

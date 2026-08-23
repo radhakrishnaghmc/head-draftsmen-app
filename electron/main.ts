@@ -44,7 +44,7 @@ import { textToParagraphsHtml, buildPhotosWorkbook, buildWorkbookFromRows } from
 import { convertPdfToDocx } from '../core/pdfToDocx'
 import { buildDocx, type DocBlock } from '../core/docxBuilder'
 import type { OcrPage } from '../core/ocrReconstruct'
-import { convertDocxToPdf, docxToPageImages } from '../core/docxToPdf'
+import { convertDocxToPdf, docxToPageImages, docxBuffersToPageImages } from '../core/docxToPdf'
 import { mergeDocxBuffers } from '../core/mergeDocx'
 import { splitDocxByPageBreaks } from '../core/splitDocx'
 import { ocrGpsOverlay } from './gpsOcr'
@@ -810,6 +810,14 @@ function registerHandlers(): void {
     const images = await docxToPageImages(Buffer.from(docxBytes))
     return images.map((buf) => new Uint8Array(buf))
   })
+
+  ipcMain.handle(
+    IPC.docxToPageImagesBatch,
+    async (_e, docxBytesList: Uint8Array[]): Promise<Uint8Array[][]> => {
+      const results = await docxBuffersToPageImages(docxBytesList.map((b) => Buffer.from(b)))
+      return results.map((images) => images.map((buf) => new Uint8Array(buf)))
+    }
+  )
 
   // Whole-document merge: concatenate the .docx files (in order) into one and
   // save it via a dialog. Kept in Word format (unlike the page tool's PDF output).

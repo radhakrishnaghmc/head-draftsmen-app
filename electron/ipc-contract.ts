@@ -83,6 +83,7 @@ export const IPC = {
   savePdfsToFolder: 'tools:savePdfsToFolder',
   docxToPdf: 'tools:docxToPdf',
   docxToPageImages: 'tools:docxToPageImages',
+  docxToPageImagesBatch: 'tools:docxToPageImagesBatch',
   mergeDocx: 'tools:mergeDocx',
   splitDocxSections: 'tools:splitDocxSections',
   saveDocxsToFolder: 'tools:saveDocxsToFolder',
@@ -195,6 +196,8 @@ export interface DocuGenApi {
   docxToPdf(docxBytes: Uint8Array): Promise<Uint8Array>
   /** Accurate document preview/print: renders one .docx (raw bytes) as one PNG per page via LibreOffice's own docx→PDF→raster pipeline (NOT pdf.js — see core/docxToPdf.ts's docxToPageImages for why). Throws the same clear error as docxToPdf if LibreOffice isn't installed. */
   docxToPageImages(docxBytes: Uint8Array): Promise<Uint8Array[]>
+  /** Same as docxToPageImages, but for several DIFFERENT documents in one call — e.g. a tile grid rendering multiple live thumbnails at once. Converts all of them via a shared soffice invocation instead of one each, which avoids both the redundant process-startup cost and the LibreOffice profile-lock contention several concurrent independent calls would otherwise race on (core/docxToPdf.ts's docxBuffersToPageImages). Returns one page-image array per input document, in the same order. */
+  docxToPageImagesBatch(docxBytesList: Uint8Array[]): Promise<Uint8Array[][]>
   /** Tool (Word workspace): merge several .docx files (raw bytes, in order) into one .docx and save it via a dialog. Returns the saved path, or null if cancelled. */
   mergeDocx(docxBytesList: Uint8Array[]): Promise<{ file: string } | null>
   /** Tool (Word workspace): split one .docx (raw bytes) into one .docx per page at its page breaks; each keeps full formatting. Returns the section .docx byte arrays (a single item when there are no page breaks). */
