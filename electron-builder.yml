@@ -198,15 +198,9 @@ win:
   # so a Windows office machine never needs its own separate LibreOffice
   # install for accurate document preview/print/PDF export. core/docxToPdf.ts's
   # findSofficeBinary() checks this bundled copy before any system install.
-  # TEMPORARILY DISABLED: this build machine has no Windows access, so
-  # resources/libreoffice-win/ has never been staged (the .ps1 script above
-  # is untested on real Windows). Windows users still get accurate previews
-  # via findSofficeBinary()'s fallback to a system-installed LibreOffice —
-  # re-enable this block once the prep script has been run on a real Windows
-  # machine and resources/libreoffice-win/ exists.
-  # extraResources:
-  #   - from: resources/libreoffice-win
-  #     to: libreoffice
+  extraResources:
+    - from: resources/libreoffice-win
+      to: libreoffice
 linux:
   icon: build/icon.png
   target:

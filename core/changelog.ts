@@ -16,6 +16,12 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.23.1',
+    changes: [
+      'Windows: LibreOffice is now bundled with the app, same as Mac — no separate LibreOffice install is needed for accurate document preview, print, or PDF export.'
+    ]
+  },
+  {
     version: '1.23.0',
     changes: [
       'Added a Kompally-style Agreement Bond template — pick it in Settings alongside the Kompally Work Order template.',
