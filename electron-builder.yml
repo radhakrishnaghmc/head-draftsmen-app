@@ -47,9 +47,19 @@ files:
 # libraries (.dll on Windows, .dylib on macOS). Windows DLLs in particular
 # cannot be dlopen'd from inside the asar archive, so unpack sharp and its
 # @img/* platform packages to the real filesystem on every platform.
+# onnxruntime-node (used by @gutenye/ocr-node's estimate-photo OCR, and by
+# @huggingface/transformers' embeddings — which ships its own nested copy of
+# the same package) has the identical problem: on Windows, onnxruntime_binding.node
+# sits next to sibling DLLs (onnxruntime.dll, DirectML.dll, dxil.dll,
+# dxcompiler.dll) that it LoadLibrary()s at runtime. If those stay packed
+# inside app.asar, Windows can't resolve them and the addon fails to load
+# with "The specified module could not be found" — so unpack the whole
+# package, both copies, everywhere.
 asarUnpack:
   - '**/node_modules/sharp/**'
   - '**/node_modules/@img/**'
+  - '**/node_modules/onnxruntime-node/**'
+  - '**/node_modules/@huggingface/transformers/node_modules/onnxruntime-node/**'
 extraResources:
   - from: resources/seed-state.json
     to: seed-state.json
@@ -65,10 +75,14 @@ extraResources:
     to: intimation-template.docx
   - from: resources/work-order-template.docx
     to: work-order-template.docx
+  - from: resources/work-order-template-kompally.docx
+    to: work-order-template-kompally.docx
   - from: resources/file-backer-template.docx
     to: file-backer-template.docx
   - from: resources/agreement-template.docx
     to: agreement-template.docx
+  - from: resources/agreement-template-kompally.docx
+    to: agreement-template-kompally.docx
   - from: resources/qcc-intimation-template.docx
     to: qcc-intimation-template.docx
   - from: resources/qcc-completion-template.docx
@@ -91,6 +105,8 @@ extraResources:
     to: zonal-memo-ee-template.docx
   - from: resources/se-agreement-note-template.docx
     to: se-agreement-note-template.docx
+  - from: resources/contract-deed-template.docx
+    to: contract-deed-template.docx
   - from: resources/se-schedule-a-template.xlsx
     to: se-schedule-a-template.xlsx
   - from: resources/loa-se-template.docx
@@ -101,6 +117,10 @@ extraResources:
     to: ts-note-template.docx
   - from: resources/eligibility-criteria-template.docx
     to: eligibility-criteria-template.docx
+  - from: resources/issue-notice-template.docx
+    to: issue-notice-template.docx
+  - from: resources/issue-notice-ee-template.docx
+    to: issue-notice-ee-template.docx
   - from: resources/public-participation-book-template.docx
     to: public-participation-book-template.docx
   - from: resources/action-taken-report-template.docx
@@ -151,6 +171,14 @@ mac:
     - '!**/node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/linux/**'
     - '!**/node_modules/@img/sharp-win32-*/**'
     - '!**/node_modules/@img/sharp-linux*/**'
+  # A pruned LibreOffice, staged by scripts/prepare-libreoffice-mac.sh (run
+  # that first — resources/libreoffice-mac/ is gitignored, not checked in) —
+  # so a Mac office machine never needs its own separate LibreOffice install.
+  # core/docxToPdf.ts's findSofficeBinary() checks this bundled copy before
+  # any system install.
+  extraResources:
+    - from: resources/libreoffice-mac/LibreOffice.app
+      to: LibreOffice.app
 win:
   icon: build/icon.ico
   target:
@@ -165,6 +193,20 @@ win:
     - '!**/node_modules/@img/sharp-darwin-*/**'
     - '!**/node_modules/@img/sharp-libvips-darwin-*/**'
     - '!**/node_modules/@img/sharp-linux*/**'
+  # A pruned LibreOffice, staged by scripts/prepare-libreoffice-win.ps1 (run
+  # that first — resources/libreoffice-win/ is gitignored, not checked in) —
+  # so a Windows office machine never needs its own separate LibreOffice
+  # install for accurate document preview/print/PDF export. core/docxToPdf.ts's
+  # findSofficeBinary() checks this bundled copy before any system install.
+  # TEMPORARILY DISABLED: this build machine has no Windows access, so
+  # resources/libreoffice-win/ has never been staged (the .ps1 script above
+  # is untested on real Windows). Windows users still get accurate previews
+  # via findSofficeBinary()'s fallback to a system-installed LibreOffice —
+  # re-enable this block once the prep script has been run on a real Windows
+  # machine and resources/libreoffice-win/ exists.
+  # extraResources:
+  #   - from: resources/libreoffice-win
+  #     to: libreoffice
 linux:
   icon: build/icon.png
   target:

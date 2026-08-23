@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { detectContentBox } from './PhotosToPdfPage'
 import { api } from '../ipc'
 import { IconCheck, IconCrop, IconRefresh, IconWarn } from './Icons'
@@ -652,7 +653,7 @@ export default function PhotoAdjustModal({ name, dataUrl, onCancel, onApply }: P
   }
   const rectHandles: RectHandle[] = ['nw', 'ne', 'sw', 'se']
 
-  return (
+  return createPortal(
     <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(onCancel)}>
       <div className="photo-adjust-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <div className="pdf-preview-head">
@@ -794,7 +795,8 @@ export default function PhotoAdjustModal({ name, dataUrl, onCancel, onApply }: P
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

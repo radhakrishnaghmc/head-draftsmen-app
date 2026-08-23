@@ -2617,6 +2617,20 @@ input[type='text']:focus {
   box-shadow: 0 0 0 3px var(--indigo-100);
 }
 
+/* Every input/textarea, app-wide, while it's showing its placeholder (i.e.
+   still empty) — one global rule instead of hunting down every individual
+   field's own background (dozens of components each set their own, mostly
+   via the translucent --surface/--surface-2 tokens the rest of the app's
+   glassmorphism look uses). :placeholder-shown only matches while the field
+   is actually empty, so this never fights a field's own background once
+   something's typed into it — !important because so many per-component
+   rules (higher specificity, declared all over this file) would otherwise
+   win over a plain element-level selector regardless of source order. */
+input:placeholder-shown,
+textarea:placeholder-shown {
+  background: #fff !important;
+}
+
 /* ---------- badges ---------- */
 .badge {
   display: inline-flex;
@@ -3129,6 +3143,8 @@ input[type='text']:focus {
 
 .tender-modal {
   width: min(460px, 92vw);
+  max-height: 90vh;
+  overflow-y: auto;
   background: var(--surface);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -3137,6 +3153,74 @@ input[type='text']:focus {
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
   animation: pop 0.16s var(--ease);
   text-align: left;
+}
+/* The native scrollbar this modal's own overflow-y:auto produces doesn't
+   follow its border-radius (a Chromium quirk — the scrollbar track paints as
+   a flat rectangle right at the border edge, looking like a square notch cut
+   into the rounded corner). Styling the scrollbar itself as a thin, inset,
+   independently-rounded thumb — with a transparent track margin matching the
+   modal's own padding — keeps it clear of the rounded corners entirely
+   instead of clashing with them. */
+.tender-modal::-webkit-scrollbar {
+  width: 8px;
+}
+.tender-modal::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 20px 0;
+}
+.tender-modal::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+.tender-modal::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+/* Same fix, same reason, for every other rounded-corner box in the app that
+   scrolls its own overflow (border-radius + overflow:auto/scroll on one
+   element — the native scrollbar ignores the radius and paints as a flat
+   rectangle right at the edge, notching the rounded corner). A thin,
+   inset, independently-rounded thumb keeps clear of the corners instead. */
+.docx-editor-canvas::-webkit-scrollbar,
+.elec-preview::-webkit-scrollbar,
+.estimate-preview-scroll::-webkit-scrollbar,
+.gen-preview::-webkit-scrollbar,
+.gps-table-wrap::-webkit-scrollbar,
+.ns-preview-scroll::-webkit-scrollbar,
+.tender-preview-scroll::-webkit-scrollbar,
+.tender-wincode-list::-webkit-scrollbar {
+  width: 8px;
+}
+.docx-editor-canvas::-webkit-scrollbar-track,
+.elec-preview::-webkit-scrollbar-track,
+.estimate-preview-scroll::-webkit-scrollbar-track,
+.gen-preview::-webkit-scrollbar-track,
+.gps-table-wrap::-webkit-scrollbar-track,
+.ns-preview-scroll::-webkit-scrollbar-track,
+.tender-preview-scroll::-webkit-scrollbar-track,
+.tender-wincode-list::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 12px 0;
+}
+.docx-editor-canvas::-webkit-scrollbar-thumb,
+.elec-preview::-webkit-scrollbar-thumb,
+.estimate-preview-scroll::-webkit-scrollbar-thumb,
+.gen-preview::-webkit-scrollbar-thumb,
+.gps-table-wrap::-webkit-scrollbar-thumb,
+.ns-preview-scroll::-webkit-scrollbar-thumb,
+.tender-preview-scroll::-webkit-scrollbar-thumb,
+.tender-wincode-list::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+.docx-editor-canvas::-webkit-scrollbar-thumb:hover,
+.elec-preview::-webkit-scrollbar-thumb:hover,
+.estimate-preview-scroll::-webkit-scrollbar-thumb:hover,
+.gen-preview::-webkit-scrollbar-thumb:hover,
+.gps-table-wrap::-webkit-scrollbar-thumb:hover,
+.ns-preview-scroll::-webkit-scrollbar-thumb:hover,
+.tender-preview-scroll::-webkit-scrollbar-thumb:hover,
+.tender-wincode-list::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
 }
 .tender-modal h3 {
   margin: 0 0 16px;
@@ -3230,6 +3314,38 @@ input[type='text']:focus {
 }
 .tender-wincode-item:hover {
   background: var(--indigo-50);
+}
+/* Search box filtering the checklist above by work name or Win Code — sits
+   right above .tender-wincode-list, same look as the Issue Documents work
+   picker (.doc-work-search). .doc-work-search's own `flex: 1 1 260px` is
+   sized for a horizontal flex row (260px reads as a preferred WIDTH there,
+   e.g. PrintDocumentTab's usage) — but .tender-field (this search box's
+   actual parent here) is flex-direction:column, where the same rule's main
+   axis is vertical, so 260px becomes a HEIGHT basis and flex-grow:1 stretches
+   the box to fill the column's available height instead. Reset to natural
+   content height in this context — the compound selector (not a bare
+   .tender-wincode-search rule) is deliberate: .doc-work-search's own `flex`
+   is declared later in this file, and two single-class selectors have equal
+   specificity, so a later-declared bare rule would silently win over an
+   earlier one regardless of which "looks" more specific to a reader. */
+.doc-work-search.tender-wincode-search {
+  flex: none;
+  margin-bottom: 8px;
+  border-radius: var(--radius-pill);
+  padding-left: 16px;
+}
+.tender-wincode-item .tender-wincode-code {
+  font-weight: 700;
+  color: var(--text);
+  flex: none;
+}
+.tender-wincode-item .tender-wincode-name {
+  font-weight: 400;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 .tender-modal-wide {
   width: min(900px, 94vw);
@@ -6935,6 +7051,63 @@ tr.on .rp-box span {
   text-decoration: underline;
 }
 
+/* A visible month whose year hasn't loaded (still fetching, the guessed
+   URL 404ed, or the government hasn't published that year yet) — sits in
+   place of the day grid so a failed auto-fetch reads as "nothing here yet",
+   not a silently wrong or blank calendar. */
+.cal-month-missing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 12px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.cal-month-missing p {
+  margin: 0;
+}
+
+/* Inline form replacing the source-link buttons while pasting in a new
+   year's government calendar page (see "Change year's link" above). */
+.cal-source-edit {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.cal-source-edit-label {
+  font-weight: 600;
+  color: var(--text-2);
+}
+.cal-source-edit input {
+  width: 280px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+}
+.cal-source-edit input:focus {
+  outline: none;
+  border-color: var(--indigo-500);
+}
+.cal-source-save {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--indigo-500);
+  cursor: pointer;
+}
+.cal-source-save:hover {
+  text-decoration: underline;
+}
+
 /* ============================================================
    Generate — document tiles with hover actions
    ============================================================ */
@@ -8747,4 +8920,89 @@ tr.on .rp-box span {
 .elec-preview .elec-desc {
   text-align: left;
   min-width: 320px;
+}
+
+/* ============================================================
+   Settings — Document Templates (live tile gallery, same pattern
+   as WorkOrderAgreementTab's .wo-tile document tiles)
+   ============================================================ */
+.settings-template-tiles {
+  margin-top: 18px;
+}
+.settings-template-section {
+  margin-top: 28px;
+}
+.settings-template-section:first-of-type {
+  margin-top: 8px;
+}
+.settings-template-section-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+/* The currently-selected variant's tile — a persistent highlighted border
+   (unlike .wo-tile, which has no "selected" state of its own, only hover). */
+.wo-tile.on {
+  border-color: var(--indigo-500);
+  box-shadow: 0 0 0 2px var(--indigo-100), var(--shadow-sm);
+}
+.settings-tile-selected {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--indigo-500);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+.settings-tile-selected svg {
+  width: 13px;
+  height: 13px;
+}
+.settings-tile-error {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+/* Opens the full-size accurate preview without selecting the variant —
+   top-left so it never collides with the "In use" badge (top-right). */
+.settings-tile-preview-btn {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.wo-tile:hover .settings-tile-preview-btn,
+.wo-tile:focus-within .settings-tile-preview-btn {
+  opacity: 1;
+}
+.settings-tile-preview-btn:hover {
+  background: var(--indigo-500);
+  border-color: var(--indigo-500);
+  color: #fff;
+}
+.settings-tile-preview-btn svg {
+  width: 14px;
+  height: 14px;
 }

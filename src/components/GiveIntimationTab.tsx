@@ -1352,8 +1352,9 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
         </div>
       ) : null}
 
-      {expanded && (
-        <div className="wo-modal-overlay" onClick={() => setExpanded(null)}>
+      {expanded &&
+        createPortal(
+          <div className="wo-modal-overlay" onClick={() => setExpanded(null)}>
           <div
             className={`wo-modal ${seMode && modalFields[expanded] ? 'has-sidebar' : ''}`}
             onClick={(e) => e.stopPropagation()}
@@ -1411,8 +1412,9 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
               )}
             </div>
           </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

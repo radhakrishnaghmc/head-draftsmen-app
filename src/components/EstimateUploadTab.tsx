@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
 import { indianDigitGroups } from '@core/worksAmounts'
@@ -796,26 +797,28 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
         </ul>
       )}
 
-      {ecvConfirm && (
-        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setEcvConfirm(null))}>
-          <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(ev) => ev.stopPropagation()}>
-            <h3>Update ECV in the Works List?</h3>
-            <p className="confirm-warn">
-              "{ecvConfirm.matchedName}" is already in the Works List. Update its ECV to{' '}
-              <strong>{formatRupees(ecvConfirm.ecvRupees)}</strong>, computed from this BOQ?
-            </p>
-            <p className="confirm-hint">Every other field on that row stays untouched.</p>
-            <div className="confirm-actions">
-              <button className="ghost" onClick={() => setEcvConfirm(null)}>
-                No, keep existing
-              </button>
-              <button className="primary" onClick={confirmEcvUpdate}>
-                Update ECV
-              </button>
+      {ecvConfirm &&
+        createPortal(
+          <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setEcvConfirm(null))}>
+            <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(ev) => ev.stopPropagation()}>
+              <h3>Update ECV in the Works List?</h3>
+              <p className="confirm-warn">
+                "{ecvConfirm.matchedName}" is already in the Works List. Update its ECV to{' '}
+                <strong>{formatRupees(ecvConfirm.ecvRupees)}</strong>, computed from this BOQ?
+              </p>
+              <p className="confirm-hint">Every other field on that row stays untouched.</p>
+              <div className="confirm-actions">
+                <button className="ghost" onClick={() => setEcvConfirm(null)}>
+                  No, keep existing
+                </button>
+                <button className="primary" onClick={confirmEcvUpdate}>
+                  Update ECV
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

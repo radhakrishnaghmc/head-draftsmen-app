@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import type { PlaceholderMatch } from '@core/createDocument'
@@ -517,26 +518,28 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
         )}
       </section>
 
-      {preview && (
-        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setPreview(null))}>
-          <div className="editor-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="editor-head">
-              <span className="editor-title">{previewTitle} — preview</span>
-              <div className="editor-head-actions">
-                <button className="ghost" onClick={() => setPreview(null)}>
-                  Close
-                </button>
+      {preview &&
+        createPortal(
+          <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setPreview(null))}>
+            <div className="editor-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="editor-head">
+                <span className="editor-title">{previewTitle} — preview</span>
+                <div className="editor-head-actions">
+                  <button className="ghost" onClick={() => setPreview(null)}>
+                    Close
+                  </button>
+                </div>
+              </div>
+              <div className="doc-desk">
+                <div className="doc-editor-wrap">
+                  <div ref={previewRef} className="docx-editor-canvas" />
+                  {previewPages > 1 && <span className="doc-page-badge">{previewPages} pages</span>}
+                </div>
               </div>
             </div>
-            <div className="doc-desk">
-              <div className="doc-editor-wrap">
-                <div ref={previewRef} className="docx-editor-canvas" />
-                {previewPages > 1 && <span className="doc-page-badge">{previewPages} pages</span>}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </>
   )
 }

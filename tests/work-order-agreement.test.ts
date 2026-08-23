@@ -188,3 +188,37 @@ describe('standalone (Tools) derivation — no Works List', () => {
     expect(wo['Contract Amount']).toContain('2512412')
   })
 })
+
+describe('NIT No / Tender ID / NIT Date / Intimation Letter Date — for circles whose own Work Order template cites a Ref block the app\'s bundled template doesn\'t', () => {
+  it('fills all four from the L1 sheet + Intimation, real Kompally-shaped Ref-block data', () => {
+    const pdf = {
+      noticeNo: '01/EE-56/QBZ/CMC/2025-2026',
+      noticeDate: '09-02-2026',
+      tenderId: '679920',
+      serverDate: '17.04.2026'
+    }
+    const wo = workOrderPlaceholders(deriveFields({}, pdf, {}))
+    expect(wo['NIT No']).toBe('01/EE-56/QBZ/CMC/2025-2026')
+    expect(wo['Tender ID']).toBe('679920')
+    expect(wo['NIT Date']).toBe('09-02-2026')
+    expect(wo['Intimation Letter Date']).toBe('17.04.2026')
+  })
+
+  it('falls back to the Intimation notice, then the Works List row, when the L1 sheet lacks them', () => {
+    const notice = { nitNo: '02/DB/EE/Gajularamaram Circle-57/CMC/2026-27', nitDate: '10.06.2026' }
+    const row = { 'Tender ID': '700111', 'Intimation Date': '12.06.2026' }
+    const wo = workOrderPlaceholders(deriveFields(notice, {}, row))
+    expect(wo['NIT No']).toBe('02/DB/EE/Gajularamaram Circle-57/CMC/2026-27')
+    expect(wo['NIT Date']).toBe('10.06.2026')
+    expect(wo['Tender ID']).toBe('700111')
+    expect(wo['Intimation Letter Date']).toBe('12.06.2026')
+  })
+
+  it('leaves all four blank (not silently invented) when nothing supplies them', () => {
+    const wo = workOrderPlaceholders(deriveFields({}, {}, {}))
+    expect(wo['NIT No']).toBe('')
+    expect(wo['Tender ID']).toBe('')
+    expect(wo['NIT Date']).toBe('')
+    expect(wo['Intimation Letter Date']).toBe('')
+  })
+})

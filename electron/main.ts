@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, screen } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as https from 'https'
@@ -7,6 +7,7 @@ import * as firebaseSync from './firebaseSync'
 import { initAutoUpdate, restartToUpdate, checkForUpdatesManually } from './autoUpdate'
 import { IPC } from './ipc-contract'
 import type { ManualCheckResult, AgreementBundleFile } from './ipc-contract'
+import { workOrderTemplateFileName, agreementTemplateFileName } from '../core/workOrderTemplateVariants'
 import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer, readSheetPreviews } from '../core/excel'
 import type { SheetPreview } from '../core/excel'
 import { recognizeImages } from './ocr'
@@ -68,11 +69,17 @@ import type { SheetGrid } from '../core/sheet'
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
+  // Clamp to the display's work area (screen minus the taskbar/dock), not
+  // the raw screen size — on common 1366x768 Windows laptops a hardcoded
+  // 1200x820 window is taller than the usable desktop, so its bottom edge
+  // (dialog action buttons, e.g. Tender Notice's "Issue") renders behind
+  // the taskbar and can't be clicked.
+  const { width: waWidth, height: waHeight } = screen.getPrimaryDisplay().workAreaSize
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 820,
+    width: Math.min(1200, waWidth),
+    height: Math.min(820, waHeight),
     minWidth: 900,
-    minHeight: 640,
+    minHeight: Math.min(640, waHeight),
     title: 'Agreement Desk',
     backgroundColor: '#ffffff',
     // A packaged build already has the icon embedded into the native app
@@ -221,9 +228,20 @@ function registerHandlers(): void {
     return app.getVersion()
   })
 
-  // Scrape the Telangana Government 2026 holiday calendar page.
-  ipcMain.handle(IPC.fetchCalendar, async (_e, force?: boolean) => {
-    const cacheFile = path.join(app.getPath('userData'), 'calendar-cache.json')
+  // Scrape a Telangana Government holiday-calendar page — which year it is
+  // depends entirely on the URL the renderer passes in (see Dashboard.tsx:
+  // the government publishes one page per year, e.g. .../calendar-2026/,
+  // .../calendar-2027/ once that year's page goes up, so rather than this
+  // app guessing/hardcoding the year, the user pastes in whichever year's
+  // link they need). Cached per URL so switching the link to a new year
+  // doesn't serve the old year's stale cache.
+  ipcMain.handle(IPC.fetchCalendar, async (_e, url: string, force?: boolean) => {
+    if (!/^https:\/\//i.test(url)) throw new Error('Calendar link must be a valid https:// URL.')
+    // The year is only used for display/caching, not to pick the URL — pulled
+    // from the link itself (falls back to the current year if the link has
+    // no obvious one) so it always matches whatever page was actually fetched.
+    const year = url.match(/(\d{4})/)?.[1] ?? String(new Date().getFullYear())
+    const cacheFile = path.join(app.getPath('userData'), `calendar-cache-${year}.json`)
 
     // Serve the cached copy unless a refresh is explicitly requested.
     if (!force) {
@@ -237,7 +255,6 @@ function registerHandlers(): void {
       }
     }
 
-    const url = 'https://www.telangana.gov.in/downloads/calendar-2026/'
     const html = await new Promise<string>((resolve, reject) => {
       const req = https.get(
         url,
@@ -264,7 +281,7 @@ function registerHandlers(): void {
       req.on('error', reject)
       req.setTimeout(15000, () => req.destroy(new Error('Calendar request timed out')))
     })
-    const parsed = parseCalendarHtml(html)
+    const parsed = parseCalendarHtml(html, year)
     try {
       fs.writeFileSync(cacheFile, JSON.stringify(parsed), 'utf8')
     } catch {
@@ -1106,14 +1123,14 @@ function registerHandlers(): void {
       }
     })
 
-  ipcMain.handle(IPC.workOrderTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('work-order-template.docx')
+  ipcMain.handle(IPC.workOrderTemplate, async (_e, variantId?: string): Promise<string> => {
+    const templatePath = bundledResourceFile(workOrderTemplateFileName(variantId))
     if (!templatePath) throw new Error('Work Order format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  ipcMain.handle(IPC.agreementTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('agreement-template.docx')
+  ipcMain.handle(IPC.agreementTemplate, async (_e, variantId?: string): Promise<string> => {
+    const templatePath = bundledResourceFile(agreementTemplateFileName(variantId))
     if (!templatePath) throw new Error('Agreement format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
@@ -1172,6 +1189,12 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
+  ipcMain.handle(IPC.contractDeedTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('contract-deed-template.docx')
+    if (!templatePath) throw new Error('Contract Deed format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
   ipcMain.handle(IPC.loaSeTemplate, async (_e, reserved: boolean): Promise<string> => {
     const file = reserved ? 'loa-se-reserved-template.docx' : 'loa-se-template.docx'
     const templatePath = bundledResourceFile(file)
@@ -1188,6 +1211,13 @@ function registerHandlers(): void {
   ipcMain.handle(IPC.eligibilityCriteriaTemplate, async (): Promise<string> => {
     const templatePath = bundledResourceFile('eligibility-criteria-template.docx')
     if (!templatePath) throw new Error('Eligibility Criteria format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
+  ipcMain.handle(IPC.issueNoticeTemplate, async (_e, ee: boolean): Promise<string> => {
+    const file = ee ? 'issue-notice-ee-template.docx' : 'issue-notice-template.docx'
+    const templatePath = bundledResourceFile(file)
+    if (!templatePath) throw new Error('Notice format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
 

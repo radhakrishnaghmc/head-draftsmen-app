@@ -18,11 +18,21 @@ export async function pdfToTextLines(file: File): Promise<string[]> {
 
 /** Same as pdfToTextLines, from raw bytes — used for folder files read (as base64) via the main process. */
 export async function pdfToTextLinesFromData(data: ArrayBuffer | Uint8Array): Promise<string[]> {
+  return (await pdfPagesToTextLinesFromData(data)).flat()
+}
+
+/**
+ * Same reconstruction as pdfToTextLinesFromData, but keeping each page's
+ * lines separate — lets a caller tell whether a *specific* page has a real
+ * text layer (e.g. to decide OCR vs. direct extraction per page of a mixed
+ * scanned/digital PDF) rather than only the document as a whole.
+ */
+export async function pdfPagesToTextLinesFromData(data: ArrayBuffer | Uint8Array): Promise<string[][]> {
   // Loaded on demand — pdfjs (and its worker) is heavy and only needed when the
   // user actually reads a PDF, so it stays out of the initial startup bundle.
   const { pdfjsLib } = await import('./pdfjsSetup')
   const pdf = await pdfjsLib.getDocument({ data }).promise
-  const lines: string[] = []
+  const pages: string[][] = []
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum)
     const content = await page.getTextContent()
@@ -33,6 +43,7 @@ export async function pdfToTextLinesFromData(data: ArrayBuffer | Uint8Array): Pr
       if (!byRow.has(y)) byRow.set(y, [])
       byRow.get(y)!.push({ x: item.transform[4], s: item.str })
     }
+    const lines: string[] = []
     for (const y of [...byRow.keys()].sort((a, b) => b - a)) {
       const line = byRow
         .get(y)!
@@ -43,8 +54,9 @@ export async function pdfToTextLinesFromData(data: ArrayBuffer | Uint8Array): Pr
         .trim()
       if (line) lines.push(line)
     }
+    pages.push(lines)
   }
-  return lines
+  return pages
 }
 
 /** A reconstructed line plus its position: `x` is the line's leftmost item, `y`

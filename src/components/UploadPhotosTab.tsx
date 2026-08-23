@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import { extractWorkName, extractEstimateItemsFromLines } from '@core/estimateExtract'
 import { extractEstimateAmountLakhs } from '@core/deviation'
 import { computeEcvFromItems } from '../boqTransform'
 import { formatRupees } from '@core/worksAmounts'
 import { pdfPagesToDataUrls } from '../pdfToImages'
+import { pdfPagesToTextLinesFromData } from '../pdfToText'
 import {
   matchWorksRow,
   saveEcvToWorksList,
@@ -23,6 +25,13 @@ interface Photo {
   id: string
   name: string
   dataUrl: string
+  /** This page's text, read directly from a digital PDF's own text layer
+   * (pdfjs) rather than OCR — set only when the source page actually has
+   * one; a genuine photo or a scanned/image-only PDF page leaves this
+   * undefined and falls back to OCR in convertToEstimate(). Reading the
+   * real characters is both faster and far more accurate than rasterizing
+   * the page and OCR'ing it (no misreads on dense estimate tables). */
+  textLines?: string[]
 }
 
 interface Props {
@@ -136,20 +145,25 @@ function tableToItems(table: ExcelTable): EstimateWorkItem[] {
 }
 
 /**
- * Upload photos of a paper estimate, or a PDF of scanned pages (each PDF
- * page is rendered to an image client-side via pdfjs-dist — see
- * ../pdfToImages.ts — and dropped into the same photo list), in page order
- * — drag to reorder — and convert them into an editable spreadsheet: each
- * photo is read with local OCR (PaddleOCR via @gutenye/ocr-node, fully
- * offline — see electron/ocr.ts),
- * whose line detector returns each printed line as one clean unit of text in
- * reading order (electron/main.ts's ocrEstimatePhotos). Those lines are
- * parsed directly by core/estimateExtract.ts's extractEstimateItemsFromLines
- * — no column-position reconstruction involved, since this document's
- * merged-description-cell layout defeats that almost every time regardless
- * of photo quality or OCR engine. OCR on a real photographed page is
- * inherently imperfect — the result is always shown for review/editing
- * before export, never saved directly.
+ * Upload photos of a paper estimate, or a PDF (scanned, or a digitally
+ * produced one — e.g. exported straight from an estimation tool), in page
+ * order — drag to reorder — and convert them into an editable spreadsheet.
+ *
+ * Each PDF page is rendered to an image client-side via pdfjs-dist (for the
+ * thumbnail, and as the OCR fallback — see ../pdfToImages.ts) AND read for
+ * its own real text layer (../pdfToText.ts's pdfPagesToTextLinesFromData). A
+ * page with real text uses that directly — exact characters, no OCR needed —
+ * and only a genuine photo, or a scanned/image-only PDF page with no text
+ * layer, falls back to local OCR (PaddleOCR via @gutenye/ocr-node, fully
+ * offline — see electron/ocr.ts), whose line detector returns each printed
+ * line as one clean unit of text in reading order (electron/main.ts's
+ * ocrEstimatePhotos). Either way, the result is one line of text per row;
+ * these are parsed directly by core/estimateExtract.ts's
+ * extractEstimateItemsFromLines — no column-position reconstruction
+ * involved, since this document's merged-description-cell layout defeats
+ * that almost every time regardless of source quality. OCR on a real
+ * photographed page is inherently imperfect — the result is always shown
+ * for review/editing before export, never saved directly.
  *
  * Once reviewed, the same items feed straight into the app's existing
  * BOQ / Schedule A / Deviation Statement / Material Quantity generators (see
@@ -210,12 +224,25 @@ export default function UploadPhotosTab({ tables, onChange, autoOpen = false, on
       const added: Photo[] = []
       for (const file of files) {
         if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-          // A PDF here is a scanned/photographed multi-page estimate saved as
-          // one file — split it into one page-image per photo so it feeds
-          // the exact same per-photo OCR pipeline as a direct photo upload.
-          const pages = await pdfPagesToDataUrls(file)
+          // A PDF here is either a scanned/photographed estimate (no real text
+          // layer — needs OCR) or a digitally produced one (has real text) —
+          // read both in parallel: page images for the thumbnail/OCR-fallback
+          // path, and each page's actual text where it has one. A page with
+          // real text skips OCR entirely in convertToEstimate() below, which
+          // is both faster and far more accurate than rasterizing + OCR'ing it.
+          const [pages, textPages] = await Promise.all([
+            pdfPagesToDataUrls(file),
+            pdfPagesToTextLinesFromData(await file.arrayBuffer())
+          ])
           const base = stripExt(file.name)
-          pages.forEach((dataUrl, i) => added.push({ id: nextId(), name: `${base} (page ${i + 1})`, dataUrl }))
+          pages.forEach((dataUrl, i) =>
+            added.push({
+              id: nextId(),
+              name: `${base} (page ${i + 1})`,
+              dataUrl,
+              textLines: textPages[i]?.length ? textPages[i] : undefined
+            })
+          )
         } else if (file.type.startsWith('image/')) {
           added.push({ id: nextId(), name: file.name, dataUrl: await readAsDataUrl(file) })
         }
@@ -269,9 +296,23 @@ export default function UploadPhotosTab({ tables, onChange, autoOpen = false, on
     setActionSaved(null)
     setOcrGrid(null)
     try {
-      const sheet = await api.ocrEstimatePhotos(photos.map((p) => p.dataUrl))
-      setOcrGrid(sheet.grid)
-      const lines = sheet.grid.map((r) => r[0] ?? '')
+      // Pages with a real PDF text layer (photo.textLines) already have their
+      // exact text — skip OCR for those and run it only on the rest (genuine
+      // photos, or scanned/image-only PDF pages), then stitch every page's
+      // lines back together in original page order.
+      const needsOcr = photos.filter((p) => !p.textLines)
+      const ocrGrids =
+        needsOcr.length > 0
+          ? await Promise.all(needsOcr.map((p) => api.ocrEstimatePhotos([p.dataUrl])))
+          : []
+      let ocrIndex = 0
+      const grid: string[][] = []
+      for (const p of photos) {
+        if (p.textLines) grid.push(...p.textLines.map((l) => [l]))
+        else grid.push(...ocrGrids[ocrIndex++].grid)
+      }
+      setOcrGrid(grid)
+      const lines = grid.map((r) => r[0] ?? '')
       const items = extractEstimateItemsFromLines(lines)
       if (items.length === 0) {
         throw new Error(
@@ -282,8 +323,8 @@ export default function UploadPhotosTab({ tables, onChange, autoOpen = false, on
       // No real "header row" boundary in a line-based grid — search the
       // whole thing for the title block's "Name of Work"/"Estimate Amount"
       // labels, same as extractEstimateItemsFromLines finds its own anchor.
-      setWorkName(extractWorkName(sheet.grid, sheet.grid.length))
-      setEstimateLakhs(extractEstimateAmountLakhs(sheet.grid, sheet.grid.length, items))
+      setWorkName(extractWorkName(grid, grid.length))
+      setEstimateLakhs(extractEstimateAmountLakhs(grid, grid.length, items))
     } catch (e) {
       setConvertError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -555,26 +596,28 @@ export default function UploadPhotosTab({ tables, onChange, autoOpen = false, on
         </>
       )}
 
-      {ecvConfirm && (
-        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setEcvConfirm(null))}>
-          <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-            <h3>Update ECV in the Works List?</h3>
-            <p className="confirm-warn">
-              "{ecvConfirm.matchedName}" is already in the Works List. Update its ECV to{' '}
-              <strong>{formatRupees(ecvConfirm.ecvRupees)}</strong>, computed from this BOQ?
-            </p>
-            <p className="confirm-hint">Every other field on that row stays untouched.</p>
-            <div className="confirm-actions">
-              <button className="ghost" onClick={() => setEcvConfirm(null)}>
-                No, keep existing
-              </button>
-              <button className="primary" onClick={confirmEcvUpdate}>
-                Update ECV
-              </button>
+      {ecvConfirm &&
+        createPortal(
+          <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setEcvConfirm(null))}>
+            <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+              <h3>Update ECV in the Works List?</h3>
+              <p className="confirm-warn">
+                "{ecvConfirm.matchedName}" is already in the Works List. Update its ECV to{' '}
+                <strong>{formatRupees(ecvConfirm.ecvRupees)}</strong>, computed from this BOQ?
+              </p>
+              <p className="confirm-hint">Every other field on that row stays untouched.</p>
+              <div className="confirm-actions">
+                <button className="ghost" onClick={() => setEcvConfirm(null)}>
+                  No, keep existing
+                </button>
+                <button className="primary" onClick={confirmEcvUpdate}>
+                  Update ECV
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

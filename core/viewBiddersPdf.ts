@@ -3,8 +3,12 @@
 // the list of contractors who participated in a tender. The tender header
 // (Tender ID, NIT No, Name of Work, ECV, bid dates) shares the exact layout of
 // the Responsiveness / Commercial-Evaluation pages, so that is read with the
-// existing parseTenderEvaluation; this module only adds the supplier-row reader,
-// which the Evaluation Sheet needs to lay out one column per bidder.
+// existing parseTenderEvaluation (core/tenderEvaluationPdf.ts, itself a thin
+// composer over core/tenderAgents/ — see that folder for the actual
+// per-field detectors); this module only adds the supplier-row reader, which
+// the Evaluation Sheet needs to lay out one column per bidder.
+
+import { isNameContinuation, prevNonEmptyLine } from './tenderAgents/shared'
 
 /** A participating bidder from the supplier list (name is the only field the
  * Evaluation Sheet uses; the rest are captured for display / future use). */
@@ -25,28 +29,6 @@ export interface ParticipatingBidder {
 // prefix, take the name from the line above plus the line below when that's a
 // name continuation.
 const ROW_CORE = /(\d{5,8}-\d)\s+(\d{1,2}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}\s*[AP]M)\s+\d{1,3}(?:\.\d{1,3}){3}/i
-
-/** The nearest non-empty trimmed line before index i, or '' if none. */
-function prevNonEmptyLine(lines: string[], i: number): string {
-  for (let j = i - 1; j >= 0; j--) {
-    const t = lines[j].trim()
-    if (t) return t
-  }
-  return ''
-}
-
-/**
- * Whether `line` looks like the tail of a wrapped bidder name (e.g.
- * "CONTRACTOR" continuing "BOBBA RAVI CHANDRA CIVIL") rather than a number row
- * or one of the page's control / footer rows.
- */
-function isNameContinuation(line: string): boolean {
-  const t = line.trim()
-  if (!t || t.length > 40 || /\d/.test(t)) return false
-  return !/^(back|bulk download|icons|view documents|company name|action|supplier|edit bid|dashboard|tender creation|welcome|request a callback|information technology|https?:)/i.test(
-    t
-  )
-}
 
 /**
  * Every participating bidder from the "Supplier List" table, in the page's

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, Fragment, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from './ipc'
 import { prefetchTenders, fetchTenders } from './tenderCache'
 import {
@@ -35,8 +36,10 @@ import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
 import GiveIntimationTab from './components/GiveIntimationTab'
 import EvaluationSheetTab from './components/EvaluationSheetTab'
 import WorkOrderAgreementTab from './components/WorkOrderAgreementTab'
+import IssueNoticesTab from './components/IssueNoticesTab'
 import PrintDocumentTab from './components/PrintDocumentTab'
 import ToolsTab from './components/ToolsTab'
+import SettingsTab from './components/SettingsTab'
 import TodoList from './components/TodoList'
 import MbScrutinyList from './components/MbScrutinyList'
 import WhatsNew from './components/WhatsNew'
@@ -57,6 +60,7 @@ import {
   IconBell,
   IconDownload,
   IconTools,
+  IconSettings,
   IconWarn
 } from './components/Icons'
 import type {
@@ -197,6 +201,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // Bumping the key remounts only that one component from scratch.
   const [intimationInstanceKey, setIntimationInstanceKey] = useState(0)
   const [workOrderInstanceKey, setWorkOrderInstanceKey] = useState(0)
+  const [issueNoticesInstanceKey, setIssueNoticesInstanceKey] = useState(0)
   // Sub-tabs within the Intimation workspace: the Intimation letter, or the
   // Bid Capacity Evaluation Sheet issued from a "View Bidders" PDF.
   const [intimationSubTab, setIntimationSubTab] = useState<'intimation' | 'evaluation'>('intimation')
@@ -979,7 +984,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               </div>
               <div className="page-head-text">
                 <h1>Calendar</h1>
-                <p>Telangana Government holiday calendar for 2026.</p>
+                <p>Telangana Government holiday calendar{calendar ? ` for ${calendar.year}` : ''}.</p>
               </div>
               <div className="page-head-action">
                 <TenderNoticeButton
@@ -1046,33 +1051,35 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
             {refreshError && <div className="notice error">{refreshError}</div>}
             {refreshSummary && <div className="notice ok">{refreshSummary}</div>}
             <GoogleLinkImport onImport={importFromGoogleLink} />
-            {circleMismatchConfirm && (
-              <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => resolveCircleMismatch(false))}>
-                <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-                  <div className="confirm-ic">
-                    <IconWarn />
+            {circleMismatchConfirm &&
+              createPortal(
+                <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => resolveCircleMismatch(false))}>
+                  <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+                    <div className="confirm-ic">
+                      <IconWarn />
+                    </div>
+                    <h3>Works from another circle</h3>
+                    <p className="confirm-warn">
+                      <strong>{circleMismatchConfirm.count}</strong> of {circleMismatchConfirm.total} works in this list
+                      don't belong to your office's Zone/Circle (
+                      {[circleMismatchConfirm.zone, circleMismatchConfirm.circle].filter(Boolean).join(' / ')}).
+                    </p>
+                    <p className="confirm-hint">
+                      Are you sure these works belong to your circle? (A circle reorganisation can leave some works still
+                      tagged with their old circle — if that's the case here, Continue is safe.)
+                    </p>
+                    <div className="confirm-actions">
+                      <button className="ghost" onClick={() => resolveCircleMismatch(false)}>
+                        Don't Import
+                      </button>
+                      <button className="primary" onClick={() => resolveCircleMismatch(true)}>
+                        Continue
+                      </button>
+                    </div>
                   </div>
-                  <h3>Works from another circle</h3>
-                  <p className="confirm-warn">
-                    <strong>{circleMismatchConfirm.count}</strong> of {circleMismatchConfirm.total} works in this list
-                    don't belong to your office's Zone/Circle (
-                    {[circleMismatchConfirm.zone, circleMismatchConfirm.circle].filter(Boolean).join(' / ')}).
-                  </p>
-                  <p className="confirm-hint">
-                    Are you sure these works belong to your circle? (A circle reorganisation can leave some works still
-                    tagged with their old circle — if that's the case here, Continue is safe.)
-                  </p>
-                  <div className="confirm-actions">
-                    <button className="ghost" onClick={() => resolveCircleMismatch(false)}>
-                      Don't Import
-                    </button>
-                    <button className="primary" onClick={() => resolveCircleMismatch(true)}>
-                      Continue
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+                </div>,
+                document.body
+              )}
             {currentTable ? (
               <>
                 <ExcelInline
@@ -1244,6 +1251,30 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
           </section>
         </KeepAlive>
 
+        <KeepAlive active={tab === 'issueNotices'} mounted={mountedTabs.has('issueNotices')}>
+          <section className="page">
+            <div className="page-head">
+              <div className="page-ic">
+                <IconWarn />
+              </div>
+              <div className="page-head-text">
+                <h1>Issue Notices</h1>
+                <p>Upload the Online Intimation and L1 sheet to fill the Notice for an L-1 bidder who hasn't concluded the agreement.</p>
+              </div>
+              <div className="page-head-action">
+                <button
+                  className="ghost"
+                  onClick={() => setIssueNoticesInstanceKey((k) => k + 1)}
+                  title="Clear the uploaded documents and filled fields to start a new work"
+                >
+                  <IconRefresh /> Clear
+                </button>
+              </div>
+            </div>
+            <IssueNoticesTab key={issueNoticesInstanceKey} office={office} />
+          </section>
+        </KeepAlive>
+
         <KeepAlive active={tab === 'mbScrutiny'} mounted={mountedTabs.has('mbScrutiny')}>
           <section className="page">
             <div className="page-head">
@@ -1317,6 +1348,20 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               </div>
             </div>
             <ToolsTab tables={tables} onChange={updateTable} office={office} documents={bakedDocuments} />
+          </section>
+        </KeepAlive>
+
+        <KeepAlive active={tab === 'settings'} mounted={mountedTabs.has('settings')}>
+          <section className="page">
+            <div className="page-head">
+              <div className="page-ic">
+                <IconSettings />
+              </div>
+              <div className="page-head-text">
+                <h1>Settings</h1>
+              </div>
+            </div>
+            <SettingsTab office={office} />
           </section>
         </KeepAlive>
         </Fragment>

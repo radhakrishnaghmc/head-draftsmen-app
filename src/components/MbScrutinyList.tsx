@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { IconPlus, IconTrash, IconCheck, IconRefresh, IconEye, IconChevronRight, IconSearch } from './Icons'
 import type { MBScrutinyItem } from '@core/types'
 import { closeOnBackdropMouseDown } from '../overlayClose'
@@ -322,29 +323,31 @@ export default function MbScrutinyList({ items, onChange }: Props) {
         </>
       )}
 
-      {pendingDelete && (
-        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setPendingDelete(null))}>
-          <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-            <div className="confirm-ic">
-              <IconTrash />
+      {pendingDelete &&
+        createPortal(
+          <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setPendingDelete(null))}>
+            <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+              <div className="confirm-ic">
+                <IconTrash />
+              </div>
+              <h3>Delete this MB record?</h3>
+              <p className="confirm-warn">
+                You're about to permanently remove MB No. <strong>{pendingDelete.mbNo}</strong> (
+                {pendingDelete.agencyName}).
+              </p>
+              <p className="confirm-hint">Once deleted, this cannot be recovered.</p>
+              <div className="confirm-actions">
+                <button className="ghost" onClick={() => setPendingDelete(null)}>
+                  Cancel
+                </button>
+                <button className="danger" onClick={confirmDelete}>
+                  Delete
+                </button>
+              </div>
             </div>
-            <h3>Delete this MB record?</h3>
-            <p className="confirm-warn">
-              You're about to permanently remove MB No. <strong>{pendingDelete.mbNo}</strong> (
-              {pendingDelete.agencyName}).
-            </p>
-            <p className="confirm-hint">Once deleted, this cannot be recovered.</p>
-            <div className="confirm-actions">
-              <button className="ghost" onClick={() => setPendingDelete(null)}>
-                Cancel
-              </button>
-              <button className="danger" onClick={confirmDelete}>
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

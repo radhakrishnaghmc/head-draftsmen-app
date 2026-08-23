@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../ipc'
-import { IconDoc, IconWarn, IconCheck, IconEye } from './Icons'
+import { IconDoc, IconWarn, IconCheck, IconEye, IconSearch } from './Icons'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import type { ExcelTable } from '@core/types'
 import type { BidDocumentBatch } from '@core/types'
@@ -110,8 +111,32 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
     return Array.from(seen)
   }, [worksTable, winCodeHeader])
 
+  // Each Win Code's work name, shown alongside it in the checklist below (and
+  // matched against when searching) — a Win Code alone doesn't say which work
+  // it is, so scrolling to find one otherwise means cross-checking the Works
+  // List in another tab.
+  const winCodeToName = useMemo(() => {
+    const map = new Map<string, string>()
+    if (!worksTable || !winCodeHeader || !nameHeader) return map
+    for (const row of worksTable.rows) {
+      const code = (row[winCodeHeader] ?? '').trim()
+      if (code && !map.has(code)) map.set(code, row[nameHeader] ?? '')
+    }
+    return map
+  }, [worksTable, winCodeHeader, nameHeader])
+
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Filters which Win Codes are shown (not which are selected) — a checked
+  // item stays checked even while scrolled out of view by the filter.
+  const [winSearch, setWinSearch] = useState('')
+  const filteredWinCodes = useMemo(() => {
+    const q = winSearch.trim().toLowerCase()
+    if (!q) return winCodes
+    return winCodes.filter(
+      (code) => code.toLowerCase().includes(q) || (winCodeToName.get(code) ?? '').toLowerCase().includes(q)
+    )
+  }, [winCodes, winCodeToName, winSearch])
 
   // The NIT No default follows the chosen office — its Circle, Circle number
   // and Corporation — the circle, corporation and financial year are pulled from
@@ -161,6 +186,7 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
   useEffect(() => {
     if (!open) return
     setNitSerial('16')
+    setWinSearch('')
     setEmail(localStorage.getItem(officeScopedKey(CONTACT_KEYS.email, office)) || defaultEmailFor(office))
     setEePhone(localStorage.getItem(officeScopedKey(CONTACT_KEYS.eePhone, office)) || '')
     setHdPhone(localStorage.getItem(officeScopedKey(CONTACT_KEYS.hdPhone, office)) || '')
@@ -315,8 +341,9 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
         </div>
       )}
 
-      {open && (
-        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setOpen(false))}>
+      {open &&
+        createPortal(
+          <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setOpen(false))}>
           <div
             className={`tender-modal ${previewing ? 'tender-modal-wide' : ''}`}
             onClick={(e) => e.stopPropagation()}
@@ -349,17 +376,38 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
                 {winCodes.length > 0 ? (
                   <div className="tender-field">
                     <span>Win Code(s)</span>
+                    <div className="doc-work-search tender-wincode-search">
+                      <IconSearch />
+                      <input
+                        type="text"
+                        placeholder="Search by work name or Win Code…"
+                        value={winSearch}
+                        onChange={(e) => setWinSearch(e.target.value)}
+                      />
+                      {winSearch && (
+                        <button className="tsearch-clear" onClick={() => setWinSearch('')}>
+                          Clear
+                        </button>
+                      )}
+                    </div>
                     <div className="tender-wincode-list" ref={winListRef}>
-                      {winCodes.map((code) => (
-                        <label key={code} className="tender-wincode-item">
-                          <input
-                            type="checkbox"
-                            checked={selected.has(code)}
-                            onChange={() => toggleWinCode(code)}
-                          />
-                          {code}
-                        </label>
-                      ))}
+                      {filteredWinCodes.length === 0 ? (
+                        <p className="hint">No work matches “{winSearch}”.</p>
+                      ) : (
+                        filteredWinCodes.map((code) => (
+                          <label key={code} className="tender-wincode-item">
+                            <input
+                              type="checkbox"
+                              checked={selected.has(code)}
+                              onChange={() => toggleWinCode(code)}
+                            />
+                            <span className="tender-wincode-code">{code}</span>
+                            {winCodeToName.get(code) && (
+                              <span className="tender-wincode-name">{winCodeToName.get(code)}</span>
+                            )}
+                          </label>
+                        ))
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -467,8 +515,9 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
               </>
             )}
           </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </>
   )
 }

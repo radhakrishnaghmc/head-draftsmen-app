@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../ipc'
 import { IconTable, IconChevronLeft, IconChevronRight } from './Icons'
 import type { CalendarData, HolidayType } from '@core/calendar'
@@ -7,8 +7,25 @@ import { type Office, officeScopedKey, isZoneOnlyOffice, CONTACT_KEYS } from '..
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
-/** The official Telangana government calendar this data is scraped from. */
-const CALENDAR_SOURCE_URL = 'https://www.telangana.gov.in/downloads/calendar-2026/'
+// The government publishes one calendar page per year (…/calendar-2026/,
+// …/calendar-2027/ once that year's page exists) rather than one page that
+// stays current — so instead of this app guessing/hardcoding a year, the
+// source link is user-editable and remembered here. Update it once a new
+// year's page goes up (usually announced around December).
+const CALENDAR_URL_KEY = 'calendarSourceUrl'
+const DEFAULT_CALENDAR_URL = 'https://www.telangana.gov.in/downloads/calendar-2026/'
+
+/**
+ * Guesses a future/past year's page from the last known-good one by swapping
+ * its 4-digit year — the government's own URLs are exactly this pattern
+ * (…/calendar-2026/, …/calendar-2027/), so this holds until they restructure
+ * the site. When the guess is wrong (page not published yet, or the pattern
+ * changed), the fetch simply fails and the caller shows the "change the
+ * link" prompt instead of silently displaying nothing.
+ */
+function urlForYear(url: string, year: number): string {
+  return /\d{4}/.test(url) ? url.replace(/\d{4}/, String(year)) : url
+}
 
 interface VisMonth {
   year: number
@@ -46,10 +63,27 @@ interface Props {
   office?: Office
 }
 
+const CURRENT_YEAR = new Date().getFullYear()
+
 export default function Dashboard({ cached, onData, office }: Props) {
-  const [data, setData] = useState<CalendarData | null>(cached)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // Per-year, not one blob: the month grid can show two or three months at
+  // once and, near a year boundary, those can span two different years —
+  // each fetched (and failed/loading) independently so December's data
+  // never gets blamed for January's missing page or vice versa.
+  const [yearData, setYearData] = useState<Map<number, CalendarData>>(() => {
+    const m = new Map<number, CalendarData>()
+    if (cached) m.set(Number(cached.year), cached)
+    return m
+  })
+  const [yearError, setYearError] = useState<Map<number, string>>(new Map())
+  const [yearLoading, setYearLoading] = useState<Set<number>>(new Set())
+  // Years already requested (loaded, loading, or failed) — a ref, not state,
+  // purely to stop the visible-months effect below from re-requesting a year
+  // it already asked for; it shouldn't itself trigger a re-render.
+  const requestedYears = useRef<Set<number>>(new Set(yearData.keys()))
+  const [sourceUrl, setSourceUrl] = useState(() => localStorage.getItem(CALENDAR_URL_KEY) || DEFAULT_CALENDAR_URL)
+  const [editingUrl, setEditingUrl] = useState<number | null>(null)
+  const [urlDraft, setUrlDraft] = useState('')
   // The clicked "day 1" anchor for the working-day counter.
   const [anchor, setAnchor] = useState<{ year: number; mi: number; day: number } | null>(
     null
@@ -79,29 +113,59 @@ export default function Dashboard({ cached, onData, office }: Props) {
     localStorage.setItem(officeScopedKey(CONTACT_KEYS.hdPhone, office), v.trim())
   }
 
-  const load = useCallback(
-    async (force = false) => {
-      setLoading(true)
-      setError(null)
+  // Fetches one specific year's calendar, guessing its URL from the last
+  // known-good link (urlForYear) unless an explicit override is given (the
+  // user pasting in a corrected link for a year that guessed wrong).
+  const loadYear = useCallback(
+    async (year: number, force = false, overrideUrl?: string) => {
+      requestedYears.current.add(year)
+      setYearLoading((prev) => new Set(prev).add(year))
+      setYearError((prev) => {
+        const next = new Map(prev)
+        next.delete(year)
+        return next
+      })
       try {
-        const d = await api.fetchCalendar(force)
-        setData(d)
-        onData(d)
+        const url = overrideUrl ?? urlForYear(sourceUrl, year)
+        const d = await api.fetchCalendar(url, force)
+        setYearData((prev) => new Map(prev).set(Number(d.year), d))
+        if (overrideUrl) {
+          // A manually-fixed link becomes the new template other years guess
+          // from — so once the government's actual 2027 page is pasted in,
+          // guessing 2028 next year starts from a link that's known to work.
+          localStorage.setItem(CALENDAR_URL_KEY, overrideUrl)
+          setSourceUrl(overrideUrl)
+        }
+        if (year === CURRENT_YEAR) onData(d)
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
+        setYearError((prev) => new Map(prev).set(year, e instanceof Error ? e.message : String(e)))
       } finally {
-        setLoading(false)
+        setYearLoading((prev) => {
+          const next = new Set(prev)
+          next.delete(year)
+          return next
+        })
       }
     },
-    [onData]
+    [onData, sourceUrl]
   )
 
   useEffect(() => {
     // Use the in-memory copy if we already have it; otherwise read the
-    // on-disk cache (no network). Refresh forces a fresh fetch.
-    if (!data) load(false)
+    // on-disk cache (no network).
+    if (!yearData.has(CURRENT_YEAR)) void loadYear(CURRENT_YEAR, false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // A pasted link fixes exactly the one year it points at — Change Year's
+  // Link is opened per-month (see editingUrl), so this never has to guess
+  // which year the user meant.
+  function saveSourceUrl(year: number, url: string) {
+    const trimmed = url.trim()
+    setEditingUrl(null)
+    if (!trimmed) return
+    void loadYear(year, true, trimmed)
+  }
 
   // How many months fit, based on window width (1 / 2 / 3).
   const [monthCols, setMonthCols] = useState(() => colsForWidth(window.innerWidth))
@@ -123,15 +187,27 @@ export default function Dashboard({ cached, onData, office }: Props) {
     })
   }, [monthCols, monthOffset])
 
-  // Public-holiday day maps per visible month (used to skip while numbering).
+  // Whenever navigation brings a not-yet-seen year into view (paging across
+  // a year boundary), guess and fetch its page automatically — this is what
+  // makes the January-2027 page load without the user having to do anything,
+  // as long as the guessed URL is right.
+  useEffect(() => {
+    for (const m of visMonths) {
+      if (!requestedYears.current.has(m.year)) void loadYear(m.year, false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visMonths])
+
+  // Public-holiday day maps per visible month (used to skip while numbering)
+  // — each month's own year's data, never another year's mistaken for it.
   const holidayMaps = useMemo(() => {
     const maps = new Map<string, ReturnType<typeof holidaysByDay>>()
-    if (!data) return maps
     for (const m of visMonths) {
-      maps.set(`${m.year}-${m.mi}`, holidaysByDay(data, m.mi))
+      const d = yearData.get(m.year)
+      if (d) maps.set(`${m.year}-${m.mi}`, holidaysByDay(d, m.mi))
     }
     return maps
-  }, [data, visMonths])
+  }, [yearData, visMonths])
 
   // Working-day numbers: the anchor is day 0, following days count up. Every day
   // is counted — INCLUDING public holidays, Sundays and second Saturdays —
@@ -173,23 +249,42 @@ export default function Dashboard({ cached, onData, office }: Props) {
     )
   }
 
+  // Opens the per-year link editor, prefilled with a guessed URL for that
+  // year so fixing it is usually just "paste the real one over this".
+  function openLinkEditor(year: number) {
+    setUrlDraft(urlForYear(sourceUrl, year))
+    setEditingUrl(year)
+  }
+
+  const primaryError = yearError.get(CURRENT_YEAR)
+  const hasAnyData = yearData.size > 0
+
   return (
     <div className="dash">
-      {error && !data && (
+      {primaryError && !yearData.has(CURRENT_YEAR) && (
         <div className="card">
           <div className="empty">
             <IconTable />
-            <p>{error}</p>
-            <button className="primary" onClick={() => load(true)}>
-              Try again
-            </button>
+            <p>Couldn't load {CURRENT_YEAR}'s calendar automatically — {primaryError}</p>
+            <div className="boq-actions">
+              <button className="primary" onClick={() => loadYear(CURRENT_YEAR, true)}>
+                Try again
+              </button>
+              <button className="ghost" onClick={() => openLinkEditor(CURRENT_YEAR)}>
+                Change year's link
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {error && data && <div className="notice warn">Showing saved copy — {error}</div>}
+      {[...yearError].filter(([y]) => yearData.has(y)).map(([y, msg]) => (
+        <div className="notice warn" key={y}>
+          Keeping the previous {y} calendar — {msg}
+        </div>
+      ))}
 
-      {data && (
+      {hasAnyData && (
         <>
           {/* Three-month working-day counter */}
           <section className="card cal-counter">
@@ -266,6 +361,36 @@ export default function Dashboard({ cached, onData, office }: Props) {
               }}
             >
               {visMonths.map((m) => {
+                // No calendar page has loaded for this month's year (still
+                // fetching, the guessed URL was wrong, or nothing published
+                // yet) — show that instead of a blank/misleading grid.
+                if (!yearData.has(m.year)) {
+                  const err = yearError.get(m.year)
+                  const busy = yearLoading.has(m.year)
+                  return (
+                    <div className="cal-month" key={`${m.year}-${m.mi}`}>
+                      <div className="cal-month-title">
+                        {MONTH_NAMES[m.mi]} {m.year}
+                      </div>
+                      <div className="cal-month-missing">
+                        {busy ? (
+                          <p>Loading {m.year}'s calendar…</p>
+                        ) : (
+                          <>
+                            <p>
+                              {err
+                                ? `Couldn't load ${m.year}'s calendar — ${err}`
+                                : `No calendar loaded for ${m.year} yet.`}
+                            </p>
+                            <button className="ghost" onClick={() => openLinkEditor(m.year)}>
+                              Change year's link
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )
+                }
                 const hol = holidayMaps.get(`${m.year}-${m.mi}`)
                 const total = daysInMonth(m.year, m.mi)
                 const lead = new Date(m.year, m.mi, 1).getDay()
@@ -328,13 +453,50 @@ export default function Dashboard({ cached, onData, office }: Props) {
             <div className="cal-legend">
               <span className="lg lg-public">Public holiday</span>
               <span className="lg lg-optional">Optional holiday</span>
-              <button
-                className="cal-source-link"
-                onClick={() => api.openPath(CALENDAR_SOURCE_URL)}
-                title="Open the official Telangana government calendar"
-              >
-                View original calendar ↗
-              </button>
+              {editingUrl != null ? (
+                <form
+                  className="cal-source-edit"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    saveSourceUrl(editingUrl, urlDraft)
+                  }}
+                >
+                  <span className="cal-source-edit-label">{editingUrl} link:</span>
+                  <input
+                    type="url"
+                    autoFocus
+                    value={urlDraft}
+                    placeholder={`https://www.telangana.gov.in/downloads/calendar-${editingUrl}/`}
+                    onChange={(e) => setUrlDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setEditingUrl(null)
+                    }}
+                  />
+                  <button type="submit" className="cal-source-save">
+                    Save
+                  </button>
+                  <button type="button" className="cal-source-link" onClick={() => setEditingUrl(null)}>
+                    Cancel
+                  </button>
+                </form>
+              ) : (
+                <>
+                  <button
+                    className="cal-source-link"
+                    onClick={() => api.openPath(sourceUrl)}
+                    title="Open the official Telangana government calendar"
+                  >
+                    View original calendar ↗
+                  </button>
+                  <button
+                    className="cal-source-link"
+                    onClick={() => openLinkEditor(CURRENT_YEAR)}
+                    title="Paste a corrected calendar page link for a year that failed to auto-load"
+                  >
+                    Change year's link
+                  </button>
+                </>
+              )}
             </div>
           </section>
         </>

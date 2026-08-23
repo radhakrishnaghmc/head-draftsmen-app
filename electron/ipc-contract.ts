@@ -125,10 +125,12 @@ export const IPC = {
   zonalConcludingAgreementTemplate: 'doc:zonalConcludingAgreementTemplate',
   zonalMemoEeTemplate: 'doc:zonalMemoEeTemplate',
   seAgreementNoteTemplate: 'doc:seAgreementNoteTemplate',
+  contractDeedTemplate: 'doc:contractDeedTemplate',
   exportSeScheduleA: 'data:exportSeScheduleA',
   loaSeTemplate: 'doc:loaSeTemplate',
   tsNoteTemplate: 'doc:tsNoteTemplate',
   eligibilityCriteriaTemplate: 'doc:eligibilityCriteriaTemplate',
+  issueNoticeTemplate: 'doc:issueNoticeTemplate',
   loadState: 'state:load',
   saveState: 'state:save',
   remoteStateUpdate: 'state:remoteUpdate',
@@ -151,7 +153,8 @@ export interface DocuGenApi {
   revealItem(target: string): Promise<void>
   defaultDir(): Promise<string>
   getAppVersion(): Promise<string>
-  fetchCalendar(force?: boolean): Promise<CalendarData>
+  /** Scrapes the given government-calendar page. Cached per URL on disk (see electron/main.ts) so switching the source link (a new year's page) doesn't serve a stale cache from the old one. */
+  fetchCalendar(url: string, force?: boolean): Promise<CalendarData>
   login(loginId: string, password: string): Promise<LoginResult>
   /** Releases this device's session slot so another device can sign in. */
   logout(): Promise<void>
@@ -272,12 +275,12 @@ export interface DocuGenApi {
   noteSubmittedDocx(html: string): Promise<string>
   /** Reads the bundled Intimation format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
   intimationTemplate(): Promise<string>
-  /** Reads the bundled Work Order format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
-  workOrderTemplate(): Promise<string>
+  /** Reads the bundled Work Order format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */
+  workOrderTemplate(variantId?: string): Promise<string>
   /** Reads the bundled File Backer format (.docx) — the file's cover page — base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
   fileBackerTemplate(): Promise<string>
-  /** Reads the bundled Agreement format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
-  agreementTemplate(): Promise<string>
+  /** Reads the bundled Agreement format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */
+  agreementTemplate(variantId?: string): Promise<string>
   /** Reads the bundled QCC Intimation letter (.docx) — the Dy.EE's request to Quality Control to inspect a starting work — base64-encoded for filling its {{placeholders}}. */
   qccIntimationTemplate(): Promise<string>
   /** Reads the bundled Forwarding Slip format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
@@ -294,6 +297,8 @@ export interface DocuGenApi {
   zonalMemoEeTemplate(): Promise<string>
   /** Reads the bundled Zone-level (SE office) Agreement Put-up Note (.docx). Base64-encoded, for filling its {{placeholders}}. */
   seAgreementNoteTemplate(): Promise<string>
+  /** Reads the bundled Contract Deed (.docx) — the 5-page "FORM No.6" abstract-of-quantities deed accompanying Schedule "A", signed by the Superintending Engineer (citing the executing circle's EE throughout its clauses) — one of the SE (Zone) office's Agreement-section documents. Base64-encoded, for filling its {{placeholders}}. */
+  contractDeedTemplate(): Promise<string>
   /** Fills and saves the Zone-level (SE office) Schedule A / BOQ workbook — same item table as exportScheduleA, but its preamble and signature name the Superintending Engineer's Zone office. Prompts for a save location; returns the saved path, or null if cancelled. */
   exportSeScheduleA(table: ExcelTable, suggestedName: string, meta?: ScheduleAMeta): Promise<string | null>
   /** Reads the bundled Superintending-Engineer LOA format (.docx) — used for the Give Intimation letter when the office is zone-level (a Zone with no Circle). `reserved` picks the SC/ST-reserved variant (no EMD balance item). Returns it base64-encoded, for filling its {{placeholders}}. */
@@ -302,6 +307,8 @@ export interface DocuGenApi {
   tsNoteTemplate(): Promise<string>
   /** Reads the bundled Zone-level (SE office) Eligibility Criteria note (.docx) — issued alongside the LOA. Base64-encoded, for filling its {{placeholders}}. */
   eligibilityCriteriaTemplate(): Promise<string>
+  /** Reads the bundled Notice format (.docx) — issued to an L-1 bidder who hasn't concluded the agreement within the stipulated time after the LOA. `ee` picks the Circle-level (EE office) variant over the default Zone-level (SE office) one. Base64-encoded, for filling its {{placeholders}}. */
+  issueNoticeTemplate(ee: boolean): Promise<string>
   loadState(): Promise<PersistedState | null>
   /** Persist the workspace. `skipCloud` writes only to local disk and does NOT push to the cloud — used when the change being saved *came from* a remote sync, so it isn't echoed straight back and made to ping-pong between concurrent sessions. */
   saveState(state: PersistedState, skipCloud?: boolean): Promise<void>

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import { IconDoc, IconEye, IconDownload, IconWarn, IconCheck } from './Icons'
 import { base64ToUint8, renderDocPreview } from './docPage'
@@ -256,8 +257,9 @@ export default function SeBidDocumentTile({ tables, office }: Props) {
         )}
       </section>
 
-      {open && (
-        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setOpen(false))}>
+      {open &&
+        createPortal(
+          <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setOpen(false))}>
           <div
             className={`tender-modal ${previewing ? 'tender-modal-wide' : ''}`}
             onClick={(e) => e.stopPropagation()}
@@ -394,8 +396,9 @@ export default function SeBidDocumentTile({ tables, office }: Props) {
               </>
             )}
           </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </>
   )
 }

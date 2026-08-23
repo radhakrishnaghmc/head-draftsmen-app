@@ -16,6 +16,22 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.23.0',
+    changes: [
+      'Added a Kompally-style Agreement Bond template — pick it in Settings alongside the Kompally Work Order template.',
+      'Fixed: the SE office Contract Deed did not match the real 5-page document — rebuilt to match exactly.',
+      'File Backer (Agreement) now also prints the Tender ID and NIT No & Date above the Name of the Work.',
+      'Issue Notice now opens as a tile with an expandable full preview, matching Intimation and Agreement.',
+      'Agreement and Work Order tile previews are sharper and no longer look distorted.',
+      'Removed the unused "CE Sanction Letter No & Date" field and the separate EMD Details box from the Agreement workspace (EMD is already picked up automatically from the Balance EMD/Bank Guarantee upload).',
+      'Fixed: several full-page preview windows (document previews, photo tools, print) could open with their close button unreachable.',
+      'Fixed: the search box on the Issue Tender Notice page was oversized and inconsistent with the rest of the app.',
+      'Empty text boxes across the app now show a plain white background for readability.',
+      'Preview and scroll areas now use a slimmer, rounded scrollbar consistent with the rest of the app.',
+      'Document preview and PDF conversion are noticeably faster, especially for multi-page documents.'
+    ]
+  },
+  {
     version: '1.22.0',
     changes: [
       'Agreement/Work Order: the EMD Details line can now be filled automatically by uploading either the CURE portal\'s Balance EMD payment receipt or a Bank Guarantee certificate (for offices that pay EMD/ASD via BG instead) — the BG\'s amounts are matched to EMD vs. ASD automatically from the work\'s ECV.',

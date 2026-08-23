@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { PDFDocument } from 'pdf-lib'
 import { api } from '../ipc'
 import { pdfPagesToDataUrls } from '../pdfToImages'
@@ -530,26 +531,28 @@ export default function PhotosToPdfPage({ onBack }: Props) {
         </div>
       </div>
 
-      {previewUrl && (
-        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(closePreview)}>
-          <div className="pdf-preview-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-            <div className="pdf-preview-head">
-              <span className="pdf-preview-title">
-                <IconDoc /> PDF preview — {pics.length} page{pics.length === 1 ? '' : 's'}
-              </span>
-              <div className="pdf-preview-head-actions">
-                <button className="pdf-ws-railbtn" onClick={exportPdf} disabled={busy}>
-                  <IconDownload /> {busy ? 'Saving…' : 'Save PDF'}
-                </button>
-                <button className="ghost" onClick={closePreview}>
-                  Close
-                </button>
+      {previewUrl &&
+        createPortal(
+          <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(closePreview)}>
+            <div className="pdf-preview-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+              <div className="pdf-preview-head">
+                <span className="pdf-preview-title">
+                  <IconDoc /> PDF preview — {pics.length} page{pics.length === 1 ? '' : 's'}
+                </span>
+                <div className="pdf-preview-head-actions">
+                  <button className="pdf-ws-railbtn" onClick={exportPdf} disabled={busy}>
+                    <IconDownload /> {busy ? 'Saving…' : 'Save PDF'}
+                  </button>
+                  <button className="ghost" onClick={closePreview}>
+                    Close
+                  </button>
+                </div>
               </div>
+              <iframe className="pdf-preview-frame" src={previewUrl} title="PDF preview" />
             </div>
-            <iframe className="pdf-preview-frame" src={previewUrl} title="PDF preview" />
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
 
       {cropPic && (
         <PhotoAdjustModal

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseTenderEvaluation } from '../core/tenderEvaluationPdf'
+import { parseTenderEvaluation, parseAllBidders } from '../core/tenderEvaluationPdf'
 
 // pdf.js reconstructs these lines from the portal's Commercial Evaluation
 // page — the header's two-column layout interleaves "Tender ID …" into the
@@ -140,7 +140,16 @@ describe('parseTenderEvaluation', () => {
       'VADDI MANISH REDDY 1091236.00 Less 3.01 1058389.80 L-1'
     ])
     expect(r.noticeNo).toBe('13/DB/EE-III/CNL/C-54/QBZ/CMC/2026-27')
-    expect(r.tenderId).toBeUndefined()
+    // "723483" sits wedged between "Enquiry/IFB/Tender" and the NIT's own
+    // "54/QBZ/CMC/2026-27" tail — structurally the same wedged-value position
+    // as GAJULARAMARAM_LINES' "699549" above (which IS read as the Tender
+    // ID), and the same pattern confirmed against a real Nizampet Circle-58
+    // NIT.02 sheet where the wedged value ("699966") was the genuine Tender
+    // ID, not noise. This test's own focus was always NIT No cleaning (see
+    // its title/comment) — `undefined` here was just the old, narrower
+    // Tender ID regex's incidental gap on this exact wedge shape, not a
+    // deliberately verified "should stay blank" outcome.
+    expect(r.tenderId).toBe('723483')
   })
 
   it('reads the SE-office Tender ID when the NIT date year sits right before the label', () => {
@@ -268,6 +277,68 @@ describe('parseTenderEvaluation', () => {
     )
   })
 
+  it('drops an "ITEM <n> ,Dated:<date>" tag punctuated with a comma before the label', () => {
+    // Real Nizampet Circle-58 NIT.17 L1 sheet (726878): this office's sheet
+    // punctuates the tag "ITEM 4 ,Dated:18.08.2026" (a comma right before
+    // "Dated"), which the old ITEM_DATED_LINE regex — written for the
+    // no-comma "ITEM 5 Dated:…" form — didn't recognize as the tag, so it
+    // was swept into the Name of Work instead of being dropped. Reported
+    // bug: item no. and date leaking into the work name shown in the
+    // Intimation and Agreement workspace.
+    const r = parseTenderEvaluation([
+      'Current Tender Details',
+      'NIT No',
+      'Enquiry/IFB/Tender',
+      '726878 17/DB/EE/NizampetCircle58/CMC/2026-27',
+      'Tender ID',
+      'Notice Number',
+      'ITEM 4 ,Dated:18.08.2026',
+      'Laying of Approach CC Road to Sub lanes in Pragathi Nagar Main Road in Pragathi Nagar ward 276 in Nizampet Circle-58',
+      'Name of Work',
+      'Quthbullapur Zone,CMC (1ST RECALL)',
+      'Tender Category Works Tender Evaluation Type Percentage',
+      'Estimated Contract',
+      'OPEN 1516585.00',
+      'Tender Type',
+      'Value',
+      'Company Name Estimated Contract Value ( INR) Excess/Less Percentage(%) Amount ( INR) Rank Select',
+      'KOLAN RAMA KRISHNA REDDY 1516585.00 Less 7.29 1406025.95 L-1'
+    ])
+    expect(r.noticeNo).toBe('17/DB/EE/NizampetCircle58/CMC/2026-27')
+    expect(r.noticeDate).toBe('18.08.2026')
+    expect(r.nameOfWork).toBe(
+      'Laying of Approach CC Road to Sub lanes in Pragathi Nagar Main Road in Pragathi Nagar ward 276 in Nizampet Circle-58 Quthbullapur Zone,CMC (1ST RECALL)'
+    )
+    expect(r.nameOfWork).not.toMatch(/item|dated/i)
+  })
+
+  // This same tag (see the test above) has needed re-fixing for a new
+  // punctuation variant several times already — a different office/circle's
+  // PDF export always seems to punctuate the gap between the item number and
+  // "Dated"/"Dt" slightly differently. Rather than special-case yet another
+  // exact separator, ITEM_DATED_LINE now accepts ANY run of non-alphanumeric
+  // characters there — lock that in against variants nobody has actually
+  // hit yet, so the next one doesn't need its own patch.
+  it.each([
+    ['ITEM 6 - Dated:01.09.2026', 'a dash'],
+    ['ITEM 6; Dated:01.09.2026', 'a semicolon'],
+    ['ITEM 6 (Dated:01.09.2026)', 'parentheses'],
+    ['ITEM 6Dated:01.09.2026', 'no separator at all']
+  ])('drops an "ITEM n / Dated" tag punctuated with %s', (tag) => {
+    const r = parseTenderEvaluation([
+      'Commercial Evaluation',
+      'NIT No. 12/DB/EE/Nizampet Circle-58/CMC/2026-27',
+      'Notice Number',
+      tag,
+      'Laying of Approach Road',
+      'Name of Work',
+      'in Nizampet Circle-58, CMC',
+      'Tender Category Works Tender Evaluation Type Percentage'
+    ])
+    expect(r.nameOfWork).toBe('Laying of Approach Road in Nizampet Circle-58, CMC')
+    expect(r.nameOfWork).not.toMatch(/item|dated/i)
+  })
+
   it('takes the L-1 row, not L-2, for the winning bid', () => {
     const r = parseTenderEvaluation(COMMERCIAL_LINES)
     expect(r.l1AgencyName).toBe('M V S CONSTRUCTIONS')
@@ -316,5 +387,51 @@ describe('parseTenderEvaluation', () => {
     expect(r.l1AgencyName).toBeUndefined()
     expect(r.tenderPercentage).toBeUndefined()
     expect(r.contractRupees).toBeUndefined()
+  })
+})
+
+describe('parseAllBidders', () => {
+  it('does not glue the wrapped "( INR) INR)" price-table header remnant onto the first bidder\'s name', () => {
+    // Real Nizampet Circle-58 NIT.17 L1 sheet (726879): with 4 bidders the
+    // "Estimated Contract Value ( INR)" / "Amount ( INR)" header cells wrap
+    // across three lines, leaving a bare "( INR) INR)" line directly above
+    // the first bidder row. isNameContinuation's blacklist only matched
+    // lines that started with a known label WORD ("Value", "Amount", "Rank"…)
+    // — this remnant starts with punctuation ("("), so it dodged the
+    // blacklist entirely and got glued onto the front of the L-1 bidder's
+    // name. Reported bug: the L1 agency name showed "INR INR" prepended to
+    // it in the Note Submitted bidder table (Agreement/Intimation tabs).
+    const lines = [
+      'Price Bid Details /Commercial Stage',
+      'Estimated Contract Value Amount (',
+      'Company Name Excess/Less Percentage(%) Rank Select',
+      '( INR) INR)',
+      'NANDU CONSTRUCTIONS 1521909.00 Less 8.66 1390111.68 L-1',
+      'KOLAN RAMA KRISHNA REDDY 1521909.00 Less 7.29 1410961.83 L-2',
+      'SHIVARATHRI SANDEEP 1521909.00 Less 2.99 1476403.92 L-3',
+      'CHIRANJEVI ALAKUNTLA WORKS',
+      '1521909.00 Less 2.10 1489948.91 L-4',
+      'CONTRACTOR'
+    ]
+    const bidders = parseAllBidders(lines)
+    expect(bidders[0].name).toBe('NANDU CONSTRUCTIONS')
+    expect(bidders[0].name).not.toMatch(/inr/i)
+    expect(bidders[1].name).toBe('KOLAN RAMA KRISHNA REDDY')
+    expect(bidders[2].name).toBe('SHIVARATHRI SANDEEP')
+    // A genuinely wrapped name (head on the row above, tail below) still
+    // reassembles correctly — the fix only rejects the punctuation-wrapped
+    // header noise, not real wrapped-name continuations.
+    expect(bidders[3].name).toBe('CHIRANJEVI ALAKUNTLA WORKS CONTRACTOR')
+  })
+
+  it('still reassembles a long L-1 name wrapping around the number row (no header noise present)', () => {
+    const r = parseAllBidders([
+      'Price Bid Details /Commercial Stage',
+      'Company Name Excess/Less Percentage(%) Rank Select',
+      'Kummary Renuka Devi Civil',
+      '3133583.00 Less 11.99 2757866.40 L-1',
+      'Contractor'
+    ])
+    expect(r[0].name).toBe('Kummary Renuka Devi Civil Contractor')
   })
 })

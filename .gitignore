@@ -6,3 +6,9 @@ dist/
 .DS_Store
 .env
 .claude/
+# Staged by scripts/prepare-libreoffice-win.ps1 / prepare-libreoffice-mac.sh —
+# a pruned local LibreOffice install, bundled into the packaged app via
+# electron-builder's per-platform extraResources. Hundreds of MB; never
+# committed, regenerate before packaging.
+resources/libreoffice-win/
+resources/libreoffice-mac/

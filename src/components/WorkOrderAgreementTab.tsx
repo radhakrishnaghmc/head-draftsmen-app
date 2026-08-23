@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
-import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
 import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice } from '@core/intimationNotice'
 import { parseTenderEvaluation, parseAllBidders, type TenderEvaluation } from '@core/tenderEvaluationPdf'
@@ -25,7 +24,7 @@ import {
 import type { WorkOrderAgreementFields } from '@core/workOrderAgreement'
 import { extractItemNo, stripItemNoTag } from '@core/bidDocument'
 import { corporationByName, resolveFromDirectory, entriesOf } from '../zoneCircleDirectory'
-import { type Office } from '../office'
+import { type Office, officeScopedKey, TEMPLATE_KEYS } from '../office'
 import { boqToScheduleA, buildBoqFromEstimate, extractWorkNameFromBoq } from '../boqTransform'
 import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
 import { extractEstimateItems, extractWorkName } from '@core/estimateExtract'
@@ -46,7 +45,7 @@ import type { PlaceholderMatch } from '@core/createDocument'
 import type { ScheduleAMeta, AgreementBundleFile } from '../../electron/ipc-contract'
 import type { ExcelTable } from '@core/types'
 import { pdfToTextLines, pdfToPositionedLines } from '../pdfToText'
-import { base64ToUint8, PAGE_WIDTH, renderDocPreview, DOCX_PREVIEW_OPTIONS, normalizeDocxTextboxes } from './docPage'
+import { base64ToUint8, PAGE_WIDTH, renderDocPreview } from './docPage'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconCheck, IconClipboard, IconTable } from './Icons'
 
 interface Props {
@@ -162,6 +161,7 @@ type DocKind =
   | 'zonalConcludingAgreement'
   | 'zonalMemoEe'
   | 'seAgreementNote'
+  | 'contractDeed'
 type Output = DocKind | 'scheduleA' | 'note'
 
 const DOC_LABEL: Record<Output, string> = {
@@ -176,6 +176,7 @@ const DOC_LABEL: Record<Output, string> = {
   zonalConcludingAgreement: 'Concluding Agreement',
   zonalMemoEe: 'Memo to EE',
   seAgreementNote: 'Agreement Put-up Note',
+  contractDeed: 'Contract Deed',
   scheduleA: 'Schedule A',
   note: 'Note Submitted'
 }
@@ -191,7 +192,8 @@ const DOC_KINDS: DocKind[] = [
   'zonalWorkOrder',
   'zonalConcludingAgreement',
   'zonalMemoEe',
-  'seAgreementNote'
+  'seAgreementNote',
+  'contractDeed'
 ]
 
 /** Whether an Output is one of the docx documents (previewable/fillable), vs Schedule A / Note. */
@@ -270,7 +272,14 @@ function fieldsFromManual(m: ManualEntry): WorkOrderAgreementFields {
     ceLetterNoDate: '',
     completionMonths: m.completionMonths.trim(),
     reservation: m.reservation.trim(),
-    emdDetails: ''
+    emdDetails: '',
+    // Not collected by the manual-entry form — same precedent as tsNoDate/
+    // ceLetterNoDate/emdDetails above, left blank until a real L1/Intimation
+    // upload (or Works List match) supplies them.
+    noticeNo: '',
+    tenderId: '',
+    noticeDate: '',
+    intimationDate: ''
   }
 }
 
@@ -332,6 +341,7 @@ export default function WorkOrderAgreementTab({
   const [zonalConcludingAgreementB64, setZonalConcludingAgreementB64] = useState<string | null>(null)
   const [zonalMemoEeB64, setZonalMemoEeB64] = useState<string | null>(null)
   const [seAgreementNoteB64, setSeAgreementNoteB64] = useState<string | null>(null)
+  const [contractDeedB64, setContractDeedB64] = useState<string | null>(null)
   const [workOrderLabels, setWorkOrderLabels] = useState<string[]>([])
   const [fileBackerLabels, setFileBackerLabels] = useState<string[]>([])
   const [agreementLabels, setAgreementLabels] = useState<string[]>([])
@@ -343,17 +353,27 @@ export default function WorkOrderAgreementTab({
   const [zonalConcludingAgreementLabels, setZonalConcludingAgreementLabels] = useState<string[]>([])
   const [zonalMemoEeLabels, setZonalMemoEeLabels] = useState<string[]>([])
   const [seAgreementNoteLabels, setSeAgreementNoteLabels] = useState<string[]>([])
+  const [contractDeedLabels, setContractDeedLabels] = useState<string[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   // Forwarding Slip fields the office hand-enters (not on the Works List / L-1).
   const [tsNoDate, setTsNoDate] = useState('')
-  // Chief Engineer's administrative-sanction letter No & Date, hand-entered for
-  // the SE zonal Work Order / Agreement Put-up Note (e.g. "CE/CMC/TA-I/K6/2026-27/202, dated: 06.07.2026").
-  const [ceLetterNoDate, setCeLetterNoDate] = useState('')
+  // Chief Engineer's administrative-sanction letter No & Date — the SE zonal
+  // Work Order / Agreement Put-up Note still print this ({{CE Letter No Date}}),
+  // but the app no longer offers a way to enter it (removed from this
+  // workspace on request), so it always prints blank now.
+  const ceLetterNoDate = ''
   // EMD/ASD payment details for the Concluding Agreement's item-5 row,
   // hand-entered — free text (online split payment vs. Bank Guarantee, with
   // receipt/payment/UTR numbers), never derivable from the Works List.
   const [emdDetails, setEmdDetails] = useState('')
-  const [emdReceiptStatus, setEmdReceiptStatus] = useState<string | null>(null)
+  // The same "Upload Balance EMD Payment" receipt's Online Receipt No / date —
+  // Note Submitted's note-6 EMD clause prints these ("vide Online Receipt No:
+  // ___ Dt: ___") but noteSubmittedFromRow always seeds them blank (nothing in
+  // the Works List/L1/Intimation carries them). Kept as its own state (like
+  // allBidders below) rather than written straight into noteData, so it
+  // survives noteData's re-seed effect instead of being wiped the next time
+  // the row/upload changes — see that effect's dependency array.
+  const [emdReceiptInfo, setEmdReceiptInfo] = useState<{ receiptNo: string; receiptDate: string } | null>(null)
   const [completionMonths, setCompletionMonths] = useState('')
   // Tender Document fields the office hand-enters.
   const [pagesOfAgreement, setPagesOfAgreement] = useState('')
@@ -450,6 +470,7 @@ export default function WorkOrderAgreementTab({
   const zcaTileRef = useRef<HTMLDivElement>(null)
   const zmeTileRef = useRef<HTMLDivElement>(null)
   const seNoteTileRef = useRef<HTMLDivElement>(null)
+  const contractDeedTileRef = useRef<HTMLDivElement>(null)
   const expandedRef = useRef<HTMLDivElement>(null)
   const printScratchRef = useRef<HTMLDivElement>(null)
 
@@ -516,10 +537,18 @@ export default function WorkOrderAgreementTab({
     let cancelled = false
     void (async () => {
       try {
+        // The office's chosen Work Order / Agreement Bond template variants
+        // (Settings' Document Templates section — see
+        // core/workOrderTemplateVariants.ts), read fresh on each mount the
+        // same way the office's other per-office settings (CONTACT_KEYS)
+        // already are — falls back to the default when this office hasn't
+        // picked one.
+        const workOrderVariant = localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.workOrder, office)) ?? undefined
+        const agreementVariant = localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.agreement, office)) ?? undefined
         const [woB64, fbB64, agB64, qiB64, fsB64, ctB64] = await Promise.all([
-          api.workOrderTemplate(),
+          api.workOrderTemplate(workOrderVariant),
           api.fileBackerTemplate(),
-          api.agreementTemplate(),
+          api.agreementTemplate(agreementVariant),
           api.qccIntimationTemplate(),
           api.forwardingSlipTemplate(),
           api.civilTenderTemplate()
@@ -561,19 +590,21 @@ export default function WorkOrderAgreementTab({
     let cancelled = false
     void (async () => {
       try {
-        const [bondB64, woB64, caB64, meB64, noteB64] = await Promise.all([
+        const [bondB64, woB64, caB64, meB64, noteB64, deedB64] = await Promise.all([
           api.seAgreementBondTemplate(),
           api.zonalWorkOrderTemplate(),
           api.zonalConcludingAgreementTemplate(),
           api.zonalMemoEeTemplate(),
-          api.seAgreementNoteTemplate()
+          api.seAgreementNoteTemplate(),
+          api.contractDeedTemplate()
         ])
-        const [bondLabels, woLabels, caLabels, meLabels, noteLabels] = await Promise.all([
+        const [bondLabels, woLabels, caLabels, meLabels, noteLabels, deedLabels] = await Promise.all([
           api.findPlaceholdersInDocument(bondB64),
           api.findPlaceholdersInDocument(woB64),
           api.findPlaceholdersInDocument(caB64),
           api.findPlaceholdersInDocument(meB64),
-          api.findPlaceholdersInDocument(noteB64)
+          api.findPlaceholdersInDocument(noteB64),
+          api.findPlaceholdersInDocument(deedB64)
         ])
         if (cancelled) return
         setSeAgreementBondB64(bondB64)
@@ -581,11 +612,13 @@ export default function WorkOrderAgreementTab({
         setZonalConcludingAgreementB64(caB64)
         setZonalMemoEeB64(meB64)
         setSeAgreementNoteB64(noteB64)
+        setContractDeedB64(deedB64)
         setSeAgreementBondLabels(bondLabels)
         setZonalWorkOrderLabels(woLabels)
         setZonalConcludingAgreementLabels(caLabels)
         setZonalMemoEeLabels(meLabels)
         setSeAgreementNoteLabels(noteLabels)
+        setContractDeedLabels(deedLabels)
       } catch (e) {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
       }
@@ -879,7 +912,6 @@ export default function WorkOrderAgreementTab({
   async function handleEmdReceiptFile(file: File) {
     setBusy('emdReceipt')
     setActionError(null)
-    setEmdReceiptStatus(null)
     try {
       const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
       const lines = isPdf
@@ -897,7 +929,6 @@ export default function WorkOrderAgreementTab({
           )
         }
         setEmdDetails((prev) => (prev.trim() ? `${prev}\n${summary}` : summary))
-        setEmdReceiptStatus(`Read the Bank Guarantee(s) — added to EMD Details below.`)
         return
       }
       // The office's own note always commits to one specific rate (never the
@@ -926,7 +957,13 @@ export default function WorkOrderAgreementTab({
       ]
       const summary = parts.join(' ').replace(/\s+,/g, ',').replace(/\s+/g, ' ').trim()
       setEmdDetails((prev) => (prev.trim() ? `${prev}\n${summary}` : summary))
-      setEmdReceiptStatus(`Read the receipt — added to EMD Details below.`)
+      // Also feeds Note Submitted's note-6 EMD clause ("vide Online Receipt
+      // No: ___ Dt: ___"), which noteSubmittedFromRow always seeds blank —
+      // this is the one upload that actually carries a receipt number/date.
+      const hasReceiptInfo = !!(r.receiptNo || r.paymentDate)
+      if (hasReceiptInfo) {
+        setEmdReceiptInfo({ receiptNo: r.receiptNo ?? '', receiptDate: (r.paymentDate ?? '').replace(/-/g, '.') })
+      }
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -938,12 +975,12 @@ export default function WorkOrderAgreementTab({
     const b64 =
       {
         workOrder: workOrderB64, fileBacker: fileBackerB64, agreement: agreementB64, qccIntimation: qccIntimationB64, forwardingSlip: forwardingSlipB64, civilTender: civilTenderB64, seAgreementBond: seAgreementBondB64,
-        zonalWorkOrder: zonalWorkOrderB64, zonalConcludingAgreement: zonalConcludingAgreementB64, zonalMemoEe: zonalMemoEeB64, seAgreementNote: seAgreementNoteB64
+        zonalWorkOrder: zonalWorkOrderB64, zonalConcludingAgreement: zonalConcludingAgreementB64, zonalMemoEe: zonalMemoEeB64, seAgreementNote: seAgreementNoteB64, contractDeed: contractDeedB64
       }[kind]
     const labels =
       {
         workOrder: workOrderLabels, fileBacker: fileBackerLabels, agreement: agreementLabels, qccIntimation: qccIntimationLabels, forwardingSlip: forwardingSlipLabels, civilTender: civilTenderLabels, seAgreementBond: seAgreementBondLabels,
-        zonalWorkOrder: zonalWorkOrderLabels, zonalConcludingAgreement: zonalConcludingAgreementLabels, zonalMemoEe: zonalMemoEeLabels, seAgreementNote: seAgreementNoteLabels
+        zonalWorkOrder: zonalWorkOrderLabels, zonalConcludingAgreement: zonalConcludingAgreementLabels, zonalMemoEe: zonalMemoEeLabels, seAgreementNote: seAgreementNoteLabels, contractDeed: contractDeedLabels
       }[kind] ?? []
     if (!b64) throw new Error('Format not loaded yet.')
     // "Download all" asks for the Work Order / Agreement Bond date to be blank
@@ -964,7 +1001,11 @@ export default function WorkOrderAgreementTab({
               ? forwardingSlipPlaceholders(f)
               : kind === 'seAgreementBond'
                 ? seAgreementBondPlaceholders(f)
-                : kind === 'zonalWorkOrder' || kind === 'zonalConcludingAgreement' || kind === 'zonalMemoEe' || kind === 'seAgreementNote'
+                : kind === 'zonalWorkOrder' ||
+                    kind === 'zonalConcludingAgreement' ||
+                    kind === 'zonalMemoEe' ||
+                    kind === 'seAgreementNote' ||
+                    kind === 'contractDeed'
                   ? zonalDocsPlaceholders(f, notice ?? {}, pdfEval ?? {})
                   : civilTenderPlaceholders(f, pdfEval ?? {}, { pagesOfAgreement, scheduleAItems })
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
@@ -980,20 +1021,20 @@ export default function WorkOrderAgreementTab({
     return pageCount
   }
 
-  // The small, live thumbnail shown inside each tile on the catalog grid —
-  // up to 11 of these render at once, every time a filled value changes, so
-  // this deliberately stays on the fast, approximate docx-preview.js render
-  // rather than renderDocInto's accurate one: routing all of them through
-  // LibreOffice would mean 11+ concurrent conversions on every keystroke
-  // (mirrors DocThumbnail.tsx's identical reasoning for its own grid of
-  // thumbnails). The expanded modal (renderDocInto, above) is where a user
-  // is actually looking at one specific document, so that's where the
-  // accurate render belongs.
+  // The small, live thumbnail shown inside each tile on the catalog grid — up
+  // to 11 of these render at once. Uses the same accurate, LibreOffice-backed
+  // render as the expanded modal (renderDocInto, above) — the fast docx-
+  // preview.js render this used to take was visibly distorted for some of
+  // these templates (font-substitution/layout quirks docx-preview.js can't
+  // reproduce; see docxToPdf.ts's own note on why LibreOffice's own
+  // rasterizer is trusted over anything else for this). The batched-page
+  // conversion in core/docxToPdf.ts (docxToPageImages) made a single
+  // document's accurate render fast enough that 11 of them is no longer the
+  // problem it once was; the effect below still debounces the trigger so
+  // typing doesn't fire 11 LibreOffice conversions per keystroke.
   async function renderTileThumbnail(kind: DocKind, container: HTMLElement): Promise<void> {
     const filled = await fillDoc(kind)
-    container.innerHTML = ''
-    await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
-    normalizeDocxTextboxes(container)
+    await renderDocPreview(base64ToUint8(filled), container)
   }
 
   // Guard: the Online Intimation and the L1 selection form must describe the
@@ -1035,10 +1076,14 @@ export default function WorkOrderAgreementTab({
 
   // A Zone-level (SE) office's 5 rebuilt Work Order/Agreement documents.
   // Schedule A remains a separate output, driven entirely by the uploaded
-  // estimate/BOQ, not a template. The Contract Deed is the one doc still
-  // pending rebuild.
+  // estimate/BOQ, not a template.
   const templatesReady = seMode
-    ? !!seAgreementBondB64 && !!zonalWorkOrderB64 && !!zonalConcludingAgreementB64 && !!zonalMemoEeB64 && !!seAgreementNoteB64
+    ? !!seAgreementBondB64 &&
+      !!zonalWorkOrderB64 &&
+      !!zonalConcludingAgreementB64 &&
+      !!zonalMemoEeB64 &&
+      !!seAgreementNoteB64 &&
+      !!contractDeedB64
     : !!workOrderB64 && !!fileBackerB64 && !!agreementB64 && !!forwardingSlipB64 && !!civilTenderB64
   // The document catalog always shows as soon as its templates load,
   // regardless of office (EE or SE) or whether anything's been uploaded yet
@@ -1048,25 +1093,32 @@ export default function WorkOrderAgreementTab({
 
   // Live thumbnails in the document tiles, refreshed whenever the filled values
   // change. The Forwarding Slip shows only on the main tab (not the Tools-mode
-  // single-document panels).
+  // single-document panels). Debounced — `fields` changes on every keystroke,
+  // and each tile is now a real LibreOffice conversion (see renderTileThumbnail's
+  // own note); waiting for typing to pause before firing keeps this from
+  // running 11 conversions per character typed.
   useEffect(() => {
     if (!docsReady) return
-    // Schedule A (the SE catalog's other remaining output) renders its own
-    // JSX table below, not through this docx-preview effect.
-    if (seMode) {
-      if (seBondTileRef.current) void renderTileThumbnail('seAgreementBond', seBondTileRef.current).catch(() => {})
-      if (zwoTileRef.current) void renderTileThumbnail('zonalWorkOrder', zwoTileRef.current).catch(() => {})
-      if (zcaTileRef.current) void renderTileThumbnail('zonalConcludingAgreement', zcaTileRef.current).catch(() => {})
-      if (zmeTileRef.current) void renderTileThumbnail('zonalMemoEe', zmeTileRef.current).catch(() => {})
-      if (seNoteTileRef.current) void renderTileThumbnail('seAgreementNote', seNoteTileRef.current).catch(() => {})
-      return
-    }
-    if (woTileRef.current) void renderTileThumbnail('workOrder', woTileRef.current).catch(() => {})
-    if (fbTileRef.current) void renderTileThumbnail('fileBacker', fbTileRef.current).catch(() => {})
-    if (agTileRef.current) void renderTileThumbnail('agreement', agTileRef.current).catch(() => {})
-    if (qccIntTileRef.current) void renderTileThumbnail('qccIntimation', qccIntTileRef.current).catch(() => {})
-    if (fsTileRef.current) void renderTileThumbnail('forwardingSlip', fsTileRef.current).catch(() => {})
-    if (ctTileRef.current) void renderTileThumbnail('civilTender', ctTileRef.current).catch(() => {})
+    const timer = setTimeout(() => {
+      // Schedule A (the SE catalog's other remaining output) renders its own
+      // JSX table below, not through this docx-preview effect.
+      if (seMode) {
+        if (seBondTileRef.current) void renderTileThumbnail('seAgreementBond', seBondTileRef.current).catch(() => {})
+        if (zwoTileRef.current) void renderTileThumbnail('zonalWorkOrder', zwoTileRef.current).catch(() => {})
+        if (zcaTileRef.current) void renderTileThumbnail('zonalConcludingAgreement', zcaTileRef.current).catch(() => {})
+        if (zmeTileRef.current) void renderTileThumbnail('zonalMemoEe', zmeTileRef.current).catch(() => {})
+        if (seNoteTileRef.current) void renderTileThumbnail('seAgreementNote', seNoteTileRef.current).catch(() => {})
+        if (contractDeedTileRef.current) void renderTileThumbnail('contractDeed', contractDeedTileRef.current).catch(() => {})
+        return
+      }
+      if (woTileRef.current) void renderTileThumbnail('workOrder', woTileRef.current).catch(() => {})
+      if (fbTileRef.current) void renderTileThumbnail('fileBacker', fbTileRef.current).catch(() => {})
+      if (agTileRef.current) void renderTileThumbnail('agreement', agTileRef.current).catch(() => {})
+      if (qccIntTileRef.current) void renderTileThumbnail('qccIntimation', qccIntTileRef.current).catch(() => {})
+      if (fsTileRef.current) void renderTileThumbnail('forwardingSlip', fsTileRef.current).catch(() => {})
+      if (ctTileRef.current) void renderTileThumbnail('civilTender', ctTileRef.current).catch(() => {})
+    }, 600)
+    return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docsReady, seMode, fields, pagesOfAgreement, scheduleAItems])
 
@@ -1127,10 +1179,12 @@ export default function WorkOrderAgreementTab({
     setBusy('bundle')
     setActionError(null)
     setActionSaved(null)
-    // A Zone-level (SE) office's 5 rebuilt documents — Schedule A (pushed
+    // A Zone-level (SE) office's 6 rebuilt documents — Schedule A (pushed
     // below, outside this count) is its other output.
     const totalPrep = seMode
-      ? [seAgreementBondB64, zonalWorkOrderB64, zonalConcludingAgreementB64, zonalMemoEeB64, seAgreementNoteB64].filter(Boolean).length
+      ? [seAgreementBondB64, zonalWorkOrderB64, zonalConcludingAgreementB64, zonalMemoEeB64, seAgreementNoteB64, contractDeedB64].filter(
+          Boolean
+        ).length
       : [fileBackerB64, civilTenderB64, forwardingSlipB64, agreementB64, qccIntimationB64, workOrderB64, noteReady].filter(
           Boolean
         ).length
@@ -1162,6 +1216,7 @@ export default function WorkOrderAgreementTab({
         if (seAgreementNoteB64) await add(docName('seAgreementNote'), await fillDoc('seAgreementNote'))
         if (zonalConcludingAgreementB64) await add(docName('zonalConcludingAgreement'), await fillDoc('zonalConcludingAgreement'))
         if (zonalMemoEeB64) await add(docName('zonalMemoEe'), await fillDoc('zonalMemoEe'))
+        if (contractDeedB64) await add(docName('contractDeed'), await fillDoc('contractDeed'))
       } else {
         // File Backer — the cover page — first in the bundle.
         if (fileBackerB64) await add(docName('fileBacker'), await fillDoc('fileBacker'))
@@ -1244,9 +1299,17 @@ export default function WorkOrderAgreementTab({
       const mag = tenderPctMagnitude(l1.pct)
       if (mag != null) seed.l1PctNumber = mag
     }
+    // The uploaded Balance EMD receipt's Online Receipt No / date, when one's
+    // been read — noteSubmittedFromRow itself always seeds these blank, since
+    // neither the Works List, the L1 sheet, nor the Intimation ever carries
+    // them (see handleEmdReceiptFile).
+    if (emdReceiptInfo) {
+      if (emdReceiptInfo.receiptNo) seed.receiptNo = emdReceiptInfo.receiptNo
+      if (emdReceiptInfo.receiptDate) seed.receiptDate = emdReceiptInfo.receiptDate
+    }
     setNoteData(seed)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowIndex, table, allBidders, pdfEval, notice, deriveFromUploads, selectedRow])
+  }, [rowIndex, table, allBidders, pdfEval, notice, deriveFromUploads, selectedRow, emdReceiptInfo])
 
   const notePreviewHtml = useMemo(() => (noteData ? buildNoteSubmittedHtml(noteData) : ''), [noteData])
   // Same gate as the Work Order / Agreement tiles: don't build the Note
@@ -1799,24 +1862,6 @@ export default function WorkOrderAgreementTab({
               />
             </label>
             <label className="wo-date-field">
-              <span>CE Sanction Letter No &amp; Date</span>
-              <input
-                type="text"
-                placeholder="CE/CMC/TA-I/K6/2026-27/202, dated: 06.07.2026"
-                value={ceLetterNoDate}
-                onChange={(e) => setCeLetterNoDate(e.target.value)}
-              />
-            </label>
-            <label className="wo-date-field wo-manual-wide">
-              <span>EMD Details (Agreement Put-up Note)</span>
-              <textarea rows={3} value={emdDetails} onChange={(e) => setEmdDetails(e.target.value)} />
-              {emdReceiptStatus && (
-                <span className="estimate-hint">
-                  <IconCheck /> {emdReceiptStatus}
-                </span>
-              )}
-            </label>
-            <label className="wo-date-field">
               <span>Period of completion (months)</span>
               <input
                 type="text"
@@ -2016,6 +2061,15 @@ export default function WorkOrderAgreementTab({
               <div className="wo-tile-foot">{DOC_LABEL.seAgreementBond}</div>
             </button>
           )}
+          {docsReady && seMode && (
+            <button className="wo-tile" onClick={() => openDoc('contractDeed')}>
+              <div className="wo-tile-preview">
+                <div ref={contractDeedTileRef} className="wo-tile-doc" />
+                <span className="wo-tile-open">Click to preview</span>
+              </div>
+              <div className="wo-tile-foot">{DOC_LABEL.contractDeed}</div>
+            </button>
+          )}
           {!only && !scheduleAMismatch && (
             <button className="wo-tile" onClick={() => setExpanded('scheduleA')}>
               <div className="wo-tile-preview sched">
@@ -2079,8 +2133,9 @@ export default function WorkOrderAgreementTab({
         </div>
       ) : null}
 
-      {datePromptOpen && (
-        <div className="wo-modal-overlay" onClick={() => setDatePromptOpen(false)}>
+      {datePromptOpen &&
+        createPortal(
+          <div className="wo-modal-overlay" onClick={() => setDatePromptOpen(false)}>
           <div className="wo-modal wo-date-modal" onClick={(e) => e.stopPropagation()}>
             <div className="wo-modal-head">
               <span className="wo-modal-title">
@@ -2166,11 +2221,13 @@ export default function WorkOrderAgreementTab({
               </button>
             </div>
           </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
 
-      {expanded && (
-        <div className="wo-modal-overlay" onClick={() => setExpanded(null)}>
+      {expanded &&
+        createPortal(
+          <div className="wo-modal-overlay" onClick={() => setExpanded(null)}>
           <div className={`wo-modal ${expanded === 'note' ? 'wide' : ''}`} onClick={(e) => e.stopPropagation()}>
             <div className="wo-modal-head">
               <span className="wo-modal-title">
@@ -2259,8 +2316,9 @@ export default function WorkOrderAgreementTab({
               )}
             </div>
           </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

@@ -104,6 +104,17 @@ export const CONTACT_KEYS = {
   hdPhone: 'hda-tn-hd-phone'
 } as const
 
+// Which bundled document-template variant an office has chosen (see
+// core/workOrderTemplateVariants.ts, and Settings' Document Templates
+// section) — scoped per office the same way as CONTACT_KEYS above, so one
+// circle's chosen Work Order style doesn't leak into another's. Stores just
+// the variant id (a short string), not a file — every variant already ships
+// bundled with the app.
+export const TEMPLATE_KEYS = {
+  workOrder: 'hda-template-work-order',
+  agreement: 'hda-template-agreement'
+} as const
+
 /**
  * Whether an office has been chosen. A Corporation + Zone is enough — that's a
  * zonal office (a zone-level Head Draughtsman, spanning every circle in the zone);

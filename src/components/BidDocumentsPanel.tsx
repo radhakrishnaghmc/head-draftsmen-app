@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import { IconDoc, IconEye, IconDownload, IconTrash, IconCheck, IconWarn } from './Icons'
 import { base64ToUint8, renderDocPreview } from './docPage'
@@ -230,23 +231,25 @@ export default function BidDocumentsPanel({ batches, onRemove, onUpdateWork }: P
         </section>
       ))}
 
-      {previewing && (
-        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setPreviewing(null))}>
-          <div className="tender-modal tender-modal-wide" onClick={(e) => e.stopPropagation()}>
-            <h3>
-              BID Document {previewing.work.serial} — {previewing.work.name || 'preview'}
-            </h3>
-            <div className="tender-preview-scroll">
-              <div ref={previewRef} className="docprev-body" />
+      {previewing &&
+        createPortal(
+          <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setPreviewing(null))}>
+            <div className="tender-modal tender-modal-wide" onClick={(e) => e.stopPropagation()}>
+              <h3>
+                BID Document {previewing.work.serial} — {previewing.work.name || 'preview'}
+              </h3>
+              <div className="tender-preview-scroll">
+                <div ref={previewRef} className="docprev-body" />
+              </div>
+              <div className="confirm-actions">
+                <button className="ghost" onClick={() => setPreviewing(null)}>
+                  Close
+                </button>
+              </div>
             </div>
-            <div className="confirm-actions">
-              <button className="ghost" onClick={() => setPreviewing(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </>
   )
 }

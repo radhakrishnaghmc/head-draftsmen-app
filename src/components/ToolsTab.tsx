@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import { IconTable, IconFolder, IconWarn, IconImage, IconClipboard, IconBolt, IconPrint, IconDownload, IconBell, IconDoc, IconChevronLeft } from './Icons'
 import UploadPhotosTab from './UploadPhotosTab'
@@ -426,43 +427,45 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
 
       {/* Zone-only office: ask which circle's office details to stamp, since a
           zonal Head Draughtsman spans every circle in the zone. */}
-      {circlePrompt && (
-        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setCirclePrompt(null))}>
-          <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-            <h3>Which circle?</h3>
-            <p className="confirm-hint">
-              {office?.zone} zone spans several circles. Choose the circle to stamp on{' '}
-              <strong>{circlePrompt.doc.name}</strong>.
-            </p>
-            <label className="gen-row-label">
-              Circle:{' '}
-              <select value={chosenCircle} onChange={(e) => setChosenCircle(e.target.value)}>
-                {circlesOf(office?.corporation, office?.zone).map((e) => (
-                  <option key={e.circle} value={e.circle}>
-                    {e.circle} — {e.cno}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="confirm-actions">
-              <button className="ghost" onClick={() => setCirclePrompt(null)}>
-                Cancel
-              </button>
-              <button className="primary" disabled={!chosenCircle} onClick={confirmCircleAndRun}>
-                {circlePrompt.action === 'print' ? (
-                  <>
-                    <IconPrint /> Print
-                  </>
-                ) : (
-                  <>
-                    <IconDownload /> {circlePrompt.action === 'docx' ? 'Word' : 'PDF'}
-                  </>
-                )}
-              </button>
+      {circlePrompt &&
+        createPortal(
+          <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setCirclePrompt(null))}>
+            <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+              <h3>Which circle?</h3>
+              <p className="confirm-hint">
+                {office?.zone} zone spans several circles. Choose the circle to stamp on{' '}
+                <strong>{circlePrompt.doc.name}</strong>.
+              </p>
+              <label className="gen-row-label">
+                Circle:{' '}
+                <select value={chosenCircle} onChange={(e) => setChosenCircle(e.target.value)}>
+                  {circlesOf(office?.corporation, office?.zone).map((e) => (
+                    <option key={e.circle} value={e.circle}>
+                      {e.circle} — {e.cno}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="confirm-actions">
+                <button className="ghost" onClick={() => setCirclePrompt(null)}>
+                  Cancel
+                </button>
+                <button className="primary" disabled={!chosenCircle} onClick={confirmCircleAndRun}>
+                  {circlePrompt.action === 'print' ? (
+                    <>
+                      <IconPrint /> Print
+                    </>
+                  ) : (
+                    <>
+                      <IconDownload /> {circlePrompt.action === 'docx' ? 'Word' : 'PDF'}
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
 
     </div>
   )

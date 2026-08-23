@@ -1,3 +1,5 @@
+import { detectAgencyAddress } from './tenderAgents/agencyAddress'
+
 export interface IntimationNotice {
   /** Contractor/company name, from the "To" address block. */
   agencyName?: string
@@ -117,18 +119,13 @@ export function parseIntimationNoticeText(lines: string[]): IntimationNotice {
 
   // Agency name + address from the "To," block: the first line after "To,"
   // is the agency, the lines below it (until "Phone No"/"Sub:"/"Ref:") are
-  // the postal address.
-  const toIdx = lines.findIndex((l) => /^to\s*[,:]?\s*$/i.test(l))
-  if (toIdx >= 0) {
-    const after = lines.slice(toIdx + 1).map((l) => l.trim()).filter((l) => l.length > 0)
-    if (after.length > 0) result.agencyName = after[0]
-    const addr: string[] = []
-    for (const l of after.slice(1)) {
-      if (/^(phone\s*no|sub\s*[:.]|ref\s*[:.]|sir|madam)/i.test(l)) break
-      addr.push(l)
-    }
-    if (addr.length > 0) result.address = addr.join(', ')
-  }
+  // the postal address. This is the "Address of the Agency" detector — see
+  // ./tenderAgents/agencyAddress.ts for the actual extraction logic (kept in
+  // that shared folder rather than duplicated here, since it operates on the
+  // same reconstructed-lines shape every other tender-document detector does).
+  const { agencyName, address } = detectAgencyAddress(lines)
+  if (agencyName) result.agencyName = agencyName
+  if (address) result.address = address
 
   // NIT No — the "…Nit No[.:] <code>" line; capture the code up to a following
   // "2)" ref, a "Date:"/"Dt"/"Item" tail, "at contract", or the line's end.

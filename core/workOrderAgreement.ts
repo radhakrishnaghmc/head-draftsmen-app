@@ -94,6 +94,23 @@ export interface WorkOrderAgreementFields {
   itemNo: string
   /** The EMD 1.5%/2.5% (Balance EMD) payment line in the Agreement Note's EMD/payment-particulars paragraph, hand-entered or read off an uploaded receipt (e.g. "EMD 1.5% Online payment Rs.79,911 & ASD Rs.1,06,549.00, Receipt No:...") — free text, varies per work (online split payment vs. Bank Guarantee), never derivable from the Works List. The Note's own template carries blank ruled lines for the separate EMD 1% and TSTS corpus-fund particulars, which have no automated source and are always hand-filled on the printed copy — same as the Concluding Agreement's EMD-details row. Newlines print as real line breaks. */
   emdDetails: string
+  /** NIT / e-Proc tender notice number (e.g. "01/EE-56/QBZ/CMC/2025-2026"). The
+   * app's own bundled Work Order template has never needed this on its face,
+   * but some circles' own templates cite it in a numbered Ref block — see
+   * tenderId/noticeDate/intimationDate below, added together for that. */
+  noticeNo: string
+  /** The portal's own numeric Tender ID (e.g. "679920"), cited alongside the
+   * NIT No in some circles' Ref block ("Your Tender ID:…, Your Tender Dt:…"). */
+  tenderId: string
+  /** The NIT's own date (e.g. "09-02-2026") — distinct from workOrderDate/
+   * agreementDate (which the office hand-dates the printed copy with), this is
+   * the date printed ON the NIT itself, as cited in a Ref block. */
+  noticeDate: string
+  /** When the Intimation / Letter of Acceptance was issued — a third Ref-block
+   * line some circles' Work Orders cite alongside the NIT No and Tender ID.
+   * Same source as Note Submitted's own intimationDate (the L1 sheet's Server
+   * Time footer, falling back to the Works List's own column). */
+  intimationDate: string
 }
 
 /** SC/ST reservation drives EMD/ASD exemption — read from the work name's "(Reserved to SC/ST)" tag or a Reservation column. */
@@ -249,7 +266,11 @@ export function deriveFields(
     ceLetterNoDate: '',
     completionMonths: '',
     reservation: reservationFromRow({ ...row, 'Name of the work': workName }),
-    emdDetails: ''
+    emdDetails: '',
+    noticeNo: notice.nitNo ?? pdf.noticeNo ?? row['Tender Notice No'] ?? '',
+    tenderId: pdf.tenderId ?? row['Tender ID'] ?? '',
+    noticeDate: pdf.noticeDate ?? notice.nitDate ?? row['Tender notice Date'] ?? '',
+    intimationDate: pdf.serverDate || row['Intimation Date'] || ''
   }
 }
 
@@ -282,13 +303,27 @@ export function workOrderPlaceholders(f: WorkOrderAgreementFields): Record<strin
     // hard-coded "QBZ" in the template — now reflects the work's actual zone).
     ZoneAbbr: zoneAbbr(f.zone),
     'Name of the work': f.nameOfWork,
+    'Item No': f.itemNo,
     'Administrative Sanction date': f.adminSanctionDate,
     Wincode: f.wincode,
+    // Hand-entered elsewhere (see WorkOrderAgreementFields.completionMonths'
+    // own doc comment) — the app's own bundled template states this in the
+    // body sentence instead of a labelled amounts-block line, but some
+    // circles' templates do print it as its own line.
+    'Period of Completion': f.completionMonths.trim() ? `${f.completionMonths.trim()} Months` : '',
     'Estimate Amount': estLakhs != null ? `Rs. ${estLakhs.toFixed(2)} Lakhs` : '',
     ECV: ecv != null ? `Rs. ${money2(ecv)}` : '',
     'Tender Percentage': pct == null ? '' : pct === 0 ? '0%' : `(-) ${formatPercent(pct)}%-Less`,
     'Contract Amount': contract != null ? `Rs. ${money2(contract)}` : '',
-    TP: pct != null ? formatPercent(pct) : ''
+    TP: pct != null ? formatPercent(pct) : '',
+    // The app's own bundled template doesn't cite these on its face, but some
+    // circles' own templates do (a numbered Ref block: NIT No, Tender ID +
+    // its date, Intimation Letter Date) — added for those, harmless no-ops
+    // for a template that doesn't use them.
+    'NIT No': f.noticeNo,
+    'Tender ID': f.tenderId,
+    'NIT Date': f.noticeDate,
+    'Intimation Letter Date': f.intimationDate
   }
 }
 
@@ -301,6 +336,11 @@ export function agreementPlaceholders(f: WorkOrderAgreementFields): Record<strin
   return {
     Circle: f.circle,
     CNO: f.cno,
+    // Not cited by the app's own default Agreement Bond template, but a real
+    // circle's own wording (e.g. Kompally's "AGREEMENT - DEED") does — a
+    // harmless no-op key for a template that doesn't use it, same as
+    // workOrderPlaceholders' NIT No/Tender ID additions.
+    Zone: f.zone,
     'Name of the work': f.nameOfWork,
     // Template already prints "Rs." … "Lakhs" around this one.
     'Estimate Amount': estLakhs != null ? estLakhs.toFixed(2) : '',
@@ -311,6 +351,11 @@ export function agreementPlaceholders(f: WorkOrderAgreementFields): Record<strin
     'Agreement Date': f.agreementDate.trim() || DATE_BLANK,
     'Agreement date in words': dateToWords(f.agreementDate) || DATE_WORDS_BLANK,
     'Agency Name': f.agencyName,
+    // Bare/unwrapped, single-line — for a template that prints it inline in a
+    // sentence rather than a standalone "To," block (see workOrderPlaceholders'
+    // own wrapped 'Address of the agency' for that other case).
+    'Address of the agency': f.address,
+    'Period of Completion': f.completionMonths.trim() ? `${f.completionMonths.trim()} Months` : '',
     'Contract value in rupees': contract != null ? amountToWords(contract) : ''
   }
 }
@@ -394,6 +439,7 @@ export function zonalDocsPlaceholders(f: WorkOrderAgreementFields, notice: Intim
     'Estimate Lakhs': estLakhs != null ? estLakhs.toFixed(2) : '',
     ECV: ecv != null ? groupedAmount(ecv) : '',
     Contract: contract != null ? groupedAmount(contract) : '',
+    'Contract Words': contract != null ? amountToWords(contract) : '',
     'Tender Percent': pct != null ? formatPercent(pct) : '',
     Period: f.completionMonths.trim() ? f.completionMonths.trim().padStart(2, '0') : '',
     'Agency Name': f.agencyName,
@@ -424,6 +470,9 @@ export function fileBackerPlaceholders(f: WorkOrderAgreementFields): Record<stri
   const circleHeader = f.circle ? `${f.circle.toUpperCase()} CIRCLE${f.cno ? `-${f.cno}` : ''}` : ''
   return {
     'Circle Header': circleHeader,
+    'Tender ID': f.tenderId,
+    'NIT No': f.noticeNo,
+    'NIT Date': f.noticeDate,
     'Name of the work': f.nameOfWork,
     'Estimate Amount': estLakhs != null ? `Rs. ${estLakhs.toFixed(2)} Lakhs` : '',
     // ECV sits between Estimate and Contract; it's stored in rupees (blank stays

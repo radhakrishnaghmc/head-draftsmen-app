@@ -19,6 +19,7 @@ import {
   IconRefresh,
   IconBell,
   IconTools,
+  IconSettings,
   IconWhatsApp
 } from './Icons'
 
@@ -30,10 +31,12 @@ export type TabKey =
   | 'techSanction'
   | 'intimation'
   | 'workOrder'
+  | 'issueNotices'
   | 'mbScrutiny'
   | 'search'
   | 'todo'
   | 'tools'
+  | 'settings'
 
 interface Props {
   active: TabKey
@@ -124,6 +127,11 @@ export default function Sidebar(props: Props) {
       icon: <IconClipboard />
     },
     {
+      key: 'issueNotices',
+      label: 'Issue Notices',
+      icon: <IconWarn />
+    },
+    {
       key: 'printDoc',
       label: 'Issue Documents',
       icon: <IconPrint />,
@@ -162,6 +170,11 @@ export default function Sidebar(props: Props) {
       label: 'Tools',
       icon: <IconTools />,
       tone: 'teal'
+    },
+    {
+      key: 'settings',
+      label: 'Settings',
+      icon: <IconSettings />
     }
   ]
 
