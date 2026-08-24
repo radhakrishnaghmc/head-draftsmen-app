@@ -169,52 +169,6 @@ export async function renderDocPreview(
   }
 }
 
-/** Builds the same `div.docx-wrapper > section.docx > img` shape as renderDocPreview's accurate path, from an already-rendered set of page PNGs, into one container. */
-function paintPageImages(images: Uint8Array[], container: HTMLElement): void {
-  container.innerHTML = ''
-  const wrapper = document.createElement('div')
-  wrapper.className = 'docx-wrapper'
-  for (const png of images) {
-    const section = document.createElement('section')
-    section.className = 'docx'
-    section.style.width = `${PAGE_WIDTH}px`
-    const img = document.createElement('img')
-    img.src = `data:image/png;base64,${uint8ToBase64(png)}`
-    img.alt = ''
-    img.style.display = 'block'
-    img.style.width = '100%'
-    img.style.height = 'auto'
-    section.appendChild(img)
-    wrapper.appendChild(section)
-  }
-  container.appendChild(wrapper)
-}
-
-/**
- * Same accurate LibreOffice-backed render as renderDocPreview, but for
- * several documents/containers at once — e.g. a tile grid's live thumbnails,
- * which used to call renderDocPreview once per tile (up to 6-12 independent
- * LibreOffice conversions racing each other for the same profile lock; see
- * core/docxToPdf.ts's docxBuffersToPageImages for the measured cost of that).
- * Converts every document in ONE batched IPC round-trip instead, then paints
- * each container from its own slice of the results. Falls back to rendering
- * each item through the ordinary single-document renderDocPreview (which has
- * its own docx-preview.js fallback) if the batched call itself fails outright
- * — e.g. LibreOffice missing entirely — so a batch failure doesn't blank
- * every tile when the ordinary single-document path would still work.
- */
-export async function renderDocPreviewBatch(
-  items: { docxBytes: Uint8Array; container: HTMLElement }[]
-): Promise<void> {
-  if (items.length === 0) return
-  try {
-    const results = await api.docxToPageImagesBatch(items.map((it) => it.docxBytes))
-    items.forEach((it, i) => paintPageImages(results[i] ?? [], it.container))
-  } catch {
-    await Promise.all(items.map((it) => renderDocPreview(it.docxBytes, it.container)))
-  }
-}
-
 export function pageShellStyle(): string {
   return `
     html, body { margin: 0; }

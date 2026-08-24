@@ -16,36 +16,8 @@ const SOFFICE_CANDIDATES: Partial<Record<NodeJS.Platform, string[]>> = {
   linux: ['/usr/bin/soffice', '/usr/bin/libreoffice', '/snap/bin/libreoffice', '/opt/libreoffice/program/soffice']
 }
 
-/**
- * The app's own bundled LibreOffice — Windows and macOS, the two platforms
- * this app actually ships to (see scripts/prepare-libreoffice-win.ps1 /
- * prepare-libreoffice-mac.sh, staged from resources/libreoffice-<platform>/
- * into the packaged app's resources folder via electron-builder's per-
- * platform extraResources). A pruned copy — help/extensions/gallery/
- * template/wizards/icon-theme assets, Calc, Math, VBA-macro-object support
- * and the PostgreSQL Base connector all stripped; the conversion engine,
- * legacy-format filters (needed for WordToolPage's .doc uploads), Draw
- * (needed for this app's own PDF->PNG preview/print rasterization) and fonts
- * are untouched — verified end-to-end, real templates, before this pruning
- * list was set — so an office clerk's machine never needs its own separate
- * LibreOffice install. `process.resourcesPath` is only set inside an actual
- * Electron process — a plain Node context (tests, standalone scripts) skips
- * straight to the system-install candidates below, unchanged from before;
- * Linux falls through the same way (no bundled copy shipped for it).
- */
-function bundledSofficeCandidate(): string | undefined {
-  const resourcesPath = (process as { resourcesPath?: string }).resourcesPath
-  if (!resourcesPath) return undefined
-  const byPlatform: Partial<Record<NodeJS.Platform, string>> = {
-    win32: path.join(resourcesPath, 'libreoffice/program/soffice.exe'),
-    darwin: path.join(resourcesPath, 'LibreOffice.app/Contents/MacOS/soffice')
-  }
-  return byPlatform[process.platform]
-}
-
 function findSofficeBinary(): string {
-  const bundled = bundledSofficeCandidate()
-  const candidates = [...(bundled ? [bundled] : []), ...(SOFFICE_CANDIDATES[process.platform] ?? [])]
+  const candidates = SOFFICE_CANDIDATES[process.platform] ?? []
   const found = candidates.find((p) => fs.existsSync(p))
   if (!found) throw new Error('Could not find the soffice binary.')
   return found
@@ -115,72 +87,6 @@ async function convertWithRetry(
   )
 }
 
-/**
- * Same idea as sofficeConvert, but N input files converted in ONE soffice
- * invocation instead of N separate ones. `soffice`'s own process-startup
- * cost (loading config/fonts) dominates a single conversion's wall time far
- * more than the actual rendering work does — passing every file to one
- * invocation pays that startup cost once instead of once per file.
- * Measured on a real 5-page document (page->PNG step only): 11.0s as 5
- * separate calls vs 3.85s batched (2.9x) — byte-identical output — and the
- * win scales with page count (a 41-page Civil Tender Document today would
- * pay that startup cost 41 times over). `names` must be unique (no
- * extension) — they become both the input and output filename stem, so the
- * caller can map results back to the page each one came from.
- */
-async function sofficeConvertBatch(
-  soffice: string,
-  inputs: { name: string; buffer: Buffer }[],
-  inExt: string,
-  convertTo: string,
-  outExt: string = convertTo
-): Promise<Map<string, Buffer>> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docugen-convert-'))
-  try {
-    const inputPaths = inputs.map(({ name, buffer }) => {
-      const p = path.join(dir, `${name}.${inExt}`)
-      fs.writeFileSync(p, buffer)
-      return p
-    })
-    await execFileAsync(soffice, ['--headless', '--convert-to', convertTo, '--outdir', dir, ...inputPaths], {
-      // Scales with batch size — a single file's 60s budget wouldn't be
-      // enough headroom for, say, 41 pages processed in one invocation.
-      timeout: 60000 + inputs.length * 5000
-    })
-    const results = new Map<string, Buffer>()
-    for (const { name } of inputs) {
-      results.set(name, fs.readFileSync(path.join(dir, `${name}.${outExt}`)))
-    }
-    return results
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true })
-  }
-}
-
-/** Batched counterpart to convertWithRetry — same transient-lock retry, for sofficeConvertBatch. */
-async function convertWithRetryBatch(
-  soffice: string,
-  inputs: { name: string; buffer: Buffer }[],
-  inExt: string,
-  convertTo: string,
-  outExt: string = convertTo
-): Promise<Map<string, Buffer>> {
-  let lastErr: unknown
-  for (let attempt = 0; attempt < 4; attempt++) {
-    try {
-      return await sofficeConvertBatch(soffice, inputs, inExt, convertTo, outExt)
-    } catch (err) {
-      lastErr = err
-      await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)))
-    }
-  }
-  throw new Error(
-    'PDF conversion requires LibreOffice to be installed on this computer. ' +
-      'Install it from libreoffice.org, then try again — or use the Word (.docx) or Print option instead.\n' +
-      (lastErr instanceof Error ? lastErr.message : String(lastErr))
-  )
-}
-
 /** Convert a .docx buffer to PDF via a local LibreOffice install. Throws a clear error when LibreOffice isn't installed, instead of a cryptic ENOENT. */
 export async function convertDocxToPdf(docxBuffer: Buffer): Promise<Buffer> {
   return convertWithRetry(findSofficeBinary(), docxBuffer, 'docx', 'pdf')
@@ -215,79 +121,22 @@ export async function convertDocxToPdf(docxBuffer: Buffer): Promise<Buffer> {
 // portrait A4) renders at a real print resolution instead.
 const PRINT_DPI = 300
 
-/**
- * Same as docxToPageImages, but for several DIFFERENT documents at once —
- * e.g. the Work Order/Agreement tile grid, which renders up to 6 documents'
- * live thumbnails on every mount/edit. Calling docxToPageImages once per
- * document means once per document paying soffice's own process-startup
- * cost again, AND racing every other in-flight conversion for the same
- * LibreOffice user profile lock (see sofficeConvert's doc comment on why
- * that profile is shared) — measured on a real 8-tile burst, that race
- * dropped 1 of 8 tiles outright once retries were exhausted, in 24.4s
- * wall-clock. Converting all N documents to PDF in ONE soffice invocation,
- * then rasterizing every resulting page across every document in as few
- * further invocations as page sizes require (same grouping-by-pixel-size
- * idea as the single-document path below), measured at 3.2s for the docx→pdf
- * step alone on the same 8 documents — an order of magnitude faster, and
- * with no concurrent profile-lock contention to fail on since only one
- * soffice process runs at a time by construction, not by an artificial cap.
- */
-export async function docxBuffersToPageImages(docxBuffers: Buffer[]): Promise<Buffer[][]> {
-  if (docxBuffers.length === 0) return []
-  const soffice = findSofficeBinary()
-
-  const docInputs = docxBuffers.map((buffer, i) => ({ name: `doc-${i}`, buffer }))
-  const pdfResults = await convertWithRetryBatch(soffice, docInputs, 'docx', 'pdf')
-
-  // Split every resulting PDF into single-page PDFs (soffice's own
-  // --convert-to only ever rasterizes a document's first page), then group
-  // ALL pages — across every document, not just within one — by pixel size,
-  // since the PixelWidth/PixelHeight filter applies to a whole soffice
-  // invocation, not per file. In practice this is almost always one group
-  // covering every page of every document, which is what makes this worth
-  // doing: see sofficeConvertBatch's own doc comment for the measured 2.9x
-  // on a single document, which compounds further once N documents share
-  // the same one or two invocations instead of each paying their own.
-  const groups = new Map<string, { name: string; buffer: Buffer }[]>()
-  const pageLocationByName = new Map<string, { docIndex: number; pageIndex: number }>()
-  const pageCounts: number[] = new Array(docxBuffers.length)
-
-  for (let docIndex = 0; docIndex < docxBuffers.length; docIndex++) {
-    const pdf = pdfResults.get(`doc-${docIndex}`)
-    if (!pdf) throw new Error(`LibreOffice produced no PDF for document ${docIndex}.`)
-    const src = await PDFDocument.load(pdf)
-    const pageCount = src.getPageCount()
-    pageCounts[docIndex] = pageCount
-    for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-      const single = await PDFDocument.create()
-      const [copied] = await single.copyPages(src, [pageIndex])
-      single.addPage(copied)
-      const { width, height } = copied.getSize()
-      const pixelWidth = Math.round((width / 72) * PRINT_DPI)
-      const pixelHeight = Math.round((height / 72) * PRINT_DPI)
-      const key = `${pixelWidth}x${pixelHeight}`
-      const name = `doc${docIndex}-page${pageIndex}`
-      pageLocationByName.set(name, { docIndex, pageIndex })
-      const bucket = groups.get(key) ?? []
-      bucket.push({ name, buffer: Buffer.from(await single.save()) })
-      groups.set(key, bucket)
-    }
-  }
-
-  const results: Buffer[][] = pageCounts.map((n) => new Array(n))
-  for (const [key, inputs] of groups) {
-    const [pixelWidth, pixelHeight] = key.split('x')
-    const filter = `png:draw_png_Export:{"PixelWidth":{"type":"long","value":"${pixelWidth}"},"PixelHeight":{"type":"long","value":"${pixelHeight}"}}`
-    const pngResults = await convertWithRetryBatch(soffice, inputs, 'pdf', filter, 'png')
-    for (const [name, buffer] of pngResults) {
-      const loc = pageLocationByName.get(name)!
-      results[loc.docIndex][loc.pageIndex] = buffer
-    }
-  }
-  return results
-}
-
 export async function docxToPageImages(docxBuffer: Buffer): Promise<Buffer[]> {
-  const [images] = await docxBuffersToPageImages([docxBuffer])
+  const soffice = findSofficeBinary()
+  const pdf = await convertWithRetry(soffice, docxBuffer, 'docx', 'pdf')
+  const src = await PDFDocument.load(pdf)
+  const pageCount = src.getPageCount()
+
+  const images: Buffer[] = new Array(pageCount)
+  for (let i = 0; i < pageCount; i++) {
+    const single = await PDFDocument.create()
+    const [copied] = await single.copyPages(src, [i])
+    single.addPage(copied)
+    const { width, height } = copied.getSize()
+    const pixelWidth = Math.round((width / 72) * PRINT_DPI)
+    const pixelHeight = Math.round((height / 72) * PRINT_DPI)
+    const filter = `png:draw_png_Export:{"PixelWidth":{"type":"long","value":"${pixelWidth}"},"PixelHeight":{"type":"long","value":"${pixelHeight}"}}`
+    images[i] = await convertWithRetry(soffice, Buffer.from(await single.save()), 'pdf', filter, 'png')
+  }
   return images
 }

@@ -45,7 +45,14 @@ import type { PlaceholderMatch } from '@core/createDocument'
 import type { ScheduleAMeta, AgreementBundleFile } from '../../electron/ipc-contract'
 import type { ExcelTable } from '@core/types'
 import { pdfToTextLines, pdfToPositionedLines } from '../pdfToText'
-import { base64ToUint8, PAGE_WIDTH, renderDocPreview, renderDocPreviewBatch } from './docPage'
+import {
+  base64ToUint8,
+  PAGE_WIDTH,
+  renderDocPreview,
+  DOCX_PREVIEW_OPTIONS,
+  normalizeDocxTextboxes
+} from './docPage'
+import { renderAsync } from '../lazyDocxPreview'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconCheck, IconClipboard, IconTable } from './Icons'
 
 interface Props {
@@ -1021,25 +1028,20 @@ export default function WorkOrderAgreementTab({
     return pageCount
   }
 
-  // Renders every visible tile's live thumbnail in ONE batched LibreOffice
-  // call instead of one independent conversion per tile. Uses the same
-  // accurate, LibreOffice-backed render as the expanded modal (renderDocInto,
-  // above) — the fast docx-preview.js render this used to take was visibly
-  // distorted for some of these templates (font-substitution/layout quirks
-  // docx-preview.js can't reproduce; see docxToPdf.ts's own note on why
-  // LibreOffice's own rasterizer is trusted over anything else for this).
-  // Batching (core/docxToPdf.ts's docxBuffersToPageImages) matters because up
-  // to 6 tiles render at once here: converting each independently meant each
-  // one raced every other for the same LibreOffice profile lock — measured on
-  // a real 8-document burst, that dropped 1 in 8 outright once retries were
-  // exhausted, in 24.4s wall-clock; batched, the same 8 documents finished in
-  // 8.8s with none lost. The effect below still debounces the trigger so
-  // typing doesn't fire a batch of LibreOffice conversions per keystroke.
-  async function renderTileThumbnails(tiles: { kind: DocKind; container: HTMLElement }[]): Promise<void> {
-    const filled = await Promise.all(tiles.map((t) => fillDoc(t.kind)))
-    await renderDocPreviewBatch(
-      tiles.map((t, i) => ({ docxBytes: base64ToUint8(filled[i]), container: t.container }))
-    )
+  // The small, live thumbnail shown inside each tile on the catalog grid — up
+  // to 6 of these render at once. Deliberately the FAST docx-preview.js
+  // render, not the accurate LibreOffice-backed one renderDocInto (above)
+  // uses: LibreOffice conversion for every tile — whether run independently
+  // or batched into one call — depends on a working local/bundled LibreOffice
+  // install, and on at least one real machine turned both slow and, for
+  // actual PDF saving, broken outright. The fast render is an approximation
+  // (see normalizeDocxTextboxes for the known gap it patches around), but
+  // it's instant and has no external dependency.
+  async function renderTileThumbnail(kind: DocKind, container: HTMLElement): Promise<void> {
+    const filled = await fillDoc(kind)
+    container.innerHTML = ''
+    await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
+    normalizeDocxTextboxes(container)
   }
 
   // Guard: the Online Intimation and the L1 selection form must describe the
@@ -1098,35 +1100,28 @@ export default function WorkOrderAgreementTab({
 
   // Live thumbnails in the document tiles, refreshed whenever the filled values
   // change. The Forwarding Slip shows only on the main tab (not the Tools-mode
-  // single-document panels). Debounced — `fields` changes on every keystroke,
-  // and each render is a real LibreOffice conversion (see renderTileThumbnails'
-  // own note); waiting for typing to pause before firing keeps this from
-  // running a batch of conversions per character typed.
+  // single-document panels). Debounced — `fields` changes on every keystroke —
+  // so typing doesn't re-render every tile per character.
   useEffect(() => {
     if (!docsReady) return
     const timer = setTimeout(() => {
       // Schedule A (the SE catalog's other remaining output) renders its own
       // JSX table below, not through this docx-preview effect.
-      type Tile = { kind: DocKind; container: HTMLElement } | null
-      const candidates: Tile[] = seMode
-        ? [
-            seBondTileRef.current && { kind: 'seAgreementBond', container: seBondTileRef.current },
-            zwoTileRef.current && { kind: 'zonalWorkOrder', container: zwoTileRef.current },
-            zcaTileRef.current && { kind: 'zonalConcludingAgreement', container: zcaTileRef.current },
-            zmeTileRef.current && { kind: 'zonalMemoEe', container: zmeTileRef.current },
-            seNoteTileRef.current && { kind: 'seAgreementNote', container: seNoteTileRef.current },
-            contractDeedTileRef.current && { kind: 'contractDeed', container: contractDeedTileRef.current }
-          ]
-        : [
-            woTileRef.current && { kind: 'workOrder', container: woTileRef.current },
-            fbTileRef.current && { kind: 'fileBacker', container: fbTileRef.current },
-            agTileRef.current && { kind: 'agreement', container: agTileRef.current },
-            qccIntTileRef.current && { kind: 'qccIntimation', container: qccIntTileRef.current },
-            fsTileRef.current && { kind: 'forwardingSlip', container: fsTileRef.current },
-            ctTileRef.current && { kind: 'civilTender', container: ctTileRef.current }
-          ]
-      const tiles = candidates.filter((t): t is { kind: DocKind; container: HTMLElement } => !!t)
-      void renderTileThumbnails(tiles).catch(() => {})
+      if (seMode) {
+        if (seBondTileRef.current) void renderTileThumbnail('seAgreementBond', seBondTileRef.current).catch(() => {})
+        if (zwoTileRef.current) void renderTileThumbnail('zonalWorkOrder', zwoTileRef.current).catch(() => {})
+        if (zcaTileRef.current) void renderTileThumbnail('zonalConcludingAgreement', zcaTileRef.current).catch(() => {})
+        if (zmeTileRef.current) void renderTileThumbnail('zonalMemoEe', zmeTileRef.current).catch(() => {})
+        if (seNoteTileRef.current) void renderTileThumbnail('seAgreementNote', seNoteTileRef.current).catch(() => {})
+        if (contractDeedTileRef.current) void renderTileThumbnail('contractDeed', contractDeedTileRef.current).catch(() => {})
+        return
+      }
+      if (woTileRef.current) void renderTileThumbnail('workOrder', woTileRef.current).catch(() => {})
+      if (fbTileRef.current) void renderTileThumbnail('fileBacker', fbTileRef.current).catch(() => {})
+      if (agTileRef.current) void renderTileThumbnail('agreement', agTileRef.current).catch(() => {})
+      if (qccIntTileRef.current) void renderTileThumbnail('qccIntimation', qccIntTileRef.current).catch(() => {})
+      if (fsTileRef.current) void renderTileThumbnail('forwardingSlip', fsTileRef.current).catch(() => {})
+      if (ctTileRef.current) void renderTileThumbnail('civilTender', ctTileRef.current).catch(() => {})
     }, 600)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps

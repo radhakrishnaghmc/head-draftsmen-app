@@ -16,6 +16,13 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.23.3',
+    changes: [
+      'Windows: reverted the bundled-LibreOffice change from the last two updates — it made previews slower and broke saving a document as PDF for some users. Document preview, print, and Save as PDF now work the same way they did before 1.23.1; if you use those features, please make sure LibreOffice is installed separately (libreoffice.org) as before.',
+      'Work Order/Agreement document tiles go back to their fast preview — the exact-match preview from the last update wasn\'t worth the slow-down it caused.'
+    ]
+  },
+  {
     version: '1.23.2',
     changes: [
       'Fixed: the Work Order/Agreement document tiles could take a long time to load their previews, especially on Windows — all the tiles on a page now render together instead of one at a time.'

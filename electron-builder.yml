@@ -171,14 +171,6 @@ mac:
     - '!**/node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/linux/**'
     - '!**/node_modules/@img/sharp-win32-*/**'
     - '!**/node_modules/@img/sharp-linux*/**'
-  # A pruned LibreOffice, staged by scripts/prepare-libreoffice-mac.sh (run
-  # that first — resources/libreoffice-mac/ is gitignored, not checked in) —
-  # so a Mac office machine never needs its own separate LibreOffice install.
-  # core/docxToPdf.ts's findSofficeBinary() checks this bundled copy before
-  # any system install.
-  extraResources:
-    - from: resources/libreoffice-mac/LibreOffice.app
-      to: LibreOffice.app
 win:
   icon: build/icon.ico
   target:
@@ -193,14 +185,6 @@ win:
     - '!**/node_modules/@img/sharp-darwin-*/**'
     - '!**/node_modules/@img/sharp-libvips-darwin-*/**'
     - '!**/node_modules/@img/sharp-linux*/**'
-  # A pruned LibreOffice, staged by scripts/prepare-libreoffice-win.ps1 (run
-  # that first — resources/libreoffice-win/ is gitignored, not checked in) —
-  # so a Windows office machine never needs its own separate LibreOffice
-  # install for accurate document preview/print/PDF export. core/docxToPdf.ts's
-  # findSofficeBinary() checks this bundled copy before any system install.
-  extraResources:
-    - from: resources/libreoffice-win
-      to: libreoffice
 linux:
   icon: build/icon.png
   target:
