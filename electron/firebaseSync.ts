@@ -19,7 +19,7 @@ import {
   type Firestore,
   type Unsubscribe
 } from 'firebase/firestore'
-import { canClaimSlot, claimSlot, releaseSlot, touchSlot, type SessionSlot } from '../core/sessionSlots'
+import { canClaimSlot, claimSlot, releaseSlot, touchSlot, clearSlots, liveSlots, type SessionSlot } from '../core/sessionSlots'
 import type { PersistedState, CreatedDocument, TodoItem, MBScrutinyItem } from '../core/types'
 import { LEGACY_SEED_DOC_IDS, pruneLegacyDocuments } from '../core/types'
 
@@ -87,17 +87,24 @@ interface ActiveSession {
 let active: ActiveSession | null = null
 
 /**
- * Call after a successful password check. Claims one of the 2 session slots
+ * Call after a successful password check. Claims one of the session slots
  * for this login ID, pulls whatever's already synced for it, and starts a
  * live listener for changes made from the other device.
  *
  * If the cloud is unreachable, the login proceeds anyway (offline-only, no
  * sync, no session cap) rather than locking the user out over a network hiccup.
+ *
+ * `force`: skip the slot check and sign every other device out first — the
+ * login screen's "log out other devices" recovery once all
+ * MAX_CONCURRENT_SESSIONS are taken. Only reachable after the password has
+ * already been re-verified (see electron/main.ts's login handler), since
+ * this immediately ends every other device's session.
  */
 export async function startSession(
   loginId: string,
   deviceLabel: string,
-  onRemoteUpdate: (partial: Partial<PersistedState>) => void
+  onRemoteUpdate: (partial: Partial<PersistedState>) => void,
+  force = false
 ): Promise<{ claim: ClaimResult; remoteState: PersistedState | null }> {
   const id = normalizeId(loginId)
   try {
@@ -108,7 +115,8 @@ export async function startSession(
     let claimed = false
     await runTransaction(db!, async (tx) => {
       const snap = await tx.get(ref)
-      const slots: SessionSlot[] = snap.exists() ? (snap.data().slots ?? []) : []
+      const existing: SessionSlot[] = snap.exists() ? (snap.data().slots ?? []) : []
+      const slots = force ? clearSlots() : existing
       if (!canClaimSlot(slots, now)) {
         claimed = false
         return
@@ -187,6 +195,44 @@ export async function endSession(): Promise<void> {
   } catch (e) {
     console.error('endSession: release failed', e)
   }
+}
+
+/** This device's own session id, or null if not signed in. Used to mark "this device" in Settings' Active Devices list. */
+export function currentSessionId(): string | null {
+  return active?.sessionId ?? null
+}
+
+/** Lists every live session for a login — Settings' "Active Devices" panel. Empty (not thrown) if the cloud is unreachable, matching this module's offline-first fallback elsewhere. */
+export async function listSessions(loginId: string): Promise<SessionSlot[]> {
+  try {
+    await ensureAuth()
+    const ref = doc(db!, 'sessions', normalizeId(loginId))
+    const snap = await getDoc(ref)
+    const slots: SessionSlot[] = snap.exists() ? (snap.data().slots ?? []) : []
+    return liveSlots(slots, Date.now())
+  } catch (e) {
+    console.error('listSessions failed', e)
+    return []
+  }
+}
+
+/**
+ * Ends one specific OTHER device's session — Settings' "Active Devices" panel
+ * kicking a stale/unwanted session. Never touches this device's own local
+ * `active` state (that's endSession's job, via the normal logout flow) — a
+ * sessionId that happens to be this device's own is simply released same as
+ * any other, but electron/main.ts's handler never passes one, so in practice
+ * this only ever removes a slot no longer backed by a running app.
+ */
+export async function endOtherSession(loginId: string, sessionId: string): Promise<void> {
+  await ensureAuth()
+  const ref = doc(db!, 'sessions', normalizeId(loginId))
+  await runTransaction(db!, async (tx) => {
+    const snap = await tx.get(ref)
+    if (!snap.exists()) return
+    const slots: SessionSlot[] = snap.data().slots ?? []
+    tx.set(ref, { slots: releaseSlot(slots, sessionId) })
+  })
 }
 
 async function pullRemoteState(id: string): Promise<PersistedState | null> {

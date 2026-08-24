@@ -16,6 +16,13 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.24.0',
+    changes: [
+      'Login: if all 5 devices are already signed in, you can now force-log-out every other device right from the login screen instead of having to walk to another machine.',
+      'Settings: added an "Active Devices" list showing every device currently signed in with your login, each with its own Log Out button — so you can free up a slot or sign out a device you no longer use.'
+    ]
+  },
+  {
     version: '1.23.3',
     changes: [
       'Windows: reverted the bundled-LibreOffice change from the last two updates — it made previews slower and broke saving a document as PDF for some users. Document preview, print, and Save as PDF now work the same way they did before 1.23.1; if you use those features, please make sure LibreOffice is installed separately (libreoffice.org) as before.',

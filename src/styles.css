@@ -3133,6 +3133,30 @@ textarea:placeholder-shown {
   width: 100%;
   margin-top: 6px;
 }
+/* Only shown once a normal attempt has come back "already signed in on N
+   devices" — a deliberate secondary action (warning-tinted, not the primary
+   green submit button) since it signs every other device out immediately. */
+.login-force-logout {
+  width: 100%;
+  margin-top: 8px;
+  padding: 9px 10px;
+  border-radius: var(--radius);
+  border: 1px solid #fde68a;
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.login-force-logout:hover {
+  background: #fde68a55;
+  border-color: #fcd34d;
+}
+.login-force-logout:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .login-credits {
   margin: 18px 0 0;
   font-size: 11.5px;
@@ -8920,6 +8944,81 @@ tr.on .rp-box span {
 .elec-preview .elec-desc {
   text-align: left;
   min-width: 320px;
+}
+
+/* ============================================================
+   Settings — Active Devices (session list + per-device logout)
+   ============================================================ */
+.active-devices-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.active-device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.active-device-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.active-device-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--text);
+}
+.active-device-tag {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--indigo-100);
+  color: var(--indigo-500);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.active-device-meta {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.active-device-logout {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--danger-bg);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.active-device-logout:hover {
+  background: #fecaca;
+  border-color: #fca5a5;
+}
+.active-device-logout:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.active-device-logout svg {
+  width: 13px;
+  height: 13px;
 }
 
 /* ============================================================

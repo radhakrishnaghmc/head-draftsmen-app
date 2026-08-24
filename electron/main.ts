@@ -6,7 +6,7 @@ import * as os from 'os'
 import * as firebaseSync from './firebaseSync'
 import { initAutoUpdate, restartToUpdate, checkForUpdatesManually } from './autoUpdate'
 import { IPC } from './ipc-contract'
-import type { ManualCheckResult, AgreementBundleFile } from './ipc-contract'
+import type { ManualCheckResult, AgreementBundleFile, ActiveSessionInfo } from './ipc-contract'
 import { workOrderTemplateFileName, agreementTemplateFileName } from '../core/workOrderTemplateVariants'
 import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer, readSheetPreviews } from '../core/excel'
 import type { SheetPreview } from '../core/excel'
@@ -298,7 +298,7 @@ function registerHandlers(): void {
     return importAllSheetsFromGoogleLink(url)
   })
 
-  ipcMain.handle(IPC.login, async (_e, loginId: string, password: string): Promise<LoginResult> => {
+  ipcMain.handle(IPC.login, async (_e, loginId: string, password: string, forceLogout?: boolean): Promise<LoginResult> => {
     const result = await validateLogin(loginId, password)
     if (!result.ok) return result
 
@@ -307,11 +307,21 @@ function registerHandlers(): void {
     // this user's over theirs.
     currentLoginId = firebaseSync.normalizeId(loginId)
 
-    const { claim, remoteState } = await firebaseSync.startSession(loginId, os.hostname(), (partial) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(IPC.remoteStateUpdate, partial)
-      }
-    })
+    // forceLogout only ever reaches here after the password above has
+    // already been re-verified — the login screen only offers it once a
+    // normal attempt has already come back maxSessions, using the same
+    // loginId/password the user just typed. It immediately ends every other
+    // device's session, so it's never applied silently.
+    const { claim, remoteState } = await firebaseSync.startSession(
+      loginId,
+      os.hostname(),
+      (partial) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(IPC.remoteStateUpdate, partial)
+        }
+      },
+      forceLogout
+    )
     if (!claim.ok) return { ok: false, maxSessions: true }
 
     if (remoteState) {
@@ -329,6 +339,22 @@ function registerHandlers(): void {
     // Forget which login's cache we were pointing at, so nothing can read or
     // write it until the next login re-establishes identity.
     currentLoginId = null
+  })
+
+  ipcMain.handle(IPC.listActiveSessions, async (): Promise<ActiveSessionInfo[]> => {
+    if (!currentLoginId) return []
+    const slots = await firebaseSync.listSessions(currentLoginId)
+    const mySessionId = firebaseSync.currentSessionId()
+    return slots.map((s) => ({ ...s, isThisDevice: s.sessionId === mySessionId }))
+  })
+
+  ipcMain.handle(IPC.logoutOtherSession, async (_e, sessionId: string): Promise<void> => {
+    if (!currentLoginId) return
+    // Never let this end THIS device's own session through this path — that
+    // would desync the renderer's auth state (still "logged in" locally with
+    // no session backing it). Use IPC.logout for that instead.
+    if (sessionId === firebaseSync.currentSessionId()) return
+    await firebaseSync.endOtherSession(currentLoginId, sessionId)
   })
 
   ipcMain.on(IPC.restartToUpdate, () => {

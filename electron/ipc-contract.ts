@@ -13,6 +13,7 @@ import type { TenderNoticeInput } from '../core/tenderNotice'
 import type { CellEdit } from '../core/technicalSanction'
 import type { BidDocumentInput } from '../core/bidDocument'
 import type { LoginResult } from '../core/auth'
+import type { SessionSlot } from '../core/sessionSlots'
 import type { DeviationItem, DeviationMeta } from '../core/deviationTemplate'
 import type { DocBlock } from '../core/docxBuilder'
 import type { OcrPage } from '../core/ocrReconstruct'
@@ -30,6 +31,11 @@ export interface UpdateProgress {
   transferred: number
   total: number
   bytesPerSecond: number
+}
+
+/** One entry in Settings' "Active Devices" list — a live SessionSlot plus whether it's this device's own. */
+export interface ActiveSessionInfo extends SessionSlot {
+  isThisDevice: boolean
 }
 
 export interface SplitProgress {
@@ -63,6 +69,8 @@ export const IPC = {
   fetchCalendar: 'calendar:fetch',
   login: 'auth:login',
   logout: 'auth:logout',
+  listActiveSessions: 'auth:listActiveSessions',
+  logoutOtherSession: 'auth:logoutOtherSession',
   importFromLink: 'data:importFromLink',
   importAllSheetsFromLink: 'data:importAllSheetsFromLink',
   exportTable: 'data:exportTable',
@@ -155,9 +163,14 @@ export interface DocuGenApi {
   getAppVersion(): Promise<string>
   /** Scrapes the given government-calendar page. Cached per URL on disk (see electron/main.ts) so switching the source link (a new year's page) doesn't serve a stale cache from the old one. */
   fetchCalendar(url: string, force?: boolean): Promise<CalendarData>
-  login(loginId: string, password: string): Promise<LoginResult>
+  /** forceLogout: only meaningful after a prior call came back `maxSessions` — re-checks the password, then immediately ends every other device's session for this login ID and claims a fresh slot, instead of failing again. */
+  login(loginId: string, password: string, forceLogout?: boolean): Promise<LoginResult>
   /** Releases this device's session slot so another device can sign in. */
   logout(): Promise<void>
+  /** Lists every device currently signed in as the logged-in user (Settings' "Active Devices" panel) — empty if not signed in or the cloud is unreachable. */
+  listActiveSessions(): Promise<ActiveSessionInfo[]>
+  /** Signs a specific OTHER device out (its sessionId, from listActiveSessions) — never this device's own; use logout() for that instead. A no-op if the sessionId is this device's own or already gone. */
+  logoutOtherSession(sessionId: string): Promise<void>
   importFromLink(url: string): Promise<ExcelTable>
   /** Downloads every sheet of a monitoring-format workbook link (one sheet per circle). */
   importAllSheetsFromLink(url: string): Promise<SheetGrid[]>

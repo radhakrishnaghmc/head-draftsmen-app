@@ -11,8 +11,10 @@ import {
   type TemplateVariantOption
 } from '@core/workOrderTemplateVariants'
 import { workOrderPlaceholders, agreementPlaceholders, type WorkOrderAgreementFields } from '@core/workOrderAgreement'
+import { MAX_CONCURRENT_SESSIONS } from '@core/sessionSlots'
+import type { ActiveSessionInfo } from '../../electron/ipc-contract'
 import { base64ToUint8, renderDocPreview } from './docPage'
-import { IconSettings, IconCheck, IconWarn, IconEye } from './Icons'
+import { IconSettings, IconCheck, IconWarn, IconEye, IconUser, IconLogout } from './Icons'
 
 interface Props {
   office: Office
@@ -239,6 +241,112 @@ function TemplateSection({ title, subtitle, storageKey, variants, defaultVariant
   )
 }
 
+/** "just now" / "12 min ago" / "3 hr ago" / a plain date once it's more than a day old. */
+function relativeTime(ts: number): string {
+  const mins = Math.round((Date.now() - ts) / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins} min ago`
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return `${hours} hr ago`
+  return new Date(ts).toLocaleDateString()
+}
+
+/**
+ * Settings — "Active Devices": every device currently signed in as this
+ * login ID (up to MAX_CONCURRENT_SESSIONS — see core/sessionSlots.ts), with a
+ * "Log out" button for every device except this one, so someone locked out
+ * of a stuck old session (or who just wants to free a slot) doesn't have to
+ * physically walk to the other device. Ending THIS device's own session
+ * deliberately isn't offered here — that's the existing profile-menu Logout,
+ * which also tears down this device's local listener; this list only ever
+ * releases an OTHER device's slot (electron/main.ts's logoutOtherSession
+ * handler refuses to do otherwise).
+ */
+function ActiveDevicesCard() {
+  const [sessions, setSessions] = useState<ActiveSessionInfo[] | null>(null)
+  const [loadError, setLoadError] = useState(false)
+  const [loggingOut, setLoggingOut] = useState<string | null>(null)
+
+  async function refresh() {
+    try {
+      const list = await api.listActiveSessions()
+      setSessions(list)
+      setLoadError(false)
+    } catch {
+      setLoadError(true)
+    }
+  }
+
+  useEffect(() => {
+    void refresh()
+  }, [])
+
+  async function logoutDevice(session: ActiveSessionInfo) {
+    const label = session.deviceLabel || 'this device'
+    if (!window.confirm(`Sign "${label}" out? It will need to log in again to continue working.`)) return
+    setLoggingOut(session.sessionId)
+    try {
+      await api.logoutOtherSession(session.sessionId)
+      await refresh()
+    } finally {
+      setLoggingOut(null)
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <div className="head-ic">
+          <IconUser />
+        </div>
+        <div className="titles">
+          <h2>Active Devices</h2>
+          <p className="sub">
+            Every device currently signed in with this login (up to {MAX_CONCURRENT_SESSIONS} at a time). Log out a
+            device you don't recognize or no longer use to free up a slot.
+          </p>
+        </div>
+      </div>
+
+      {sessions === null && !loadError && <p className="hint">Loading…</p>}
+      {loadError && (
+        <div className="notice error">
+          <IconWarn /> Could not load active devices — check your connection and try again.
+        </div>
+      )}
+      {sessions && sessions.length === 0 && <p className="hint">No active devices found.</p>}
+
+      {sessions && sessions.length > 0 && (
+        <ul className="active-devices-list">
+          {sessions.map((s) => (
+            <li key={s.sessionId} className="active-device-row">
+              <div className="active-device-info">
+                <span className="active-device-label">
+                  {s.deviceLabel || 'Unknown device'}
+                  {s.isThisDevice && <span className="active-device-tag">This device</span>}
+                </span>
+                <span className="active-device-meta">
+                  Signed in {relativeTime(s.loginAt)} · last active {relativeTime(s.lastSeenAt)}
+                </span>
+              </div>
+              {!s.isThisDevice && (
+                <button
+                  type="button"
+                  className="active-device-logout"
+                  disabled={loggingOut === s.sessionId}
+                  onClick={() => void logoutDevice(s)}
+                >
+                  <IconLogout /> {loggingOut === s.sessionId ? 'Logging out…' : 'Log out'}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 /**
  * Settings — "Document Templates": some circles word and lay out their own
  * documents differently (see core/workOrderTemplateVariants.ts for why — a
@@ -259,38 +367,42 @@ export default function SettingsTab({ office }: Props) {
   )
 
   return (
-    <div className="card">
-      <div className="card-head">
-        <div className="head-ic">
-          <IconSettings />
+    <>
+      <ActiveDevicesCard />
+
+      <div className="card">
+        <div className="card-head">
+          <div className="head-ic">
+            <IconSettings />
+          </div>
+          <div className="titles">
+            <h2>Document Templates</h2>
+            <p className="sub">Click a style below to make it this office's default. Each tile is a live preview filled with sample data, not just a name.</p>
+          </div>
         </div>
-        <div className="titles">
-          <h2>Document Templates</h2>
-          <p className="sub">Click a style below to make it this office's default. Each tile is a live preview filled with sample data, not just a name.</p>
-        </div>
+
+        <TemplateSection
+          title="Work Order"
+          subtitle="Some circles word and lay out their own Work Order differently."
+          storageKey={officeScopedKey(TEMPLATE_KEYS.workOrder, office)}
+          variants={WORK_ORDER_TEMPLATE_VARIANTS}
+          defaultVariant={DEFAULT_WORK_ORDER_TEMPLATE_VARIANT}
+          fields={fields}
+          fetchTemplate={api.workOrderTemplate}
+          placeholders={workOrderPlaceholders}
+        />
+
+        <TemplateSection
+          title="Agreement Bond"
+          subtitle="Some circles word and lay out their own Agreement Bond differently."
+          storageKey={officeScopedKey(TEMPLATE_KEYS.agreement, office)}
+          variants={AGREEMENT_TEMPLATE_VARIANTS}
+          defaultVariant={DEFAULT_AGREEMENT_TEMPLATE_VARIANT}
+          fields={fields}
+          fetchTemplate={api.agreementTemplate}
+          placeholders={agreementPlaceholders}
+        />
       </div>
-
-      <TemplateSection
-        title="Work Order"
-        subtitle="Some circles word and lay out their own Work Order differently."
-        storageKey={officeScopedKey(TEMPLATE_KEYS.workOrder, office)}
-        variants={WORK_ORDER_TEMPLATE_VARIANTS}
-        defaultVariant={DEFAULT_WORK_ORDER_TEMPLATE_VARIANT}
-        fields={fields}
-        fetchTemplate={api.workOrderTemplate}
-        placeholders={workOrderPlaceholders}
-      />
-
-      <TemplateSection
-        title="Agreement Bond"
-        subtitle="Some circles word and lay out their own Agreement Bond differently."
-        storageKey={officeScopedKey(TEMPLATE_KEYS.agreement, office)}
-        variants={AGREEMENT_TEMPLATE_VARIANTS}
-        defaultVariant={DEFAULT_AGREEMENT_TEMPLATE_VARIANT}
-        fields={fields}
-        fetchTemplate={api.agreementTemplate}
-        placeholders={agreementPlaceholders}
-      />
-    </div>
+    </>
   )
 }

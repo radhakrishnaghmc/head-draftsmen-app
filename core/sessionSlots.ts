@@ -40,3 +40,15 @@ export function releaseSlot(slots: SessionSlot[], sessionId: string): SessionSlo
 export function touchSlot(slots: SessionSlot[], sessionId: string, now: number): SessionSlot[] {
   return slots.map((s) => (s.sessionId === sessionId ? { ...s, lastSeenAt: now } : s))
 }
+
+/**
+ * Force-clears every slot for a login — the "log out other devices" recovery
+ * used from the login screen once all MAX_CONCURRENT_SESSIONS are taken. A
+ * stale slot already frees itself after STALE_MS with no heartbeat, but a
+ * genuinely still-open session on another device won't — this lets someone
+ * who already knows the password reclaim a slot immediately instead of
+ * waiting, at the cost of signing every other device out.
+ */
+export function clearSlots(): SessionSlot[] {
+  return []
+}

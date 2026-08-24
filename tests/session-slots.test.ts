@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { canClaimSlot, claimSlot, releaseSlot, touchSlot, liveSlots, MAX_CONCURRENT_SESSIONS, type SessionSlot } from '../core/sessionSlots'
+import { canClaimSlot, claimSlot, releaseSlot, touchSlot, liveSlots, clearSlots, MAX_CONCURRENT_SESSIONS, type SessionSlot } from '../core/sessionSlots'
 
 const now = 1_000_000
 
@@ -49,5 +49,12 @@ describe('sessionSlots', () => {
       { sessionId: 'a', loginAt: now, lastSeenAt: later },
       { sessionId: 'b', loginAt: now, lastSeenAt: now }
     ])
+  })
+
+  it('clearSlots drops every slot, freeing a claim even when all are live', () => {
+    const full = liveN(MAX_CONCURRENT_SESSIONS)
+    expect(canClaimSlot(full, now)).toBe(false)
+    expect(clearSlots()).toEqual([])
+    expect(canClaimSlot(clearSlots(), now)).toBe(true)
   })
 })

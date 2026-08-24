@@ -23,10 +23,38 @@ export default function LoginPage({ onSuccess }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [version, setVersion] = useState<string | null>(null)
+  // Only offered after a normal attempt with these exact credentials has
+  // already come back maxSessions — never shown up front, and cleared
+  // whenever either field changes so it can't be reused with a different
+  // login ID/password than the one that actually hit the limit.
+  const [maxSessionsHit, setMaxSessionsHit] = useState(false)
 
   useEffect(() => {
     api.getAppVersion().then(setVersion)
   }, [])
+
+  async function attemptLogin(forceLogout: boolean) {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await api.login(loginId.trim(), password, forceLogout)
+      if (result.ok) {
+        localStorage.setItem(REMEMBERED_LOGIN_ID_KEY, loginId.trim())
+        onSuccess()
+      } else if (result.maxSessions) {
+        setMaxSessionsHit(true)
+        setError(`Already signed in on ${MAX_CONCURRENT_SESSIONS} devices. Log out from one of them, or force-log-out every other device below.`)
+      } else {
+        setMaxSessionsHit(false)
+        setError('Incorrect login ID or password.')
+      }
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e)
+      setError(`Could not verify login — ${detail}`)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -34,23 +62,18 @@ export default function LoginPage({ onSuccess }: Props) {
       setError('Enter your login ID and password.')
       return
     }
-    setBusy(true)
-    setError(null)
-    try {
-      const result = await api.login(loginId.trim(), password)
-      if (result.ok) {
-        localStorage.setItem(REMEMBERED_LOGIN_ID_KEY, loginId.trim())
-        onSuccess()
-      }
-      else if (result.maxSessions)
-        setError(`Already signed in on ${MAX_CONCURRENT_SESSIONS} devices. Log out from one of them and try again.`)
-      else setError('Incorrect login ID or password.')
-    } catch (e) {
-      const detail = e instanceof Error ? e.message : String(e)
-      setError(`Could not verify login — ${detail}`)
-    } finally {
-      setBusy(false)
+    await attemptLogin(false)
+  }
+
+  async function forceLogout() {
+    if (
+      !window.confirm(
+        `This will immediately sign out every other device currently logged in as "${loginId.trim()}". Continue?`
+      )
+    ) {
+      return
     }
+    await attemptLogin(true)
   }
 
   return (
@@ -67,6 +90,7 @@ export default function LoginPage({ onSuccess }: Props) {
             onChange={(e) => {
               setLoginId(e.target.value)
               setError(null)
+              setMaxSessionsHit(false)
             }}
             autoFocus
             autoComplete="username"
@@ -81,6 +105,7 @@ export default function LoginPage({ onSuccess }: Props) {
             onChange={(e) => {
               setPassword(e.target.value)
               setError(null)
+              setMaxSessionsHit(false)
             }}
             autoComplete="current-password"
           />
@@ -96,6 +121,17 @@ export default function LoginPage({ onSuccess }: Props) {
         <button className="primary login-submit" type="submit" disabled={busy}>
           {busy ? 'Signing in…' : 'Log In'}
         </button>
+
+        {maxSessionsHit && (
+          <button
+            type="button"
+            className="login-force-logout"
+            disabled={busy}
+            onClick={() => void forceLogout()}
+          >
+            {busy ? 'Signing in…' : 'Log out other devices & sign in'}
+          </button>
+        )}
 
         <p className="login-credits">
           App developed by Radhakrishna, HD{version ? ` · v${version}` : ''}

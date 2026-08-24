@@ -8,7 +8,7 @@ const LOGIN_SHEET_URL =
 
 export interface LoginResult {
   ok: boolean
-  /** True when the credentials were correct but this account already has 2 other devices signed in. */
+  /** True when the credentials were correct but this account already has MAX_CONCURRENT_SESSIONS devices signed in (see core/sessionSlots.ts). */
   maxSessions?: boolean
 }
 
