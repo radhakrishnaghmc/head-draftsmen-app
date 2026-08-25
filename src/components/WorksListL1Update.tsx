@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../ipc'
+import type { TenderScanProgress } from '../../electron/ipc-contract'
 import { pdfToTextLines } from '../pdfToText'
 import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import {
@@ -45,6 +46,24 @@ export default function WorksListL1Update({ table, onChange, onUpdated }: Props)
   // Only errors / no-match feedback shows beside the button; a successful update
   // is surfaced under the flashed row(s) in the table instead (see onUpdated).
   const [result, setResult] = useState<{ message: string; unmatched: string[] } | null>(null)
+  // Live progress from the main process while a picked folder is being
+  // scanned/read (electron/tenderDocumentScan.ts) — this is what used to
+  // freeze the whole app with no feedback at all; now it's reported as it
+  // happens so the button itself can show a filling percentage. null once
+  // the scan is done and the (renderer-side) PDF parsing/matching starts —
+  // that part has no progress signal of its own, so the button falls back
+  // to a plain "Updating…" label for it, same as before this change.
+  const [scanProgress, setScanProgress] = useState<TenderScanProgress | null>(null)
+  const busyRef = useRef(busy)
+  busyRef.current = busy
+
+  useEffect(() => {
+    return api.onTenderScanProgress((p) => {
+      // Ignore a straggling event from a scan that's no longer the active one
+      // (e.g. the previous pick's last tick arriving after busy was cleared).
+      if (busyRef.current) setScanProgress(p)
+    })
+  }, [])
 
   // One or more Online Intimations (HTML or PDF) → update the agency's
   // ADDRESS on every Works List row carrying that agency (matched by Name of
@@ -213,30 +232,71 @@ export default function WorksListL1Update({ table, onChange, onUpdated }: Props)
   // hunting down each work's own file individually. Files picked directly by
   // name are never filtered out, so a single sheet still works exactly as
   // before — this replaces the old file-only <input>, it doesn't add a
-  // second, separate "folder mode".
-  async function pickAndRun(run: (files: File[]) => Promise<void>) {
-    const picked = await api.pickTenderDocuments()
-    if (picked.length === 0) return
-    await run(picked.map((f) => new File([new Uint8Array(f.bytes)], f.name)))
+  // second, separate "folder mode". busy is set BEFORE the dialog/scan even
+  // starts (not just once handleFiles/handleIntimations begin) — that scan
+  // used to be the part with zero visual feedback while it silently froze
+  // the whole app; now it's both non-blocking and visible.
+  async function pickAndRun(kind: 'l1' | 'intimation', run: (files: File[]) => Promise<void>) {
+    setBusy(kind)
+    setScanProgress(null)
+    setResult(null)
+    try {
+      const picked = await api.pickTenderDocuments()
+      if (picked.length === 0) return
+      // Scan/read is done — handleFiles/handleIntimations' own PDF parsing
+      // and row-matching has no progress signal of its own, fall back to a
+      // plain busy label for that part (same as before this change).
+      setScanProgress(null)
+      await run(picked.map((f) => new File([new Uint8Array(f.bytes)], f.name)))
+    } finally {
+      setScanProgress(null)
+      setBusy(null)
+    }
+  }
+
+  // Percentage fill shown inside the button while reading files back (the
+  // phase with a real, known total) — 'scanning' has no fixed total yet, so
+  // it gets a plain running count instead of a fill.
+  const readPct =
+    scanProgress?.phase === 'reading' && scanProgress.total > 0
+      ? Math.round((scanProgress.done / scanProgress.total) * 100)
+      : null
+
+  function buttonLabel(kind: 'l1' | 'intimation', idleLabel: string): React.ReactNode {
+    if (busy !== kind) return idleLabel
+    if (!scanProgress) return 'Opening…'
+    if (scanProgress.phase === 'scanning') return `Scanning… (${scanProgress.done} found)`
+    if (readPct !== null) return `Reading ${scanProgress.done}/${scanProgress.total} (${readPct}%)`
+    return 'Updating…'
   }
 
   return (
     <>
       <button
-        className="ghost"
-        onClick={() => void pickAndRun(handleFiles)}
+        className="ghost scan-progress-btn"
+        onClick={() => void pickAndRun('l1', handleFiles)}
         disabled={busy !== null}
         title="Pick the L-1 selection sheet(s) and/or the LOA / Online Intimation — files, a whole folder, or both — to fold tender details into the matching Works List row(s) by Name of Work"
       >
-        <IconFolder /> {busy === 'l1' ? 'Updating…' : 'Update from L1/LOA'}
+        {busy === 'l1' && readPct !== null && (
+          <span className="scan-progress-fill" style={{ width: `${readPct}%` }} />
+        )}
+        <span className="scan-progress-label">
+          <IconFolder /> {buttonLabel('l1', 'Update from L1/LOA')}
+        </span>
       </button>
       <button
-        className="ghost"
-        onClick={() => void pickAndRun(handleIntimations)}
+        className="ghost scan-progress-btn"
+        onClick={() => void pickAndRun('intimation', handleIntimations)}
         disabled={busy !== null}
         title="Pick Online Intimation(s) — files, a whole folder, or both — to update each agency's address on every Works List row that carries it"
       >
-        <IconFolder /> {busy === 'intimation' ? 'Updating…' : 'Address from Intimation'}
+        {busy === 'intimation' && readPct !== null && (
+          <span className="scan-progress-fill" style={{ width: `${readPct}%` }} />
+        )}
+        <span className="scan-progress-label">
+          <IconFolder /> {buttonLabel('intimation', 'Address from Intimation')}
+        </span>
       </button>
       {result && (
         <div className="notice warn" style={{ flexBasis: '100%' }}>

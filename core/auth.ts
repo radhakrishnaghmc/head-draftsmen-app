@@ -10,6 +10,8 @@ export interface LoginResult {
   ok: boolean
   /** True when the credentials were correct but this account already has MAX_CONCURRENT_SESSIONS devices signed in (see core/sessionSlots.ts). */
   maxSessions?: boolean
+  /** True when the credentials sheet was unreachable (no internet) and this login was allowed through on a locally-remembered credential instead — see electron/offlineAuth.ts. */
+  offline?: boolean
 }
 
 /**

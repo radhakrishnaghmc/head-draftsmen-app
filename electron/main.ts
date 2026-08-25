@@ -35,6 +35,7 @@ import { parseCalendarHtml } from '../core/calendar'
 import { importTableFromGoogleLink, importAllSheetsFromGoogleLink } from '../core/googleImport'
 import { validateLogin } from '../core/auth'
 import type { LoginResult } from '../core/auth'
+import { rememberOfflineAuth, checkOfflineAuth } from './offlineAuth'
 import { fillTenderNotice } from '../core/tenderNotice'
 import type { TenderNoticeInput } from '../core/tenderNotice'
 import { fillBidDocument, fillSeBidDocument } from '../core/bidDocument'
@@ -192,7 +193,9 @@ function registerHandlers(): void {
       properties: ['openFile', 'openDirectory', 'multiSelections']
     })
     if (result.canceled || result.filePaths.length === 0) return []
-    return collectTenderDocuments(result.filePaths)
+    return collectTenderDocuments(result.filePaths, (phase, done, total) => {
+      mainWindow?.webContents.send(IPC.tenderScanProgress, { phase, done, total })
+    })
   })
 
   ipcMain.handle(IPC.ocrEstimatePhotos, async (_e, dataUrls: string[]): Promise<SheetGrid> => {
@@ -313,7 +316,22 @@ function registerHandlers(): void {
   })
 
   ipcMain.handle(IPC.login, async (_e, loginId: string, password: string, forceLogout?: boolean): Promise<LoginResult> => {
-    const result = await validateLogin(loginId, password)
+    let result: LoginResult
+    try {
+      result = await validateLogin(loginId, password)
+      if (result.ok) rememberOfflineAuth(loginId, password)
+    } catch (e) {
+      // The credentials sheet is unreachable — almost always no internet.
+      // Only let this through if THIS SAME loginId/password has already
+      // been verified online on this device before; a different login ID,
+      // or one that's never succeeded online here, still gets the original
+      // network error surfaced (never a blanket offline bypass).
+      if (checkOfflineAuth(loginId, password)) {
+        result = { ok: true, offline: true }
+      } else {
+        throw e
+      }
+    }
     if (!result.ok) return result
 
     // Point the local cache at THIS login's own file before anything reads or

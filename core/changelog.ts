@@ -16,6 +16,13 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.26.0',
+    changes: [
+      'Login: if you\'ve successfully signed in on this computer before, you can now sign in again with no internet connection — only for that same login, not anyone else\'s.',
+      'Fixed: picking a large folder for "Update from L1/LOA" or "Address from Intimation" could freeze the whole app while it scanned — it no longer blocks the app, and the button now fills in with a live percentage while it reads.'
+    ]
+  },
+  {
     version: '1.25.0',
     changes: [
       'Works List: added an Errors button that checks your database for a duplicate Wincode/Tender ID, a work entered under two different Wincodes, an ECV greater than the Amount of estimate, or an EMD 1.5% that isn\'t greater than EMD 1% — it blinks when it finds a problem, tap it to see exactly which rows.',

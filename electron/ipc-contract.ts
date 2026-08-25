@@ -64,6 +64,14 @@ export interface AgreementBundleProgress {
   name: string
 }
 
+export interface TenderScanProgress {
+  /** 'scanning' while recursively walking the picked folder(s) (total isn't known yet); 'reading' once the file list is final and each match is being read back into memory (a real percentage). */
+  phase: 'scanning' | 'reading'
+  done: number
+  /** 0 during 'scanning' — there's no fixed total until the walk finishes. */
+  total: number
+}
+
 export const IPC = {
   pickExcels: 'dialog:pickExcels',
   pickExcelGrids: 'dialog:pickExcelGrids',
@@ -87,6 +95,7 @@ export const IPC = {
   exportEvaluationSheet: 'data:exportEvaluationSheet',
   exportAgreementBundle: 'doc:exportAgreementBundle',
   agreementBundleProgress: 'doc:agreementBundleProgress',
+  tenderScanProgress: 'dialog:tenderScanProgress',
   exportBoq: 'data:exportBoq',
   exportBoqBatch: 'data:exportBoqBatch',
   pickWorkbookForSplit: 'tools:pickWorkbookForSplit',
@@ -174,6 +183,8 @@ export interface DocuGenApi {
    * wholesale). Returns [] if the dialog was cancelled or nothing matched.
    */
   pickTenderDocuments(): Promise<PickedTenderDocument[]>
+  /** Fires repeatedly while pickTenderDocuments is scanning/reading a picked folder, so the caller can show a live percentage instead of the UI just sitting there for however long the folder takes. */
+  onTenderScanProgress(callback: (progress: TenderScanProgress) => void): () => void
   /** Runs local OCR on photos of a paper estimate (in page order) and reconstructs one combined grid, best-effort — always review before exporting. */
   ocrEstimatePhotos(dataUrls: string[]): Promise<SheetGrid>
   openPath(target: string): Promise<void>

@@ -8,6 +8,11 @@ const api: DocuGenApi = {
   pickEstimateGrid: () => ipcRenderer.invoke(IPC.pickEstimateGrid),
   pickDataSheet: () => ipcRenderer.invoke(IPC.pickDataSheet),
   pickTenderDocuments: () => ipcRenderer.invoke(IPC.pickTenderDocuments),
+  onTenderScanProgress: (callback) => {
+    const listener = (_e: unknown, progress: import('./ipc-contract').TenderScanProgress) => callback(progress)
+    ipcRenderer.on(IPC.tenderScanProgress, listener)
+    return () => ipcRenderer.removeListener(IPC.tenderScanProgress, listener)
+  },
   ocrEstimatePhotos: (dataUrls) => ipcRenderer.invoke(IPC.ocrEstimatePhotos, dataUrls),
   openPath: (target) => ipcRenderer.invoke(IPC.openPath, target),
   revealItem: (target) => ipcRenderer.invoke(IPC.revealItem, target),

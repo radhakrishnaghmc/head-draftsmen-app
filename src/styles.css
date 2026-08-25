@@ -1236,6 +1236,33 @@ button.ghost:hover:not(:disabled) {
   }
 }
 
+/* "Update from L1/LOA" / "Address from Intimation" (WorksListL1Update) —
+   fills left-to-right with the real read-progress percentage while a picked
+   folder's matched files are being read back into memory (see
+   electron/tenderDocumentScan.ts's 'reading' phase, the one with a known
+   total). overflow:hidden on the button clips the fill to its own pill
+   shape; the label sits in its own stacking layer above the fill so the
+   text stays readable as it fills in underneath. */
+.scan-progress-btn {
+  position: relative;
+  overflow: hidden;
+}
+.scan-progress-fill {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 0;
+  background: color-mix(in srgb, var(--sky-500) 24%, transparent);
+  transition: width 0.2s var(--ease);
+}
+.scan-progress-label {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
 button.danger-ghost {
   border-color: transparent;
   background: transparent;
