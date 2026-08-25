@@ -193,18 +193,26 @@ describe('buildNoteSubmittedHtml — participant / rejected counts', () => {
     expect(html).toContain(`Online Receipt No: ${'_'.repeat(45)} `)
   })
 
-  it('shows ASD for a RESERVED work quoted >25% below — EMD exempted, ASD still charged, with receipt', () => {
+  it('shows ASD for a RESERVED work quoted >25% below — EMD exemption, ASD still charged, with receipt', () => {
     const html = buildNoteSubmittedHtml(
       noteData({ reservation: 'SC', l1PctNumber: 32, ecvRupees: 3120000, receiptNo: 'R-123', receiptDate: '05.08.2026' })
     )
-    expect(html).toContain('the EMD is Exempted and submitted ASD amount of Rs.')
+    expect(html).toContain('is submitted the above said work is Reserved for SC')
+    expect(html).toContain('the EMD is Exemption and ASD amount of Rs.')
     expect(html).toContain('vide Online Receipt No: R-123 Dt: 05.08.2026')
   })
 
-  it('shows only "EMD is Exempted" for a reserved work at 25% or less (no ASD due)', () => {
+  it('shows only "EMD is Exemption" for a reserved work at 25% or less (no ASD due)', () => {
     const html = buildNoteSubmittedHtml(noteData({ reservation: 'SC', l1PctNumber: 20, ecvRupees: 3120000 }))
-    expect(html).toContain('the EMD is Exempted')
+    expect(html).toContain('is submitted the above said work is Reserved for SC')
+    expect(html).toContain('the EMD is Exemption')
     expect(html).not.toContain('ASD amount')
+  })
+
+  it('exempts EMD for a reservation category other than SC/ST too (e.g. Waddera)', () => {
+    const html = buildNoteSubmittedHtml(noteData({ reservation: 'Waddera', l1PctNumber: 20, ecvRupees: 3120000 }))
+    expect(html).toContain('is submitted the above said work is Reserved for Waddera')
+    expect(html).toContain('the EMD is Exemption')
   })
 
   it('first-line indents every note paragraph (a tab of space)', () => {

@@ -1,4 +1,4 @@
-import { joinLines } from './shared'
+import { joinLines, stripItemNoTag } from './shared'
 
 // The field labels that follow "Name of Work" on the page — reaching one ends
 // the work-name value. "Works Percentage" is the merged value of the next two
@@ -130,4 +130,121 @@ export function detectNameOfWork(lines: string[]): string | undefined {
   const joined = joinLines(lines)
   const work = /Name of Work\s+(.+?)\s+(?:Tender Category|Tender Type|Estimated Contract)\b/i.exec(joined)
   return work ? work[1].replace(/\s+/g, ' ').trim() : undefined
+}
+
+// "(Reserved for SC)", "Reserved for ST Only", "reserved for Waddera",
+// "reserved for Vaddera", "reserved for WLCCS", "Reserved for Waddera/Sagara"
+// (a real compound category seen on a Gajularamaram Circle-57 sheet — two
+// community names joined by "/", not just one) — offices tag a reserved
+// work's category directly in its own title, right alongside (or instead of)
+// a separate Reservation column. A trailing "only"/closing paren is common
+// but not captured — the category itself is the run of slash-joined
+// word(s)/abbreviation(s) right after "for".
+const RESERVED_FOR = /reserved\s+for\s+([A-Za-z]+(?:\s*\/\s*[A-Za-z]+)*)/i
+
+/**
+ * Whether the work is marked reserved for ANY category — not just SC/ST.
+ * Offices reserve works for SC, ST, Waddera, Vaddera, WLCCS and others; a
+ * detector hard-coded to SC/ST (as core/workOrderAgreement.ts's
+ * reservationFromRow and core/noteSubmitted.ts's isReservedExempt each used
+ * to be, independently and inconsistently) silently failed to exempt EMD for
+ * every other category. Reservation exempts EMD only — it does NOT exempt
+ * ASD: core/worksAmounts.ts's computeWorkAmounts charges ASD at (Tender
+ * Percentage − 25%) × ECV once the quote exceeds 25%, for a reserved work
+ * exactly the same as an open one.
+ */
+export function isReservedWork(workName: string): boolean {
+  return RESERVED_FOR.test(workName ?? '')
+}
+
+/** The reservation category tag itself ("SC", "ST", "Waddera", "Vaddera", "WLCCS", …) as written in the work name — "" when isReservedWork is false. */
+export function reservationCategory(workName: string): string {
+  return RESERVED_FOR.exec(workName ?? '')?.[1] ?? ''
+}
+
+// A Works List "Reservation" column value that only flags WHETHER a work is
+// reserved, without naming the category — core/worksTenderUpdate.ts writes
+// exactly "Yes"/"No" there automatically. Not usable as the printed category
+// text: a real category is always read from the work name itself instead.
+const RESERVATION_FLAG_ONLY = /^(yes|no|none|general|open|nil|n\/?a|-|not\s+reserved|true|false)$/i
+
+/**
+ * The best available reservation category for a Works List row: the work
+ * name's own "reserved for <category>" tag when present (always a real
+ * category, e.g. "SC"/"Waddera"), else an explicit "Reservation" column
+ * value — but only when that value actually names a category, not a bare
+ * Yes/No flag. Shared by core/workOrderAgreement.ts (Forwarding Slip) and
+ * core/noteSubmitted.ts (Note Submitted's EMD/ASD clause), which each used
+ * to implement (and disagree on) this independently.
+ */
+export function reservationCategoryFromRow(row: Record<string, string>): string {
+  const fromName = reservationCategory(row['Name of the work'] ?? '')
+  if (fromName) return fromName
+  const explicit = (row['Reservation'] ?? '').trim()
+  return explicit && !RESERVATION_FLAG_ONLY.test(explicit) ? explicit : ''
+}
+
+// A trailing "(Reserved for SC)" / "Reserved for Waddera Only" tag — stripped
+// wholesale (not just the category capture RESERVED_FOR extracts) so it
+// doesn't sit in the way of an identity match against the Works List, which
+// very often has the plain work name with no such tag at all.
+const TRAILING_RESERVED_FOR = /\(?\s*reserved\s+for\s+[a-z]+(?:\s*\/\s*[a-z]+)*(?:\s+only)?\s*\)?\s*$/i
+
+// "(Recall)", "(1st Recall)", "(1ST RECALL)", "(2nd Call)" — a work re-tendered
+// because no agency (or no responsive agency) participated the first time
+// round gets this tag appended to its title on the L1 sheet; real samples
+// (Gajularamaram Circle-57, Nizampet Circle-58) show it always parenthesized,
+// glued directly onto the preceding text with no space, ordinal optional,
+// casing inconsistent ("(1st recall)" vs "(1ST RECALL)"). The Works List's
+// own stored name is the ORIGINAL tender's name — it was never re-tagged on
+// every recall — so this must be stripped before matching too, the same as
+// the reservation tag above.
+const TRAILING_RECALL_OR_CALL = /\(?\s*\d*\s*(?:st|nd|rd|th)?\s*(?:re-?call|call)\s*\)?\s*$/i
+
+/**
+ * Strips every decorative tag a work name can carry that has nothing to do
+ * with the work's own identity — item number, reservation category, recall/
+ * call round — leaving the plain name the Works List itself was very likely
+ * entered under. Every one of the app's Works-List-row matchers used to
+ * normalize (lowercase, collapse whitespace) WITHOUT this step first, so an
+ * L1 sheet's "…CMC (Reserved for SC)" or "…CMC(1ST RECALL)" title matched
+ * nothing even when the exact same work sat right there in the Works List
+ * under its plain, untagged name — reported as "name of the work is not in
+ * the works list" for a work that plainly was. Tags can stack in either
+ * order ("…CMC (Reserved for SC) (1st Recall)"), so this strips repeatedly
+ * from the end until nothing more comes off, rather than a single pass.
+ */
+export function stripDecorativeWorkNameTags(name: string): string {
+  let s = stripItemNoTag((name ?? '').trim())
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const re of [TRAILING_RESERVED_FOR, TRAILING_RECALL_OR_CALL]) {
+      const next = s.replace(re, '').trim()
+      if (next !== s) {
+        s = next
+        changed = true
+      }
+    }
+  }
+  return s
+}
+
+/**
+ * The single canonical normalizer for "does this uploaded work name match
+ * this Works List row" — strip decorative tags first (see
+ * stripDecorativeWorkNameTags's own doc comment for why), then case/
+ * whitespace-fold what's left. core/worksTenderUpdate.ts, core/
+ * worksAmounts.ts's applyEcvFromBoq, core/scheduleA.ts's findWorksRowByName
+ * and core/monitoringImport.ts's mergeMonitoringRows each used to define
+ * their own copy of the case/whitespace half of this WITHOUT the tag-
+ * stripping half — four independent normalizers, none of which could match
+ * a reserved or recalled work's L1-sheet title against the Works List's own
+ * plain, untagged entry for that same work.
+ */
+export function normalizeWorkNameForMatch(s: string | undefined): string {
+  return stripDecorativeWorkNameTags(s ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
 }

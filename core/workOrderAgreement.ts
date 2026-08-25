@@ -12,6 +12,7 @@ import { amountToWords, dateToWords, integerToIndianWords, parseDateParts } from
 import { MONTH_NAMES } from './calendar'
 import { zoneAbbr } from './loaSe'
 import { extractItemNo, stripItemNoTag } from './bidDocument'
+import { reservationCategoryFromRow } from './tenderAgents/nameOfWork'
 import type { IntimationNotice } from './intimationNotice'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
 
@@ -88,7 +89,7 @@ export interface WorkOrderAgreementFields {
   ceLetterNoDate: string
   /** Period of completion in months, hand-entered for the Forwarding Slip (e.g. "02"). */
   completionMonths: string
-  /** Reservation category on the work ("SC" / "ST" / ""), for the Forwarding Slip's EMD/ASD exemption. */
+  /** Reservation category on the work ("SC" / "ST" / "Waddera" / "Vaddera" / "WLCCS" / "" / …), for the Forwarding Slip's EMD exemption — ASD still applies above 25% regardless of reservation (see reservationCategory/reservationFromRow). */
   reservation: string
   /** The NIT's item number (e.g. "3"), extracted from a "(Item No.3)" tag in the work name — SE offices tender multiple items under one NIT number. "" when no such tag is present. */
   itemNo: string
@@ -113,12 +114,15 @@ export interface WorkOrderAgreementFields {
   intimationDate: string
 }
 
-/** SC/ST reservation drives EMD/ASD exemption — read from the work name's "(Reserved to SC/ST)" tag or a Reservation column. */
+/**
+ * Reservation category on a work ("SC", "ST", "Waddera", "Vaddera", "WLCCS",
+ * …) — drives EMD exemption, for any category the office reserves a work
+ * for, not just SC/ST (a real bug this used to have — see
+ * core/tenderAgents/nameOfWork.ts's reservationCategoryFromRow, the shared
+ * detector this now delegates to).
+ */
 export function reservationFromRow(row: Record<string, string>): string {
-  const explicit = (row['Reservation'] ?? '').trim()
-  if (/\b(SC|ST)\b/i.test(explicit)) return explicit.toUpperCase().match(/\b(SC|ST)\b/i)![0].toUpperCase()
-  const m = /reserved\s*(?:to|for)?\s*(SC|ST)\b/i.exec(row['Name of the work'] ?? '')
-  return m ? m[1].toUpperCase() : ''
+  return reservationCategoryFromRow(row)
 }
 
 /** The Circle name and number out of a NIT No ("…/EE/Gajularamaram Circle-57/QBZ/CMC/…" -> {circle:"Gajularamaram", cno:"57"}). */
@@ -522,7 +526,7 @@ export function forwardingSlipPlaceholders(f: WorkOrderAgreementFields): Record<
   const ecv = num(f.ecvRupees)
   const pct = num(f.tenderPercent)
   const contract = num(f.contractRupees)
-  const reserved = /\b(SC|ST)\b/i.test(f.reservation)
+  const reserved = f.reservation.trim() !== ''
   const EXEMPT = 'Exempted for reservation work'
   // Contractor block: name, address, phone — each on its own line.
   const contractor = [f.agencyName, f.address, f.phone].map((s) => (s ?? '').trim()).filter(Boolean).join('\n')
@@ -546,8 +550,10 @@ export function forwardingSlipPlaceholders(f: WorkOrderAgreementFields): Record<
     // Reserved works are EMD-exempt; otherwise the 1% / 1.5% amounts off ECV.
     'EMD 1 percent': reserved ? EXEMPT : ecv != null ? groupedRupees(ecv * 0.01) : '',
     'EMD 1.5 percent': reserved ? EXEMPT : ecv != null ? groupedRupees(ecv * 0.015) : '',
-    // ASD applies only when the tender % exceeds 25 (at (%-25)% of ECV); else "-".
-    'ASD Details': !reserved && pct != null && pct > 25 && ecv != null ? groupedRupees(ecv * ((pct - 25) / 100)) : '-'
+    // ASD applies whenever the tender % exceeds 25 (at (%-25)% of ECV) —
+    // independent of reservation: a reserved work is EMD-exempt, not
+    // ASD-exempt, and still owes ASD above 25% same as an open work.
+    'ASD Details': pct != null && pct > 25 && ecv != null ? groupedRupees(ecv * ((pct - 25) / 100)) : '-'
   }
 }
 

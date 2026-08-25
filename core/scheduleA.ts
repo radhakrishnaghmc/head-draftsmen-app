@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx'
 import type { ExcelTable } from './types'
 import { computeWorkAmounts, indianDigitGroups, tenderPercentFromRow } from './worksAmounts'
 import { rankByEmbedding, WORK_IDENTITY_MATCH_THRESHOLD } from './embeddingMatch'
+import { normalizeWorkNameForMatch } from './tenderAgents/nameOfWork'
 
 export interface ScheduleAItem {
   itemNo: string
@@ -90,11 +91,10 @@ export function findWorksRowByName(
 ): WorksRowMatch | undefined {
   const nameHeader = worksTable.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
   if (!nameHeader) return undefined
-  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
-  const target = norm(workName)
+  const target = normalizeWorkNameForMatch(workName)
   if (!target) return undefined
 
-  const idx = worksTable.rows.findIndex((r) => norm(r[nameHeader] ?? '') === target)
+  const idx = worksTable.rows.findIndex((r) => normalizeWorkNameForMatch(r[nameHeader]) === target)
   if (idx !== -1) return { row: worksTable.rows[idx], matchedViaAi: false }
 
   if (embeddings) {

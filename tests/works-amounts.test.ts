@@ -6,7 +6,8 @@ import {
   computeWorkAmounts,
   withComputedAmounts,
   rupeesToLakhsString,
-  applyEcvFromBoq
+  applyEcvFromBoq,
+  corpusFundFromEcv
 } from '../core/worksAmounts'
 import type { ExcelTable } from '../core/types'
 
@@ -77,6 +78,12 @@ describe('computeWorkAmounts', () => {
     // A genuine 0% tender, though, is a real value and should compute (equal to ECV).
     const zero = computeWorkAmounts({ 'ECV': '1000000', 'Tender Percentage': '0' })
     expect(zero.contractAmount).toBe(1000000)
+  })
+
+  it('computes Corpus Fund @ 0.04% of ECV, null when ECV is blank', () => {
+    expect(computeWorkAmounts({ 'ECV': '1000000' }).corpusFund).toBe(400)
+    expect(computeWorkAmounts({ 'ECV': '' }).corpusFund).toBeNull()
+    expect(corpusFundFromEcv(1196005)).toBe(478) // real ECV, Nizampet-58 Tender ID 710635
   })
 })
 

@@ -319,6 +319,11 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       version: typeof m.version === 'number' ? m.version : 1,
       tables: t.tables ?? [],
       tablesByOffice: t.tablesByOffice ?? undefined,
+      // Restores the Head Draughtsman's chosen office on the next login / a
+      // fresh machine — see PersistedState.office's own doc comment. Was
+      // missing here entirely (and in pushState's write above) until now, so
+      // every login silently lost it even though it was saved locally.
+      office: m.office ?? undefined,
       resolution: m.resolution ?? {},
       todos,
       lastGoogleLink: m.lastGoogleLink ?? undefined,
@@ -491,21 +496,32 @@ export async function pushState(state: PersistedState): Promise<void> {
       },
       { merge: true }
     )
-    await setDoc(doc(db!, 'users', loginId, 'meta', 'misc'), {
-      // Round-trip the schema version so one-time migrations run only once (see
-      // pullRemoteState) instead of re-running — and compounding — every launch.
-      version: state.version,
-      resolution: state.resolution ?? {},
-      todos: state.todos ?? [],
-      lastGoogleLink: state.lastGoogleLink ?? null,
-      worksListLinks: state.worksListLinks ?? {},
-      qcParties: state.qcParties ?? {},
-      tenderReminders: state.tenderReminders ?? [],
-      bidDocumentBatches: state.bidDocumentBatches ?? [],
-      mbScrutiny: state.mbScrutiny ?? [],
-      updatedAt: serverTimestamp(),
-      lastWriter: sessionId
-    })
+    await setDoc(
+      doc(db!, 'users', loginId, 'meta', 'misc'),
+      {
+        // Round-trip the schema version so one-time migrations run only once (see
+        // pullRemoteState) instead of re-running — and compounding — every launch.
+        version: state.version,
+        resolution: state.resolution ?? {},
+        todos: state.todos ?? [],
+        lastGoogleLink: state.lastGoogleLink ?? null,
+        worksListLinks: state.worksListLinks ?? {},
+        qcParties: state.qcParties ?? {},
+        tenderReminders: state.tenderReminders ?? [],
+        bidDocumentBatches: state.bidDocumentBatches ?? [],
+        mbScrutiny: state.mbScrutiny ?? [],
+        // Deliberately omitted (not written as null) when not yet chosen —
+        // `merge: true` below then leaves whatever office is already stored in
+        // the cloud untouched, matching PersistedState.office's own LWW
+        // contract ("never let an empty office overwrite a good one already
+        // stored"). Every other field above is unconditional/defaulted, so
+        // switching this write to merge:true doesn't change their behavior.
+        ...(state.office ? { office: state.office } : {}),
+        updatedAt: serverTimestamp(),
+        lastWriter: sessionId
+      },
+      { merge: true }
+    )
 
     const currentIds = new Set((state.createdDocuments ?? []).map((d) => d.id))
     const orderedDocs = state.createdDocuments ?? []

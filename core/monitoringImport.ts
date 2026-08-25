@@ -1,6 +1,7 @@
 import type { ExcelTable } from './types'
 import type { SheetGrid } from './sheet'
 import type { PlaceholderMatch } from './createDocument'
+import { normalizeWorkNameForMatch } from './tenderAgents/nameOfWork'
 
 const norm = (s: string) => s.trim().toLowerCase()
 
@@ -277,7 +278,12 @@ export function mergeMonitoringRows(
       matchIndex = rows.findIndex((r) => norm(r['Wincode'] ?? '') === norm(monWincode))
     }
     if (matchIndex === -1 && monName) {
-      matchIndex = rows.findIndex((r) => norm(r['Name of the work'] ?? '') === norm(monName))
+      // Work-name-specific normalization (strips reservation/recall tags a
+      // monitoring sheet's title carries but the Works List's own plain
+      // entry doesn't — see normalizeWorkNameForMatch) — unlike the bare
+      // norm() above used for Wincode, which is never tagged this way.
+      const target = normalizeWorkNameForMatch(monName)
+      matchIndex = rows.findIndex((r) => normalizeWorkNameForMatch(r['Name of the work']) === target)
     }
 
     const agencySplit = agencySplitFor(monRow)

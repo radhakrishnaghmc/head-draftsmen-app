@@ -6,7 +6,8 @@ import * as os from 'os'
 import * as firebaseSync from './firebaseSync'
 import { initAutoUpdate, restartToUpdate, checkForUpdatesManually } from './autoUpdate'
 import { IPC } from './ipc-contract'
-import type { ManualCheckResult, AgreementBundleFile, ActiveSessionInfo } from './ipc-contract'
+import type { ManualCheckResult, AgreementBundleFile, ActiveSessionInfo, PickedTenderDocument } from './ipc-contract'
+import { collectTenderDocuments } from './tenderDocumentScan'
 import { workOrderTemplateFileName, agreementTemplateFileName } from '../core/workOrderTemplateVariants'
 import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer, readSheetPreviews } from '../core/excel'
 import type { SheetPreview } from '../core/excel'
@@ -179,6 +180,19 @@ function registerHandlers(): void {
     })
     if (result.canceled || result.filePaths.length === 0) return null
     return readAllSheetGrids(result.filePaths[0])
+  })
+
+  ipcMain.handle(IPC.pickTenderDocuments, async (): Promise<PickedTenderDocument[]> => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Select L1 sheets / Online Intimations — files, folders, or both',
+      // macOS lets a user pick loose files and whole folders together in one
+      // dialog; Windows' native picker can't mix the two modes and falls
+      // back to whichever this resolves to there (still lets a Windows user
+      // pick either files or a folder, just not both at once).
+      properties: ['openFile', 'openDirectory', 'multiSelections']
+    })
+    if (result.canceled || result.filePaths.length === 0) return []
+    return collectTenderDocuments(result.filePaths)
   })
 
   ipcMain.handle(IPC.ocrEstimatePhotos, async (_e, dataUrls: string[]): Promise<SheetGrid> => {

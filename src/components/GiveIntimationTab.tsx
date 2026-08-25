@@ -6,7 +6,7 @@ import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice
 import { parseTenderEvaluation, parseAllBidders, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
-import { computeWorkAmounts, tenderPercentFromRow } from '@core/worksAmounts'
+import { computeWorkAmounts, tenderPercentFromRow, corpusFundFromEcv } from '@core/worksAmounts'
 import { wrapAgencyAddress } from '@core/workOrderAgreement'
 import { stripItemNoTag } from '@core/bidDocument'
 import {
@@ -265,7 +265,7 @@ function resolveLoaValue(
       return asd > 0 ? `Rs. ${emd}/- & ASD amount of Rs.${formatIndianAmount(asd, 0)}/-` : `Rs. ${emd}/-`
     }
     case 'e-corpus':
-      return ecv != null ? formatIndianAmount(Math.round(ecv * 0.0004), 0) : ''
+      return ecv != null ? formatIndianAmount(corpusFundFromEcv(ecv), 0) : ''
     default:
       return ''
   }
@@ -599,17 +599,27 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
             embeddings = undefined
           }
         }
-        // Match only — the Works List database is updated solely from the Works
-        // List page ("Update from L1"), never here. We just find the row so its
-        // supporting details fill the letter and select it (an embedding /
-        // wording-drift match has no exact name to re-derive from, so without
-        // this the selection would stay on row 0 and fill a different work).
-        const { matchedCount, matchedRowIndices } = updateWorksListFromEvaluations(table, [ev], embeddings)
+        // Finds the row so its supporting details fill the letter and select
+        // it (an embedding/wording-drift match has no exact name to
+        // re-derive from, so without this the selection would stay on row 0
+        // and fill a different work), AND persists the derived fields
+        // (ECV, Tender ID, Contract Amount, …) back to the Works List the
+        // same way the dedicated "Update from L1" flow (WorksListL1Update)
+        // already does — an L1/Intimation uploaded here is no less
+        // authoritative than one uploaded there, and previously updated
+        // nothing here at all, so the two flows silently disagreed.
+        const { table: updated, matchedCount, matchedRowIndices } = updateWorksListFromEvaluations(
+          table,
+          [ev],
+          embeddings,
+          notice ?? undefined
+        )
         if (matchedCount > 0) {
           const idx = matchedRowIndices[0]
           if (idx != null && idx >= 0) setRowIndex(idx)
           setWorksRowMatched(true)
-          setPdfStatus(`Matched "${ev.nameOfWork}" to a Works List row — its details fill the letter.`)
+          onChange(updated)
+          setPdfStatus(`Matched "${ev.nameOfWork}" to a Works List row — its details fill the letter and the Works List is updated.`)
         } else {
           setWorksRowMatched(false)
           setPdfStatus(`Read the PDF. "${ev.nameOfWork}" isn't in the Works List — the letter fills from the uploaded L1 / Intimation.`)

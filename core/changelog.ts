@@ -16,6 +16,17 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.25.0',
+    changes: [
+      'Works List: added an Errors button that checks your database for a duplicate Wincode/Tender ID, a work entered under two different Wincodes, an ECV greater than the Amount of estimate, or an EMD 1.5% that isn\'t greater than EMD 1% — it blinks when it finds a problem, tap it to see exactly which rows.',
+      'Works List: "Update from L1/LOA" and "Address from Intimation" now accept a whole folder (or several files/folders at once), not just one file at a time — pick your office\'s Tender Evaluations folder and every L1/Intimation sheet inside it (including subfolders) gets scanned in one go.',
+      'Works List: fixed the table not scrolling sideways to show every column — it now scrolls properly and the scrollbar is visible.',
+      'Fixed: your office could get silently forgotten and asked again after logging out and back in.',
+      'The "Log" link at the bottom of the sidebar now shows the full update history, not just the latest version.',
+      'Note Submitted: corrected the wording used for a reserved-category work\'s EMD exemption note.'
+    ]
+  },
+  {
     version: '1.24.0',
     changes: [
       'Login: if all 5 devices are already signed in, you can now force-log-out every other device right from the login screen instead of having to walk to another machine.',

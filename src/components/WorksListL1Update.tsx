@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { api } from '../ipc'
 import { pdfToTextLines } from '../pdfToText'
 import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
@@ -41,60 +41,82 @@ function normAgency(s: string): string {
 }
 
 export default function WorksListL1Update({ table, onChange, onUpdated }: Props) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const intimationRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState<null | 'l1' | 'intimation'>(null)
   // Only errors / no-match feedback shows beside the button; a successful update
   // is surfaced under the flashed row(s) in the table instead (see onUpdated).
   const [result, setResult] = useState<{ message: string; unmatched: string[] } | null>(null)
 
-  // Online Intimation (HTML or PDF) alone → update the agency's ADDRESS on every
-  // Works List row carrying that agency (matched by Name of the Agency). This is
-  // distinct from "Update from L1", which scopes to the one Name-of-Work row.
-  async function handleIntimation(file: File) {
+  // One or more Online Intimations (HTML or PDF) → update the agency's
+  // ADDRESS on every Works List row carrying that agency (matched by Name of
+  // the Agency). Distinct from "Update from L1", which scopes to the one
+  // Name-of-Work row. Each file's own agency is matched and applied
+  // independently — a folder full of different agencies' Intimations updates
+  // each of their rows in the same pass, not just the first/last one read.
+  async function handleIntimations(files: File[]) {
     setBusy('intimation')
     setResult(null)
     try {
-      const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
-      const notice: IntimationNotice = isPdf
-        ? parseIntimationNoticeText(await pdfToTextLines(file))
-        : parseIntimationNotice(await file.text())
-      const agency = (notice.agencyName ?? '').trim()
-      const address = (notice.address ?? '').trim()
       const agencyHeader = table.headers.find((h) => h.trim().toLowerCase() === 'name of the agency')
       const addrHeader = table.headers.find((h) => h.trim().toLowerCase() === 'address of the agency')
-      if (!agency) {
-        setResult({ message: "Couldn't read the agency name from that Online Intimation.", unmatched: [] })
-        return
-      }
       if (!agencyHeader || !addrHeader) {
         setResult({ message: 'The Works List has no “Name of the Agency” / “Address of the agency” column.', unmatched: [] })
         return
       }
-      const target = normAgency(agency)
-      // Match every row for this agency: exact normalised name first; if none,
-      // fall back to a contains match (handles an "M/s" prefix on one side).
-      let matched = table.rows
-        .map((r, i) => ({ i, n: normAgency(r[agencyHeader] ?? '') }))
-        .filter(({ n }) => n && n === target)
-      if (matched.length === 0 && target.length >= 4) {
-        matched = table.rows
-          .map((r, i) => ({ i, n: normAgency(r[agencyHeader] ?? '') }))
-          .filter(({ n }) => n && (n.includes(target) || target.includes(n)))
+      let current = table
+      const allMatchedRows = new Set<number>()
+      const updatedAgencies: string[] = []
+      const failed: string[] = []
+      for (const file of files) {
+        try {
+          const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
+          const notice: IntimationNotice = isPdf
+            ? parseIntimationNoticeText(await pdfToTextLines(file))
+            : parseIntimationNotice(await file.text())
+          const agency = (notice.agencyName ?? '').trim()
+          const address = (notice.address ?? '').trim()
+          if (!agency || !address) {
+            failed.push(file.name)
+            continue
+          }
+          const target = normAgency(agency)
+          // Match every row for this agency: exact normalised name first; if none,
+          // fall back to a contains match (handles an "M/s" prefix on one side).
+          let matched = current.rows
+            .map((r, i) => ({ i, n: normAgency(r[agencyHeader] ?? '') }))
+            .filter(({ n }) => n && n === target)
+          if (matched.length === 0 && target.length >= 4) {
+            matched = current.rows
+              .map((r, i) => ({ i, n: normAgency(r[agencyHeader] ?? '') }))
+              .filter(({ n }) => n && (n.includes(target) || target.includes(n)))
+          }
+          if (matched.length === 0) {
+            failed.push(file.name)
+            continue
+          }
+          const matchedSet = new Set(matched.map((m) => m.i))
+          current = { ...current, rows: current.rows.map((r, i) => (matchedSet.has(i) ? { ...r, [addrHeader]: address } : r)) }
+          matched.forEach((m) => allMatchedRows.add(m.i))
+          updatedAgencies.push(agency)
+        } catch {
+          failed.push(file.name)
+        }
       }
-      if (matched.length === 0) {
-        setResult({ message: `No Works List row has the agency “${agency}”.`, unmatched: [] })
-        return
+      if (updatedAgencies.length > 0) {
+        onChange(current)
+        onUpdated(
+          [...allMatchedRows],
+          `Updated the address for ${updatedAgencies.length} agenc${updatedAgencies.length === 1 ? 'y' : 'ies'} (${updatedAgencies.join(', ')}) on ${allMatchedRows.size} row${allMatchedRows.size === 1 ? '' : 's'}.`
+        )
       }
-      const matchedSet = new Set(matched.map((m) => m.i))
-      const rows = table.rows.map((r, i) => (matchedSet.has(i) && address ? { ...r, [addrHeader]: address } : r))
-      onChange({ ...table, rows })
-      onUpdated(
-        matched.map((m) => m.i),
-        `Updated the address for “${agency}” from the Online Intimation on ${matched.length} row${matched.length === 1 ? '' : 's'}.`
-      )
-    } catch (e) {
-      setResult({ message: e instanceof Error ? e.message : String(e), unmatched: [] })
+      if (failed.length > 0) {
+        setResult({
+          message:
+            updatedAgencies.length > 0
+              ? `Updated ${updatedAgencies.length}; couldn't match/read ${failed.length} file${failed.length === 1 ? '' : 's'}.`
+              : "Couldn't read an agency + address, or match a Works List row, from those file(s).",
+          unmatched: failed
+        })
+      }
     } finally {
       setBusy(null)
     }
@@ -184,47 +206,38 @@ export default function WorksListL1Update({ table, onChange, onUpdated }: Props)
     }
   }
 
+  // The native dialog lets the user pick loose files, whole folders, or both
+  // together (see electron/tenderDocumentScan.ts) — a folder is scanned
+  // recursively for anything named like an L1 sheet or Online Intimation, so
+  // an entire circle's Tender Evaluations tree can be picked once instead of
+  // hunting down each work's own file individually. Files picked directly by
+  // name are never filtered out, so a single sheet still works exactly as
+  // before — this replaces the old file-only <input>, it doesn't add a
+  // second, separate "folder mode".
+  async function pickAndRun(run: (files: File[]) => Promise<void>) {
+    const picked = await api.pickTenderDocuments()
+    if (picked.length === 0) return
+    await run(picked.map((f) => new File([new Uint8Array(f.bytes)], f.name)))
+  }
+
   return (
     <>
       <button
         className="ghost"
-        onClick={() => inputRef.current?.click()}
+        onClick={() => void pickAndRun(handleFiles)}
         disabled={busy !== null}
-        title="Pick the L-1 selection sheet(s) together with the LOA / Online Intimation, to fold tender details (and the matched work's address & agency from the LOA) into the Works List by Name of Work"
+        title="Pick the L-1 selection sheet(s) and/or the LOA / Online Intimation — files, a whole folder, or both — to fold tender details into the matching Works List row(s) by Name of Work"
       >
         <IconFolder /> {busy === 'l1' ? 'Updating…' : 'Update from L1/LOA'}
       </button>
       <button
         className="ghost"
-        onClick={() => intimationRef.current?.click()}
+        onClick={() => void pickAndRun(handleIntimations)}
         disabled={busy !== null}
-        title="Upload the Online Intimation (HTML or PDF) to update this agency's address on every Works List row that carries it"
+        title="Pick Online Intimation(s) — files, a whole folder, or both — to update each agency's address on every Works List row that carries it"
       >
         <IconFolder /> {busy === 'intimation' ? 'Updating…' : 'Address from Intimation'}
       </button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="application/pdf,.pdf,.html,.htm,text/html"
-        multiple
-        style={{ display: 'none' }}
-        onChange={(e) => {
-          const files = Array.from(e.target.files ?? [])
-          if (files.length > 0) void handleFiles(files)
-          e.target.value = ''
-        }}
-      />
-      <input
-        ref={intimationRef}
-        type="file"
-        accept="application/pdf,.pdf,.html,.htm,text/html"
-        style={{ display: 'none' }}
-        onChange={(e) => {
-          const file = e.target.files?.[0]
-          if (file) void handleIntimation(file)
-          e.target.value = ''
-        }}
-      />
       {result && (
         <div className="notice warn" style={{ flexBasis: '100%' }}>
           <IconWarn /> {result.message}

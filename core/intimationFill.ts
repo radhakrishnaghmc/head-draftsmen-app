@@ -1,5 +1,6 @@
 import { computeWorkAmounts, tenderPercentFromRow } from './worksAmounts'
 import { wrapAgencyAddress } from './workOrderAgreement'
+import { isReservedWork } from './tenderAgents/nameOfWork'
 import type { IntimationNotice } from './intimationNotice'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
 
@@ -18,11 +19,14 @@ const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
 
 /**
  * EMD @ 1.5% is exempted for works reserved for a particular category — the
- * work name carries a "reserved for SC/ST/WLCCS/…" tag. Matches any
- * "reserved for <category>" wording, case-insensitively.
+ * work name carries a "reserved for SC/ST/Waddera/Vaddera/WLCCS/…" tag. Any
+ * category counts (core/tenderAgents/nameOfWork.ts's isReservedWork, the
+ * single shared detector core/workOrderAgreement.ts and core/noteSubmitted.ts
+ * now also use — three separate ad-hoc copies of this used to disagree on
+ * which categories counted).
  */
 export function isEmdExempt(workName: string): boolean {
-  return /reserved\s+for\b/i.test(workName)
+  return isReservedWork(workName)
 }
 
 /** Indian financial year for a date (1 April boundary): 2026-07-27 -> "2026-27". */

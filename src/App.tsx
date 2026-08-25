@@ -16,6 +16,7 @@ import { closeOnBackdropMouseDown } from './overlayClose'
 import { entriesOf, corporationByName } from './zoneCircleDirectory'
 import { type Office, officeKey, isOfficeReady } from './office'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
+import { findWorksListErrors } from '@core/worksListAgent'
 import { mergeTables } from '@core/merge'
 import Sidebar, { type TabKey } from './components/Sidebar'
 import QcPartiesEditor from './components/QcPartiesEditor'
@@ -299,6 +300,16 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
 
   // The current Excel shown on the Data tab (single-workbook workflow).
   const currentTable = tables[0] ?? null
+
+  // Every Works List error check (Wincode/Tender ID identity, ECV vs.
+  // estimate, EMD 1%/1.5% consistency — see core/worksListAgent.ts) —
+  // recomputed only when the table itself changes, not on every render,
+  // since it walks every row.
+  const worksListErrors = useMemo(
+    () => (currentTable ? findWorksListErrors(currentTable) : []),
+    [currentTable]
+  )
+  const [showWincodeViolations, setShowWincodeViolations] = useState(false)
 
   // Global dataset (all Excels merged) — used for collision detection on the
   // Works List tab.
@@ -971,7 +982,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
         createdDocCount={createdDocuments.length}
         office={office}
         onOfficeChange={changeOffice}
-        onShowWhatsNew={() => setWhatsNew(CHANGELOG.slice(0, 1))}
+        onShowWhatsNew={() => setWhatsNew(CHANGELOG)}
       />
 
       <main className="workspace">
@@ -1033,6 +1044,16 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                     <IconRefresh /> {refreshingWorks ? 'Refreshing…' : 'Refresh'}
                   </button>
                 )}
+                {worksListErrors.length > 0 && (
+                  <button
+                    type="button"
+                    className="works-errors-btn blink"
+                    title={`${worksListErrors.length} issue${worksListErrors.length === 1 ? '' : 's'} found in the Works List`}
+                    onClick={() => setShowWincodeViolations(true)}
+                  >
+                    <IconWarn /> Errors ({worksListErrors.length})
+                  </button>
+                )}
               </div>
             </div>
             <QcPartiesEditor
@@ -1074,6 +1095,33 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                       </button>
                       <button className="primary" onClick={() => resolveCircleMismatch(true)}>
                         Continue
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )}
+            {showWincodeViolations &&
+              createPortal(
+                <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setShowWincodeViolations(false))}>
+                  <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+                    <div className="confirm-ic">
+                      <IconWarn />
+                    </div>
+                    <h3>
+                      {worksListErrors.length} issue{worksListErrors.length === 1 ? '' : 's'} found in the Works List
+                    </h3>
+                    <p className="confirm-hint">Data problems found while scanning the Works List — see each row below.</p>
+                    <ul className="works-list-violation-list">
+                      {worksListErrors.map((v) => (
+                        <li key={`${v.type}:${v.key}`}>
+                          {v.message} (row{v.rowIndices.length > 1 ? 's' : ''} {v.rowIndices.map((i) => i + 1).join(', ')})
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="confirm-actions">
+                      <button className="primary" onClick={() => setShowWincodeViolations(false)}>
+                        Close
                       </button>
                     </div>
                   </div>

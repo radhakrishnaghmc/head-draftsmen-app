@@ -7,6 +7,7 @@
 // project memory (project_note_submitted_doc) for the field mapping.
 import { computeWorkAmounts, tenderPercentFromRow } from './worksAmounts'
 import { stripItemNoTag } from './bidDocument'
+import { reservationCategoryFromRow } from './tenderAgents/nameOfWork'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
 import type { IntimationNotice } from './intimationNotice'
 
@@ -75,9 +76,17 @@ export function financialYearOf(d = new Date()): string {
   return `${startY}-${String((startY + 1) % 100).padStart(2, '0')}`
 }
 
-/** EMD @ 1.5% is exempted for works reserved for a category (SC / ST). */
+/**
+ * EMD @ 1.5% is exempted for works reserved for ANY category (SC, ST,
+ * Waddera, Vaddera, WLCCS, and others) — any non-empty reservation category
+ * counts, not just SC/ST (a real bug this used to have: see
+ * core/tenderAgents/nameOfWork.ts's isReservedWork/reservationCategory, the
+ * shared detector callers now use to derive `reservation` in the first
+ * place). ASD is unaffected — see agreementClause below, which computes it
+ * independent of this exemption.
+ */
 export function isReservedExempt(reservation: string): boolean {
-  return /\b(SC|ST)\b/i.test(reservation)
+  return reservation.trim() !== ''
 }
 
 /** A positioned line from the non-responsive sheet (see pdfToPositionedLines):
@@ -196,8 +205,8 @@ export function tenderPctMagnitude(v: string | number | null | undefined): numbe
 
 /**
  * The variable clause in note 6, following the office's exact four shapes:
- *   reserved, ≤25%  → "EMD is Exempted"
- *   reserved, >25%  → "EMD is Exempted and submitted ASD amount of Rs.… of X%"
+ *   reserved, ≤25%  → "is submitted the above said work is Reserved for X. Therefore, the EMD is Exemption"
+ *   reserved, >25%  → "…EMD is Exemption and ASD amount of Rs.… of X%"
  *   open,     ≤25%  → "has submitted EMD amount of Rs.… of 1.5%"
  *   open,     >25%  → "…EMD … of 1.5% & ASD Amount of Rs.… of X%"
  * EMD = 1.5% × ECV, ASD = (tender% − 25) × ECV (matches computeWorkAmounts).
@@ -212,11 +221,11 @@ function agreementClause(d: NoteSubmittedData): string {
   const receipt = `vide Online Receipt No: ${esc(d.receiptNo) || RECEIPT_BLANK} Dt: ${esc(d.receiptDate) || '__________'}`
 
   if (isReservedExempt(d.reservation)) {
-    const cat = esc(d.reservation.match(/\b(SC|ST)\b/i)?.[0]?.toUpperCase() ?? d.reservation)
+    const cat = esc(d.reservation.trim())
     if (asd > 0 && asdPct != null) {
-      return `the above said work is Reserved for ${cat}. Therefore, the EMD is Exempted and submitted ASD amount of Rs.${asdAmt}/- of ${pct2(asdPct)}% ${receipt}`
+      return `is submitted the above said work is Reserved for ${cat}. Therefore, the EMD is Exemption and ASD amount of Rs.${asdAmt}/- of ${pct2(asdPct)}% ${receipt}`
     }
-    return `the above said work is Reserved for ${cat}. Therefore, the EMD is Exempted`
+    return `is submitted the above said work is Reserved for ${cat}. Therefore, the EMD is Exemption`
   }
 
   const base = `has submitted EMD amount of Rs.${emdAmt}/- of 1.5%`
@@ -405,7 +414,7 @@ export function noteSubmittedFromRow(
   // doesn't also leak into Note Submitted's printed name / the cross-document
   // consistency check.
   const workName = stripItemNoTag((pdf.nameOfWork || row['Name of the work'] || '').trim())
-  const reservation = (row['Reservation'] ?? '').trim() || workName.match(/reserved\s+for\s+([A-Za-z]+)/i)?.[1] || ''
+  const reservation = reservationCategoryFromRow({ ...row, 'Name of the work': workName })
   const pctNum = pdf.tenderPercentage ?? tenderPctMagnitude(tenderPercentFromRow(row))
   const l1Pct = pctNum == null ? '' : pctNum > 0 ? `(-)${pctNum}` : String(pctNum)
   const ecv = notice.ecvRupees ?? pdf.ecvRupees ?? amounts.ecv ?? null

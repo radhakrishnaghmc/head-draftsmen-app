@@ -59,3 +59,21 @@ export const PRICE_ROW = /([\d,]+\.\d{2})\s+(Less|Excess)\s+([\d.]+)\s+([\d,]+\.
 export function joinLines(lines: string[]): string {
   return lines.join(' ').replace(/\s+/g, ' ').trim()
 }
+
+/**
+ * Removes a "(Item No.N)" tag from the start or end of a work name — the tag
+ * is pulled out into its own Item No field (see core/bidDocument.ts's
+ * extractItemNo), so it shouldn't also print as part of the work name
+ * itself. Lives here (not in bidDocument.ts, which re-exports it for every
+ * existing caller) because nameOfWork.ts's stripDecorativeWorkNameTags needs
+ * it too, and bidDocument.ts itself depends on worksAmounts.ts — importing
+ * this from bidDocument.ts into nameOfWork.ts would cycle back through
+ * worksAmounts.ts's own matchers, which also need nameOfWork.ts's
+ * normalizeWorkNameForMatch.
+ */
+export function stripItemNoTag(name: string): string {
+  return name
+    .replace(/^\s*\(item\s*no\.?\s*\d+\)\s*/i, '')
+    .replace(/\s*\(item\s*no\.?\s*\d+\)\s*$/i, '')
+    .trim()
+}

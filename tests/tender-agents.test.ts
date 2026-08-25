@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { detectTenderId } from '../core/tenderAgents/tenderId'
 import { detectNitNoAndDate } from '../core/tenderAgents/nitNoAndDate'
-import { detectNameOfWork } from '../core/tenderAgents/nameOfWork'
+import {
+  detectNameOfWork,
+  stripDecorativeWorkNameTags,
+  normalizeWorkNameForMatch,
+  isReservedWork,
+  reservationCategory
+} from '../core/tenderAgents/nameOfWork'
 import { detectEcv } from '../core/tenderAgents/ecv'
 import { detectTenderPercentage } from '../core/tenderAgents/tenderPercentage'
 import { detectContractValue } from '../core/tenderAgents/contractValue'
@@ -211,6 +217,78 @@ describe('tender agents — real-world variants found by a bulk scan of NIZAMPET
     // Real: NIT.06-26 WORKS/.../2).710538.../Stage Selected Form 1.pdf
     const lines = ['Enquiry/IFB/Tender', 'E1/06/02/DB/Nizampet Circle-58/2026-27,Dt', 'Tender ID 710538']
     expect(detectNitNoAndDate(lines).noticeNo).toBe('E1/06/02/DB/Nizampet Circle-58/2026-27')
+  })
+})
+
+describe('stripDecorativeWorkNameTags / normalizeWorkNameForMatch — real recall & reservation titles from Gajularamaram-57 and Nizampet-58', () => {
+  it('strips a glued-on, no-space "(1ST RECALL)" tag', () => {
+    // Real: NIT.08-Electrical/2).709803-LED Lights/L1.pdf
+    const name =
+      'Fixing of LED Lights and Erection of Octagonal poles and High Mast Poles at Sports Complex in Gajularamaram Circle-57,Quthbullapur Zone, CMC(1ST RECALL)'
+    expect(stripDecorativeWorkNameTags(name)).toBe(
+      'Fixing of LED Lights and Erection of Octagonal poles and High Mast Poles at Sports Complex in Gajularamaram Circle-57,Quthbullapur Zone, CMC'
+    )
+    expect(isReservedWork(name)).toBe(false)
+  })
+
+  it('strips a lowercase "(1st recall)" tag after a period', () => {
+    // Real: NIT.15-Elecc/717178-re recting HAL Colony/Stage Selected Form.pdf
+    const name = 'division in Gajulararam Circle-57,Quthbullapur Zone,CMC.(1st recall)'
+    expect(stripDecorativeWorkNameTags(name)).toBe('division in Gajulararam Circle-57,Quthbullapur Zone,CMC.')
+  })
+
+  it('strips a "(Reserved for SC)" tag and reads the category', () => {
+    // Real: Nizampet-58, Tender ID 710635 (Sai Keerthi Layout)
+    const name =
+      'Laying of CC road at Plot No:17,18 and 19 in Sai Keerthi Layout in ward no:23 in Nizampet Municipal Corporation under Municipal General Funds 2025-26 (Ward No 276, Pragathi nagar Nizampet Circle-58, Quthbullapur Zone CMC) (Reserved for SC)'
+    expect(stripDecorativeWorkNameTags(name)).toBe(
+      'Laying of CC road at Plot No:17,18 and 19 in Sai Keerthi Layout in ward no:23 in Nizampet Municipal Corporation under Municipal General Funds 2025-26 (Ward No 276, Pragathi nagar Nizampet Circle-58, Quthbullapur Zone CMC)'
+    )
+    expect(isReservedWork(name)).toBe(true)
+    expect(reservationCategory(name)).toBe('SC')
+  })
+
+  it('strips a DUPLICATED "(Reserved for SC) (Reserved for SC)" tag (a real source-data glitch) in one pass', () => {
+    // Real: NIT.06-26 WORKS/Completed-26 works/10).Recall-710603-CC Road Lavanya Residency/Stage Selected Form.pdf
+    const name =
+      'Colony in ward No.1 in NMC under MGF 2025-26 (ward No 274, Bachupally Nizampet Circle-58, Quthbullapur Zone CMC) (Reserved for SC) (Reserved for SC)'
+    expect(stripDecorativeWorkNameTags(name)).toBe(
+      'Colony in ward No.1 in NMC under MGF 2025-26 (ward No 274, Bachupally Nizampet Circle-58, Quthbullapur Zone CMC)'
+    )
+  })
+
+  it('reads a compound "/"-joined reservation category, not just the first word', () => {
+    // Real category text seen on a Gajularamaram-57 sheet: "waddera/Sagara"
+    expect(reservationCategory('Some work in a colony (Reserved for Waddera/Sagara)')).toBe('Waddera/Sagara')
+  })
+
+  it('normalizeWorkNameForMatch makes an L1 title equal the Works List entry when a decorative tag is the ONLY difference', () => {
+    // The bug this fixes: when a Works List row and an L1 title are otherwise
+    // identical, a trailing "(Reserved for SC)"/"(Recall)" tag alone used to
+    // be enough to fail an exact match. (Verified against the real Sai
+    // Keerthi Layout pair below: that L1 title also carries an extra
+    // "(Ward No 276, Pragathi nagar Nizampet Circle-58, Quthbullapur Zone
+    // CMC)" clause the Works List entry never had in the first place — a
+    // genuine wording difference, not a decorative tag — so that real pair
+    // still relies on the embedding fallback exactly as before; this fix
+    // only ever closes the tag-only gap, illustrated here directly.)
+    const l1Title = 'Laying of CC road at Plot No 17 in Sai Keerthi Layout, Nizampet Circle-58 (Reserved for SC)'
+    const worksListEntry = 'Laying of CC road at Plot No 17 in Sai Keerthi Layout, Nizampet Circle-58'
+    expect(normalizeWorkNameForMatch(l1Title)).toBe(normalizeWorkNameForMatch(worksListEntry))
+  })
+
+  it('the real Sai Keerthi Layout L1 title vs its real Works List entry (Nizampet-58, Tender ID 710635) still needs the embedding fallback — the tag alone is not the only difference', () => {
+    const l1Title =
+      'Laying of CC road at Plot No:17,18 and 19 in Sai Keerthi Layout in ward no:23 in Nizampet Municipal Corporation under Municipal General Funds 2025-26 (Ward No 276, Pragathi nagar Nizampet Circle-58, Quthbullapur Zone CMC) (Reserved for SC)'
+    const worksListEntry =
+      'Laying of CC road at Plot No:17,18 and 19 in Sai Keerthi Layout in ward no:23 in Nizampet Municipal Corporation under Municipal General Funds 2025-26'
+    expect(normalizeWorkNameForMatch(l1Title)).not.toBe(normalizeWorkNameForMatch(worksListEntry))
+  })
+
+  it('a genuinely different work (not just a different tag) still does not match', () => {
+    expect(normalizeWorkNameForMatch('Laying of CC road at Plot No 17 (Reserved for SC)')).not.toBe(
+      normalizeWorkNameForMatch('Laying of CC road at Plot No 18 (Reserved for ST)')
+    )
   })
 })
 

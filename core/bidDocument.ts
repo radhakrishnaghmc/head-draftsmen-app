@@ -1,6 +1,7 @@
 import { listParagraphs, setParagraphText } from './docx-edit'
 import { lakhsToRupees, rupeesFromCell, indianDigitGroups, formatRupees } from './worksAmounts'
 import { zoneAbbr } from './loaSe'
+export { stripItemNoTag } from './tenderAgents/shared'
 
 // Placeholder tokens present in the bundled Bid Document template, and the
 // zip parts they can appear in — {{Circle}} repeats in the running footer
@@ -131,14 +132,6 @@ function ecvLakhsTruncated(ecvRupees: number): string {
 /** Pulls "3" out of a work name ending "...(Item No.3)" — the office's own convention for naming items within a multi-item NIT. Undefined when no such tag is present. */
 export function extractItemNo(name: string): string | undefined {
   return /\(Item No\.?\s*(\d+)\)/i.exec(name)?.[1]
-}
-
-/** Removes a "(Item No.N)" tag from the start or end of a work name — the tag is pulled out into its own Item No field (see extractItemNo), so it shouldn't also print as part of the work name itself. */
-export function stripItemNoTag(name: string): string {
-  return name
-    .replace(/^\s*\(item\s*no\.?\s*\d+\)\s*/i, '')
-    .replace(/\s*\(item\s*no\.?\s*\d+\)\s*$/i, '')
-    .trim()
 }
 
 /**

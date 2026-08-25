@@ -3,8 +3,7 @@ import type { TenderEvaluation } from './tenderEvaluationPdf'
 import type { IntimationNotice } from './intimationNotice'
 import { rankByEmbedding, WORK_IDENTITY_MATCH_THRESHOLD } from './embeddingMatch'
 import { rupeesToCell } from './worksAmounts'
-
-const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
+import { normalizeWorkNameForMatch as norm } from './tenderAgents/nameOfWork'
 
 export interface WorksTenderUpdateResult {
   table: ExcelTable

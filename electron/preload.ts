@@ -7,6 +7,7 @@ const api: DocuGenApi = {
   pickExcelGrids: () => ipcRenderer.invoke(IPC.pickExcelGrids),
   pickEstimateGrid: () => ipcRenderer.invoke(IPC.pickEstimateGrid),
   pickDataSheet: () => ipcRenderer.invoke(IPC.pickDataSheet),
+  pickTenderDocuments: () => ipcRenderer.invoke(IPC.pickTenderDocuments),
   ocrEstimatePhotos: (dataUrls) => ipcRenderer.invoke(IPC.ocrEstimatePhotos, dataUrls),
   openPath: (target) => ipcRenderer.invoke(IPC.openPath, target),
   revealItem: (target) => ipcRenderer.invoke(IPC.revealItem, target),

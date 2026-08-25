@@ -833,6 +833,14 @@ code {
   height: 100%;
   min-height: 0;
   overflow-y: auto;
+  /* Without an explicit overflow-x, UAs treat the paired "visible" as "auto"
+     (CSS Overflow §3) once overflow-y is non-visible — so a wide child (the
+     Works List table) that still manages to bulge past .sheet-inline's own
+     clamp (see max-width there) would make THIS whole page scroll sideways —
+     page-head and every button dragging along with it — instead of just the
+     table's own .sheet-wrap scrolling internally. Hard-disabling it here
+     forces any horizontal overflow to be caught below, at .sheet-wrap. */
+  overflow-x: hidden;
 }
 @keyframes page-in {
   from {
@@ -1200,6 +1208,32 @@ button.ghost {
 button.ghost:hover:not(:disabled) {
   background: var(--surface-2);
   color: var(--text);
+}
+
+/* Works List "Errors" button (App.tsx) — only rendered at all once
+   wincodeViolations is non-empty, so unlike every other page-head-action
+   button it doesn't need its own visibility toggle; the blink draws the eye
+   to it without needing a big always-on banner taking up page space. */
+.works-errors-btn {
+  border-color: #fecaca;
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.works-errors-btn:hover:not(:disabled) {
+  background: #fecaca;
+  border-color: #fca5a5;
+}
+.works-errors-btn.blink {
+  animation: works-errors-blink 1.4s ease-in-out infinite;
+}
+@keyframes works-errors-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }
 
 button.danger-ghost {
@@ -2683,6 +2717,22 @@ textarea:placeholder-shown {
   background: var(--warn-bg);
   color: var(--warn);
   border-color: #fde68a;
+}
+/* Works List "Errors" modal (App.tsx's wincodeViolations) — one line per
+   violation, inside the .confirm-modal it opens into. Left-aligned and
+   scrollable (unlike .confirm-modal's own centered, unconstrained text)
+   since a real Works List can turn up more violations than fit on screen. */
+.works-list-violation-list {
+  margin: 4px 0 18px;
+  padding-left: 18px;
+  max-height: 40vh;
+  overflow-y: auto;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-2, var(--muted));
+}
+.works-list-violation-list li {
+  margin-top: 6px;
 }
 .notice.error {
   background: var(--danger-bg);
@@ -5720,10 +5770,77 @@ tr.on .rp-box span {
 .sheet-inline {
   padding: 0;
   overflow: hidden;
+  /* .page (this card's flex parent, flex-direction: column) defaults every
+     flex item to min-width: auto — without this override, the Works List
+     table's own intrinsic width (33 fixed-width columns, easily wider than
+     the window) forces THIS CARD wider than .page instead of staying
+     within it, so .sheet-wrap below never gets a chance to scroll
+     internally: there was nothing to fix in .sheet-wrap's own overflow:auto,
+     the box containing it just never stayed narrow enough to need it.
+     max-width is the actual hard clamp — min-width:0 alone still let this
+     card stretch past .page's edge in practice (the table dragged .page
+     itself into horizontal scroll instead), so cap the width outright
+     rather than just removing the floor on shrinking. */
+  min-width: 0;
+  max-width: 100%;
+  /* .sheet-wrap below used to be capped with max-height:58vh/70vh (a flat
+     fraction of the WHOLE viewport) — but the real space left for it, once
+     .page-head/QC-parties/Google-import/notices above it are accounted
+     for, is routinely LESS than that fraction. .sheet-wrap (plus the
+     .sheet-foot "Add row/Add column" bar after it, and critically the
+     horizontal scrollbar sitting at .sheet-wrap's own bottom edge) then
+     overflowed THIS card's box height and got silently swallowed by the
+     overflow:hidden above — confirmed via devtools: .sheet-wrap's
+     getBoundingClientRect().bottom sat ~24-90px past .sheet-inline's own
+     bottom, clipping off exactly the scrollbar strip and the whole footer.
+     Making this a flex column and letting .sheet-wrap's own flex:1 (see
+     below — it already had this, unused until now) claim the ACTUAL
+     leftover height fixes it structurally instead of guessing a fraction.
+     flex is 0 1 auto, NOT 1 — a plain flex:1 unconditionally grows this
+     card to fill 100% of .page's remaining height even for a short/
+     filtered table, stranding "Add row/Add column" below a big dead gap
+     instead of right under the last real row. 0 1 auto only shrinks
+     (never grows past its own content) when content genuinely doesn't
+     fit — a short table stays content-sized, a long one still gets
+     capped and internally scrolled exactly as before. */
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
 }
 .sheet-inline .sheet-wrap {
-  max-height: 58vh;
+  max-width: 100%;
   border-top: none;
+  /* Flex item on the CROSS axis of a column flex parent, same automatic-
+     minimum-size trap as .sheet-inline's own min-width:0 above, just on
+     the vertical axis this time — without it, the table's row count can
+     hold this taller than .sheet-inline actually has room for. */
+  min-height: 0;
+}
+/* The Works List table (33 fixed-width columns) is always wider than the
+   pane — .sheet-wrap's overflow-x:auto genuinely scrolls (confirmed: real
+   overflow, real reserved scrollbar-gutter space), but the thumb was
+   PAINTED INVISIBLE: --border-strong is rgba(255,255,255,0.9), a
+   near-white made for borders against a darker/tinted surface — against
+   this pane's own near-white background it renders as a blank 8-9px strip,
+   so there was never a visible affordance telling anyone to scroll right
+   (the other panes reusing --border-strong for scrollbar thumbs, e.g.
+   .tender-modal, have this same problem, just less noticed since their
+   scroll is vertical and reachable by the ordinary mouse wheel). --muted
+   is an actual mid-grey, visible on this background either way. */
+.sheet-wrap::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.sheet-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sheet-wrap::-webkit-scrollbar-thumb {
+  background: var(--muted);
+  border-radius: var(--radius-pill);
+}
+.sheet-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--text);
 }
 .sheet-inline .editor-warn {
   margin: 12px 14px 0;
@@ -5769,9 +5886,6 @@ tr.on .rp-box span {
 /* ── Full-area pages (Work database, Search Tender) ──────────────── */
 .page.wide {
   max-width: none;
-}
-.page.wide .sheet-inline .sheet-wrap {
-  max-height: 70vh;
 }
 .page.wide .tender-wrap {
   max-height: none;

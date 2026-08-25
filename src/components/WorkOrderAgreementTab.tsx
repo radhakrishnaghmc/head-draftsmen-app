@@ -768,11 +768,14 @@ export default function WorkOrderAgreementTab({
         embeddings = undefined
       }
     }
-    // Match only — the Works List database is updated solely from the Works List
-    // page ("Update from L1"), never here. We just find the row so its supporting
-    // details fill the documents and select it (an embedding match has no exact
-    // name to re-derive from, so without this it would stay on row 0).
-    const { matchedCount, matchedRowIndices } = updateWorksListFromEvaluations(
+    // Finds the row so its supporting details fill the documents and select
+    // it (an embedding match has no exact name to re-derive from, so without
+    // this it would stay on row 0), AND persists the derived fields back to
+    // the Works List the same way the dedicated "Update from L1" flow
+    // (WorksListL1Update) already does — an L1/Intimation uploaded here is
+    // no less authoritative than one uploaded there, and previously updated
+    // nothing here at all, so the two flows silently disagreed.
+    const { table: updated, matchedCount, matchedRowIndices } = updateWorksListFromEvaluations(
       table,
       [ev],
       embeddings,
@@ -782,7 +785,8 @@ export default function WorkOrderAgreementTab({
       const idx = matchedRowIndices[0]
       if (idx != null && idx >= 0) setRowIndex(idx)
       setWorksRowMatched(true)
-      setPdfStatus(`Matched "${ev.nameOfWork}" to a Works List row — its details fill the documents.`)
+      onChange(updated)
+      setPdfStatus(`Matched "${ev.nameOfWork}" to a Works List row — its details fill the documents and the Works List is updated.`)
     } else {
       setWorksRowMatched(false)
       setPdfStatus(`Read the PDF. "${ev.nameOfWork}" isn't in the Works List — the documents fill from the uploaded L1 / Intimation.`)

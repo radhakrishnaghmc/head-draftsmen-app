@@ -27,7 +27,14 @@
  */
 export { detectTenderId } from './tenderId'
 export { detectNitNoAndDate, type NitNoAndDate } from './nitNoAndDate'
-export { detectNameOfWork } from './nameOfWork'
+export {
+  detectNameOfWork,
+  isReservedWork,
+  reservationCategory,
+  reservationCategoryFromRow,
+  stripDecorativeWorkNameTags,
+  normalizeWorkNameForMatch
+} from './nameOfWork'
 export { detectEcv } from './ecv'
 export { detectTenderPercentage } from './tenderPercentage'
 export { detectContractValue } from './contractValue'

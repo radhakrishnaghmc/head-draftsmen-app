@@ -33,6 +33,14 @@ export interface UpdateProgress {
   bytesPerSecond: number
 }
 
+/** One file read back from pickTenderDocuments — a PDF or HTML page, however deep inside whatever folder(s) the user picked it came from. */
+export interface PickedTenderDocument {
+  /** Base file name (with extension), for display and to tell a .pdf from a .html/.htm. */
+  name: string
+  /** Raw file bytes. */
+  bytes: Uint8Array
+}
+
 /** One entry in Settings' "Active Devices" list — a live SessionSlot plus whether it's this device's own. */
 export interface ActiveSessionInfo extends SessionSlot {
   isThisDevice: boolean
@@ -61,6 +69,7 @@ export const IPC = {
   pickExcelGrids: 'dialog:pickExcelGrids',
   pickEstimateGrid: 'dialog:pickEstimateGrid',
   pickDataSheet: 'dialog:pickDataSheet',
+  pickTenderDocuments: 'dialog:pickTenderDocuments',
   ocrEstimatePhotos: 'data:ocrEstimatePhotos',
   openPath: 'shell:openPath',
   revealItem: 'shell:revealItem',
@@ -155,6 +164,16 @@ export interface DocuGenApi {
   pickExcelGrids(): Promise<SheetGrid[]>
   pickEstimateGrid(): Promise<SheetGrid | null>
   pickDataSheet(): Promise<SheetGrid[] | null>
+  /**
+   * Lets the user pick loose files AND/OR whole folders in one native dialog
+   * (macOS's picker supports mixing both; Windows falls back to whichever
+   * single mode its own picker offers) — every PDF/HTML found, recursively
+   * through any folder picked, filtered by filename to the kind of document
+   * an L1 sheet / Online Intimation is actually named (so a folder that also
+   * holds hundreds of unrelated KYC/PAN/GST documents isn't read and parsed
+   * wholesale). Returns [] if the dialog was cancelled or nothing matched.
+   */
+  pickTenderDocuments(): Promise<PickedTenderDocument[]>
   /** Runs local OCR on photos of a paper estimate (in page order) and reconstructs one combined grid, best-effort — always review before exporting. */
   ocrEstimatePhotos(dataUrls: string[]): Promise<SheetGrid>
   openPath(target: string): Promise<void>

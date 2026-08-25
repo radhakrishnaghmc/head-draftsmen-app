@@ -4,6 +4,7 @@
 // user-authored {{Placeholder}} template filled from a Works List row).
 import type { ExcelTable } from './types'
 import { rankByEmbedding, WORK_IDENTITY_MATCH_THRESHOLD } from './embeddingMatch'
+import { normalizeWorkNameForMatch } from './tenderAgents/nameOfWork'
 
 /** "1" or ".30" (Lakhs) -> 100000 or 30000 (rupees). "Amount of estimate" is entered on the Works List in Lakhs. */
 export function lakhsToRupees(lakhs: string): number {
@@ -83,6 +84,13 @@ export interface ComputedAmounts {
   asd: number | null
   /** ECV net of the tendered percentage: ECV * (1 - Tender Percentage) — null when Tender Percentage or ECV isn't available yet, rather than assuming 0%. */
   contractAmount: number | null
+  /** Corpus Fund @ 0.04% of ECV (the SE zonal office's LOA — see corpusFundFromEcv) — null when ECV isn't available yet. */
+  corpusFund: number | null
+}
+
+/** Corpus Fund @ 0.04% of ECV, rounded — the SE zonal office's LOA/e-corpus figure. A standalone formula (not folded only into computeWorkAmounts) because callers that resolve ECV themselves from an upload before falling back to the Works List row (e.g. src/components/GiveIntimationTab.tsx's resolveLoaValue) need the same formula applied to THEIR resolved ECV, not necessarily the row's own. */
+export function corpusFundFromEcv(ecv: number): number {
+  return Math.round(ecv * 0.0004)
 }
 
 /**
@@ -116,8 +124,9 @@ export function computeWorkAmounts(row: Record<string, string>): ComputedAmounts
         : 0
   const contractAmount =
     ecv !== null && tenderPercent !== undefined ? Math.round(ecv * (1 - tenderPercent / 100)) : null
+  const corpusFund = ecv !== null ? corpusFundFromEcv(ecv) : null
 
-  return { estimate, ecv, emd1, emd1_5, asd, contractAmount }
+  return { estimate, ecv, emd1, emd1_5, asd, contractAmount, corpusFund }
 }
 
 /**
@@ -187,11 +196,10 @@ export function applyEcvFromBoq(
   embeddings?: { workNameVector: number[]; rowNameVectors: number[][] }
 ): EcvMatchResult {
   const nameHeader = table.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
-  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
-  const target = norm(workName)
+  const target = normalizeWorkNameForMatch(workName)
   if (!nameHeader || !target) return { table, matched: false }
 
-  let idx = table.rows.findIndex((r) => norm(r[nameHeader] ?? '') === target)
+  let idx = table.rows.findIndex((r) => normalizeWorkNameForMatch(r[nameHeader]) === target)
   let matchedViaAi = false
   if (idx === -1 && embeddings) {
     const [best] = rankByEmbedding(embeddings.workNameVector, embeddings.rowNameVectors)
