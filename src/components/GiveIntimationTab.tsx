@@ -33,6 +33,7 @@ import { base64ToUint8, PAGE_WIDTH, renderDocPreview, DOCX_PREVIEW_OPTIONS, norm
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell, IconCheck } from './Icons'
 import type { ExcelTable } from '@core/types'
 import type { AgreementBundleFile } from '../../electron/ipc-contract'
+import type { ThemeId } from '../theme'
 
 interface Props {
   tables: ExcelTable[]
@@ -46,6 +47,8 @@ interface Props {
    * body below the upload buttons.
    */
   headerActionRef?: RefObject<HTMLDivElement | null>
+  /** Issue Documents tile style, set in Settings → Themes (see theme.ts) — applied to this page's output tiles too. */
+  theme: ThemeId
 }
 
 /** The Intimation letter (or SE LOA) plus its 4 SE companion notes — each shown as a tile that expands into the preview modal, same layout as the Agreement page's document tiles. */
@@ -390,7 +393,7 @@ function notice_nitNo(pdf: TenderEvaluation, row: Record<string, string>): strin
  * docx-preview of the filled letter with Word / PDF / Print. (Note Submitted
  * lives on the Agreement & Work Order tab.)
  */
-export default function GiveIntimationTab({ tables, onChange, office, headerActionRef }: Props) {
+export default function GiveIntimationTab({ tables, onChange, office, headerActionRef, theme }: Props) {
   const table = tables[0] ?? null
 
   // Whether headerActionRef's DOM node is actually mounted yet — reading
@@ -1312,7 +1315,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
 
           {!headerMounted && downloadAllButton}
 
-          <div className="wo-tiles">
+          <div className={`wo-tiles${theme === 'flat1' ? ' wo-tiles-flat' : ''}`}>
             <button className="wo-tile" onClick={() => openDoc('intimation')}>
               <div className="wo-tile-preview">
                 <div ref={previewRef} className="wo-tile-doc" />

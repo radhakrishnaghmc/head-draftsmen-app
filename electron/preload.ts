@@ -76,6 +76,11 @@ const api: DocuGenApi = {
   generateBidDocument: (input, suggestedName) =>
     ipcRenderer.invoke(IPC.generateBidDocument, input, suggestedName),
   generateBidDocumentBatch: (entries) => ipcRenderer.invoke(IPC.generateBidDocumentBatch, entries),
+  onBidDocumentBatchProgress: (callback) => {
+    const listener = (_e: unknown, progress: import('./ipc-contract').BidDocumentBatchProgress) => callback(progress)
+    ipcRenderer.on(IPC.bidDocumentBatchProgress, listener)
+    return () => ipcRenderer.removeListener(IPC.bidDocumentBatchProgress, listener)
+  },
   previewBidDocument: (input) => ipcRenderer.invoke(IPC.previewBidDocument, input),
   generateTechnicalSanction: (estimatePath, sheetName, edits, suggestedName, rateAnalysisRows) =>
     ipcRenderer.invoke(

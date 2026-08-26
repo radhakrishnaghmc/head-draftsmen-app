@@ -72,6 +72,13 @@ export interface TenderScanProgress {
   total: number
 }
 
+export interface BidDocumentBatchProgress {
+  /** Documents finished so far. */
+  done: number
+  /** Total documents in the batch. */
+  total: number
+}
+
 export const IPC = {
   pickExcels: 'dialog:pickExcels',
   pickExcelGrids: 'dialog:pickExcelGrids',
@@ -127,6 +134,7 @@ export const IPC = {
   previewTenderNotice: 'data:previewTenderNotice',
   generateBidDocument: 'data:generateBidDocument',
   generateBidDocumentBatch: 'data:generateBidDocumentBatch',
+  bidDocumentBatchProgress: 'data:bidDocumentBatchProgress',
   previewBidDocument: 'data:previewBidDocument',
   generateTechnicalSanction: 'data:generateTechnicalSanction',
   searchTenders: 'tenders:search',
@@ -282,6 +290,8 @@ export interface DocuGenApi {
   generateBidDocumentBatch(
     entries: { input: BidDocumentInput; suggestedName: string }[]
   ): Promise<string[] | null>
+  /** Fires repeatedly while generateBidDocumentBatch is filling/writing each document, so the caller can show a live percentage instead of the button just sitting on "Saving…" for however long the batch takes. */
+  onBidDocumentBatchProgress(callback: (progress: BidDocumentBatchProgress) => void): () => void
   previewBidDocument(input: BidDocumentInput): Promise<string>
   generateTechnicalSanction(
     estimatePath: string,
@@ -385,6 +395,8 @@ export interface AgreementBundleFile {
   /** Schedule A source — required for 'xlsx' (the workbook is built in main). */
   scheduleATable?: ExcelTable
   scheduleAMeta?: ScheduleAMeta
+  /** True for a Zone-level (SE) office's Schedule A — uses the Superintending Engineer template/signature instead of the Executive Engineer one. Only meaningful alongside scheduleATable. */
+  scheduleAIsSe?: boolean
 }
 export type { TenderNoticeInput }
 export type { CellEdit }

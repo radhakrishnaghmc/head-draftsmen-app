@@ -16,7 +16,7 @@ import { runSplitInWorker } from './splitRunner'
 import { pdfPageCount, mergePdfFiles, splitPdfFile } from './pdfTools'
 import { applyTechnicalSanctionEdits } from '../core/technicalSanctionOutput'
 import type { CellEdit } from '../core/technicalSanction'
-import { embedTexts } from './embeddings'
+import { embedTexts, warmEmbeddings } from './embeddings'
 import { buildScheduleAWorkbook, rowsToScheduleAItems } from '../core/scheduleA'
 import type { ScheduleAMeta } from '../core/scheduleA'
 import { fillScheduleATemplate, fillSeScheduleATemplate } from '../core/scheduleATemplate'
@@ -119,6 +119,7 @@ app.whenReady().then(() => {
   registerHandlers()
   createWindow()
   initAutoUpdate(() => mainWindow)
+  warmEmbeddings()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -466,8 +467,18 @@ function registerHandlers(): void {
     }
   )
 
-  async function buildScheduleABuffer(table: ExcelTable, meta?: ScheduleAMeta): Promise<Buffer> {
+  async function buildScheduleABuffer(table: ExcelTable, meta?: ScheduleAMeta, isSe?: boolean): Promise<Buffer> {
     const items = rowsToScheduleAItems(table)
+    // A Zone-level (SE) office must never get the Executive Engineer / Circle
+    // template — same split as the standalone "Save Schedule A" button
+    // (IPC.exportScheduleA / exportSeScheduleA above); this bundle path had
+    // been missing that check entirely, always using the EE template/
+    // signature even when saving from an SE office's Agreement tab.
+    if (isSe) {
+      const sePath = seScheduleATemplateFile()
+      if (!sePath) throw new Error('SE Schedule A format is missing from the app bundle.')
+      return fillSeScheduleATemplate(fs.readFileSync(sePath), items, meta)
+    }
     const templatePath = scheduleATemplateFile()
     return templatePath
       ? fillScheduleATemplate(fs.readFileSync(templatePath), items, meta)
@@ -509,7 +520,7 @@ function registerHandlers(): void {
           if (f.format === 'xlsx') {
             if (!f.scheduleATable) continue
             const p = uniquePath(f.name, 'xlsx')
-            fs.writeFileSync(p, await buildScheduleABuffer(f.scheduleATable, f.scheduleAMeta))
+            fs.writeFileSync(p, await buildScheduleABuffer(f.scheduleATable, f.scheduleAMeta, f.scheduleAIsSe))
             written.push(p)
           } else {
             if (!f.docxBase64) continue
@@ -1516,7 +1527,8 @@ function registerHandlers(): void {
       const templateCache = new Map<string, Buffer>()
       const used = new Set<string>()
       const written: string[] = []
-      for (const entry of entries) {
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i]
         const { templatePath, fill } = resolveBidDocumentFiller(entry.input.work)
         let templateBuffer = templateCache.get(templatePath)
         if (!templateBuffer) {
@@ -1533,6 +1545,14 @@ function registerHandlers(): void {
         used.add(fileName)
         fs.writeFileSync(path.join(dir, fileName), sanitizeDocxForWord2007(fill(templateBuffer, entry.input)))
         written.push(path.join(dir, fileName))
+        mainWindow?.webContents.send(IPC.bidDocumentBatchProgress, { done: i + 1, total: entries.length })
+        // Filling + sanitizing a docx is CPU-bound and synchronous — looping
+        // straight through a big batch with no yield hogs the main process's
+        // single thread for the whole batch, freezing every window's IPC and
+        // repaints along with it. Yielding once per document (not per-line
+        // inside the fill itself) lets the event loop breathe between
+        // documents without materially slowing the batch down.
+        await new Promise((resolve) => setImmediate(resolve))
       }
       return written
     }

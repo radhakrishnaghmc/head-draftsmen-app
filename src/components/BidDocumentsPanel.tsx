@@ -1,10 +1,10 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import { IconDoc, IconEye, IconDownload, IconTrash, IconCheck, IconWarn } from './Icons'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import type { BidDocumentBatch, BidDocumentWork } from '@core/types'
-import type { BidDocumentInput } from '../../electron/ipc-contract'
+import type { BidDocumentInput, BidDocumentBatchProgress } from '../../electron/ipc-contract'
 import { closeOnBackdropMouseDown } from '../overlayClose'
 
 interface Props {
@@ -52,12 +52,22 @@ export default function BidDocumentsPanel({ batches, onRemove, onUpdateWork }: P
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [savedKey, setSavedKey] = useState<string | null>(null)
   const [batchBusyId, setBatchBusyId] = useState<string | null>(null)
+  const [batchProgress, setBatchProgress] = useState<BidDocumentBatchProgress | null>(null)
   const [batchSavedDir, setBatchSavedDir] = useState<{ batchId: string; dir: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [previewing, setPreviewing] = useState<{ batch: BidDocumentBatch; work: BidDocumentWork } | null>(
     null
   )
   const previewRef = useRef<HTMLDivElement>(null)
+  const batchBusyRef = useRef(batchBusyId)
+  batchBusyRef.current = batchBusyId
+
+  useEffect(() => {
+    return api.onBidDocumentBatchProgress((p) => {
+      // Ignore a straggling event from a batch that's no longer active.
+      if (batchBusyRef.current) setBatchProgress(p)
+    })
+  }, [])
 
   if (batches.length === 0) return null
 
@@ -100,6 +110,7 @@ export default function BidDocumentsPanel({ batches, onRemove, onUpdateWork }: P
   async function downloadAll(batch: BidDocumentBatch) {
     setError(null)
     setBatchBusyId(batch.id)
+    setBatchProgress(null)
     setBatchSavedDir(null)
     try {
       const paths = await api.generateBidDocumentBatch(
@@ -111,9 +122,15 @@ export default function BidDocumentsPanel({ batches, onRemove, onUpdateWork }: P
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
+      setBatchProgress(null)
       setBatchBusyId(null)
     }
   }
+
+  const batchPct =
+    batchBusyId && batchProgress && batchProgress.total > 0
+      ? Math.round((batchProgress.done / batchProgress.total) * 100)
+      : null
 
   return (
     <>
@@ -127,8 +144,22 @@ export default function BidDocumentsPanel({ batches, onRemove, onUpdateWork }: P
               <h2>Bid Documents</h2>
               <p className="sub">NIT No. {batch.nitNo}</p>
             </div>
-            <button className="primary" onClick={() => downloadAll(batch)} disabled={batchBusyId === batch.id}>
-              <IconDownload /> {batchBusyId === batch.id ? 'Saving…' : `Download All (${batch.works.length})`}
+            <button
+              className="primary scan-progress-btn"
+              onClick={() => downloadAll(batch)}
+              disabled={batchBusyId === batch.id}
+            >
+              {batchBusyId === batch.id && batchPct !== null && (
+                <span className="scan-progress-fill" style={{ width: `${batchPct}%` }} />
+              )}
+              <span className="scan-progress-label">
+                <IconDownload />{' '}
+                {batchBusyId === batch.id
+                  ? batchPct !== null
+                    ? `Saving ${batchProgress!.done}/${batchProgress!.total} (${batchPct}%)`
+                    : 'Saving…'
+                  : `Download All (${batch.works.length})`}
+              </span>
             </button>
             <button className="danger-ghost" title="Remove this batch" onClick={() => onRemove(batch.id)}>
               <IconTrash />

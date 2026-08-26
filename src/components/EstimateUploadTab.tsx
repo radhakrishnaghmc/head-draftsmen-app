@@ -150,19 +150,21 @@ function sanitizeFileName(s: string): string {
 }
 
 /**
- * The BOQ file name for an estimate: "Boq <sheet/tab name> <estimate amount in
- * lakhs>" (e.g. "Boq peddamma 112.00"). The sheet name is the descriptor
- * because a workbook's estimates are near-identically worded and only their
- * tab names (the localities) tell them apart; the amount is the estimate's
- * Grand Total in lakhs. Falls back to the file name / ECV-based lakhs when a
- * sheet name or Grand Total isn't available. exportBoqBatch de-duplicates any
- * that still collide.
+ * The BOQ file name for an estimate: "BOQ <first 20 characters of the Name of
+ * the Work> <estimate amount in lakhs>" (e.g. "BOQ CC road at Sai Keert
+ * 112.00"). Falls back to the sheet/tab name (then the file name) when the
+ * estimate has no extracted work name — a workbook's estimates are often
+ * near-identically worded, so the tab name (the locality) was the only thing
+ * that told them apart before a work name was reliably available; the amount
+ * is the estimate's Grand Total in lakhs, else the ECV-based lakhs.
+ * exportBoqBatch de-duplicates any file names that still collide.
  */
 function boqBaseName(e: Entry): string {
-  const descriptor = sanitizeFileName(e.sheetName || stripExt(e.fileName)) || 'estimate'
+  const workName20 = e.workName?.trim().slice(0, 20).trim()
+  const descriptor = sanitizeFileName(workName20 || e.sheetName || stripExt(e.fileName)) || 'estimate'
   const lakhs = e.grandTotalLakhs ?? e.estimateAmountLakhs
   const amount = lakhs ? ` ${lakhs.toFixed(2)}` : ''
-  return sanitizeFileName(`Boq ${descriptor}${amount}`)
+  return sanitizeFileName(`BOQ ${descriptor}${amount}`)
 }
 
 /**

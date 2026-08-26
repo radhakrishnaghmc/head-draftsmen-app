@@ -12,12 +12,15 @@ import {
 } from '@core/workOrderTemplateVariants'
 import { workOrderPlaceholders, agreementPlaceholders, type WorkOrderAgreementFields } from '@core/workOrderAgreement'
 import { MAX_CONCURRENT_SESSIONS } from '@core/sessionSlots'
+import { THEME_OPTIONS, type ThemeId } from '../theme'
 import type { ActiveSessionInfo } from '../../electron/ipc-contract'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import { IconSettings, IconCheck, IconWarn, IconEye, IconUser, IconLogout } from './Icons'
 
 interface Props {
   office: Office
+  theme: ThemeId
+  onThemeChange: (theme: ThemeId) => void
 }
 
 // Deliberately long/realistic values (not blank, not short) — a preview built
@@ -348,6 +351,76 @@ function ActiveDevicesCard() {
 }
 
 /**
+ * Settings — "Themes": lets a user try the flat/solid-color Issue Documents
+ * tile style ("Test theme 1", built as the .doc-tile-flat CSS variant) side
+ * by side with the original thumbnail tiles ("Default"), and switch back at
+ * any time. A static mock tile (not a real DocThumbnail render) — this card
+ * doesn't have a real .docx on hand to render, and the point here is
+ * comparing the two tile *styles*, not previewing actual document content.
+ * This is a display preference for this machine, not office data, so it's
+ * stored in localStorage only (see theme.ts) rather than office-scoped.
+ */
+function ThemeSection({ theme, onThemeChange }: { theme: ThemeId; onThemeChange: (theme: ThemeId) => void }) {
+  return (
+    <div className="settings-template-section">
+      <h3 className="settings-template-section-title">Issue Documents tiles</h3>
+      <p className="sub">Choose how document tiles look on this device.</p>
+
+      <div className="wo-tiles settings-theme-tiles">
+        {THEME_OPTIONS.map((opt) => (
+          <div
+            key={opt.id}
+            role="button"
+            tabIndex={0}
+            className={`wo-tile ${theme === opt.id ? 'on' : ''}`}
+            onClick={() => onThemeChange(opt.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onThemeChange(opt.id)
+              }
+            }}
+            title={`Use "${opt.label}" for Issue Documents tiles`}
+          >
+            <div className="wo-tile-preview settings-theme-preview">
+              <div
+                className={`doc-tile-card tone-sky settings-theme-mock ${
+                  opt.id === 'flat1'
+                    ? 'doc-tile-flat'
+                    : opt.id === 'windows'
+                      ? 'settings-theme-mock-windows'
+                      : opt.id === 'dark'
+                        ? 'settings-theme-mock-dark'
+                        : ''
+                }`}
+              >
+                {opt.id === 'flat1' ? (
+                  <span className="doc-tile-flat-thumb">
+                    <span className="settings-theme-mock-thumb" />
+                  </span>
+                ) : (
+                  <span className="settings-theme-mock-thumb" />
+                )}
+                <span className="doc-tile-card-name">Sample Document</span>
+                <span className="doc-tile-card-meta">Added 01.01.2026</span>
+              </div>
+              {theme === opt.id && (
+                <span className="settings-tile-selected">
+                  <IconCheck /> In use
+                </span>
+              )}
+              <span className="wo-tile-open">Click to use this style</span>
+            </div>
+            <div className="wo-tile-foot">{opt.label}</div>
+            <p className="settings-theme-desc">{opt.description}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
  * Settings — "Document Templates": some circles word and lay out their own
  * documents differently (see core/workOrderTemplateVariants.ts for why — a
  * real Kompally Circle-56 Work Order cites a Ref block the app's original
@@ -360,7 +433,7 @@ function ActiveDevicesCard() {
  * (see CONTACT_KEYS). One TemplateSection per document type — a future
  * document type is just another entry in the list below.
  */
-export default function SettingsTab({ office }: Props) {
+export default function SettingsTab({ office, theme, onThemeChange }: Props) {
   const fields = useMemo(
     () => sampleFields(office),
     [office.circle, office.circleNumber, office.zone, office.corporation]
@@ -369,6 +442,20 @@ export default function SettingsTab({ office }: Props) {
   return (
     <>
       <ActiveDevicesCard />
+
+      <div className="card">
+        <div className="card-head">
+          <div className="head-ic">
+            <IconSettings />
+          </div>
+          <div className="titles">
+            <h2>Themes</h2>
+            <p className="sub">Try a different look for this app on this device.</p>
+          </div>
+        </div>
+
+        <ThemeSection theme={theme} onThemeChange={onThemeChange} />
+      </div>
 
       <div className="card">
         <div className="card-head">

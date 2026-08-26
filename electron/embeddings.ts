@@ -56,13 +56,28 @@ function getWorker(): Worker {
   return w
 }
 
+// Serializes every request sent to the worker, one at a time — two
+// callers each awaiting their own embedTexts() (e.g. resolveForRow's
+// label/column pair, or a background warm-up overlapping a real request)
+// would otherwise post concurrent messages, and onnxruntime-node's own
+// inference session is not safe to re-enter concurrently (see CHUNK_SIZE's
+// doc comment above for another instability this same native binary hits
+// under load). Chaining onto this tail costs nothing once the queue is
+// empty and costs only wall-clock time (not correctness) when it isn't.
+let requestQueue: Promise<unknown> = Promise.resolve()
+
 function embedBatch(texts: string[], dir: string): Promise<number[][]> {
-  const id = nextId++
-  const w = getWorker()
-  return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject })
-    w.postMessage({ id, texts, modelDir: dir })
-  })
+  const run = () => {
+    const id = nextId++
+    const w = getWorker()
+    return new Promise<number[][]>((resolve, reject) => {
+      pending.set(id, { resolve, reject })
+      w.postMessage({ id, texts, modelDir: dir })
+    })
+  }
+  const result = requestQueue.then(run, run)
+  requestQueue = result.catch(() => {})
+  return result
 }
 
 // Sending the full rate-database (700-800+ real, ~200-char descriptions) as
@@ -84,4 +99,16 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
     vectors.push(...(await embedBatch(chunk, dir)))
   }
   return vectors
+}
+
+/**
+ * Fires the ~15s+ model load in the background right after the app starts,
+ * so it's already warm by the time a user's first placeholder-matching call
+ * (e.g. a document Preview) needs it — without this, that first call is the
+ * one left waiting on the load, which reads as the whole preview hanging.
+ * Fire-and-forget: any failure (e.g. bundled model missing) just means the
+ * first real call pays the cost/surfaces the error as it always did.
+ */
+export function warmEmbeddings(): void {
+  void embedTexts(['warm-up']).catch(() => {})
 }

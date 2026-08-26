@@ -16,6 +16,19 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.27.0',
+    changes: [
+      'Settings: added "Themes" — choose how Issue Documents tiles look on this device (Default, Colured, Windows theme, or Dark mode).',
+      'Fixed: uploading a scanned or complex PDF/image could get stuck on "Reading…" forever with no error — it now gives up after a wait and shows a clear message instead.',
+      'PDF conversion (Print/Preview) now shows a clear message if LibreOffice isn\'t installed, and converts multi-page documents noticeably faster.',
+      'Issue Documents: batch document generation now shows a live progress percentage instead of appearing frozen.',
+      'Work Order/Agreement: fixed Schedule A saving with the wrong (Executive Engineer) format for a Zone-level (SE) office when saved together with the bundle.',
+      'Estimate BOQ files are now named using the work\'s actual name instead of the estimate sheet\'s tab name.',
+      'Give Intimation (SE/Zone offices): fixed reference-list numbering alignment in the TS Note, Eligibility, Bid Evaluation, and Agency Approval notes.',
+      'Faster document previews — the first Issue Documents preview no longer waits on the matching model to load, and repeated previews skip re-matching columns that haven\'t changed.'
+    ]
+  },
+  {
     version: '1.26.0',
     changes: [
       'Login: if you\'ve successfully signed in on this computer before, you can now sign in again with no internet connection — only for that same login, not anyone else\'s.',

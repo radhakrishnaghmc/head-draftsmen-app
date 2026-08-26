@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'fs'
+import { resolve } from 'path'
+import PizZip from 'pizzip'
 import {
   zoneAbbr,
   financialYearFromDate,
@@ -50,4 +53,18 @@ describe('loaSe helpers', () => {
       'Fifty Three Lakhs Ninety Two Thousand Five Hundred Fourteen and Seven Paise'
     )
   })
+})
+
+describe('loa-se templates', () => {
+  // Regression guard for a real request: the "Copy Submitted to the Chief
+  // Engineer, CMC for favor of information please." line was removed from
+  // both templates' signature blocks — re-check this stays gone after any
+  // future re-export (bundled templates are known to regress that way).
+  for (const name of ['loa-se-template.docx', 'loa-se-reserved-template.docx']) {
+    it(`${name} no longer carries the "Copy Submitted to the Chief Engineer" line`, () => {
+      const buf = readFileSync(resolve(__dirname, '..', 'resources', name))
+      const xml = new PizZip(buf).file('word/document.xml')!.asText()
+      expect(xml).not.toContain('Chief Engineer')
+    })
+  }
 })

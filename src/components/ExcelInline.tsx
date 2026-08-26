@@ -172,6 +172,37 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
     onChange({ ...table, headers: trimmed, rows })
   }
 
+  // Same validation/shape as commit, but for a single cell's edit — the by
+  // far most frequent case, firing on every keystroke while typing into a
+  // Works List cell. commit() rebuilds every row's Record<string,string>
+  // from scratch every time it's called; for a few-hundred-row list that's
+  // thousands of object writes PER KEYSTROKE just to change one row, and it
+  // discards every OTHER row's previous object identity in the process —
+  // this instead reuses table.rows' existing objects for every row except
+  // the one that actually changed, rebuilding only that row. Falls back to
+  // the general commit() if the row index isn't in the current table prop
+  // yet (e.g. right after addRow, before the parent's state catches up) —
+  // correctness over speed in that rare edge case.
+  function commitRow(hs: string[], m: string[][], changedRi: number) {
+    const trimmed = hs.map((h) => h.trim())
+    if (hs.length === 0 || trimmed.some((h) => h === '')) return
+    const seen = new Set<string>()
+    for (const h of trimmed) {
+      if (seen.has(h)) return
+      seen.add(h)
+    }
+    if (changedRi < 0 || changedRi >= table.rows.length || changedRi >= m.length) {
+      commit(hs, m)
+      return
+    }
+    const changedRow: Record<string, string> = {}
+    trimmed.forEach((h, ci) => {
+      changedRow[h] = m[changedRi]?.[ci] ?? ''
+    })
+    const rows = table.rows.map((row, i) => (i === changedRi ? changedRow : row))
+    onChange({ ...table, headers: trimmed, rows })
+  }
+
   function setHeader(ci: number, value: string) {
     const next = headers.map((h, i) => (i === ci ? value : h))
     setHeaders(next)
@@ -194,7 +225,7 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
       next = next.map((row, i) => (i === ri ? filledRow : row))
     }
     setMatrix(next)
-    commit(headers, next)
+    commitRow(headers, next, ri)
   }
 
   function addColumn() {

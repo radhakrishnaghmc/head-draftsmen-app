@@ -60,23 +60,53 @@ export interface BidEvaluationData extends SeEvaluationRefs {
   nonRespCount?: number
 }
 
-// "Ref:" plus every numbered point hang off the SAME left indent (the
-// label's own width) — the label sits on item 1)'s line, not as a lone
-// paragraph of its own with the numbered points starting fresh below it.
-const REF_INDENT = '36px'
-/** "Ref: 1)" (first item) or a bare "    2)" (every item after) — matching the office's own Ref-block numbering, hanging-indented so wrapped lines still align under the number. */
-const refItem = (n: string, html: string, first = false): string =>
-  `<p style="margin:0 0 2px;padding-left:${REF_INDENT};text-indent:-${REF_INDENT}">${first ? '<b>Ref:</b>&emsp;' : ''}${esc(n)}&emsp;${html}</p>`
+// "Ref:" plus every numbered point's 1)/2)/3)… must line up in the same
+// column, whether or not that row carries the "Ref:" label — a text-indent
+// hanging-paragraph can't do that (it only has ONE hang position per line,
+// so "Ref: 1)" and a bare "2)" start their numbers at different x
+// positions). A borderless table gives each row its own label/number/text
+// cell instead, so every number aligns regardless of what's in column 1 —
+// same border="0" layout technique already used for the AE/Dy.EE/SE line.
+// pt widths (matching this file's own bidder-table convention — a 432pt
+// total, see below) on EVERY column, plus table-layout:fixed on the table —
+// two separate bugs, found the hard way:
+//  1. The in-app preview (docx-preview.js, rendering the real generated
+//     .docx — a DIFFERENT engine than the html-to-docx conversion that made
+//     it) doesn't reliably honour small px column widths on a borderless
+//     table with no table-layout set: it re-stretched the label/number
+//     columns to roughly equal thirds, even though the downloaded file
+//     opened fine in Word. table-layout:fixed forces literal widths in both.
+//  2. html-to-docx's own buildTableCellWidth (node_modules/html-to-docx)
+//     only parses pt/px/cm/inch width strings — a bare percentage silently
+//     falls through to `undefined`, which corrupts the OOXML it hands to
+//     xmlbuilder2 ("InvalidCharacterError: Invalid XML name: @w") and
+//     THROWS, breaking real document generation outright. Confirmed via
+//     tests/tmp-repro.test.ts (not kept — a one-off repro, not a permanent
+//     test) that '7%' reproduces this exactly and 'pt' does not.
+// 432pt total to match TABLE_STYLE's own 432pt bidder table below.
+const REF_LABEL_WIDTH = '30pt'
+const REF_NUM_WIDTH = '26pt'
+const REF_TEXT_WIDTH = '376pt'
+const refRow = (n: string, html: string, label = ''): string =>
+  '<tr>' +
+  `<td style="border:none;vertical-align:top;white-space:nowrap;width:${REF_LABEL_WIDTH};padding:0 0 4px 0">${label ? `<b>${esc(label)}</b>` : ''}</td>` +
+  `<td style="border:none;vertical-align:top;width:${REF_NUM_WIDTH};padding:0 0 4px 0">${esc(n)}</td>` +
+  `<td style="border:none;vertical-align:top;width:${REF_TEXT_WIDTH};text-align:justify;padding:0 0 4px 0">${html}</td>` +
+  '</tr>'
 
-function refBlockHtml(d: SeEvaluationRefs): string {
+/** The shared 4-item Ref block ("Ref: 1) … 2) … 3) … 4) …"). `extraItem` appends a 5th row (Agency Approval only) into the SAME table so it aligns too, instead of a separate paragraph below it. */
+function refBlockHtml(d: SeEvaluationRefs, extraItem?: { n: string; html: string }): string {
   return (
-    refItem('1)', `Administrative sanction approval of the ${esc(d.asRefLine)}.`, true) +
+    '<table border="0" style="border-collapse:collapse;width:100%;table-layout:fixed;margin:0 0 4px 0">' +
+    refRow('1)', `Administrative sanction approval of the ${esc(d.asRefLine)}.`, 'Ref:') +
     // 4 spaces of hand-fill room right after the label — the T.S.No itself is
     // a manual field the office often hasn't typed in yet when this note is
     // first generated.
-    refItem('2)', `T.S.No.&nbsp;&nbsp;&nbsp;&nbsp;${esc(d.tsNo)}/SE/${esc(d.zoneAbbr)}/CMC/${esc(d.financialYear)}, Dated: ${esc(d.tsDate)}`) +
-    refItem('3)', `NIT.No.${esc(d.nitNo)}, Dated: ${esc(d.nitDate)} (Item No.${esc(d.itemNo)})`) +
-    refItem('4)', `Technical bid opened on ${esc(d.techBidOpenDate)}.`)
+    refRow('2)', `T.S.No.&nbsp;&nbsp;&nbsp;&nbsp;${esc(d.tsNo)}/SE/${esc(d.zoneAbbr)}/CMC/${esc(d.financialYear)}, Dated: ${esc(d.tsDate)}`) +
+    refRow('3)', `NIT.No.${esc(d.nitNo)}, Dated: ${esc(d.nitDate)} (Item No.${esc(d.itemNo)})`) +
+    refRow('4)', `Technical bid opened on ${esc(d.techBidOpenDate)}.`) +
+    (extraItem ? refRow(extraItem.n, extraItem.html) : '') +
+    '</table>'
   )
 }
 
@@ -168,8 +198,10 @@ export function buildAgencyApprovalHtml(d: AgencyApprovalData): string {
         d.estimateLakhs
       )} Lakhs -Evaluation of Financial Bids–Agency approval and issue of  LOA – Regarding.`
     ) +
-    refBlockHtml(d) +
-    refItem('5)', `Technical Bid evaluation Approved by SE, ${esc(d.zoneAbbr)}, CMC on ${esc(d.bidEvalApprovedDate)}.`) +
+    refBlockHtml(d, {
+      n: '5)',
+      html: `Technical Bid evaluation Approved by SE, ${esc(d.zoneAbbr)}, CMC on ${esc(d.bidEvalApprovedDate)}.`
+    }) +
     '<p style="margin:6px 0;text-align:center">*********</p>' +
     P(
       `It is to submit that the work “${esc(

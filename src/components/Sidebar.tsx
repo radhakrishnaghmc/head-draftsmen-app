@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import appLogo from '../assets/app-logo.png'
 import telanganaThalli from '../assets/telangana-thalli.jpg'
@@ -259,8 +260,9 @@ export default function Sidebar(props: Props) {
         {updateStatus && <span className="side-update-status">{updateStatus}</span>}
       </div>
 
-      {officeOpen && (
-        <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setOfficeOpen(false))}>
+      {officeOpen &&
+        createPortal(
+          <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setOfficeOpen(false))}>
           <div className="confirm-modal office-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <h3>Your office</h3>
             <div className="office-fields">
@@ -344,8 +346,9 @@ export default function Sidebar(props: Props) {
               </button>
             </div>
           </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </aside>
   )
 }

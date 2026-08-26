@@ -8,8 +8,9 @@ import type { CreatedDocument, ExcelTable, QcOfficeParties } from '@core/types'
 import type { Office } from '../office'
 import { IconDoc, IconEye, IconPrint, IconDownload, IconSearch } from './Icons'
 import { base64ToUint8, PAGE_WIDTH, renderDocPreview } from './docPage'
-import DocThumbnail from './DocThumbnail'
 import { closeOnBackdropMouseDown } from '../overlayClose'
+import DocThumbnail from './DocThumbnail'
+import type { ThemeId } from '../theme'
 
 interface Props {
   tables: ExcelTable[]
@@ -21,6 +22,8 @@ interface Props {
   office: Office
   /** The current office's 3rd/4th-party QC agencies (set on the Works List page) — fills those letters' "To" block. */
   qcParties?: QcOfficeParties
+  /** Issue Documents tile style, set in Settings → Themes (see theme.ts). */
+  theme: ThemeId
 }
 
 /**
@@ -62,7 +65,7 @@ function isPartyDoc(doc: CreatedDocument | null): boolean {
   return doc?.id === PARTY_3RD_ID || doc?.id === PARTY_4TH_ID
 }
 
-export default function PrintDocumentTab({ tables, documents, onChange, onGoToWorksList, office, qcParties }: Props) {
+export default function PrintDocumentTab({ tables, documents, onChange, onGoToWorksList, office, qcParties, theme }: Props) {
   const table = tables[0] ?? null
 
   // Reorder/delete still act on the full synced list; only display is filtered.
@@ -130,6 +133,11 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
   // Title shown on the preview modal — one document's name, or "N documents".
   const [previewTitle, setPreviewTitle] = useState('')
   const previewRef = useRef<HTMLDivElement>(null)
+  // Works List column headers don't change between one preview and the
+  // next — without this, resolveForRow re-embedded the same ~20-40 headers
+  // on every single Preview click, on top of the doc's own (much shorter)
+  // placeholder labels, roughly doubling per-click latency for no reason.
+  const columnEmbedCacheRef = useRef<{ key: string; vectors: number[][] } | null>(null)
   // Off-screen render target used to turn filled .docx files into HTML — for
   // batch printing (handleBatch 'print') and for building the combined preview
   // (handleBatchPreview). printCreatedDocument needs plain HTML, not a docx
@@ -165,7 +173,21 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
     setOverIndex(null)
   }
 
-  async function resolveForRow(doc: CreatedDocument): Promise<{ docx: string; resolved: PlaceholderMatch[] }> {
+  // useAi: whether to call out to the local embedding model for placeholder↔
+  // column matching. Preview (handlePreview/handleBatchPreview) passes
+  // false — Agreement/Intimation's previews are instant because their
+  // placeholders are matched against a fixed, developer-known mapping, never
+  // touching the AI model; Issue Documents' templates are arbitrary
+  // user-uploaded .docx files with unknown placeholder names, so token-
+  // overlap (matchPlaceholdersToColumns's built-in fallback with no
+  // embeddings passed) is the only fast, synchronous option — same one this
+  // function already falls back to on any embedding error. The real
+  // Download/Print output (handleBatch) still opts into the AI match for
+  // better accuracy, since that's a deliberate, less latency-sensitive action.
+  async function resolveForRow(
+    doc: CreatedDocument,
+    useAi = true
+  ): Promise<{ docx: string; resolved: PlaceholderMatch[] }> {
     const labels = await api.findPlaceholdersInDocument(doc.docx)
     // Amount-bearing columns (Amount of estimate, ECV, EMD @
     // 1%/1.5%, ASD, Contract Amount) resolve to their computed, Indian-
@@ -209,16 +231,21 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
       return { docx: await api.fillPlaceholdersInDocument(doc.docx, resolved, row), resolved }
     }
     let embeddings: { labelVectors: number[][]; columnVectors: number[][] } | undefined
-    try {
-      const [labelVectors, columnVectors] = await Promise.all([
-        api.embedTexts(otherLabels),
-        api.embedTexts(columns)
-      ])
-      embeddings = { labelVectors, columnVectors }
-    } catch {
-      // Neural matching unavailable — matchPlaceholdersToColumns falls back
-      // to plain token overlap automatically when no embeddings are passed.
-      embeddings = undefined
+    if (useAi) {
+      try {
+        const columnsKey = columns.join('␟')
+        const cached = columnEmbedCacheRef.current
+        const [labelVectors, columnVectors] =
+          cached?.key === columnsKey
+            ? [await api.embedTexts(otherLabels), cached.vectors]
+            : await Promise.all([api.embedTexts(otherLabels), api.embedTexts(columns)])
+        if (cached?.key !== columnsKey) columnEmbedCacheRef.current = { key: columnsKey, vectors: columnVectors }
+        embeddings = { labelVectors, columnVectors }
+      } catch {
+        // Neural matching unavailable — matchPlaceholdersToColumns falls back
+        // to plain token overlap automatically when no embeddings are passed.
+        embeddings = undefined
+      }
     }
     const resolved = [...matchPlaceholdersToColumns(otherLabels, columns, embeddings), ...manualResolved]
     return { docx: await api.fillPlaceholdersInDocument(doc.docx, resolved, row), resolved }
@@ -231,7 +258,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
     setBatchError(null)
     setPreviewTitle(doc.name)
     try {
-      const result = await resolveForRow(doc)
+      const result = await resolveForRow(doc, false)
       setPreview(result)
       requestAnimationFrame(() => {
         void (async () => {
@@ -264,7 +291,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
       if (!scratch) throw new Error('Preview failed to initialize.')
       const parts: string[] = []
       for (const doc of docs) {
-        const { docx } = await resolveForRow(doc)
+        const { docx } = await resolveForRow(doc, false)
         await renderDocPreview(base64ToUint8(docx), scratch)
         parts.push(scratch.innerHTML)
       }
@@ -463,6 +490,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                 className={[
                   'doc-tile-card',
                   'tool-card',
+                  theme === 'flat1' ? 'doc-tile-flat' : '',
                   TILE_TONES[i % TILE_TONES.length],
                   selectedIds.has(doc.id) ? 'selected' : '',
                   dragIndex === i ? 'dragging' : '',
@@ -499,7 +527,13 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                     onChange={() => toggleSelected(doc.id)}
                   />
                 </label>
-                <DocThumbnail docx={doc.docx} />
+                {theme === 'flat1' ? (
+                  <span className="doc-tile-flat-thumb">
+                    <DocThumbnail docx={doc.docx} width={72} />
+                  </span>
+                ) : (
+                  <DocThumbnail docx={doc.docx} />
+                )}
                 <span className="doc-tile-card-name">{doc.name}</span>
                 <span className="doc-tile-card-meta">Added {doc.createdDate}</span>
                 <span

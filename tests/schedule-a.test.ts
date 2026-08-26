@@ -3,9 +3,10 @@ import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import * as ExcelJS from 'exceljs'
 import { buildScheduleARows, metaFromWorksRow, type ScheduleAItem } from '../core/scheduleA'
-import { fillScheduleATemplate } from '../core/scheduleATemplate'
+import { fillScheduleATemplate, fillSeScheduleATemplate } from '../core/scheduleATemplate'
 
 const TEMPLATE_PATH = resolve(__dirname, '../resources/schedule-a-template.xlsx')
+const SE_TEMPLATE_PATH = resolve(__dirname, '../resources/se-schedule-a-template.xlsx')
 
 const items: ScheduleAItem[] = [
   { itemNo: '1', quantity: '10', description: 'Earth work', rate: '100', units: 'Cum', amount: '1000' }
@@ -140,5 +141,44 @@ describe('fillScheduleATemplate', () => {
     expect(shortH).toBeGreaterThan(0)
     expect(longH).toBeGreaterThan(shortH) // the long description forced a taller row
     expect(longWraps).toBe(true)
+  }, 30000)
+})
+
+describe('fillSeScheduleATemplate', () => {
+  // A Zone-level (SE) office's Schedule A must sign off as Superintending
+  // Engineer with the Zone/Corporation — never the Executive Engineer/Circle
+  // wording the EE template carries. Real bug: the standalone "Save Schedule
+  // A" button already branched on this correctly, but the Agreement tab's
+  // "Download all documents" bundle (electron/main.ts buildScheduleABuffer)
+  // always called fillScheduleATemplate (the EE one) regardless of office —
+  // an SE office's downloaded Schedule A showed "Executive Engineer" and a
+  // Circle name instead of "Superintending Engineer" and the Zone.
+  it('signs off as Superintending Engineer with the Zone and Corporation, never Executive Engineer/Circle', async () => {
+    const buffer = readFileSync(SE_TEMPLATE_PATH)
+    const meta = { nameOfWork: 'Road from A to B', zone: 'Quthbullapur', corporation: 'CMC' }
+    const out = await fillSeScheduleATemplate(buffer, items, meta)
+
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(out as unknown as ArrayBuffer)
+    const ws = workbook.worksheets[0]
+    let allText = ''
+    ws.eachRow((row) => row.eachCell((c) => { allText += ' ' + (typeof c.value === 'string' ? c.value : '') }))
+
+    expect(allText).toContain('Superintending Engineer')
+    expect(allText).toContain('Quthbullapur Zone, CMC')
+    expect(allText).not.toContain('{{Zone}}')
+    expect(allText).not.toContain('{{Corp}}')
+  }, 30000)
+
+  it('leaves the {{Zone}}/{{Corp}} placeholders alone when neither is supplied', async () => {
+    const buffer = readFileSync(SE_TEMPLATE_PATH)
+    const out = await fillSeScheduleATemplate(buffer, items, { nameOfWork: 'X' })
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(out as unknown as ArrayBuffer)
+    const ws = workbook.worksheets[0]
+    let allText = ''
+    ws.eachRow((row) => row.eachCell((c) => { allText += ' ' + (typeof c.value === 'string' ? c.value : '') }))
+    expect(allText).toContain('{{Zone}}')
+    expect(allText).toContain('Superintending Engineer')
   }, 30000)
 })

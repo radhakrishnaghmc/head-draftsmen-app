@@ -15,6 +15,7 @@ import { autofillWorksRow, enforceZoneCircle, fillCircleNumber, splitCircleColum
 import { closeOnBackdropMouseDown } from './overlayClose'
 import { entriesOf, corporationByName } from './zoneCircleDirectory'
 import { type Office, officeKey, isOfficeReady } from './office'
+import { type ThemeId, getStoredTheme, setStoredTheme } from './theme'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import { findWorksListErrors } from '@core/worksListAgent'
 import { mergeTables } from '@core/merge'
@@ -148,6 +149,23 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // until the version check below runs; a fresh install announces nothing).
   const [whatsNew, setWhatsNew] = useState<ChangelogEntry[]>([])
 
+  // Issue Documents tile style (Settings → Themes) — a display preference for
+  // this machine, not office-scoped data, so it lives in localStorage only
+  // (see theme.ts).
+  const [theme, setTheme] = useState<ThemeId>(() => getStoredTheme())
+  function changeTheme(next: ThemeId) {
+    setTheme(next)
+    setStoredTheme(next)
+  }
+  // Windows theme and Dark mode both restyle the whole app (including
+  // elements outside .shell, like Skyline/ProfileMenu, and portaled modals
+  // on document.body), so they're scoped via body classes rather than a
+  // container class.
+  useEffect(() => {
+    document.body.classList.toggle('theme-windows', theme === 'windows')
+    document.body.classList.toggle('theme-dark', theme === 'dark')
+  }, [theme])
+
   // Portal targets for the Agreement/Work Order and Intimation pages' own
   // "Download all documents" buttons — rendered in each page-head so they
   // sit next to the title (like Calendar's "Issue tender notice") instead
@@ -229,6 +247,14 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // Works List, so we prompt the user to import that circle's database link. The
   // stored label is the new office's Circle (or Zone) shown in the notice.
   const [officeImportPrompt, setOfficeImportPrompt] = useState<string | null>(null)
+  // Set while switching to an office that has a remembered Works List link
+  // but wasn't loaded yet this session — the auto re-import this triggers
+  // (see pendingOfficeImport's effect) is a real network fetch + parse of
+  // however many hundred rows that office's sheet has, with nothing else on
+  // screen to show for it otherwise: the office modal just closes and the
+  // Works List page sits there looking stuck/slow with no explanation
+  // (real report: "selecting circle office is taking time").
+  const [officeSwitchBusy, setOfficeSwitchBusy] = useState<string | null>(null)
   // Works List link remembered per office (key: officeKey) — synced, so a
   // circle's database reloads on return and follows the user across systems.
   const [worksListLinks, setWorksListLinks] = useState<Record<string, string>>({})
@@ -301,13 +327,29 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // The current Excel shown on the Data tab (single-workbook workflow).
   const currentTable = tables[0] ?? null
 
+  // Debounced copy of currentTable for the error scan below — editing a
+  // Works List cell replaces `tables` (a new array/object) on every single
+  // keystroke, and without this the full Wincode/Tender-ID/ECV/EMD scan
+  // (core/worksListAgent.ts, O(rows) but real regex/string work per row)
+  // re-ran on every keystroke too, for however many hundred rows the list
+  // has — a real contributor to "typing feels slow", especially on slower
+  // hardware. The Errors button is a background health-check, not something
+  // that needs to react within a keystroke, so it settling ~600ms after you
+  // stop typing (rather than instantly on every character) changes nothing
+  // about correctness, just when the count visibly updates.
+  const [debouncedTable, setDebouncedTable] = useState(currentTable)
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedTable(currentTable), 600)
+    return () => clearTimeout(t)
+  }, [currentTable])
+
   // Every Works List error check (Wincode/Tender ID identity, ECV vs.
   // estimate, EMD 1%/1.5% consistency — see core/worksListAgent.ts) —
-  // recomputed only when the table itself changes, not on every render,
-  // since it walks every row.
+  // recomputed only when the (debounced) table itself changes, not on every
+  // render, since it walks every row.
   const worksListErrors = useMemo(
-    () => (currentTable ? findWorksListErrors(currentTable) : []),
-    [currentTable]
+    () => (debouncedTable ? findWorksListErrors(debouncedTable) : []),
+    [debouncedTable]
   )
   const [showWincodeViolations, setShowWincodeViolations] = useState(false)
 
@@ -959,11 +1001,14 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     officeImportRef.current = pendingOfficeImport
     const url = pendingOfficeImport
     setPendingOfficeImport(null)
-    void importFromGoogleLink(url).catch(() => {
-      setTables([])
-      setLastGoogleLink(null)
-      setOfficeImportPrompt(office.circle || office.zone || null)
-    })
+    setOfficeSwitchBusy(office.circle || office.zone || null)
+    void importFromGoogleLink(url)
+      .catch(() => {
+        setTables([])
+        setLastGoogleLink(null)
+        setOfficeImportPrompt(office.circle || office.zone || null)
+      })
+      .finally(() => setOfficeSwitchBusy(null))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingOfficeImport, office])
 
@@ -1063,6 +1108,11 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 currentOfficeKey && setQcParties((prev) => ({ ...prev, [currentOfficeKey]: next }))
               }
             />
+            {officeSwitchBusy && (
+              <div className="notice warn office-switch-busy">
+                <IconRefresh className="spin" /> Loading <strong>{officeSwitchBusy}</strong>'s Works List…
+              </div>
+            )}
             {officeImportPrompt && (
               <div className="notice warn">
                 <IconWarn /> You changed your office to <strong>{officeImportPrompt}</strong>. Paste that office's Works
@@ -1175,6 +1225,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               onGoToWorksList={() => setTab('data')}
               office={office}
               qcParties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
+              theme={theme}
             />
           </section>
         </KeepAlive>
@@ -1260,6 +1311,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 onChange={updateTable}
                 office={office}
                 headerActionRef={intimationHeaderActionRef}
+                theme={theme}
               />
             ) : (
               <EvaluationSheetTab office={office} />
@@ -1295,6 +1347,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               zoneLogin={!!loginZone && !loginCircle}
               office={office}
               headerActionRef={workOrderHeaderActionRef}
+              theme={theme}
             />
           </section>
         </KeepAlive>
@@ -1319,7 +1372,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 </button>
               </div>
             </div>
-            <IssueNoticesTab key={issueNoticesInstanceKey} office={office} />
+            <IssueNoticesTab key={issueNoticesInstanceKey} office={office} theme={theme} />
           </section>
         </KeepAlive>
 
@@ -1395,7 +1448,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 <h1>Tools</h1>
               </div>
             </div>
-            <ToolsTab tables={tables} onChange={updateTable} office={office} documents={bakedDocuments} />
+            <ToolsTab tables={tables} onChange={updateTable} office={office} documents={bakedDocuments} theme={theme} />
           </section>
         </KeepAlive>
 
@@ -1409,7 +1462,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 <h1>Settings</h1>
               </div>
             </div>
-            <SettingsTab office={office} />
+            <SettingsTab office={office} theme={theme} onThemeChange={changeTheme} />
           </section>
         </KeepAlive>
         </Fragment>

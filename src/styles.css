@@ -33,7 +33,17 @@
   --surface-2: rgba(252, 252, 253, 0.66);
   --border: rgba(255, 255, 255, 0.7);
   --border-strong: rgba(255, 255, 255, 0.9);
-  --glass-blur: blur(40px) saturate(115%);
+  /* Was blur(40px) — a real report that typing/clicking/switching tabs feels
+     slow specifically on Windows (fine on Mac) traces to this: backdrop-
+     filter blur is compositor work every affected surface pays on every
+     repaint near it, and Windows/Chromium's blur compositing costs scale
+     with radius far worse than macOS's does — 40px is 2-3x the pixel area
+     to sample per output pixel versus something like 14px. Still gives a
+     visible frosted-glass look at a small fraction of the cost; the
+     heaviest single consumer (the sticky, constantly-scrolling Works List
+     header) was switched to a plain solid background instead of just a
+     smaller blur, since a sticky element recomposites every scroll frame. */
+  --glass-blur: blur(14px) saturate(115%);
 
   --text: #1b1b1f;
   --text-2: #444650;
@@ -63,6 +73,91 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --font: 'Segoe UI Variable', 'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, Roboto,
     'Helvetica Neue', sans-serif;
+}
+
+/* Windows theme (Settings → Themes) — flat, sharp-cornered surfaces styled
+   after the Windows 11 Settings app: light-gray flat fills, thin hairline
+   borders, small corner radii, no glass blur. Scoped to body.theme-windows
+   (toggled in App.tsx) rather than a container class so it reaches the
+   whole app in one place, including elements that render outside .shell
+   (Skyline/UpdateBanner/ProfileMenu) and portaled modals on document.body.
+   Most of the app already reads these same tokens for its surfaces/borders/
+   shadows/radii, so overriding them here is enough to flatten the bulk of
+   the UI; components below (sidebar, nav, buttons, tiles) hardcode their own
+   colors/shapes instead of using the tokens and get explicit overrides. */
+body.theme-windows {
+  --bg-grad-a: #f3f3f3;
+  --bg-grad-b: #f3f3f3;
+  --surface: #ffffff;
+  --surface-2: #f6f6f6;
+  --border: #e5e5e5;
+  --border-strong: #d6d6d6;
+  --glass-blur: none;
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-pill: 6px;
+  --shadow-sm: 0 0 0 1px rgba(0, 0, 0, 0.03);
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.14);
+  --shadow-glow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Dark mode (Settings → Themes) — Apple's iOS/iPadOS Dark Mode system
+   palette (Human Interface Guidelines system colors), not an inverted or
+   desaturated version of Default: true-black systemBackground, elevated
+   secondary/tertiary surfaces (systemGray6/5), systemBlue as the one
+   interactive accent (buttons, links, focus, "selected"), and each tone
+   category mapped onto its own iOS system color (systemGreen/Pink/Orange/
+   Teal) the way iOS itself color-codes Settings rows — so this reads as
+   "the app, reskinned as an iOS app" rather than a plain black-and-white
+   filter. --glass-blur is restored (not disabled like the Windows theme)
+   at iOS's own vibrancy recipe (saturate(180%) blur(20px)) since iOS
+   leans on frosted materials for bars/sidebars rather than flat fills.
+   Scoped to body.theme-dark (toggled in App.tsx), mutually exclusive with
+   body.theme-windows. */
+body.theme-dark {
+  --indigo-50: #1c1c1e;
+  --indigo-100: #2c2c2e;
+  --indigo-200: #3a3a3c;
+  --indigo-500: #0a84ff; /* systemBlue (dark) — the one interactive accent */
+  --indigo-600: #409cff;
+  --indigo-700: #70b8ff;
+  --violet-500: #5e5ce6; /* systemIndigo — gradient partner for two-tone CTAs */
+  --chakra: #0a84ff;
+  --sky-100: #1c1c1e;
+  --sky-500: #64d2ff; /* systemCyan */
+  --teal-500: #40c8e0; /* systemTeal */
+  --teal-100: #1c1c1e;
+  --rose-500: #ff375f; /* systemPink */
+  --rose-100: #1c1c1e;
+  --amber-500: #ff9f0a; /* systemOrange */
+  --amber-100: #1c1c1e;
+  --green-bg: #1c1c1e;
+  --orange-bg: #1c1c1e;
+
+  --bg-grad-a: #000000; /* systemBackground */
+  --bg-grad-b: #000000;
+  --surface: #1c1c1e; /* secondarySystemBackground */
+  --surface-2: #2c2c2e; /* tertiarySystemBackground */
+  --border: rgba(84, 84, 88, 0.6); /* iOS separator */
+  --border-strong: rgba(120, 120, 124, 0.75);
+  --glass-blur: saturate(180%) blur(20px);
+
+  --text: #ffffff; /* label */
+  --text-2: rgba(235, 235, 245, 0.6); /* secondaryLabel */
+  --muted: rgba(235, 235, 245, 0.5);
+
+  --ok: #30d158; /* systemGreen */
+  --ok-bg: rgba(48, 209, 88, 0.15);
+  --warn: #ff9f0a; /* systemOrange */
+  --warn-bg: rgba(255, 159, 10, 0.15);
+  --danger: #ff453a; /* systemRed */
+  --danger-bg: rgba(255, 69, 58, 0.15);
+
+  --shadow-sm: 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-md: 0 8px 20px -8px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 24px 48px -16px rgba(0, 0, 0, 0.8);
+  --shadow-glow: 0 0 0 3px rgba(10, 132, 255, 0.35);
 }
 
 * {
@@ -105,6 +200,29 @@ body::before {
   opacity: 0.02;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+/* Windows theme: flat Windows-gray fill, no tricolour glow blobs and no
+   grain texture, and no backdrop-filter blur anywhere in the app. */
+body.theme-windows {
+  background: var(--bg-grad-a);
+}
+body.theme-windows::before {
+  display: none;
+}
+body.theme-windows * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+/* Dark mode: flat true-black base (no tricolour glow blobs, no grain
+   texture) — but unlike the Windows theme, backdrop-filter blur is left
+   alone here: iOS leans on frosted "materials" for bars/sidebars/sheets,
+   so surfaces that already read var(--glass-blur) (now an iOS vibrancy
+   recipe, see the :root override above) should stay blurred. */
+body.theme-dark {
+  background: var(--bg-grad-a);
+}
+body.theme-dark::before {
+  display: none;
 }
 
 /* ---------- decorative background skyline ---------- */
@@ -370,6 +488,28 @@ code {
   -webkit-backdrop-filter: saturate(180%) blur(18px);
   border-right: 1px solid var(--border);
 }
+/* Windows theme: a flat light-gray Settings-style nav panel — no tricolour
+   tint, no blur, and no decorative art (the Charminar/temple skyline and the
+   Telangana Thalli statue don't belong in a Windows-Settings look). */
+body.theme-windows .sidebar {
+  background: #f3f3f3;
+}
+body.theme-windows .skyline-bg,
+body.theme-windows .sidebar-art-bg {
+  display: none;
+}
+/* Dark mode: no decorative art (doesn't belong in an iOS look) and a
+   translucent dark fill instead of the sidebar's hardcoded tricolour
+   gradient (not a token) — translucent, not flat, so the sidebar's own
+   backdrop-filter (already an iOS vibrancy blur, see .sidebar above) reads
+   as genuine frosted glass over the black base instead of a solid panel. */
+body.theme-dark .sidebar {
+  background: rgba(20, 20, 22, 0.78);
+}
+body.theme-dark .skyline-bg,
+body.theme-dark .sidebar-art-bg {
+  display: none;
+}
 
 .side-brand {
   display: flex;
@@ -578,6 +718,61 @@ code {
   background: var(--surface);
   border-color: var(--border);
   box-shadow: 0 6px 16px -8px rgba(30, 41, 59, 0.4), var(--shadow-sm);
+}
+/* Windows theme: Settings-style nav rows — small-radius rectangles instead
+   of pills, a flat gray hover (no orange tint, no slide), and the selected
+   row picked out with a colored left accent bar instead of a shadow. */
+body.theme-windows .nav-item {
+  border-radius: 4px;
+}
+body.theme-windows .nav-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+  transform: none;
+}
+body.theme-windows .nav-item.on {
+  position: relative;
+  background: #ffffff;
+  border-color: var(--border);
+  box-shadow: none;
+}
+/* Dark mode: iOS grouped-list-row nav — continuous rounded rows on the
+   dark palette, systemBlue left accent bar on the selected row (iOS's own
+   selection idiom), and a plain translucent-white hover in place of the
+   default's hardcoded saffron tint (not a token). */
+body.theme-dark .nav-item {
+  border-radius: 10px;
+}
+body.theme-dark .nav-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  transform: none;
+}
+body.theme-dark .nav-item.on {
+  position: relative;
+  background: var(--surface);
+  border-color: var(--border);
+  box-shadow: none;
+}
+body.theme-dark .nav-item.on::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--indigo-500);
+}
+body.theme-windows .nav-item.on::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--tone-a, var(--indigo-500));
 }
 
 .nav-step {
@@ -1052,9 +1247,9 @@ code {
   gap: 12px;
   margin: 4px 0 12px;
   padding: 8px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid #c9ccd3;
   border-radius: 12px;
-  background: var(--surface-2);
+  background: #fff;
 }
 .doc-select-all {
   display: inline-flex;
@@ -1163,6 +1358,12 @@ button {
   box-shadow: none;
   transition: background 0.15s var(--ease), border-color 0.15s var(--ease), color 0.15s var(--ease);
 }
+/* Windows theme: Settings-style buttons are small rounded rectangles, not
+   pills — every button app-wide shares this shape, same as the pill rule
+   above does for Default. */
+body.theme-windows button {
+  border-radius: 4px;
+}
 button:hover:not(:disabled) {
   background: var(--surface-2);
   border-color: var(--muted);
@@ -1236,13 +1437,13 @@ button.ghost:hover:not(:disabled) {
   }
 }
 
-/* "Update from L1/LOA" / "Address from Intimation" (WorksListL1Update) —
-   fills left-to-right with the real read-progress percentage while a picked
-   folder's matched files are being read back into memory (see
-   electron/tenderDocumentScan.ts's 'reading' phase, the one with a known
-   total). overflow:hidden on the button clips the fill to its own pill
-   shape; the label sits in its own stacking layer above the fill so the
-   text stays readable as it fills in underneath. */
+/* Any button that fills left-to-right with a real done/total percentage
+   while a batch operation runs in the main process — "Update from L1/LOA" /
+   "Address from Intimation" (WorksListL1Update, reading files back from a
+   picked folder) and "Download All" Bid Documents (BidDocumentsPanel,
+   filling+writing each document). overflow:hidden on the button clips the
+   fill to its own pill shape; the label sits in its own stacking layer
+   above the fill so the text stays readable as it fills in underneath. */
 .scan-progress-btn {
   position: relative;
   overflow: hidden;
@@ -1470,8 +1671,8 @@ button.upload-btn {
   height: 38px;
   padding: 0 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border: 1px solid #c9ccd3;
+  background: #fff;
   font-size: 14px;
   color: var(--text);
 }
@@ -1564,8 +1765,8 @@ button.upload-btn {
   height: 32px;
   padding: 0 8px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border: 1px solid #c9ccd3;
+  background: #fff;
   font-size: 12.5px;
   color: var(--text-2);
 }
@@ -1709,8 +1910,8 @@ button.upload-btn {
   height: 40px;
   padding: 0 13px;
   border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border: 1px solid #c9ccd3;
+  background: #fff;
   font-size: 14px;
   font-weight: 500;
   text-transform: none;
@@ -1882,8 +2083,8 @@ button.upload-btn {
   height: 28px;
   padding: 0 8px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border: 1px solid #c9ccd3;
+  background: #fff;
   font-size: 12.5px;
   color: var(--text);
 }
@@ -1905,12 +2106,12 @@ button.upload-btn {
 }
 .win-code-select {
   margin-top: 10px;
-  border: 1px solid var(--border);
+  border: 1px solid #c9ccd3;
   border-radius: var(--radius-sm);
   padding: 8px 12px;
   font: 500 13px/1 inherit;
   color: var(--text);
-  background: var(--surface);
+  background: #fff;
   min-width: 220px;
 }
 .win-code-select:focus {
@@ -2113,9 +2314,9 @@ button.upload-btn {
   font-weight: 400;
   color: var(--text);
   padding: 7px 9px;
-  border: 1px solid var(--border);
+  border: 1px solid #c9ccd3;
   border-radius: var(--radius-sm);
-  background: var(--surface, #fff);
+  background: #fff;
 }
 .loa-manual-grid input:focus {
   outline: none;
@@ -2492,6 +2693,48 @@ button.upload-btn {
   color: var(--text);
   text-align: center;
 }
+/* Test theme 1's flat, solid-color look, carried over to the "output
+   document" tiles (Give Intimation, Agreement and Work Order, Issue
+   Notices — anywhere a .wo-tiles grid shows a live docx render, not just
+   Issue Documents/Tools' .doc-tile-card grid). These already show the real
+   document — the live render itself IS the "live tile" here, so unlike
+   .doc-tile-flat this doesn't touch .wo-tile-preview's size or padding at
+   all (kept identical to Default on request) — only the border/shadow and
+   the name footer switch to solid tone color, cycling the same 6 tones as
+   the doc-tile-card grid by position among the tiles actually rendered. */
+.wo-tiles-flat .wo-tile {
+  border: none;
+  box-shadow: 0 10px 22px -9px color-mix(in srgb, var(--tone-a, var(--indigo-500)) 55%, transparent);
+}
+.wo-tiles-flat .wo-tile:hover {
+  box-shadow: 0 16px 32px -10px color-mix(in srgb, var(--tone-a, var(--indigo-500)) 68%, transparent);
+}
+.wo-tiles-flat .wo-tile-preview {
+  border-bottom: none;
+}
+.wo-tiles-flat .wo-tile-foot {
+  background: var(--tone-a, var(--indigo-500));
+  color: #fff;
+  font-weight: 750;
+}
+.wo-tiles-flat .wo-tile:nth-of-type(6n + 1) {
+  --tone-a: var(--indigo-500);
+}
+.wo-tiles-flat .wo-tile:nth-of-type(6n + 2) {
+  --tone-a: var(--sky-500);
+}
+.wo-tiles-flat .wo-tile:nth-of-type(6n + 3) {
+  --tone-a: var(--rose-500);
+}
+.wo-tiles-flat .wo-tile:nth-of-type(6n + 4) {
+  --tone-a: var(--amber-500);
+}
+.wo-tiles-flat .wo-tile:nth-of-type(6n + 5) {
+  --tone-a: var(--teal-500);
+}
+.wo-tiles-flat .wo-tile:nth-of-type(6n + 6) {
+  --tone-a: var(--ok);
+}
 
 /* ---------- work order & agreement: expanded modal ---------- */
 .wo-modal-overlay {
@@ -2574,7 +2817,15 @@ button.upload-btn {
   overflow-y: auto;
   padding: 18px;
   border-left: 1px solid var(--border-strong);
-  background: var(--surface);
+  /* Was var(--surface) — a translucent near-white meant to pick up a tint
+     from the watermarked PAGE background showing through it. This sidebar
+     sits inside the modal instead, whose own background (--bg-grad-a,
+     #f8f9fb) is already flat and near-white with nothing behind it to tint
+     against — so the "translucent surface" trick produced no visible
+     contrast at all, and the input fields (also translucent) blended into
+     both the sidebar AND each other. A solid, slightly darker gray reads as
+     its own distinct panel regardless of what's behind it. */
+  background: #eef0f3;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -2590,10 +2841,18 @@ button.upload-btn {
 .wo-modal-sidebar .wo-date-field input,
 .wo-modal-sidebar .wo-date-field select {
   height: 38px;
-  padding: 0 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  padding: 0 16px;
+  /* Fully rounded, like every button app-wide (see the base `button` rule —
+     border-radius:999px is the app's one consistent shape language), not
+     the plain-rectangle --radius-sm this had before. */
+  border-radius: 999px;
+  /* Solid white + a real visible gray border (not the near-white
+     var(--border)/var(--surface-2) pair, same invisible-on-a-plain-
+     background problem as the sidebar itself) — the fields are meant to be
+     the brightest, most prominent thing in this panel, clearly separated
+     from the gray sidebar around them. */
+  border: 1px solid #c9ccd3;
+  background: #fff;
   color: var(--text);
   font-size: 14px;
   font-family: inherit;
@@ -2655,21 +2914,17 @@ tbody tr:hover {
 select {
   font: inherit;
   padding: 6px 10px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid #c9ccd3;
   border-radius: var(--radius-sm);
-  background: var(--surface);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+  background: #fff;
   cursor: pointer;
 }
 input[type='text'] {
   font: inherit;
   padding: 8px 12px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid #c9ccd3;
   border-radius: var(--radius-sm);
-  background: var(--surface);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+  background: #fff;
   transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
 }
 input[type='text']:focus {
@@ -2745,6 +3000,12 @@ textarea:placeholder-shown {
   color: var(--warn);
   border-color: #fde68a;
 }
+/* Shown while switching to an office whose Works List is being auto-loaded
+   from its remembered link (App.tsx's officeSwitchBusy) — reuses the same
+   spin animation as the sidebar's "check for updates" button. */
+.office-switch-busy svg.spin {
+  animation: spin 0.9s linear infinite;
+}
 /* Works List "Errors" modal (App.tsx's wincodeViolations) — one line per
    violation, inside the .confirm-modal it opens into. Left-aligned and
    scrollable (unlike .confirm-modal's own centered, unconstrained text)
@@ -2787,12 +3048,12 @@ textarea:placeholder-shown {
 }
 .link-import-row input {
   flex: 1;
-  border: 1px solid var(--border);
+  border: 1px solid #c9ccd3;
   border-radius: var(--radius-sm);
   padding: 9px 12px;
   font: 500 14px/1 inherit;
   color: var(--text);
-  background: var(--surface);
+  background: #fff;
 }
 .link-import-row input:focus {
   outline: none;
@@ -3087,8 +3348,8 @@ textarea:placeholder-shown {
   height: 40px;
   padding: 0 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border: 1px solid #c9ccd3;
+  background: #fff;
   font-size: 14px;
   margin-bottom: 18px;
 }
@@ -3358,8 +3619,8 @@ textarea:placeholder-shown {
   height: 38px;
   padding: 0 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border: 1px solid #c9ccd3;
+  background: #fff;
   font-size: 14px;
   color: var(--text);
 }
@@ -3372,8 +3633,8 @@ textarea:placeholder-shown {
   height: 38px;
   padding: 0 10px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border: 1px solid #c9ccd3;
+  background: #fff;
   font-size: 14px;
   color: var(--text);
 }
@@ -3591,9 +3852,9 @@ button.danger:disabled {
 .tb-select {
   height: 30px;
   padding: 0 8px;
-  border: 1px solid var(--border);
+  border: 1px solid #c9ccd3;
   border-radius: var(--radius-sm);
-  background: var(--surface, #fff);
+  background: #fff;
   color: var(--text);
   font: 500 13px/1 inherit;
   cursor: pointer;
@@ -4057,7 +4318,7 @@ button.danger:disabled {
   font: inherit;
   font-weight: 400;
   padding: 6px 8px;
-  border: 1px solid var(--border);
+  border: 1px solid #c9ccd3;
   border-radius: var(--radius-sm);
   background: #fff;
   color: var(--text);
@@ -4129,7 +4390,7 @@ button.danger:disabled {
   font: inherit;
   font-weight: 400;
   padding: 6px 8px;
-  border: 1px solid var(--border);
+  border: 1px solid #c9ccd3;
   border-radius: var(--radius-sm);
   background: #fff;
   color: var(--text);
@@ -4352,6 +4613,144 @@ button.danger:disabled {
 .doc-tile-card.drag-over {
   outline: 2px dashed var(--tone-a);
   outline-offset: 3px;
+}
+
+/* Issue Documents — flat, solid-color tile trial (weather-app reference):
+   a full solid tone fill instead of the frosted-glass blobs, a large white
+   icon (or an embedded live thumbnail — see .doc-tile-flat-thumb below),
+   and bold white text. Settings → Themes ("Test theme 1") toggles this app-
+   wide across every .doc-tile-card tile grid — Issue Documents AND Tools —
+   by adding 'doc-tile-flat' to Issue Documents' own tiles directly, or
+   'tools-grid-flat' to the Tools grid's container (see ToolsTab.tsx), which
+   every rule below also matches so both grids share one definition. */
+.doc-tile-card.doc-tile-flat,
+.tools-grid-flat .doc-tile-card {
+  background: var(--tone-a);
+  border: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 12px 26px -10px color-mix(in srgb, var(--tone-a) 65%, transparent);
+  padding: 30px 16px 18px;
+}
+.doc-tile-card.doc-tile-flat::before,
+.doc-tile-card.doc-tile-flat::after,
+.tools-grid-flat .doc-tile-card::before,
+.tools-grid-flat .doc-tile-card::after {
+  display: none;
+}
+.doc-tile-card.doc-tile-flat:hover,
+.tools-grid-flat .doc-tile-card:hover {
+  box-shadow: 0 20px 36px -12px color-mix(in srgb, var(--tone-a) 75%, transparent);
+}
+.doc-tile-card.doc-tile-flat.selected,
+.tools-grid-flat .doc-tile-card.on {
+  border: none;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.95), 0 12px 26px -10px color-mix(in srgb, var(--tone-a) 65%, transparent);
+}
+.doc-tile-flat-ic {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  color: #fff;
+}
+.doc-tile-flat-ic svg {
+  width: 52px;
+  height: 52px;
+  stroke-width: 1.4;
+}
+/* The live DocThumbnail (real, shrunk-down render of the doc — same one
+   .doc-tile-card's Default style uses), embedded on top of the flat tone
+   fill instead of a generic icon. .doc-thumb-box already carries its own
+   white card look (rounded, bordered, shadowed); the wrapper here just
+   centers it and gives it a little breathing room from the solid color
+   around it so it reads as a distinct "page" floating on the tile. Tools'
+   blank-form tiles (.doc-blank-card) render a DocThumbnail directly with no
+   wrapper span, so their .doc-thumb-box is targeted straight — same white-
+   card-on-tone look, just without the extra padding ring. */
+.doc-tile-flat-thumb {
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border-radius: calc(var(--radius, 12px) + 4px);
+  background: rgba(255, 255, 255, 0.18);
+}
+.doc-tile-flat-thumb .doc-thumb-box,
+.tools-grid-flat .doc-blank-card .doc-thumb-box {
+  border-color: rgba(255, 255, 255, 0.85);
+}
+/* Tools' own tiles have no document to render (they open a workspace, not a
+   file) — their existing tone-tinted icon circle (.tool-card-ic) would go
+   near-invisible on a solid fill of that same tone, so it switches to a
+   translucent white circle with a white icon instead, matching the flat
+   theme's white-on-color look everywhere else. */
+.tools-grid-flat .tool-card-ic {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+.doc-tile-card.doc-tile-flat .doc-tile-card-name,
+.tools-grid-flat .doc-tile-card .doc-tile-card-name {
+  color: #fff;
+  font-weight: 750;
+}
+.doc-tile-card.doc-tile-flat .doc-tile-card-meta,
+.tools-grid-flat .doc-tile-card .doc-tile-card-meta {
+  color: rgba(255, 255, 255, 0.85);
+}
+.doc-tile-card.doc-tile-flat > .doc-tile-check {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+/* Windows theme — flat white Fluent-style cards instead of frosted glass
+   (Default) or solid tone fills (Test theme 1): thin hairline border, small
+   radius, no blur and no blurred color-blob decoration. Applied straight to
+   every .doc-tile-card since the theme is already scoped app-wide via
+   body.theme-windows, so — unlike Test theme 1 — no per-grid container
+   class is needed to reach Issue Documents and Tools alike. */
+body.theme-windows .doc-tile-card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-sm);
+}
+body.theme-windows .doc-tile-card::before,
+body.theme-windows .doc-tile-card::after {
+  display: none;
+}
+body.theme-windows .doc-tile-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+  transform: none;
+}
+body.theme-windows .doc-tile-card.selected,
+body.theme-windows .doc-tile-card.on {
+  border-color: var(--tone-a, var(--indigo-500));
+  box-shadow: 0 0 0 1px var(--tone-a, var(--indigo-500));
+}
+
+/* Dark mode — iOS grouped-list cell: secondarySystemBackground fill, hairline
+   separator, and a continuous ~14px corner radius (iOS card/cell rounding,
+   not the Windows theme's sharp 6px). */
+body.theme-dark .doc-tile-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+}
+body.theme-dark .doc-tile-card::before,
+body.theme-dark .doc-tile-card::after {
+  display: none;
+}
+body.theme-dark .doc-tile-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+  transform: none;
+}
+body.theme-dark .doc-tile-card.selected,
+body.theme-dark .doc-tile-card.on {
+  border-color: var(--tone-a, var(--indigo-500));
+  box-shadow: 0 0 0 1px var(--tone-a, var(--indigo-500));
 }
 
 /* ---------- Upload Photos: numbered, draggable photo tiles ---------- */
@@ -4749,8 +5148,8 @@ button.danger:disabled {
   height: 36px;
   padding: 0 8px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border: 1px solid #c9ccd3;
+  background: #fff;
   font-size: 13.5px;
   max-width: 220px;
 }
@@ -4892,9 +5291,16 @@ table.sheet th {
   position: sticky;
   top: 0;
   z-index: 2;
+  /* Was a translucent background + backdrop-filter blur — for a STICKY
+     header on a table with hundreds of rows, that means recompositing an
+     expensive blur on every single scroll frame, for all 33+ header cells
+     at once. Windows/Chromium's blur compositing is markedly more
+     expensive than macOS's (a real report: "typing/clicking/switching tabs
+     feels slow on Windows, fine on Mac" — this table is the single
+     heaviest, most constantly-repainted blurred surface in the app). A
+     solid background looks effectively identical (the translucent one was
+     barely tinted to begin with) at zero compositing cost. */
   background: var(--surface-2);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
   text-align: left;
   font-weight: 650;
   color: var(--text-2);
@@ -4920,11 +5326,11 @@ table.sheet th {
 }
 .col-name:hover {
   border-color: var(--border) !important;
-  background: #fff;
+  background: var(--surface);
 }
 .col-name:focus {
   border-color: var(--indigo-500) !important;
-  background: #fff;
+  background: var(--surface);
 }
 .col-del,
 .col-add {
@@ -4994,7 +5400,7 @@ table.sheet td input {
 table.sheet td input:focus {
   outline: 2px solid var(--indigo-500);
   outline-offset: -2px;
-  background: #fff;
+  background: var(--surface);
 }
 table.sheet .rownum {
   width: 44px;
@@ -5507,9 +5913,9 @@ table.picker-sheet th.grid-col {
   align-items: center;
   gap: 11px;
   padding: 11px 13px;
-  border: 1.5px solid var(--border);
+  border: 1.5px solid #c9ccd3;
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: #fff;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
@@ -5830,19 +6236,30 @@ tr.on .rp-box span {
      (never grows past its own content) when content genuinely doesn't
      fit — a short table stays content-sized, a long one still gets
      capped and internally scrolled exactly as before. */
+  /* min-height matches .sheet-wrap's own 540px floor below (search bar +
+     ~14 rows), not 0 — a real Windows report: the list loaded showing only
+     1 row, because with min-height:0 here .page's flex-shrink was free to
+     squeeze this card down to whatever it liked with nothing stopping it,
+     regardless of what .sheet-wrap needs internally. .sheet-wrap's own
+     floor doesn't help if the container it sits in was already shrunk
+     smaller than that floor — its content then overflows this card's box
+     and gets clipped by the overflow:hidden above, same failure mode as
+     the original clipping bug, just approached from the other side.
+     Keeping both floors in agreement fixes it either way. */
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
-  min-height: 0;
+  min-height: 600px;
 }
 .sheet-inline .sheet-wrap {
   max-width: 100%;
   border-top: none;
-  /* Flex item on the CROSS axis of a column flex parent, same automatic-
-     minimum-size trap as .sheet-inline's own min-width:0 above, just on
-     the vertical axis this time — without it, the table's row count can
-     hold this taller than .sheet-inline actually has room for. */
-  min-height: 0;
+  /* At least ~14 rows always visible, on any platform/font metrics — was
+     min-height:0 (full shrink allowed, no floor at all), which is what let
+     a real Windows machine collapse this down to a single visible row.
+     Still shrinks freely above this floor when more space is available or
+     less is needed; still scrolls internally past it either way. */
+  min-height: 540px;
 }
 /* The Works List table (33 fixed-width columns) is always wider than the
    pane — .sheet-wrap's overflow-x:auto genuinely scrolls (confirmed: real
@@ -6077,9 +6494,9 @@ tr.on .rp-box span {
 }
 .gen-filter select {
   padding: 9px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid #c9ccd3;
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: #fff;
   color: var(--text);
   font: 500 14px/1 inherit;
 }
@@ -6161,9 +6578,9 @@ tr.on .rp-box span {
 .gen-doc-filter .gen-filter-val {
   height: 34px;
   padding: 0 10px;
-  border: 1px solid var(--border);
+  border: 1px solid #c9ccd3;
   border-radius: var(--radius-sm, 8px);
-  background: var(--surface);
+  background: #fff;
   font-size: 13px;
 }
 .gen-doc-filter .gen-filter-val {
@@ -6426,7 +6843,7 @@ tr.on .rp-box span {
 }
 .tender-size select {
   padding: 7px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid #c9ccd3;
   border-radius: var(--radius-sm);
   background: #fff;
   font-size: 13px;
@@ -7191,9 +7608,9 @@ tr.on .rp-box span {
   height: 28px;
   padding: 0 8px;
   font-size: 12.5px;
-  border: 1px solid var(--border);
+  border: 1px solid #c9ccd3;
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: #fff;
   color: var(--text);
 }
 .cal-tender-phone input:focus {
@@ -7251,9 +7668,9 @@ tr.on .rp-box span {
   height: 28px;
   padding: 0 8px;
   font-size: 12px;
-  border: 1px solid var(--border);
+  border: 1px solid #c9ccd3;
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: #fff;
   color: var(--text);
 }
 .cal-source-edit input:focus {
@@ -7719,8 +8136,8 @@ tr.on .rp-box span {
 .ns-form input {
   padding: 8px 10px;
   border-radius: var(--radius-sm);
-  border: 1.5px solid var(--border);
-  background: var(--surface);
+  border: 1.5px solid #c9ccd3;
+  background: #fff;
   color: var(--text);
   font-size: 13px;
   font-family: inherit;
@@ -7920,8 +8337,8 @@ tr.on .rp-box span {
   height: 38px;
   padding: 0 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border: 1px solid #c9ccd3;
+  background: #fff;
   color: var(--text);
   font-size: 14px;
   font-family: inherit;
@@ -7963,8 +8380,8 @@ tr.on .rp-box span {
   height: 38px;
   padding: 0 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border: 1px solid #c9ccd3;
+  background: #fff;
   color: var(--text);
   font-size: 14px;
   font-family: inherit;
@@ -8003,8 +8420,8 @@ tr.on .rp-box span {
   width: 100%;
   padding: 10px 12px;
   border-radius: var(--radius-sm);
-  border: 1.5px solid var(--border);
-  background: var(--surface);
+  border: 1.5px solid #c9ccd3;
+  background: #fff;
   color: var(--text);
   font-size: 14px;
   font-family: inherit;
@@ -8188,7 +8605,7 @@ tr.on .rp-box span {
 .split-picker-row select {
   padding: 7px 10px;
   border-radius: var(--radius);
-  border: 1px solid var(--border);
+  border: 1px solid #c9ccd3;
   background: rgba(255, 255, 255, 0.7);
   font: inherit;
   max-width: 320px;
@@ -8629,9 +9046,9 @@ tr.on .rp-box span {
   resize: vertical;
   min-height: 220px;
   padding: 12px 14px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid #c9ccd3;
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: #fff;
   color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
@@ -9203,6 +9620,91 @@ tr.on .rp-box span {
 .settings-tile-selected svg {
   width: 13px;
   height: 13px;
+}
+/* Settings — Themes: reuses .wo-tile's picker chrome, but the preview inside
+   is a small static mock built from the real .doc-tile-card/.doc-tile-flat
+   classes (not a live DocThumbnail render — this card has no real .docx on
+   hand, and the point is comparing tile *styles* side by side, not content).
+   Centered in the fixed-height .wo-tile-preview box since the mock tile is
+   much smaller than a full document-page preview. */
+.settings-theme-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 220px;
+  background: var(--bg-grad-a, #f8f9fb);
+}
+.settings-theme-mock {
+  width: 150px;
+  cursor: default;
+  pointer-events: none;
+}
+.settings-theme-mock:hover {
+  transform: none;
+}
+/* Previews the Windows theme's flat-white-card look regardless of which
+   theme is currently active app-wide (unlike the live body.theme-windows
+   scoping used everywhere else) — same reasoning as .doc-tile-flat being
+   applied directly to the "Test theme 1" mock. */
+.settings-theme-mock.settings-theme-mock-windows {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.settings-theme-mock.settings-theme-mock-windows::before,
+.settings-theme-mock.settings-theme-mock-windows::after {
+  display: none;
+}
+/* Previews Dark mode's iOS system-color card the same way, forced on
+   regardless of the currently-active theme (mirrors settings-theme-mock-
+   windows above) so all four options can be compared side by side. */
+.settings-theme-mock.settings-theme-mock-dark {
+  background: #1c1c1e;
+  border: 1px solid rgba(84, 84, 88, 0.6);
+  border-radius: 14px;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.settings-theme-mock.settings-theme-mock-dark::before,
+.settings-theme-mock.settings-theme-mock-dark::after {
+  display: none;
+}
+.settings-theme-mock.settings-theme-mock-dark .doc-tile-card-name,
+.settings-theme-mock.settings-theme-mock-dark .doc-tile-card-meta {
+  color: #ffffff;
+}
+.settings-theme-mock.settings-theme-mock-dark .settings-theme-mock-thumb {
+  background: #2c2c2e;
+  border-color: rgba(120, 120, 124, 0.75);
+  background-image:
+    linear-gradient(to right, #0a84ff 0, #0a84ff 100%),
+    linear-gradient(to right, #48484a 0, #48484a 100%),
+    linear-gradient(to right, #48484a 0, #48484a 100%);
+}
+.settings-theme-mock-thumb {
+  width: 78px;
+  height: 100px;
+  border-radius: 4px;
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-sm);
+  background-image:
+    linear-gradient(to right, #dfe2e8 0, #dfe2e8 100%),
+    linear-gradient(to right, #dfe2e8 0, #dfe2e8 100%),
+    linear-gradient(to right, #dfe2e8 0, #dfe2e8 100%);
+  background-repeat: no-repeat;
+  background-size: 60% 5px, 46% 5px, 66% 5px;
+  background-position: 12px 26px, 12px 40px, 12px 54px;
+}
+.settings-theme-desc {
+  margin: 0;
+  padding: 0 12px 12px;
+  font-size: 12px;
+  color: var(--muted);
 }
 .settings-tile-error {
   height: 100%;

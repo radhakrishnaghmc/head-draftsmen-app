@@ -119,6 +119,16 @@ async function capImageSize(imageBuffer: Buffer, maxDimension: number): Promise<
     .toBuffer()
 }
 
+// A native onnxruntime/detect() hang (as opposed to a crash) never fires
+// 'exit'/'error'/a reply message at all — with no timeout, a real report:
+// the upload button got stuck on "Reading…" forever, no error, nothing in
+// the log, only recoverable by restarting the app. This bounds that: past
+// OCR_TIMEOUT_MS the pending request is treated exactly like a process
+// crash (same OcrProcessCrashError path recognizeImage already retries
+// once at a smaller, safer resolution), and the wedged child is killed and
+// dropped from the pool so it can't silently keep swallowing future pages.
+const OCR_TIMEOUT_MS = 90_000
+
 async function runOcrPass(imageBuffer: Buffer, dir: string, maxDimension: number): Promise<OcrLine[]> {
   const capped = await capImageSize(imageBuffer, maxDimension)
   const tempPath = path.join(os.tmpdir(), `hda-ocr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`)
@@ -127,11 +137,28 @@ async function runOcrPass(imageBuffer: Buffer, dir: string, maxDimension: number
     const id = nextId++
     const c = pickChild()
     return await new Promise<OcrLine[]>((resolve, reject) => {
-      c.pending.set(id, { resolve, reject })
+      const timer = setTimeout(() => {
+        if (!c.pending.delete(id)) return // already resolved/rejected — timer lost the race, harmless
+        c.proc.kill()
+        reject(new OcrProcessCrashError(`OCR timed out after ${OCR_TIMEOUT_MS / 1000}s (page likely wedged the OCR process).`))
+      }, OCR_TIMEOUT_MS)
+      c.pending.set(id, {
+        resolve: (lines) => {
+          clearTimeout(timer)
+          resolve(lines)
+        },
+        reject: (err) => {
+          clearTimeout(timer)
+          reject(err)
+        }
+      })
       c.proc.send({ id, imagePath: tempPath, modelDir: dir }, (err) => {
         // The channel closed between spawning and sending (child already dead):
         // surface it as a crash so the caller can fall back.
-        if (err && c.pending.delete(id)) reject(new OcrProcessCrashError(err.message))
+        if (err && c.pending.delete(id)) {
+          clearTimeout(timer)
+          reject(new OcrProcessCrashError(err.message))
+        }
       })
     })
   } finally {
