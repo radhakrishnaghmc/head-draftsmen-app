@@ -199,6 +199,10 @@ export interface BidDocumentWork {
   ecv?: string
   zone?: string
   circle?: string
+  /** Corporation abbreviation, e.g. "CMC" — was hard-coded in the EE template's submission-location line ("…Circle, SLPZ, CMC…"), now the work's actual corporation. */
+  corporation?: string
+  /** Corporation full name, e.g. "Cyberabad Municipal Corporation" — its upper-cased form fills the EE template's letterhead (was hard-coded "CYBERABAD MUNICIPAL CORPORATION"). */
+  corporationFullName?: string
   completionPeriod?: string
   /** SE-office (zone-only, no circle) template fields — see core/bidDocument.ts's BidDocumentWorkItem for what each becomes on the document. Unused for an EE (circle) work. */
   itemNo?: string

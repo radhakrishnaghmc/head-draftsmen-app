@@ -111,6 +111,13 @@ describe('deriveFields + placeholders', () => {
     expect(ag['Contract value in rupees']).toContain('Rupees')
   })
 
+  it('carries the office\'s actual corporation into the Agreement, not a hard-coded CMC', () => {
+    const mmcFields = { ...fields, corporation: 'MMC', corporationFullName: 'Malkajgiri Municipal Corporation' }
+    const ag = agreementPlaceholders(mmcFields)
+    expect(ag['Corporation']).toBe('MMC')
+    expect(ag['Corp Full']).toBe('Malkajgiri Municipal Corporation')
+  })
+
   it('shows a nomination (0%) tender as "0%", not "(-) 0.00%-Less"', () => {
     const nomFields = deriveFields({}, {}, { ...row, ECV: '73658', 'Tender Percentage': '0' })
     const wo = workOrderPlaceholders(nomFields)

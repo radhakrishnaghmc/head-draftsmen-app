@@ -77,6 +77,9 @@ export default function IntimationToolTab({ office }: Props) {
       : CMC_ZONE_CIRCLES,
     [office?.corporation]
   )
+  const corporationName = corporationByName(office?.corporation)?.entries?.length
+    ? office!.corporation!
+    : 'CMC'
 
   const [templateB64, setTemplateB64] = useState<string | null>(null)
   const [labels, setLabels] = useState<string[]>([])
@@ -113,10 +116,12 @@ export default function IntimationToolTab({ office }: Props) {
       Circle: detected.circle,
       CNO: detected.cno,
       Zone: detected.zone,
+      Corporation: corporationName,
+      'Corp Full': corporationByName(corporationName)?.fullName ?? '',
       'Name of the work': pdfEval?.nameOfWork ?? '',
       'Tender Notice No': pdfEval?.noticeNo || notice?.nitNo || ''
     }),
-    [detected, pdfEval, notice]
+    [detected, pdfEval, notice, corporationName]
   )
 
   const values = useMemo<Record<string, string>>(() => {

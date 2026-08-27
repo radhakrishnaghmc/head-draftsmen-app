@@ -5396,6 +5396,7 @@ table.sheet td input {
   padding: 8px 10px;
   font-size: 13px;
   border-radius: 0;
+  color: var(--text);
 }
 table.sheet td input:focus {
   outline: 2px solid var(--indigo-500);
@@ -9597,6 +9598,102 @@ tr.on .rp-box span {
   font-size: 15px;
   font-weight: 700;
 }
+
+/* Collapsible section headers — Settings' Themes card and each
+   TemplateSection (Work Order, Agreement Bond). The whole titles block is a
+   <button> so the entire row (not just the chevron) toggles; the current
+   selection is surfaced alongside it so its state reads without expanding. */
+.settings-section-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.settings-section-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border: none;
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  box-shadow: none;
+}
+.settings-section-toggle:hover:not(:disabled) {
+  background: none;
+}
+.settings-card-head-toggle {
+  width: 100%;
+  gap: 12px;
+}
+.settings-section-toggle-titles {
+  flex: 1;
+  min-width: 0;
+}
+.settings-section-chevron {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  transition: transform 0.15s var(--ease);
+}
+.settings-section-chevron.open {
+  transform: rotate(90deg);
+}
+.settings-section-head-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.settings-section-current {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--indigo-600);
+  background: var(--indigo-50);
+  border-radius: var(--radius-pill);
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+/* Same fade-in-on-hover circular icon as .settings-tile-preview-btn (and the
+   per-document preview buttons on other tabs) — an always-visible icon here
+   would be the only persistently-shown preview affordance in the app. */
+.settings-section-preview-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.settings-section-head:hover .settings-section-preview-btn,
+.settings-section-head:focus-within .settings-section-preview-btn {
+  opacity: 1;
+}
+.settings-section-preview-btn:hover:not(:disabled) {
+  background: var(--indigo-500);
+  border-color: var(--indigo-500);
+  color: #fff;
+}
+.settings-section-preview-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.settings-template-tiles.settings-section-collapsed {
+  display: none;
+}
+
 /* The currently-selected variant's tile — a persistent highlighted border
    (unlike .wo-tile, which has no "selected" state of its own, only hover). */
 .wo-tile.on {
@@ -9716,35 +9813,14 @@ tr.on .rp-box span {
   color: var(--muted);
   font-size: 12px;
 }
-/* Opens the full-size accurate preview without selecting the variant —
-   top-left so it never collides with the "In use" badge (top-right). */
-.settings-tile-preview-btn {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
+/* The variant tiles' bottom "Click to preview" bar reuses .wo-tile-open's
+   look, but is a real <button> (opens the full-size preview without
+   selecting the variant) instead of the plain hover-label span other
+   .wo-tile grids use — reset the button chrome so it still fills edge
+   to edge. */
+.settings-template-tiles button.wo-tile-open {
+  width: 100%;
+  border: none;
+  font: inherit;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-.wo-tile:hover .settings-tile-preview-btn,
-.wo-tile:focus-within .settings-tile-preview-btn {
-  opacity: 1;
-}
-.settings-tile-preview-btn:hover {
-  background: var(--indigo-500);
-  border-color: var(--indigo-500);
-  color: #fff;
-}
-.settings-tile-preview-btn svg {
-  width: 14px;
-  height: 14px;
 }

@@ -23,6 +23,10 @@ export interface BidDocumentWorkItem {
   ecv?: string
   zone?: string
   circle?: string
+  /** Corporation abbreviation, e.g. "CMC" — was hard-coded in the EE template's submission-location line ("…Circle, SLPZ, CMC…"), now the work's actual corporation. */
+  corporation?: string
+  /** Corporation full name, e.g. "Cyberabad Municipal Corporation" — its upper-cased form fills the EE template's letterhead (was hard-coded "CYBERABAD MUNICIPAL CORPORATION"). */
+  corporationFullName?: string
   completionPeriod?: string
   /** SE template only — the NIT's item number, e.g. "3" for "(Item No.3)". Falls back to a "(Item No.N)" tag parsed out of `name`, then to `serial`, when not given (a Works List "Item No" column, if present). */
   itemNo?: string
@@ -107,6 +111,9 @@ export function fillBidDocument(buffer: Buffer, input: BidDocumentInput): Buffer
     ['{{Dated}}', input.dated],
     ['{{Nit no.}}', input.nitNo],
     ['{{Zone}}', input.work.zone ?? ''],
+    ['{{Zone Abbr}}', zoneAbbr(input.work.zone)],
+    ['{{Corporation}}', input.work.corporation ?? ''],
+    ['{{Corp Full Caps}}', (input.work.corporationFullName ?? '').toUpperCase()],
     ['{{Circle}}', input.work.circle ?? '']
   ]
 
@@ -181,7 +188,9 @@ export function fillSeBidDocument(buffer: Buffer, input: BidDocumentInput): Buff
     ['{{Dated}}', input.dated],
     ['{{Nit no.}}', input.nitNo],
     ['{{Zone}}', input.work.zone ?? ''],
-    ['{{Zone Abbr}}', zoneAbbrCode]
+    ['{{Zone Abbr}}', zoneAbbrCode],
+    ['{{Corporation}}', input.work.corporation ?? ''],
+    ['{{Corp Full Caps}}', (input.work.corporationFullName ?? '').toUpperCase()]
   ]
 
   return fillPlaceholders(buffer, swaps, SE_DOC_PARTS)

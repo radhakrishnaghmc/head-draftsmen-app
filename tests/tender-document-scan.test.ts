@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { execSync } from 'child_process'
 import { collectTenderDocuments } from '../electron/tenderDocumentScan'
 
 // A throwaway tree shaped like a real office's Tender Evaluations folder
@@ -104,4 +105,20 @@ describe('collectTenderDocuments', () => {
     expect(reading.every((e) => e.total === found.length)).toBe(true)
     expect(reading[reading.length - 1]).toEqual({ phase: 'reading', done: found.length, total: found.length })
   })
+
+  // Real report: a picked folder on a cloud-sync drive (OneDrive/Google
+  // Drive "on-demand" placeholder, or a dropped network share) can leave a
+  // single file's read stuck forever with no error of its own — a named
+  // pipe (FIFO) that nothing ever writes to reproduces exactly that: fs
+  // reads it but the read never resolves on its own.
+  it('skips a file whose read never completes (e.g. a stalled cloud-sync placeholder) instead of hanging the whole scan forever', async () => {
+    const stuckPath = path.join(root, 'L1-stuck.pdf')
+    execSync(`mkfifo "${stuckPath}"`)
+    const found = await collectTenderDocuments([root])
+    const names = found.map((f) => f.name)
+    expect(names).not.toContain('L1-stuck.pdf')
+    // The rest of the folder's real files still come through despite the stuck one.
+    expect(names).toContain('L1.pdf')
+    expect(names).toContain('evaluation sheet.pdf')
+  }, 25_000)
 })

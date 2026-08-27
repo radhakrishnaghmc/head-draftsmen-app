@@ -15,7 +15,7 @@ import { MAX_CONCURRENT_SESSIONS } from '@core/sessionSlots'
 import { THEME_OPTIONS, type ThemeId } from '../theme'
 import type { ActiveSessionInfo } from '../../electron/ipc-contract'
 import { base64ToUint8, renderDocPreview } from './docPage'
-import { IconSettings, IconCheck, IconWarn, IconEye, IconUser, IconLogout } from './Icons'
+import { IconSettings, IconCheck, IconWarn, IconOpen, IconUser, IconLogout, IconChevronRight } from './Icons'
 
 interface Props {
   office: Office
@@ -96,8 +96,10 @@ function TemplateSection({ title, subtitle, storageKey, variants, defaultVariant
   const [selected, setSelected] = useState(() => localStorage.getItem(storageKey) || defaultVariant)
   const [failed, setFailed] = useState<Set<string>>(new Set())
   const [previewId, setPreviewId] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
   const tileRefs = useRef(new Map<string, HTMLDivElement>())
   const modalRef = useRef<HTMLDivElement | null>(null)
+  const selectedVariant = variants.find((v) => v.id === selected)
 
   function choose(id: string) {
     setSelected(id)
@@ -167,10 +169,33 @@ function TemplateSection({ title, subtitle, storageKey, variants, defaultVariant
 
   return (
     <div className="settings-template-section">
-      <h3 className="settings-template-section-title">{title}</h3>
-      <p className="sub">{subtitle}</p>
+      <div className="settings-section-head">
+        <button
+          type="button"
+          className="settings-section-toggle"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+        >
+          <IconChevronRight className={`settings-section-chevron ${open ? 'open' : ''}`} />
+          <span className="settings-section-toggle-titles">
+            <h3 className="settings-template-section-title">{title}</h3>
+            <p className="sub">{subtitle}</p>
+          </span>
+        </button>
+        <div className="settings-section-head-actions">
+          {selectedVariant && <span className="settings-section-current">{selectedVariant.label}</span>}
+          <button
+            type="button"
+            className="settings-section-preview-btn"
+            title={`Preview ${selectedVariant?.label ?? title}`}
+            onClick={() => setPreviewId(selected)}
+          >
+            <IconOpen />
+          </button>
+        </div>
+      </div>
 
-      <div className="wo-tiles settings-template-tiles">
+      <div className={`wo-tiles settings-template-tiles ${open ? '' : 'settings-section-collapsed'}`}>
         {variants.map((v) => (
           <div
             key={v.id}
@@ -201,16 +226,15 @@ function TemplateSection({ title, subtitle, storageKey, variants, defaultVariant
               )}
               <button
                 type="button"
-                className="settings-tile-preview-btn"
+                className="wo-tile-open"
                 title={`See the full ${v.label} document`}
                 onClick={(e) => {
                   e.stopPropagation()
                   setPreviewId(v.id)
                 }}
               >
-                <IconEye />
+                Click to preview
               </button>
-              <span className="wo-tile-open">Click to use this style</span>
             </div>
             <div className="wo-tile-foot">{v.label}</div>
           </div>
@@ -363,9 +387,6 @@ function ActiveDevicesCard() {
 function ThemeSection({ theme, onThemeChange }: { theme: ThemeId; onThemeChange: (theme: ThemeId) => void }) {
   return (
     <div className="settings-template-section">
-      <h3 className="settings-template-section-title">Issue Documents tiles</h3>
-      <p className="sub">Choose how document tiles look on this device.</p>
-
       <div className="wo-tiles settings-theme-tiles">
         {THEME_OPTIONS.map((opt) => (
           <div
@@ -438,23 +459,34 @@ export default function SettingsTab({ office, theme, onThemeChange }: Props) {
     () => sampleFields(office),
     [office.circle, office.circleNumber, office.zone, office.corporation]
   )
+  const [themesOpen, setThemesOpen] = useState(false)
+  const currentTheme = THEME_OPTIONS.find((o) => o.id === theme)
 
   return (
     <>
       <ActiveDevicesCard />
 
       <div className="card">
-        <div className="card-head">
+        <button
+          type="button"
+          className="card-head settings-section-toggle settings-card-head-toggle"
+          onClick={() => setThemesOpen((o) => !o)}
+          aria-expanded={themesOpen}
+        >
           <div className="head-ic">
             <IconSettings />
           </div>
-          <div className="titles">
+          <span className="settings-section-toggle-titles">
             <h2>Themes</h2>
             <p className="sub">Try a different look for this app on this device.</p>
+          </span>
+          <div className="settings-section-head-actions">
+            {currentTheme && <span className="settings-section-current">{currentTheme.label}</span>}
+            <IconChevronRight className={`settings-section-chevron ${themesOpen ? 'open' : ''}`} />
           </div>
-        </div>
+        </button>
 
-        <ThemeSection theme={theme} onThemeChange={onThemeChange} />
+        {themesOpen && <ThemeSection theme={theme} onThemeChange={onThemeChange} />}
       </div>
 
       <div className="card">

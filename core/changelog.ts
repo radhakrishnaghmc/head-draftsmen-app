@@ -16,6 +16,15 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.28.0',
+    changes: [
+      'Documents can now be issued for MMC (Malkajgiri Municipal Corporation) — its Malkajgiri, Uppal and LB Nagar zones/circles are now available in the Corporation → Zone → Circle picker.',
+      'All bundled document templates (Tender Notice, Bid Document, Work Order, Agreement, File Backer, Issue Notices, Print Documents, and others) now print the actual issuing corporation\'s name instead of always printing "Cyberabad Municipal Corporation" / "CMC".',
+      'Fixed: scanning a folder for tender documents could hang forever on a stalled cloud-sync file (OneDrive/Google Drive/Dropbox placeholder) or a dropped network drive — it now skips that file after a short wait instead of freezing the scan.',
+      'Settings: template sections (Bid Document, Work Order, Agreement, etc.) are now collapsible, show the currently selected style at a glance, and the "preview" affordance now matches the rest of the app\'s "Click to preview" style instead of a small icon button.'
+    ]
+  },
+  {
     version: '1.27.0',
     changes: [
       'Settings: added "Themes" — choose how Issue Documents tiles look on this device (Default, Colured, Windows theme, or Dark mode).',

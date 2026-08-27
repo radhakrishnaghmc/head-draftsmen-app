@@ -43,6 +43,12 @@ const RELEVANT_EXT = new Set(['.pdf', '.html', '.htm'])
 // folder pick (e.g. the user's whole Google Drive root) wholesale.
 const MAX_FILES = 1000
 
+// A local read is milliseconds; this is generous enough to cover a slow
+// network drive or a cloud-sync client that has to fetch a placeholder file
+// on demand, while still bounding the worst case to something a user won't
+// mistake for the app having frozen.
+const FILE_READ_TIMEOUT_MS = 20_000
+
 /** `done` files matched so far during the recursive directory walk (no fixed total — folder sizes aren't known upfront) or files actually read back into memory (fixed `total`, so this phase can show a real percentage). */
 export type TenderScanProgress = (phase: 'scanning' | 'reading', done: number, total: number) => void
 
@@ -90,8 +96,26 @@ export async function collectTenderDocuments(
   const results: PickedTenderDocument[] = []
   for (let i = 0; i < capped.length; i++) {
     const p = capped[i]
-    const bytes = await fsp.readFile(p)
-    results.push({ name: path.basename(p), bytes: new Uint8Array(bytes) })
+    try {
+      // A single stalled read (a OneDrive/Google Drive/Dropbox "on-demand"
+      // placeholder that has to download first, or a network drive that's
+      // dropped) would otherwise block this whole sequential loop forever —
+      // real report: the scan reads every file it finds, then just sits on
+      // "Reading N/total" with no error, no timeout of its own. Skip past a
+      // file that doesn't resolve in time instead of hanging the entire
+      // update. fsp.readFile itself isn't cancelled by the race losing (Node
+      // has no clean way to abort an in-flight fs read) — it's just left to
+      // finish or fail on its own and its result is ignored either way.
+      const bytes = await Promise.race([
+        fsp.readFile(p),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('timed out')), FILE_READ_TIMEOUT_MS)
+        )
+      ])
+      results.push({ name: path.basename(p), bytes: new Uint8Array(bytes) })
+    } catch {
+      // Unreadable or timed out — skip it and keep the rest of the scan moving.
+    }
     onProgress?.('reading', i + 1, capped.length)
   }
   return results

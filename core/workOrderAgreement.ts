@@ -295,8 +295,11 @@ export function workOrderPlaceholders(f: WorkOrderAgreementFields): Record<strin
     Circle: f.circle,
     CNO: f.cno,
     // Corporation abbreviation for the EE sign-off block (was a hard-coded "CMC"
-    // in the template — now the work's actual corporation).
+    // in the template — now the work's actual corporation). 'Corp Full Caps' is
+    // a no-op for the app's own bundled template but the Kompally variant's
+    // letterhead cites it.
     Corporation: f.corporation,
+    'Corp Full Caps': (f.corporationFullName ?? '').toUpperCase(),
     Financialyear: f.financialYear,
     'Agreement date': f.workOrderDate.trim() || DATE_BLANK,
     'Name of the agency': f.agencyName,
@@ -345,6 +348,16 @@ export function agreementPlaceholders(f: WorkOrderAgreementFields): Record<strin
     // harmless no-op key for a template that doesn't use it, same as
     // workOrderPlaceholders' NIT No/Tender ID additions.
     Zone: f.zone,
+    // Zone abbreviation for the A.B.No line (was a hard-coded "QBZ" in the
+    // template — now reflects the work's actual zone), same convention as
+    // workOrderPlaceholders' ZoneAbbr key.
+    ZoneAbbr: zoneAbbr(f.zone),
+    Financialyear: f.financialYear,
+    // Corporation abbreviation/full name (was hard-coded "CMC"/"Cyberabad
+    // Municipal Corporation" in the template — now the work's actual
+    // corporation), same convention as workOrderPlaceholders' Corporation key.
+    Corporation: f.corporation,
+    'Corp Full': f.corporationFullName,
     'Name of the work': f.nameOfWork,
     // Template already prints "Rs." … "Lakhs" around this one.
     'Estimate Amount': estLakhs != null ? estLakhs.toFixed(2) : '',
@@ -432,6 +445,7 @@ export function zonalDocsPlaceholders(f: WorkOrderAgreementFields, notice: Intim
     'Zone Caps': zone.toUpperCase(),
     ZoneAbbr: zoneAbbr(zone),
     Corp: f.corporation,
+    'Corp Full': f.corporationFullName,
     'Corp Full Caps': (f.corporationFullName ?? '').toUpperCase(),
     FY: f.financialYear,
     'Agmt Year': f.financialYear.split('-')[0] ?? '',
@@ -461,10 +475,12 @@ export function zonalDocsPlaceholders(f: WorkOrderAgreementFields, notice: Intim
 
 /**
  * The {{Label}} -> value map for the File Backer — the file's cover page. A
- * centred cover: the corporation header (fixed in the template) over the circle
- * line ("{{Circle Header}}" = "GAJULARAMARAM CIRCLE-57") and a six-row table of
- * the work's key facts. Amounts follow the same wording as the Work Order /
- * Agreement (estimate in Lakhs, contract Indian-grouped, "% Less").
+ * centred cover: the corporation header ("{{Corp Full Caps}}" — was a
+ * hard-coded "CYBERABAD MUNICIPAL CORPORATION" in the template, now the
+ * work's actual corporation) over the circle line ("{{Circle Header}}" =
+ * "GAJULARAMARAM CIRCLE-57") and a six-row table of the work's key facts.
+ * Amounts follow the same wording as the Work Order / Agreement (estimate in
+ * Lakhs, contract Indian-grouped, "% Less").
  */
 export function fileBackerPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
   const estLakhs = num(f.estimateLakhs)
@@ -473,6 +489,7 @@ export function fileBackerPlaceholders(f: WorkOrderAgreementFields): Record<stri
   const contract = num(f.contractRupees)
   const circleHeader = f.circle ? `${f.circle.toUpperCase()} CIRCLE${f.cno ? `-${f.cno}` : ''}` : ''
   return {
+    'Corp Full Caps': (f.corporationFullName ?? '').toUpperCase(),
     'Circle Header': circleHeader,
     'Tender ID': f.tenderId,
     'NIT No': f.noticeNo,
@@ -576,6 +593,12 @@ export function civilTenderPlaceholders(
   const contract = num(f.contractRupees)
   const contractor = [f.agencyName, f.address].map((s) => (s ?? '').trim()).filter(Boolean).join('\n')
   return {
+    // Corporation abbreviation/full name — was hard-coded "CMC"/"Cyberabad
+    // Municipal Corporation" throughout the template's boilerplate tender
+    // conditions text (30+ mentions), now the work's actual corporation.
+    Corporation: f.corporation,
+    'Corp Full': f.corporationFullName,
+    'Corp Full Caps': (f.corporationFullName ?? '').toUpperCase(),
     'Name of the work': f.nameOfWork,
     'Estimate Amount': estLakhs != null ? groupedRupees(estLakhs * 100000) : '',
     // Page-1 forwarding slip answers "Are the rates … within the Estimate

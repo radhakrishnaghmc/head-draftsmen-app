@@ -9,6 +9,7 @@ import type { TenderNoticeInput } from '../../electron/ipc-contract'
 import { indianFinancialYear } from '@core/workOrderAgreement'
 import { type Office, officeScopedKey, isZoneOnlyOffice, CONTACT_KEYS } from '../office'
 import { closeOnBackdropMouseDown } from '../overlayClose'
+import { corporationByName } from '../zoneCircleDirectory'
 
 interface Props {
   tables: ExcelTable[]
@@ -219,6 +220,8 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
         ecv: ecvHeader ? r[ecvHeader] : undefined,
         zone: zoneHeader ? r[zoneHeader] : undefined,
         circle: circleHeader ? r[circleHeader] : undefined,
+        corporation: office?.corporation,
+        corporationFullName: corporationByName(office?.corporation)?.fullName,
         completionPeriod: completionHeader ? r[completionHeader] : undefined
       }))
   }, [
@@ -230,7 +233,8 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
     zoneHeader,
     circleHeader,
     completionHeader,
-    selected
+    selected,
+    office?.corporation
   ])
 
   function toggleWinCode(code: string) {
@@ -266,6 +270,11 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
       circle: office?.circle,
       circleNumber: office?.circleNumber,
       zone: office?.zone,
+      // Corporation abbreviation/full name so the template's hard-coded CMC
+      // branding (NIT number, letterhead, eligibility clauses) is rewritten
+      // to whichever corporation is actually issuing this notice.
+      corporation: office?.corporation,
+      corporationFullName: corporationByName(office?.corporation)?.fullName,
       email: email.trim(),
       eePhone: eePhone.trim(),
       hdPhone: hdPhone.trim()

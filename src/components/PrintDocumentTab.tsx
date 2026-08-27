@@ -6,6 +6,7 @@ import type { PlaceholderMatch } from '@core/createDocument'
 import { withComputedAmounts } from '@core/worksAmounts'
 import type { CreatedDocument, ExcelTable, QcOfficeParties } from '@core/types'
 import type { Office } from '../office'
+import { corporationByName } from '../zoneCircleDirectory'
 import { IconDoc, IconEye, IconPrint, IconDownload, IconSearch } from './Icons'
 import { base64ToUint8, PAGE_WIDTH, renderDocPreview } from './docPage'
 import { closeOnBackdropMouseDown } from '../overlayClose'
@@ -59,7 +60,10 @@ const MANUAL_LABELS = new Set([
   'test type',
   'ae name phone',
   'estimate lakhs',
-  'ts no and date'
+  'ts no and date',
+  'corporation',
+  'corp full',
+  'corp full caps'
 ])
 function isPartyDoc(doc: CreatedDocument | null): boolean {
   return doc?.id === PARTY_3RD_ID || doc?.id === PARTY_4TH_ID
@@ -208,6 +212,11 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
     // (no selection) leaves the whole field blank instead of a stray "dt.".
     const tsNo = (rawRow['Technical Sanc No'] ?? '').trim()
     const tsDate = (rawRow['TS date'] ?? '').trim()
+    // Corporation abbreviation/full name — several of these bundled templates
+    // (e.g. Action Taken Report, Completion Report) had "CYBERABAD MUNICIPAL
+    // CORPORATION" hard-coded into their letterhead; now the office's actual
+    // corporation, same as the Work Order/Agreement tab's placeholders.
+    const corpFull = corporationByName(office.corporation)?.fullName ?? ''
     const manualValues: Record<string, string> = {
       'Party Name': party?.name ?? '',
       'Party Address': party?.address ?? '',
@@ -215,7 +224,10 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
       'Test Type': '',
       'AE Name Phone': '',
       'Estimate Lakhs': rawEstimate && !Number.isNaN(Number(rawEstimate)) ? Number(rawEstimate).toFixed(2) : rawEstimate,
-      'TS No and Date': tsNo && tsDate ? `${tsNo} dt. ${tsDate}` : tsNo || tsDate
+      'TS No and Date': tsNo && tsDate ? `${tsNo} dt. ${tsDate}` : tsNo || tsDate,
+      Corporation: office.corporation ?? '',
+      'Corp Full': corpFull,
+      'Corp Full Caps': corpFull.toUpperCase()
     }
     const row = { ...withComputedAmounts(rawRow), ...manualValues }
     const columns = table?.headers ?? []

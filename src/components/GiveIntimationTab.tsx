@@ -24,7 +24,7 @@ import {
   type AgencyApprovalData
 } from '@core/seEvaluationNotes'
 import { parseCementSteelRateLines } from '@core/cementSteelRate'
-import { resolveFromDirectory, entriesOf } from '../zoneCircleDirectory'
+import { resolveFromDirectory, entriesOf, corporationByName } from '../zoneCircleDirectory'
 import type { Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLines, pdfToPositionedLines } from '../pdfToText'
@@ -215,6 +215,10 @@ function resolveLoaValue(
       return zoneAbbr(office.zone)
     case 'zone':
       return office.zone ?? row['Zone'] ?? ''
+    case 'corporation':
+      return office.corporation ?? row['Corporation'] ?? ''
+    case 'corp full caps':
+      return (corporationByName(office.corporation)?.fullName ?? '').toUpperCase()
     case 'financial year':
       return financialYearFromDate(pdf.noticeDate)
     case 'loa date':
@@ -305,6 +309,8 @@ function resolveTsNoteValue(
       return office.zone ?? ''
     case 'zone abbr':
       return zoneAbbrCode
+    case 'corporation':
+      return office.corporation ?? ''
     case 'financial year':
       return financialYearFromDate(pdf.noticeDate)
     case 'name of the work':
@@ -412,6 +418,14 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   // A Zone chosen with no Circle is the Superintending Engineer (zonal) office,
   // which issues the "Letter of Acceptance" format instead of the EE Intimation.
   const seMode = !!office.zone?.trim() && !office.circle?.trim()
+
+  // `office` plus its corporation's full name (for the letterhead's {{Corp Full
+  // Caps}}) — resolveIntimationValue is a core module and can't reach into the
+  // renderer's zoneCircleDirectory itself, so it's resolved here.
+  const intimationOffice = useMemo(
+    () => ({ ...office, corporationFullName: corporationByName(office.corporation)?.fullName }),
+    [office]
+  )
 
   const [templateB64, setTemplateB64] = useState<string | null>(null)
   const [labels, setLabels] = useState<string[]>([])
@@ -546,11 +560,11 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       for (const label of labels)
         next[label] = seMode
           ? resolveLoaValue(label, notice ?? {}, pdfEval ?? {}, detailsRow, office, manual)
-          : resolveIntimationValue(label, notice ?? {}, pdfEval ?? {}, detailsRow, office)
+          : resolveIntimationValue(label, notice ?? {}, pdfEval ?? {}, detailsRow, intimationOffice)
       return next
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [labels, rowIndex, notice, pdfEval, table, seMode, office, manual, worksRowMatched])
+  }, [labels, rowIndex, notice, pdfEval, table, seMode, office, intimationOffice, manual, worksRowMatched])
 
   // The Online Intimation can be uploaded as either the portal "View Intimation
   // Notice" .html page or the printed Intimation / LOA .pdf — both carry the

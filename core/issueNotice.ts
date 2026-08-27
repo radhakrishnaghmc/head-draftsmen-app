@@ -26,6 +26,8 @@ export interface IssueNoticeOffice {
   zone?: string
   circle?: string
   cno?: string
+  corporation?: string
+  corporationFullName?: string
 }
 
 /**
@@ -79,6 +81,8 @@ export function issueNoticePlaceholders(
     'Zone Abbr': zoneAbbr(office.zone),
     Circle: office.circle ?? '',
     CNO: office.cno ?? '',
+    Corporation: office.corporation ?? '',
+    'Corp Full Caps': (office.corporationFullName ?? '').toUpperCase(),
     'Agency Name': notice.agencyName ?? pdf.l1AgencyName ?? '',
     'Address of the agency': notice.address ?? '',
     'agency phone number': manual.agencyPhone,

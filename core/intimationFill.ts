@@ -1,6 +1,7 @@
 import { computeWorkAmounts, tenderPercentFromRow } from './worksAmounts'
 import { wrapAgencyAddress } from './workOrderAgreement'
 import { isReservedWork } from './tenderAgents/nameOfWork'
+import { zoneAbbr } from './loaSe'
 import type { IntimationNotice } from './intimationNotice'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
 
@@ -13,6 +14,8 @@ export interface IntimationOffice {
   circle?: string
   circleNumber?: string
   zone?: string
+  corporation?: string
+  corporationFullName?: string
 }
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
@@ -114,6 +117,12 @@ export function resolveIntimationValue(
       return row['CNO'] || office?.circleNumber || ''
     case 'zone':
       return row['Zone'] || office?.zone || ''
+    case 'zoneabbr':
+      return zoneAbbr(row['Zone'] || office?.zone || '')
+    case 'corporation':
+      return row['Corporation'] || office?.corporation || ''
+    case 'corp full caps':
+      return (row['Corp Full'] || office?.corporationFullName || '').toUpperCase()
     case 'financial year':
       return indianFinancialYear()
     case 'name of the work':

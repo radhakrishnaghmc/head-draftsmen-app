@@ -88,6 +88,10 @@ export default function IssueNoticesTab({ office, theme }: Props) {
       : CMC_ZONE_CIRCLES),
     [office?.corporation]
   )
+  const corporationName = corporationByName(office?.corporation)?.entries?.length
+    ? office!.corporation!
+    : 'CMC'
+  const corporationFullName = corporationByName(corporationName)?.fullName
   // Which bundled format this Notice fills — Circle-level (EE) unless the
   // chosen office is unambiguously Zone-level (SE), matching how every other
   // paired EE/SE document in this app decides (WorkOrderAgreementTab's
@@ -140,9 +144,11 @@ export default function IssueNoticesTab({ office, theme }: Props) {
         notice ?? {},
         pdfEval ?? {},
         manual,
-        ee ? { circle: detected.circle, cno: detected.cno } : { zone: detected.zone }
+        ee
+          ? { circle: detected.circle, cno: detected.cno, corporation: corporationName, corporationFullName }
+          : { zone: detected.zone, corporation: corporationName, corporationFullName }
       ),
-    [notice, pdfEval, manual, ee, detected.circle, detected.cno, detected.zone]
+    [notice, pdfEval, manual, ee, detected.circle, detected.cno, detected.zone, corporationName, corporationFullName]
   )
 
   function setManualField<K extends keyof IssueNoticeManualFields>(key: K, v: string) {

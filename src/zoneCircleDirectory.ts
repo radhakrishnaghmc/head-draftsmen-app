@@ -51,14 +51,34 @@ export const CMC_ZONE_CIRCLES: ZoneCircleEntry[] = [
   { zone: 'Serilingampally', circle: 'Serilingampally', cno: '49' }
 ]
 
+export const MMC_ZONE_CIRCLES: ZoneCircleEntry[] = [
+  // Malkajgiri zone
+  { zone: 'Malkajgiri', circle: 'Keesara', cno: '1' },
+  { zone: 'Malkajgiri', circle: 'Alwal', cno: '2' },
+  { zone: 'Malkajgiri', circle: 'Bowenpally', cno: '3' },
+  { zone: 'Malkajgiri', circle: 'Moula Ali', cno: '4' },
+  { zone: 'Malkajgiri', circle: 'Malkajgiri', cno: '5' },
+  // Uppal zone
+  { zone: 'Uppal', circle: 'Ghatkesar', cno: '6' },
+  { zone: 'Uppal', circle: 'Kapra', cno: '7' },
+  { zone: 'Uppal', circle: 'Nacharam', cno: '8' },
+  { zone: 'Uppal', circle: 'Uppal', cno: '9' },
+  { zone: 'Uppal', circle: 'Boduppal', cno: '10' },
+  // LB Nagar zone
+  { zone: 'LB Nagar', circle: 'Nagole', cno: '11' },
+  { zone: 'LB Nagar', circle: 'Saroornagar', cno: '12' },
+  { zone: 'LB Nagar', circle: 'LB Nagar', cno: '13' },
+  { zone: 'LB Nagar', circle: 'Hayat Nagar', cno: '14' }
+]
+
 /**
  * Every corporation the app can prepare documents for. The Head Draughtsman
  * picks Corporation → Zone → Circle in the sidebar, and that choice (not the
  * login) drives which circle/zone the documents and Works List validation use.
  *
- * CMC is fully populated. Add a corporation by appending an entry here with its
- * full zone → circle → circle-number (CNO) list — no other code changes are
- * needed; the picker and validation read this array.
+ * CMC and MMC are fully populated. Add a corporation by appending an entry
+ * here with its full zone → circle → circle-number (CNO) list — no other
+ * code changes are needed; the picker and validation read this array.
  *
  * TODO: populate GHMC (and any further corporations) with their real
  * zone/circle/CNO lists — left empty here until that data is provided, so the
@@ -67,7 +87,7 @@ export const CMC_ZONE_CIRCLES: ZoneCircleEntry[] = [
 export const CORPORATIONS: CorporationDirectory[] = [
   { name: 'CMC', fullName: 'Cyberabad Municipal Corporation', entries: CMC_ZONE_CIRCLES },
   { name: 'GHMC', fullName: 'Greater Hyderabad Municipal Corporation', entries: [] },
-  { name: 'MMC', fullName: 'Malkajgiri Municipal Corporation', entries: [] }
+  { name: 'MMC', fullName: 'Malkajgiri Municipal Corporation', entries: MMC_ZONE_CIRCLES }
 ]
 
 const norm = (s: string) => s.trim().toLowerCase()

@@ -34,6 +34,10 @@ export interface TenderNoticeInput {
   /** Circle number (CNO), e.g. "58" — swapped for the template's "57". */
   circleNumber?: string
   zone?: string
+  /** Corporation abbreviation, e.g. "CMC" — swapped for the template's own "CMC" wherever it appears (NIT number, letterhead, eligibility clauses, etc.). */
+  corporation?: string
+  /** Corporation full name, e.g. "Cyberabad Municipal Corporation" — its upper-cased form is swapped for the letterhead's "CYBERABAD MUNICIPAL CORPORATION". */
+  corporationFullName?: string
   /**
    * Contact details shown on the notice (the covering letter's "From" e-mail
    * and the summary table's Tender-Inviting-Authority mobile numbers). The
@@ -74,6 +78,13 @@ const TPL_ZONE = 'Quthbullapur'
 const TPL_EMAIL = 'eec57.GHMC@gmail.com'
 const TPL_EE_PHONE = '7893066262'
 const TPL_HD_PHONE = '9063836115'
+// The template's own corporation branding (NIT number, letterhead,
+// eligibility clauses, "Assistant Commissioner PR CMC" line, etc.), swapped
+// for the issuing corporation's own abbreviation/full name. Must run AFTER
+// the OLD_NIT/OLD_LR_NO/OLD_REF_NO swaps above, since those literal strings
+// still contain "CMC" and need to match the template's original text first.
+const TPL_CORP = 'CMC'
+const TPL_CORP_FULL_CAPS = 'CYBERABAD MUNICIPAL CORPORATION'
 
 /**
  * Pull the circle name and number out of a NIT number like
@@ -254,6 +265,15 @@ export function fillTenderNotice(buffer: Buffer, input: TenderNoticeInput): Buff
   if (input.eePhone?.trim()) contactSwaps.push([TPL_EE_PHONE, input.eePhone.trim()])
   if (input.hdPhone?.trim()) contactSwaps.push([TPL_HD_PHONE, input.hdPhone.trim()])
 
+  const corpSwaps: Array<[string, string]> = []
+  if (input.corporation?.trim() && input.corporation.trim() !== TPL_CORP) {
+    corpSwaps.push([TPL_CORP, input.corporation.trim()])
+  }
+  if (input.corporationFullName?.trim()) {
+    const fullCaps = input.corporationFullName.trim().toUpperCase()
+    if (fullCaps !== TPL_CORP_FULL_CAPS) corpSwaps.push([TPL_CORP_FULL_CAPS, fullCaps])
+  }
+
   const swaps: Array<[string, string]> = [
     [OLD_NIT, input.nitNo],
     [OLD_LR_NO, input.nitNo],
@@ -262,7 +282,8 @@ export function fillTenderNotice(buffer: Buffer, input: TenderNoticeInput): Buff
     [OLD_END_DATE, input.endDate],
     [OLD_DATED, input.today],
     ...contactSwaps,
-    ...placeSwaps
+    ...placeSwaps,
+    ...corpSwaps
   ]
   for (const [oldStr, newStr] of swaps) {
     if (oldStr === newStr) continue
