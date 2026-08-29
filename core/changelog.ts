@@ -16,6 +16,17 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.29.0',
+    changes: [
+      'Give Intimation, Agreement/Work Order, and Issue Documents now have a "Verify" button that checks every generated document for blank fields, leftover {{placeholders}}, or wrong EMD/ASD amounts before you send it out.',
+      'Fixed: EMD and ASD figures in Intimation letters could land ₹1 off (e.g. 6204 instead of 6205) due to a rounding mismatch.',
+      'Zone-level (Superintending Engineer) offices in MMC now get their own Letter of Acceptance wording, separate from the standard one.',
+      'New tool (Settings → MB Measurement): upload photos of an MB (Measurement Book) sheet and get back an Excel-ready table, read automatically from the form.',
+      'Uploading a multi-sheet estimate workbook now correctly finds the real item-wise estimate sheet instead of misreading a General Abstract or rate-schedule sheet.',
+      'Fixed: a login failure from no internet connection now shows a clear message instead of a technical error.'
+    ]
+  },
+  {
     version: '1.28.0',
     changes: [
       'Documents can now be issued for MMC (Malkajgiri Municipal Corporation) — its Malkajgiri, Uppal and LB Nagar zones/circles are now available in the Corporation → Zone → Circle picker.',

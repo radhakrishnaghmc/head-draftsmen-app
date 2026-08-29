@@ -3,7 +3,17 @@ import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
 import { indianDigitGroups } from '@core/worksAmounts'
-import { extractWorkName, splitEstimateBlocks, extractGrandTotalLakhs, itemsMissingEstimateAmount } from '@core/estimateExtract'
+import {
+  extractWorkName,
+  splitEstimateBlocks,
+  extractGrandTotalLakhs,
+  itemsMissingEstimateAmount,
+  looksLikeEstimateOrBoqHeader,
+  looksLikeGeneralAbstractSheet,
+  extractAbstractWorkTitle,
+  extractAbstractTotalLakhs,
+  sheetBelongsToAbstract
+} from '@core/estimateExtract'
 import type { EstimateWorkItem } from '@core/estimateExtract'
 import { extractEstimateItemsWithAi } from '../aiEstimateColumns'
 import { extractEstimateAmountLakhs } from '@core/deviation'
@@ -211,14 +221,14 @@ function DocumentPreview({ entry }: { entry: Entry }) {
             <td>{it.unit}</td>
             <td className="num">{it.quantity}</td>
             <td className="num">{Number(it.rate) ? Number(it.rate).toFixed(2) : it.rate}</td>
-            <td className="num">{itemAmount(it).toFixed(2)}</td>
+            <td className="num">{Math.round(itemAmount(it))}</td>
           </tr>
         ))}
       </tbody>
       <tfoot>
         <tr>
           <td colSpan={5}>Total</td>
-          <td className="num">{total.toFixed(2)}</td>
+          <td className="num">{Math.round(total)}</td>
         </tr>
       </tfoot>
     </table>
@@ -457,9 +467,83 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
       return { match, searched: true }
     }
 
-    // Each grid is one sheet; a sheet may itself stack several complete
-    // estimates, so split it into per-estimate blocks and process each.
+    // Group sheets by their source workbook so a General Abstract sheet only
+    // merges that workbook's own component sheets, not sheets from a
+    // different file picked in the same batch.
+    const gridsByFile = new Map<string, typeof grids>()
     for (const g of grids) {
+      const list = gridsByFile.get(g.name) ?? []
+      list.push(g)
+      gridsByFile.set(g.name, list)
+    }
+
+    for (const fileGrids of gridsByFile.values()) {
+      const abstractGrid = fileGrids.find((g) => looksLikeGeneralAbstractSheet(g.grid))
+
+      // A General Abstract sheet means the workbook's other detailed-estimate
+      // sheets are components of ONE sanctioned work (e.g. "1) Security
+      // Cabin", "2) Store Room", ...), not separate works — combine them into
+      // a single BOQ entry instead of one entry per component sheet.
+      if (abstractGrid) {
+        const abstractHeaderRow = guessHeaderRow(abstractGrid.grid)
+        const workName = extractAbstractWorkTitle(abstractGrid.grid)
+        const totalLakhs = extractAbstractTotalLakhs(abstractGrid.grid, abstractHeaderRow)
+        const combinedItems: EstimateWorkItem[] = []
+        const combinedAiAssisted: string[] = []
+        const componentNames: string[] = []
+        for (const g of fileGrids) {
+          if (g === abstractGrid) continue
+          // A workbook holding one real project routinely also carries
+          // dozens of shared rate-book/master-data sheets (SoR data,
+          // standard-data chapters) with their own Qty+Rate item lists —
+          // only sheets that actually share the abstract's work title belong
+          // in its combined BOQ.
+          if (!sheetBelongsToAbstract(abstractGrid.grid, g.grid)) continue
+          for (const grid of splitEstimateBlocks(g.grid)) {
+            const headerRow = guessHeaderRow(grid)
+            if (!looksLikeEstimateOrBoqHeader(grid[headerRow] ?? [])) continue
+            try {
+              const { items, aiAssisted } = await extractEstimateItemsWithAi(grid, headerRow)
+              if (items.length === 0) continue
+              combinedItems.push(...items)
+              combinedAiAssisted.push(...aiAssisted)
+              componentNames.push(g.sheetName || g.name)
+            } catch {
+              // A component sheet that fails to parse just contributes no
+              // items — shouldn't block the rest of the combined estimate.
+            }
+          }
+        }
+        if (combinedItems.length > 0) {
+          const { match, searched } = await resolveWorksMatch(workName)
+          added.push({
+            id: nextId(),
+            fileName: abstractGrid.name,
+            sheetName: componentNames.join(', '),
+            items: combinedItems,
+            workName,
+            worksMatch: match,
+            worksSearched: searched,
+            ecvRupees: computeEcvFromItems(combinedItems),
+            estimateAmountLakhs: totalLakhs ?? 0,
+            grandTotalLakhs: totalLakhs,
+            uncostedItems: itemsMissingEstimateAmount(combinedItems),
+            agencyName: agencyFromMatch(match),
+            departmentName: deptDefault,
+            district: '',
+            aiAssisted: [...new Set(combinedAiAssisted)],
+            busyAction: null,
+            error: null,
+            saved: null,
+            previewDoc: 'boq'
+          })
+          continue
+        }
+      }
+
+      // Each grid is one sheet; a sheet may itself stack several complete
+      // estimates, so split it into per-estimate blocks and process each.
+      for (const g of fileGrids) {
       const blocks = splitEstimateBlocks(g.grid)
       for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
         const grid = blocks[blockIndex]
@@ -467,6 +551,12 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
         const sheetName =
           blocks.length > 1 ? `${g.sheetName || g.name} #${blockIndex + 1}` : g.sheetName || g.name
         const headerRow = guessHeaderRow(grid)
+        // A workbook uploaded whole often carries reference-only sheets
+        // alongside its real sub-estimates (a General Abstract rollup, a
+        // rate schedule, a quotation) — skip those silently rather than
+        // surfacing a failed-extraction entry that just clutters the list
+        // next to the workbook's genuine per-work estimates.
+        if (!looksLikeEstimateOrBoqHeader(grid[headerRow] ?? [])) continue
         try {
           const { items, aiAssisted } = await extractEstimateItemsWithAi(grid, headerRow)
           if (items.length > 0) {
@@ -550,6 +640,7 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
             previewDoc: 'boq'
           })
         }
+      }
       }
     }
 

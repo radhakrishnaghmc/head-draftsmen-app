@@ -545,6 +545,25 @@ describe('extractEstimateItems', () => {
   })
 })
 
+describe('looksLikeEstimateOrBoqHeader', () => {
+  it('accepts a header with both a Quantity and a Rate column', async () => {
+    const { looksLikeEstimateOrBoqHeader } = await import('../core/estimateExtract')
+    expect(looksLikeEstimateOrBoqHeader(['S.No', 'Description', 'Qty', 'Rate', 'Unit'])).toBe(true)
+  })
+
+  it('rejects a General Abstract rollup — has Qty but no Rate', async () => {
+    const { looksLikeEstimateOrBoqHeader } = await import('../core/estimateExtract')
+    expect(looksLikeEstimateOrBoqHeader(['Sl.No', 'Description Item', 'Qty', 'Amount in Rs.', 'Amount in Lakhs'])).toBe(
+      false
+    )
+  })
+
+  it('rejects a rate schedule / quotation sheet — has Rate but no per-item Qty', async () => {
+    const { looksLikeEstimateOrBoqHeader } = await import('../core/estimateExtract')
+    expect(looksLikeEstimateOrBoqHeader(['Reference', 'Description', 'Rate', 'Unit', 'Rate with CP'])).toBe(false)
+  })
+})
+
 describe('extractEstimateItemsFromLines', () => {
   it('extracts qty/rate/unit from a summary line, ignoring title-block and header lines before it', async () => {
     const { extractEstimateItemsFromLines } = await import('../core/estimateExtract')

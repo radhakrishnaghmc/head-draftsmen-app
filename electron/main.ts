@@ -6,12 +6,21 @@ import * as os from 'os'
 import * as firebaseSync from './firebaseSync'
 import { initAutoUpdate, restartToUpdate, checkForUpdatesManually } from './autoUpdate'
 import { IPC } from './ipc-contract'
-import type { ManualCheckResult, AgreementBundleFile, ActiveSessionInfo, PickedTenderDocument } from './ipc-contract'
+import type {
+  ManualCheckResult,
+  AgreementBundleFile,
+  ActiveSessionInfo,
+  PickedTenderDocument,
+  VerifyDocItem,
+  VerifyDocResult
+} from './ipc-contract'
 import { collectTenderDocuments } from './tenderDocumentScan'
 import { workOrderTemplateFileName, agreementTemplateFileName } from '../core/workOrderTemplateVariants'
 import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer, readSheetPreviews } from '../core/excel'
 import type { SheetPreview } from '../core/excel'
 import { recognizeImages } from './ocr'
+import { extractMbMeasurementSheet } from './mbMeasurementOcr'
+import { mbMeasurementRowsToGrid } from '../core/mbMeasurementExtract'
 import { runSplitInWorker } from './splitRunner'
 import { pdfPageCount, mergePdfFiles, splitPdfFile } from './pdfTools'
 import { applyTechnicalSanctionEdits } from '../core/technicalSanctionOutput'
@@ -56,8 +65,16 @@ import {
   applyParagraphEdits,
   findPlaceholdersInAllParts,
   fillPlaceholdersInAllParts,
-  bakeFixedPlaceholdersInDocx
+  bakeFixedPlaceholdersInDocx,
+  extractAllText
 } from '../core/docx-edit'
+import {
+  verifyPlaceholderCoverage,
+  verifyAmountMath,
+  verifyCorporationWording,
+  verifyReservedTag,
+  combineVerify
+} from '../core/documentVerify'
 import type { PlaceholderMatch } from '../core/createDocument'
 import type {
   ExcelTable,
@@ -226,6 +243,22 @@ function registerHandlers(): void {
     }
   })
 
+  ipcMain.handle(IPC.ocrMbMeasurementSheet, async (_e, dataUrls: string[]): Promise<SheetGrid> => {
+    const buffers = dataUrls.map((u) => Buffer.from(u.split(',')[1] ?? '', 'base64'))
+    const rows = await extractMbMeasurementSheet(buffers, (progress) => {
+      mainWindow?.webContents.send(IPC.mbMeasurementProgress, progress)
+    })
+    const grid = mbMeasurementRowsToGrid(rows)
+    return {
+      id: `mb-measurement-${Date.now()}`,
+      name: 'MB Measurement Sheet',
+      path: '',
+      sheetName: 'MB Measurement Sheet',
+      grid,
+      startRow: 0
+    }
+  })
+
   ipcMain.handle(IPC.openPath, async (_e, target: string): Promise<void> => {
     if (/^https?:\/\//i.test(target)) {
       await shell.openExternal(target)
@@ -359,7 +392,33 @@ function registerHandlers(): void {
 
     if (remoteState) {
       try {
-        fs.writeFileSync(stateFile(), JSON.stringify(remoteState), 'utf8')
+        const file = stateFile()
+        // A record entered on this device but not yet reflected in the cloud
+        // (pushState is fire-and-forget and swallows failures — a network
+        // hiccup, or the app quitting/logging out before that push finished)
+        // must not vanish just because THIS login's remote pull raced ahead
+        // of it. Union the per-item lists with whatever this login's own
+        // on-disk cache already has, keeping any local-only record instead of
+        // letting a stale-but-present cloud copy silently overwrite it.
+        let merged: PersistedState = remoteState
+        try {
+          const existing = JSON.parse(fs.readFileSync(file, 'utf8')) as PersistedState
+          const unionById = <T extends { id: string }>(remote: T[] | undefined, local: T[] | undefined): T[] => {
+            const remoteList = remote ?? []
+            const seen = new Set(remoteList.map((it) => it.id))
+            return [...remoteList, ...(local ?? []).filter((it) => !seen.has(it.id))]
+          }
+          merged = {
+            ...remoteState,
+            todos: unionById(remoteState.todos, existing.todos),
+            mbScrutiny: unionById(remoteState.mbScrutiny, existing.mbScrutiny),
+            createdDocuments: unionById(remoteState.createdDocuments, existing.createdDocuments)
+          }
+        } catch {
+          // No readable existing cache for this login (fresh machine/first
+          // login here) — remote alone is all there is.
+        }
+        fs.writeFileSync(file, JSON.stringify(merged), 'utf8')
       } catch {
         // Non-fatal: local cache write is best-effort.
       }
@@ -1045,6 +1104,18 @@ function registerHandlers(): void {
     }
   )
 
+  ipcMain.handle(IPC.verifyDocuments, async (_e, items: VerifyDocItem[]): Promise<VerifyDocResult[]> => {
+    return items.map((item) => {
+      const text = extractAllText(Buffer.from(item.docxBase64, 'base64'))
+      const checks = [verifyPlaceholderCoverage(text, item.values, item.requiredLabels)]
+      if (item.amounts) checks.push(verifyAmountMath({ docText: text, ...item.amounts }))
+      if (item.corporation) checks.push(verifyCorporationWording(text, item.corporation.expected, item.corporation.all))
+      if (item.reserved != null) checks.push(verifyReservedTag(text, item.reserved))
+      const result = combineVerify(...checks)
+      return { name: item.name, ok: result.ok, issues: result.issues }
+    })
+  })
+
   ipcMain.handle(
     IPC.exportCreatedDocument,
     async (
@@ -1264,8 +1335,15 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  ipcMain.handle(IPC.loaSeTemplate, async (_e, reserved: boolean): Promise<string> => {
-    const file = reserved ? 'loa-se-reserved-template.docx' : 'loa-se-template.docx'
+  ipcMain.handle(IPC.loaSeTemplate, async (_e, reserved: boolean, corporation?: string): Promise<string> => {
+    const isMmc = corporation === 'MMC'
+    const file = isMmc
+      ? reserved
+        ? 'loa-se-mmc-reserved-template.docx'
+        : 'loa-se-mmc-template.docx'
+      : reserved
+        ? 'loa-se-reserved-template.docx'
+        : 'loa-se-template.docx'
     const templatePath = bundledResourceFile(file)
     if (!templatePath) throw new Error('Superintending Engineer LOA format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')

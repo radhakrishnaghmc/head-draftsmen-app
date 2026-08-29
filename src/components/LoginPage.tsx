@@ -48,9 +48,12 @@ export default function LoginPage({ onSuccess }: Props) {
         setMaxSessionsHit(false)
         setError('Incorrect login ID or password.')
       }
-    } catch (e) {
-      const detail = e instanceof Error ? e.message : String(e)
-      setError(`Could not verify login — ${detail}`)
+    } catch {
+      // Never surface the raw error here — it's almost always a network
+      // failure reaching the credentials sheet, and its message (e.g. a DNS
+      // error naming the host) would leak that logins are checked against a
+      // Google Sheet. Show a generic, actionable message instead.
+      setError('Could not verify login. Check your internet connection and try again.')
     } finally {
       setBusy(false)
     }

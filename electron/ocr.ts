@@ -200,13 +200,14 @@ export async function recognizeImage(imageBuffer: Buffer): Promise<OcrLine[]> {
  * hundreds of temp images / model queue entries simultaneously; each worker
  * pulls the next page as it finishes, keeping every core busy end to end.
  */
-export async function recognizeImages(imageBuffers: Buffer[]): Promise<OcrLine[][]> {
+export async function recognizeImages(imageBuffers: Buffer[], onItemDone?: () => void): Promise<OcrLine[][]> {
   const results: OcrLine[][] = new Array(imageBuffers.length)
   let next = 0
   const workerCount = Math.max(1, Math.min(POOL_SIZE, imageBuffers.length))
   const worker = async (): Promise<void> => {
     for (let i = next++; i < imageBuffers.length; i = next++) {
       results[i] = await recognizeImage(imageBuffers[i])
+      onItemDone?.()
     }
   }
   await Promise.all(Array.from({ length: workerCount }, () => worker()))

@@ -59,6 +59,12 @@ export const IconCheck = (p: P) => (
   </svg>
 )
 
+export const IconClose = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M18 6 6 18M6 6l12 12" />
+  </svg>
+)
+
 export const IconFolder = (p: P) => (
   <svg {...base(p)}>
     <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
@@ -155,6 +161,12 @@ export const IconChevronRight = (p: P) => (
 export const IconDownload = (p: P) => (
   <svg {...base(p)}>
     <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+  </svg>
+)
+
+export const IconUpload = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M12 21V9M7 14l5-5 5 5M5 3h14" />
   </svg>
 )
 

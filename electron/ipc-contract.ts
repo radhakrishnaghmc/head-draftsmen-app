@@ -18,6 +18,7 @@ import type { DeviationItem, DeviationMeta } from '../core/deviationTemplate'
 import type { DocBlock } from '../core/docxBuilder'
 import type { OcrPage } from '../core/ocrReconstruct'
 import type { EvaluationSheetInput } from '../core/evaluationSheet'
+import type { VerifyIssue } from '../core/documentVerify'
 import type { PlaceholderMatch } from '../core/createDocument'
 import type { EstimateWorkItem } from '../core/estimateExtract'
 import type { DetailedEstimateMeta } from '../core/estimateTemplate'
@@ -55,6 +56,17 @@ export interface SplitProgress {
   sheet: string
 }
 
+export interface MbMeasurementProgress {
+  /** 1-based page currently being OCR'd. */
+  page: number
+  /** Total pages being processed. */
+  totalPages: number
+  /** Non-blank cells OCR'd so far on the current page. */
+  cellsDone: number
+  /** Total non-blank cells to OCR on the current page. */
+  cellsTotal: number
+}
+
 export interface AgreementBundleProgress {
   /** Files finished so far (written or failed). */
   done: number
@@ -86,6 +98,8 @@ export const IPC = {
   pickDataSheet: 'dialog:pickDataSheet',
   pickTenderDocuments: 'dialog:pickTenderDocuments',
   ocrEstimatePhotos: 'data:ocrEstimatePhotos',
+  ocrMbMeasurementSheet: 'data:ocrMbMeasurementSheet',
+  mbMeasurementProgress: 'data:mbMeasurementProgress',
   openPath: 'shell:openPath',
   revealItem: 'shell:revealItem',
   defaultDir: 'shell:defaultDir',
@@ -144,6 +158,7 @@ export const IPC = {
   findPlaceholdersInDocument: 'doc:findPlaceholdersInDocument',
   fillPlaceholdersInDocument: 'doc:fillPlaceholdersInDocument',
   bakeFixedPlaceholdersInDocument: 'doc:bakeFixedPlaceholdersInDocument',
+  verifyDocuments: 'doc:verifyDocuments',
   exportCreatedDocument: 'doc:exportCreatedDocument',
   printCreatedDocument: 'doc:printCreatedDocument',
   noteSubmittedDocx: 'doc:noteSubmittedDocx',
@@ -176,6 +191,26 @@ export const IPC = {
 } as const
 
 /** The typed API exposed to the renderer via contextBridge (window.docugen). */
+/** One document to Verify — everything needed to re-derive its expected content from source data, without re-reading the document type's own UI state. */
+export interface VerifyDocItem {
+  /** Shown to the user alongside any issues found (e.g. "Intimation Letter", "TS Note"). */
+  name: string
+  docxBase64: string
+  /** Label -> value exactly as passed to fillPlaceholdersInDocument for this document. */
+  values: Record<string, string>
+  /** Labels that must be non-empty and present verbatim in the document; defaults to every key in `values`. */
+  requiredLabels?: string[]
+  amounts?: { ecv?: number | null; contract?: number | null; tenderPct?: number | null; emdPct?: number }
+  corporation?: { expected: string; all: string[] }
+  reserved?: boolean
+}
+
+export interface VerifyDocResult {
+  name: string
+  ok: boolean
+  issues: VerifyIssue[]
+}
+
 export interface DocuGenApi {
   pickExcels(): Promise<ExcelTable[]>
   pickExcelGrids(): Promise<SheetGrid[]>
@@ -195,6 +230,16 @@ export interface DocuGenApi {
   onTenderScanProgress(callback: (progress: TenderScanProgress) => void): () => void
   /** Runs local OCR on photos of a paper estimate (in page order) and reconstructs one combined grid, best-effort — always review before exporting. */
   ocrEstimatePhotos(dataUrls: string[]): Promise<SheetGrid>
+  /**
+   * Runs local OCR on photos of MB "L.F. No. 83" measurement sheet pages (in
+   * page order) and reconstructs the Date/Description/No/L/B/D/Contents grid
+   * using the form's fixed column layout, best-effort — always review before
+   * exporting. Multiple stacked L/B/D values in one cell come back split
+   * into l1/l2/l3 (etc.) columns.
+   */
+  ocrMbMeasurementSheet(dataUrls: string[]): Promise<SheetGrid>
+  /** Fires as each cell is OCR'd during ocrMbMeasurementSheet, so the UI can show live progress instead of the upload button just sitting on "Reading…". Returns an unsubscribe function. */
+  onMbMeasurementProgress(callback: (progress: MbMeasurementProgress) => void): () => void
   openPath(target: string): Promise<void>
   revealItem(target: string): Promise<void>
   defaultDir(): Promise<string>
@@ -316,6 +361,13 @@ export interface DocuGenApi {
   ): Promise<string>
   /** Bakes only the given labels (Zone/Circle/CNO) into a base64 .docx, leaving every other placeholder for later per-row resolution. */
   bakeFixedPlaceholdersInDocument(docxBase64: string, values: Record<string, string>): Promise<string>
+  /**
+   * No-AI "Verify" check — re-derives what should be in each generated document from the
+   * app's own current source data and confirms it's actually there: no leftover
+   * {{placeholders}}, no blank required fields, EMD/ASD arithmetic ties out, and no
+   * wrong/leftover corporation name. Never edits the document, only reports issues.
+   */
+  verifyDocuments(items: VerifyDocItem[]): Promise<VerifyDocResult[]>
   /** Save the filled document as Word and/or PDF (one save dialog per chosen format). */
   exportCreatedDocument(
     docxBase64: string,
@@ -354,8 +406,8 @@ export interface DocuGenApi {
   contractDeedTemplate(): Promise<string>
   /** Fills and saves the Zone-level (SE office) Schedule A / BOQ workbook — same item table as exportScheduleA, but its preamble and signature name the Superintending Engineer's Zone office. Prompts for a save location; returns the saved path, or null if cancelled. */
   exportSeScheduleA(table: ExcelTable, suggestedName: string, meta?: ScheduleAMeta): Promise<string | null>
-  /** Reads the bundled Superintending-Engineer LOA format (.docx) — used for the Give Intimation letter when the office is zone-level (a Zone with no Circle). `reserved` picks the SC/ST-reserved variant (no EMD balance item). Returns it base64-encoded, for filling its {{placeholders}}. */
-  loaSeTemplate(reserved: boolean): Promise<string>
+  /** Reads the bundled Superintending-Engineer LOA format (.docx) — used for the Give Intimation letter when the office is zone-level (a Zone with no Circle). `reserved` picks the SC/ST-reserved variant (no EMD balance item); `corporation === 'MMC'` picks the Malkajgiri-specific wording variant (no e-Corpus/TSTS, 3-day agreement window, RA-bill-recovered reserved EMD). Returns it base64-encoded, for filling its {{placeholders}}. */
+  loaSeTemplate(reserved: boolean, corporation?: string): Promise<string>
   /** Reads the bundled Zone-level (SE office) TS (Technical Sanction) Note (.docx) — issued alongside the LOA. Base64-encoded, for filling its {{placeholders}}. */
   tsNoteTemplate(): Promise<string>
   /** Reads the bundled Zone-level (SE office) Eligibility Criteria note (.docx) — issued alongside the LOA. Base64-encoded, for filling its {{placeholders}}. */

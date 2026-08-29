@@ -113,6 +113,10 @@ extraResources:
     to: loa-se-template.docx
   - from: resources/loa-se-reserved-template.docx
     to: loa-se-reserved-template.docx
+  - from: resources/loa-se-mmc-template.docx
+    to: loa-se-mmc-template.docx
+  - from: resources/loa-se-mmc-reserved-template.docx
+    to: loa-se-mmc-reserved-template.docx
   - from: resources/ts-note-template.docx
     to: ts-note-template.docx
   - from: resources/eligibility-criteria-template.docx

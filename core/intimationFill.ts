@@ -65,7 +65,7 @@ const PRICE_BID_DATE_LABELS = new Set([
  * Resolves one Intimation placeholder's value from the available sources, in
  * priority order: the uploaded portal HTML notice → the uploaded evaluation /
  * L-1 selection PDF → the picked Works List row. Amounts follow the office's
- * own intimation wording exactly (plain 2-decimal ECV/Contract, floored
+ * own intimation wording exactly (plain 2-decimal ECV/Contract, rounded
  * EMD @ 1.5% and ASD, and the "(Rs. 1 ½ Rs.…)" EMD expression — with ASD
  * appended only above 25% and "Exempted" for reserved works). The two date
  * placeholders share one value (see PRICE_BID_DATE_LABELS).
@@ -88,10 +88,11 @@ export function resolveIntimationValue(
     notice.contractRupees ??
     pdf.contractRupees ??
     (ecv != null && tenderPct != null ? ecv * (1 - tenderPct / 100) : null)
-  // EMD @ 1.5% and ASD, floored to match the office's filled samples.
-  const emd = ecv != null ? Math.floor(ecv * 0.015) : null
+  // EMD @ 1.5% and ASD, rounded to the nearest rupee (6204.50/.51 -> 6205,
+  // 6204.40 -> 6204) to match the office's filled samples.
+  const emd = ecv != null ? Math.round(ecv * 0.015) : null
   const asd =
-    ecv == null ? null : tenderPct != null && tenderPct > 25 ? Math.floor((ecv * (tenderPct - 25)) / 100) : 0
+    ecv == null ? null : tenderPct != null && tenderPct > 25 ? Math.round((ecv * (tenderPct - 25)) / 100) : 0
   // The name of work comes from the uploaded L-1 sheet (see Give Intimation) —
   // the Works List row only supplies supporting details when its name matched.
   const workName = pdf.nameOfWork || row['Name of the work'] || ''
@@ -154,7 +155,7 @@ export function resolveIntimationValue(
       if (emd == null) return ''
       return asd != null && asd > 0 ? `Rs. 1 ½ Rs.${emd},ASD Rs.${asd}/-` : `Rs. 1 ½ Rs.${emd}/-`
     case 'emd 1%':
-      return ecv != null ? String(Math.floor(ecv * 0.01)) : ''
+      return ecv != null ? String(Math.round(ecv * 0.01)) : ''
     case 'asd':
       return asd != null && asd > 0 ? `ASD Rs.${asd}/-` : ''
     default:

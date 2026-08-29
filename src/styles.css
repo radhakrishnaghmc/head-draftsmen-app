@@ -1074,6 +1074,18 @@ body.theme-windows .nav-item.on::before {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+/* Mount point a tab's own header portal (e.g. Download all documents + Verify)
+   renders into — needs its own flex row, otherwise its portaled children
+   (each a block-level div) stack on top of each other instead of sitting
+   inline next to the Clear button. */
+.header-action-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .page-head-text h1 {
   margin: 0;
@@ -2362,6 +2374,89 @@ button.upload-btn {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+/* "Verify" button + its result banner — sits next to Download all documents. */
+.verify-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+.verify-btn {
+  border: 1px solid var(--indigo-200, #c7d2fe);
+  background: var(--indigo-50, #eef2ff);
+  color: var(--indigo-700, #4338ca);
+  border-radius: var(--radius-pill);
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.verify-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.verify-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--green-700, #15803d);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.verify-banner {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 280px;
+  max-width: 420px;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+.verify-banner-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.verify-banner-close {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 6px;
+  opacity: 0.7;
+}
+.verify-banner-close:hover {
+  opacity: 1;
+  background: rgba(153, 27, 27, 0.1);
+}
+.verify-banner ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.verify-blinking {
+  animation: verify-blink 1s step-start infinite;
+}
+@keyframes verify-blink {
+  50% {
+    box-shadow: 0 6px 20px rgba(220, 38, 38, 0.55);
+    border-color: #dc2626;
+  }
 }
 .format-toggle {
   display: flex;

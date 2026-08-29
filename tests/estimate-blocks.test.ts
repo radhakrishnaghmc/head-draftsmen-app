@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { splitEstimateBlocks, extractGrandTotalLakhs, extractWorkName, extractEstimateItems } from '../core/estimateExtract'
+import {
+  splitEstimateBlocks,
+  extractGrandTotalLakhs,
+  extractWorkName,
+  extractEstimateItems,
+  looksLikeGeneralAbstractSheet,
+  extractAbstractWorkTitle,
+  extractAbstractTotalLakhs
+} from '../core/estimateExtract'
 import { guessHeaderRow } from '../core/sheet'
 
 // A minimal estimate block: title, Name of Work, header row, one item, totals.
@@ -106,5 +114,37 @@ describe('extractEstimateItems — abbreviated serial header', () => {
     expect(Number(items[0].rate)).toBe(60000)
     expect(items[0].unit).toBe('Nos')
     expect(items[1].description).toContain('THAICHI SPINNER')
+  })
+})
+
+describe('General Abstract rollup detection', () => {
+  // A single sanctioned work split across component sheets ("1) Security
+  // Cabin", "2) Store Room", ...), rolled up by one "GENERAL ABSTRACT" sheet
+  // that sums them into the final sanctioned total.
+  const abstractGrid: string[][] = [
+    ['CMC'],
+    ['Construction of Sports Arena at Jyothirao Phule ground, Circle-59, CMC.'],
+    ['GENERAL ABSTRACT'],
+    ['SoR 2021-22'],
+    ['Sl.No', 'Description Item', 'Qty', '', 'Amount in Rs.', 'Amount in Lakhs'],
+    ['A', 'Working Items'],
+    ['1', 'Construction Security Cabin', '', '', '1262478.00', '12.62478'],
+    ['2', 'Construction Store Room', '', '', '1238589.00', '12.38589'],
+    ['', 'A. Grand-Total of Working Items', '', '', '2501067.00', '25.01067'],
+    ['', 'Total (A+B+C)', '', '', '46200000.00', '462']
+  ]
+
+  it('recognizes a sheet carrying a GENERAL ABSTRACT heading', () => {
+    expect(looksLikeGeneralAbstractSheet(abstractGrid)).toBe(true)
+    expect(looksLikeGeneralAbstractSheet([['Sl.No', 'Description', 'Qty', 'Rate', 'Unit']])).toBe(false)
+  })
+
+  it('reads the plain-text work title above the heading (no "Name of Work:" label)', () => {
+    expect(extractAbstractWorkTitle(abstractGrid)).toContain('Sports Arena')
+  })
+
+  it('takes the largest total row as the final sanctioned amount, not the first', () => {
+    const headerRow = guessHeaderRow(abstractGrid)
+    expect(extractAbstractTotalLakhs(abstractGrid, headerRow)).toBe(462)
   })
 })

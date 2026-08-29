@@ -12,6 +12,8 @@ import { base64ToUint8, PAGE_WIDTH, renderDocPreview } from './docPage'
 import { closeOnBackdropMouseDown } from '../overlayClose'
 import DocThumbnail from './DocThumbnail'
 import type { ThemeId } from '../theme'
+import type { VerifyDocItem } from '../../electron/ipc-contract'
+import { VerifyButton } from './VerifyButton'
 
 interface Props {
   tables: ExcelTable[]
@@ -191,7 +193,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
   async function resolveForRow(
     doc: CreatedDocument,
     useAi = true
-  ): Promise<{ docx: string; resolved: PlaceholderMatch[] }> {
+  ): Promise<{ docx: string; resolved: PlaceholderMatch[]; values: Record<string, string> }> {
     const labels = await api.findPlaceholdersInDocument(doc.docx)
     // Amount-bearing columns (Amount of estimate, ECV, EMD @
     // 1%/1.5%, ASD, Contract Amount) resolve to their computed, Indian-
@@ -240,7 +242,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
     const otherLabels = labels.filter((l) => !MANUAL_LABELS.has(l.trim().toLowerCase()))
     if (otherLabels.length === 0 || columns.length === 0) {
       const resolved = [...otherLabels.map((label) => ({ label, column: null, score: 0 })), ...manualResolved]
-      return { docx: await api.fillPlaceholdersInDocument(doc.docx, resolved, row), resolved }
+      return { docx: await api.fillPlaceholdersInDocument(doc.docx, resolved, row), resolved, values: row }
     }
     let embeddings: { labelVectors: number[][]; columnVectors: number[][] } | undefined
     if (useAi) {
@@ -260,7 +262,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
       }
     }
     const resolved = [...matchPlaceholdersToColumns(otherLabels, columns, embeddings), ...manualResolved]
-    return { docx: await api.fillPlaceholdersInDocument(doc.docx, resolved, row), resolved }
+    return { docx: await api.fillPlaceholdersInDocument(doc.docx, resolved, row), resolved, values: row }
   }
 
   // Preview one document (tile click) — fills it against the selected work
@@ -379,19 +381,68 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
     }
   }
 
+  // Builds one VerifyDocItem per target document — these are arbitrary
+  // user-uploaded templates with unknown placeholder names, so unlike the
+  // fixed Intimation/Agreement documents there's no known EMD/ASD/corporation
+  // wiring to cross-check; only placeholder coverage is checked (every
+  // matched placeholder resolved to a non-blank value that actually made it
+  // into the document text).
+  async function getVerifyItems(): Promise<VerifyDocItem[]> {
+    const items: VerifyDocItem[] = []
+    for (const doc of batchTargets()) {
+      const { docx, resolved, values } = await resolveForRow(doc)
+      const labelValues: Record<string, string> = {}
+      const requiredLabels: string[] = []
+      for (const match of resolved) {
+        if (!match.column) continue
+        labelValues[match.label] = values[match.column] ?? ''
+        requiredLabels.push(match.label)
+      }
+      items.push({ name: doc.name, docxBase64: docx, values: labelValues, requiredLabels })
+    }
+    return items
+  }
+
   return (
     <>
       <div ref={printScratchRef} style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }} aria-hidden />
 
       <section className="card">
+        {table && table.rows.length > 0 && (
+          <div className="doc-work-picker">
+            <span className="doc-work-picker-label">Work</span>
+            <div className="doc-work-search">
+              <IconSearch />
+              <input
+                type="text"
+                placeholder="Search work by name…"
+                value={workSearch}
+                onChange={(e) => onWorkSearch(e.target.value)}
+              />
+              {workSearch && (
+                <button className="tsearch-clear" onClick={() => onWorkSearch('')}>
+                  Clear
+                </button>
+              )}
+            </div>
+            <select className="doc-work-select" value={rowIndex} onChange={(e) => setRowIndex(Number(e.target.value))}>
+              <option value={-1}>— No work (office details only) —</option>
+              {filteredRows.length === 0 ? (
+                <option value={rowIndex} disabled>
+                  No work matches “{workSearch}”
+                </option>
+              ) : (
+                filteredRows.map(({ row, i }) => (
+                  <option value={i} key={i}>
+                    {rowLabel(row, table.headers, i)}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+        )}
+
         <div className="card-head">
-          <div className="head-ic">
-            <IconDoc />
-          </div>
-          <div className="titles">
-            <h2>Document</h2>
-            <p className="sub">Pick a saved document, choose a Works List row, and create the filled output.</p>
-          </div>
           {visibleCount > 0 && (
             <div className="doc-batch-actions">
               <div className="gen-output-modes" role="group" aria-label="Batch output format">
@@ -436,40 +487,6 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
           <div className={`notice ${batchError ? 'error' : 'ok'}`}>{batchError ?? batchNotice}</div>
         )}
 
-        {table && table.rows.length > 0 && (
-          <div className="doc-work-picker">
-            <span className="doc-work-picker-label">Work</span>
-            <div className="doc-work-search">
-              <IconSearch />
-              <input
-                type="text"
-                placeholder="Search work by name…"
-                value={workSearch}
-                onChange={(e) => onWorkSearch(e.target.value)}
-              />
-              {workSearch && (
-                <button className="tsearch-clear" onClick={() => onWorkSearch('')}>
-                  Clear
-                </button>
-              )}
-            </div>
-            <select className="doc-work-select" value={rowIndex} onChange={(e) => setRowIndex(Number(e.target.value))}>
-              <option value={-1}>— No work (office details only) —</option>
-              {filteredRows.length === 0 ? (
-                <option value={rowIndex} disabled>
-                  No work matches “{workSearch}”
-                </option>
-              ) : (
-                filteredRows.map(({ row, i }) => (
-                  <option value={i} key={i}>
-                    {rowLabel(row, table.headers, i)}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
-        )}
-
         {visibleCount > 0 && (
           <div className="doc-select-bar">
             <label className="doc-select-all">
@@ -481,6 +498,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                 ? `${selectedCount} selected — the button above prints/downloads only these`
                 : 'Tick documents to print or download only those (none ticked = all)'}
             </span>
+            <VerifyButton getItems={getVerifyItems} />
             {selectedCount > 0 && (
               <button className="ghost" onClick={() => setSelectedIds(new Set())}>
                 Clear

@@ -14,6 +14,12 @@ const api: DocuGenApi = {
     return () => ipcRenderer.removeListener(IPC.tenderScanProgress, listener)
   },
   ocrEstimatePhotos: (dataUrls) => ipcRenderer.invoke(IPC.ocrEstimatePhotos, dataUrls),
+  ocrMbMeasurementSheet: (dataUrls) => ipcRenderer.invoke(IPC.ocrMbMeasurementSheet, dataUrls),
+  onMbMeasurementProgress: (callback) => {
+    const listener = (_e: unknown, progress: import('./ipc-contract').MbMeasurementProgress) => callback(progress)
+    ipcRenderer.on(IPC.mbMeasurementProgress, listener)
+    return () => ipcRenderer.removeListener(IPC.mbMeasurementProgress, listener)
+  },
   openPath: (target) => ipcRenderer.invoke(IPC.openPath, target),
   revealItem: (target) => ipcRenderer.invoke(IPC.revealItem, target),
   defaultDir: () => ipcRenderer.invoke(IPC.defaultDir),
@@ -118,7 +124,8 @@ const api: DocuGenApi = {
   seAgreementNoteTemplate: () => ipcRenderer.invoke(IPC.seAgreementNoteTemplate),
   contractDeedTemplate: () => ipcRenderer.invoke(IPC.contractDeedTemplate),
   exportSeScheduleA: (table, suggestedName, meta) => ipcRenderer.invoke(IPC.exportSeScheduleA, table, suggestedName, meta),
-  loaSeTemplate: (reserved) => ipcRenderer.invoke(IPC.loaSeTemplate, reserved),
+  loaSeTemplate: (reserved, corporation) => ipcRenderer.invoke(IPC.loaSeTemplate, reserved, corporation),
+  verifyDocuments: (items) => ipcRenderer.invoke(IPC.verifyDocuments, items),
   tsNoteTemplate: () => ipcRenderer.invoke(IPC.tsNoteTemplate),
   eligibilityCriteriaTemplate: () => ipcRenderer.invoke(IPC.eligibilityCriteriaTemplate),
   issueNoticeTemplate: (ee) => ipcRenderer.invoke(IPC.issueNoticeTemplate, ee),

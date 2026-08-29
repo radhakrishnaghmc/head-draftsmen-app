@@ -24,7 +24,7 @@ import {
   type AgencyApprovalData
 } from '@core/seEvaluationNotes'
 import { parseCementSteelRateLines } from '@core/cementSteelRate'
-import { resolveFromDirectory, entriesOf, corporationByName } from '../zoneCircleDirectory'
+import { resolveFromDirectory, entriesOf, corporationByName, CORPORATIONS } from '../zoneCircleDirectory'
 import type { Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLines, pdfToPositionedLines } from '../pdfToText'
@@ -32,8 +32,9 @@ import { pdfPagesToDataUrls } from '../pdfToImages'
 import { base64ToUint8, PAGE_WIDTH, renderDocPreview, DOCX_PREVIEW_OPTIONS, normalizeDocxTextboxes } from './docPage'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell, IconCheck } from './Icons'
 import type { ExcelTable } from '@core/types'
-import type { AgreementBundleFile } from '../../electron/ipc-contract'
+import type { AgreementBundleFile, VerifyDocItem } from '../../electron/ipc-contract'
 import type { ThemeId } from '../theme'
+import { VerifyButton } from './VerifyButton'
 
 interface Props {
   tables: ExcelTable[]
@@ -273,6 +274,29 @@ function resolveLoaValue(
     }
     case 'e-corpus':
       return ecv != null ? formatIndianAmount(corpusFundFromEcv(ecv), 0) : ''
+    case 'period number': {
+      const n = (manual.period.trim() || (row['Completion Period'] ?? '').trim()).match(/\d+/)?.[0]
+      return n ?? ''
+    }
+    case 'bg validity months': {
+      const period = Number((manual.period.trim() || (row['Completion Period'] ?? '').trim()).match(/\d+/)?.[0] ?? '')
+      return Number.isFinite(period) && period > 0 ? String(period + 24) : ''
+    }
+    case 'mmc emd clause': {
+      if (ecv == null) return ''
+      const emd = formatIndianAmount(Math.round(ecv * 0.015), 0)
+      const asd = tenderPct != null && tenderPct > 25 ? Math.round((ecv * (tenderPct - 25)) / 100) : 0
+      return asd > 0 ? `of Rs.${emd}/- & ASD of Rs.${formatIndianAmount(asd, 0)}/-` : `Rs. ${emd}/-`
+    }
+    case 'mmc reserved emd clause': {
+      if (ecv == null) return ''
+      const emd = formatIndianAmount(Math.round(ecv * 0.025), 0)
+      const base = `EMD Exempted. However, an amount of Rs.${emd}/- towards 2½% EMD shall be recovered from respective RA bills as stipulated under G.O.Ms.No.59, I&CAD (Reforms) Department, Dt:21-05-2018.`
+      const asd = tenderPct != null && tenderPct > 25 ? Math.round((ecv * (tenderPct - 25)) / 100) : 0
+      return asd > 0
+        ? `${base} & Submitted ASD of Rs.${formatIndianAmount(asd, 0)}/- through online / Irrevocable Bank Guarantee from any nationalized / scheduled banks in favour of the Commissioner, ${office.corporation ?? row['Corporation'] ?? ''}.`
+        : base
+    }
     default:
       return ''
   }
@@ -513,7 +537,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     setLabels([])
     void (async () => {
       try {
-        const b64 = seMode ? await api.loaSeTemplate(seReserved) : await api.intimationTemplate()
+        const b64 = seMode ? await api.loaSeTemplate(seReserved, office.corporation) : await api.intimationTemplate()
         const found = await api.findPlaceholdersInDocument(b64)
         if (cancelled) return
         setTemplateB64(b64)
@@ -525,7 +549,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     return () => {
       cancelled = true
     }
-  }, [seMode, seReserved])
+  }, [seMode, seReserved, office.corporation])
 
   // Load the TS Note / Eligibility Criteria docx templates once, when the
   // office is zone-level — the 2 SE companion notes that use a fixed template
@@ -852,6 +876,67 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     } finally {
       setBusy(null)
     }
+  }
+
+  // Builds one VerifyDocItem per ready document (mirrors downloadAll's own
+  // list-building below) — re-derives ECV/Contract/EMD/ASD from the current
+  // source uploads so the Verify button can cross-check them against what's
+  // actually baked into each generated document, no AI involved.
+  async function getVerifyItems(): Promise<VerifyDocItem[]> {
+    const items: VerifyDocItem[] = []
+    const est = computeWorkAmounts(detailsRow)
+    const ecv = notice?.ecvRupees ?? pdfEval?.ecvRupees ?? est.ecv ?? null
+    const tenderPct = pdfEval?.tenderPercentage ?? parsePct(tenderPercentFromRow(detailsRow))
+    const contract =
+      notice?.contractRupees ??
+      pdfEval?.contractRupees ??
+      (ecv != null && tenderPct != null ? ecv * (1 - tenderPct / 100) : null)
+    const reserved = isReservedWork(detailsRow, pdfEval ?? {})
+    const corporation = office.corporation ? { expected: office.corporation, all: CORPORATIONS.map((c) => c.name) } : undefined
+    // A reserved EE Intimation prints "Exempted" instead of a number, and a
+    // reserved non-MMC SE LOA carries no EMD figure at all — skip the
+    // arithmetic check in those cases rather than risk a false "error" on an
+    // otherwise-correct document. Every other case (EE or SE, non-reserved,
+    // and MMC's reserved 2.5%-recovered-from-RA-bills case) prints a rounded
+    // EMD/ASD figure that this can cross-check.
+    const amounts =
+      !reserved || (seMode && office.corporation === 'MMC')
+        ? { ecv, contract, tenderPct, emdPct: reserved && office.corporation === 'MMC' ? 0.025 : 0.015 }
+        : undefined
+
+    if (showBody && templateB64) {
+      items.push({
+        name: seMode ? 'Letter of Acceptance' : 'Intimation',
+        docxBase64: await fillTemplate(),
+        values,
+        requiredLabels: labels.filter((l) => !/admin sanction/i.test(l)),
+        amounts,
+        corporation,
+        reserved
+      })
+    }
+
+    if (seMode && seDocsReady) {
+      const names: Record<'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval', string> = {
+        tsNote: 'TS Note',
+        eligibility: 'Eligibility Criteria',
+        bidEval: 'Bid Evaluation',
+        agencyApproval: 'Agency Approval'
+      }
+      for (const kind of ['tsNote', 'eligibility', 'bidEval', 'agencyApproval'] as const) {
+        const kindValues = kind === 'tsNote' || kind === 'eligibility' ? (seDocValues[kind] ?? {}) : {}
+        items.push({
+          name: names[kind],
+          docxBase64: await fillSeDoc(kind),
+          values: kindValues,
+          requiredLabels: Object.keys(kindValues).filter((l) => !/admin sanction/i.test(l)),
+          corporation,
+          reserved
+        })
+      }
+    }
+
+    return items
   }
 
   // Bundle every ready document into one saved folder — same bundle API and
@@ -1188,9 +1273,20 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     </div>
   )
 
+  // Verify only once the source documents that feed it are actually uploaded
+  // and the letter has something generated to check — same "required
+  // documents uploaded and document is generated" gate as the rest of the tab.
+  const verifyReady = !!notice && !!pdfEval && showBody && !!templateB64
+  const headerActions = (
+    <>
+      {downloadAllButton}
+      {verifyReady && <VerifyButton getItems={getVerifyItems} />}
+    </>
+  )
+
   return (
     <div className="card">
-      {headerMounted && headerActionRef?.current && createPortal(downloadAllButton, headerActionRef.current)}
+      {headerMounted && headerActionRef?.current && createPortal(headerActions, headerActionRef.current)}
       <div ref={printScratchRef} style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }} aria-hidden />
 
       <div className="empty empty--tight">

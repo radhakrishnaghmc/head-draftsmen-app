@@ -1,5 +1,6 @@
 import { resolveColumns } from './columnMatch'
 import type { ColumnEmbeddings, ColumnSpec } from './columnMatch'
+import { guessHeaderRow } from './sheet'
 
 export interface EstimateWorkItem {
   description: string
@@ -195,7 +196,10 @@ export const ESTIMATE_COLUMN_SPECS: ColumnSpec[] = [
   // whose per-day cell is empty.
   // "q\w*antity" also matches the common "Qantity"/"Quantiy"-style mis-spellings
   // real estimate headers carry, so a typo doesn't drop the quantity column.
-  { label: 'Quantity', patterns: [/total\s*(?:qty|q\w*ntity)/i, /qty|q\w*ntity/i] },
+  // "Contents" is the traditional PWD/municipal estimate label for the same
+  // computed-quantity column (No x L x B x D), used instead of "Qty" in
+  // older-style detailed estimates.
+  { label: 'Quantity', patterns: [/total\s*(?:qty|q\w*ntity)/i, /qty|q\w*ntity|contents?/i] },
   { label: 'Rate', patterns: [/rate/i] },
   { label: 'Unit', patterns: [/unit|uom|^per$/i] }
 ]
@@ -203,6 +207,135 @@ export const ESTIMATE_COLUMN_SPECS: ColumnSpec[] = [
 // S.No / Qty / Rate are always labelled in these estimates; the Unit column
 // sometimes isn't (see detectUnitColumnFromData), so it's resolved separately.
 const ESTIMATE_REQUIRED_COLUMN_SPECS: ColumnSpec[] = ESTIMATE_COLUMN_SPECS.filter((s) => s.label !== 'Unit')
+
+/**
+ * Cheap pre-check for whether a sheet could plausibly be a detailed estimate
+ * or flat BOQ at all — both extraction paths require a genuine per-item
+ * Quantity column *and* a Rate column (see ESTIMATE_COLUMN_SPECS and
+ * BOQ_SCHEDULE_A_COLUMN_SPECS in src/boqTransform.ts), so a header row
+ * missing either one can never succeed. Lets callers skip a workbook's
+ * reference-only sheets (a General Abstract rollup with Qty+Amount but no
+ * Rate; a rate schedule/quotation with Rate+Unit but no per-item Qty) up
+ * front, instead of attempting extraction and surfacing a confusing failed
+ * entry alongside the workbook's real sub-estimate sheets.
+ */
+export function looksLikeEstimateOrBoqHeader(header: string[]): boolean {
+  const cells = header.map((c) => norm(c))
+  const qtyPatterns = ESTIMATE_COLUMN_SPECS.find((s) => s.label === 'Quantity')!.patterns
+  const ratePatterns = ESTIMATE_COLUMN_SPECS.find((s) => s.label === 'Rate')!.patterns
+  const hasQty = cells.some((c) => qtyPatterns.some((p) => p.test(c)))
+  const hasRate = cells.some((c) => ratePatterns.some((p) => p.test(c)))
+  return hasQty && hasRate
+}
+
+// Deliberately doesn't match the looser "abstract estimate" — a component
+// sheet's own title block is routinely "DETAILED AND ABSTRACT ESTIMATE FOR
+// ..." (see looksLikeGeneralAbstractSheet's doc comment), which would
+// otherwise misidentify that component itself as the rollup sheet.
+const GENERAL_ABSTRACT_RE = /general\s*abstract|abstract\s+of\s+cost/i
+
+/**
+ * Whether a sheet is a "General Abstract" rollup — a single sanctioned work
+ * split across several component sheets (e.g. "1) Security Cabin", "2) Store
+ * Room", ...), each with its own full item list, summed here into one final
+ * total. Its own header lacks a Rate column (see looksLikeEstimateOrBoqHeader),
+ * so it's already skipped as a reference-only sheet; this lets callers instead
+ * treat its presence as a signal to merge the workbook's other detailed-
+ * estimate sheets into one combined entry, rather than showing each component
+ * as if it were an unrelated separate work.
+ */
+export function looksLikeGeneralAbstractSheet(grid: string[][]): boolean {
+  return grid.slice(0, 10).some((row) => row.some((cell) => GENERAL_ABSTRACT_RE.test(norm(cell))))
+}
+
+const TITLE_OVERLAP_STOPWORDS = new Set([
+  'the', 'of', 'at', 'in', 'and', 'for', 'to', 'with', 'on', 'no', 'name', 'work', 'works',
+  'estimate', 'estimates', 'abstract', 'general', 'detailed', 'construction', 'constructions',
+  'corporation', 'municipal', 'circle', 'zone', 'district', 'dist', 'mandal', 'village', 'ward'
+])
+
+function titleWords(grid: string[][], maxRows = 6): Set<string> {
+  const text = grid
+    .slice(0, maxRows)
+    .map((row) => row.map((c) => norm(c)).join(' '))
+    .join(' ')
+    .toLowerCase()
+  const words = text.match(/[a-z]{4,}/g) ?? []
+  return new Set(words.filter((w) => !TITLE_OVERLAP_STOPWORDS.has(w)))
+}
+
+/**
+ * Whether a candidate sheet's title block shares enough distinctive words
+ * (place names, work description — anything past the generic corporation/
+ * "detailed estimate" boilerplate that TITLE_OVERLAP_STOPWORDS filters out)
+ * with the General Abstract's title to be one of *its* components, as
+ * opposed to an unrelated sheet that just happens to also have a Qty+Rate
+ * item list — a workbook holding one real project can otherwise carry dozens
+ * of shared rate-book/master-data sheets (SoR data, standard data chapters)
+ * that would otherwise get vacuumed into the combined BOQ alongside it.
+ */
+export function sheetBelongsToAbstract(abstractGrid: string[][], candidateGrid: string[][]): boolean {
+  const abstractWords = titleWords(abstractGrid)
+  if (abstractWords.size === 0) return false
+  const candidateWords = titleWords(candidateGrid)
+  let shared = 0
+  for (const w of abstractWords) if (candidateWords.has(w)) shared++
+  return shared >= 3
+}
+
+/**
+ * Best-effort work title for a General Abstract sheet that never labels it
+ * "Name of Work:" (see WORK_NAME_LABEL_RE) — just prints it as a plain
+ * sentence above the "GENERAL ABSTRACT" heading. Picks the longest text cell
+ * above that heading, skipping short ones (a bare corporation abbreviation
+ * like "CMC"/"GHMC" on its own row).
+ */
+export function extractAbstractWorkTitle(grid: string[][]): string | undefined {
+  const headingRow = grid.findIndex((row) => row.some((cell) => GENERAL_ABSTRACT_RE.test(norm(cell))))
+  const limit = headingRow === -1 ? Math.min(grid.length, 10) : headingRow
+  let best: string | undefined
+  for (let r = 0; r < limit; r++) {
+    for (const cell of grid[r] ?? []) {
+      const text = norm(cell)
+      if (text.length < 8 || GENERAL_ABSTRACT_RE.test(text)) continue
+      if (!best || text.length > best.length) best = text
+    }
+  }
+  return best
+}
+
+/**
+ * The General Abstract's final sanctioned total, in Lakhs — the rollup adds
+ * several cascading subtotals on its way there (per-component subtotal,
+ * working-items subtotal, subtotal-plus-provisions, ...), each of which also
+ * matches a loose /total/i search, so unlike extractGrandTotalLakhs (which
+ * takes the first "Grand Total" match) this takes the *largest* matching
+ * amount — the final total is always the sum of everything before it, so it's
+ * necessarily the maximum.
+ */
+export function extractAbstractTotalLakhs(grid: string[][], headerRowIndex: number): number | undefined {
+  const header = grid[headerRowIndex] ?? []
+  const amountIdx = header.findIndex((c) => /\bamount\b/i.test(norm(c)))
+  const asPositive = (v: unknown): number | undefined => {
+    const n = Number(norm(v).replace(/,/g, ''))
+    return Number.isFinite(n) && n > 0 ? n : undefined
+  }
+  let best: number | undefined
+  for (const row of grid) {
+    if (!row.some((c) => /total/i.test(norm(c)))) continue
+    let val = amountIdx >= 0 ? asPositive(row[amountIdx]) : undefined
+    if (val == null) {
+      for (const c of row) {
+        val = asPositive(c)
+        if (val != null) break
+      }
+    }
+    if (val == null) continue
+    const lakhs = Math.round((val / 100000) * 100) / 100
+    if (best == null || lakhs > best) best = lakhs
+  }
+  return best
+}
 
 /**
  * Which of ESTIMATE_COLUMN_SPECS' columns (if any) only resolved via the
@@ -463,7 +596,28 @@ function isItemListEnd(row: string[], snoCol: number, descCol: number, qtyCol: n
   const isAbstractAdd =
     /^add\b/.test(desc) && /(charge|gst|\bvat\b|cess|seign[io]rage|\bnac\b|dmft|smet|permit|royalty|labour|contingenc|u\/f items|ls for)/.test(desc)
   const isNewEstimateHeader = /^s\.?\s*no\.?$/.test(sno) && /descrip/.test(desc)
-  return isTotal || isAbstractAdd || isNewEstimateHeader
+  return isTotal || isAbstractAdd || isNewEstimateHeader || isSignOffRow(row)
+}
+
+// Officer-designation abbreviations ("AE", "DEE", "EE\nCircle-59", "SE\nQBZ")
+// used as short standalone cell values in the sign-off row every sheet in
+// this department's estimate template prints below its item list. That row
+// sits several blank rows after the last real item, which otherwise fools
+// the block-accumulation loop (a blank row never closes an open block) into
+// swallowing the whole gap and reading the sign-off text as the last item's
+// Qty/Rate. Requiring 2+ hits on the same row keeps this from matching a
+// real item whose description happens to contain one of these short tokens.
+const DESIGNATION_RE = /^(a\.?\s*e\.?|d\.?\s*e\.?\s*e\.?|e\.?\s*e\.?|s\.?\s*e\.?|a\.?\s*e\.?\s*e\.?|x\.?\s*e\.?\s*n\.?|c\.?\s*e\.?|a\.?\s*d\.?\s*e\.?)$/i
+
+function isSignOffRow(row: string[]): boolean {
+  let hits = 0
+  for (const cell of row) {
+    const t = norm(cell)
+    if (!t) continue
+    const firstLine = t.split('\n')[0].trim()
+    if (DESIGNATION_RE.test(firstLine)) hits++
+  }
+  return hits >= 2
 }
 
 function looksNumeric(s: string): boolean {

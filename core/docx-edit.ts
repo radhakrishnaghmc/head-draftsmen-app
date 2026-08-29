@@ -254,6 +254,13 @@ export function fillPlaceholdersInDocx(
  * so placeholders in headers/footers (e.g. an office sign-off in the page
  * footer) fill too — not just the body.
  */
+/** Plain text of the whole document — body plus every header/footer part, joined — for read-only inspection (e.g. verifying a filled document rather than editing it). */
+export function extractAllText(buffer: Buffer): string {
+  const zip = new PizZip(buffer)
+  const parts = Object.keys(zip.files).filter((f) => f === DOC_XML || /^word\/(header|footer)\d*\.xml$/.test(f))
+  return parts.map((part) => listParagraphs(buffer, part).join('\n')).join('\n')
+}
+
 export function fillableParts(buffer: Buffer): string[] {
   const zip = new PizZip(buffer)
   return Object.keys(zip.files).filter((f) => f === DOC_XML || /^word\/(header|footer)\d*\.xml$/.test(f))

@@ -44,6 +44,7 @@ import ToolsTab from './components/ToolsTab'
 import SettingsTab from './components/SettingsTab'
 import TodoList from './components/TodoList'
 import MbScrutinyList from './components/MbScrutinyList'
+import MbMeasurementUploadTab from './components/MbMeasurementUploadTab'
 import WhatsNew from './components/WhatsNew'
 import { changesSince, CHANGELOG, type ChangelogEntry } from '@core/changelog'
 import TenderReminders from './components/TenderReminders'
@@ -61,9 +62,11 @@ import {
   IconCheck,
   IconBell,
   IconDownload,
+  IconUpload,
   IconTools,
   IconSettings,
-  IconWarn
+  IconWarn,
+  IconChevronRight
 } from './components/Icons'
 import type {
   ExcelTable,
@@ -108,6 +111,12 @@ function migrateMbScrutinyItem(it: MBScrutinyItem): MBScrutinyItem {
 function assignMissingSerialNos(items: MBScrutinyItem[]): MBScrutinyItem[] {
   let next = items.reduce((max, it) => Math.max(max, it.serialNo || 0), 0) + 1
   return items.map((it) => (it.serialNo ? it : { ...it, serialNo: next++ }))
+}
+
+let mbRestoreIdSeq = 0
+function nextMbRestoreId(): string {
+  mbRestoreIdSeq += 1
+  return `mb-restore-${Date.now()}-${mbRestoreIdSeq}`
 }
 
 interface Props {
@@ -236,6 +245,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
 
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [mbScrutiny, setMbScrutiny] = useState<MBScrutinyItem[]>([])
+  const [mbMeasurementOpen, setMbMeasurementOpen] = useState(false)
   const [lastGoogleLink, setLastGoogleLink] = useState<string | null>(null)
   const [refreshingWorks, setRefreshingWorks] = useState(false)
   const [refreshError, setRefreshError] = useState<string | null>(null)
@@ -323,6 +333,13 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // sessions re-push it in turn, and the resulting write storm lets a stale
   // copy overwrite (e.g.) a To Do task another session just added.
   const savedFromRemoteRef = useRef(false)
+
+  // Holds the not-yet-fired debounced save below, so a logout (which unmounts
+  // this component) can flush it immediately instead of losing it: the
+  // effect's own cleanup just clearTimeout()s the pending save on every
+  // dependency change (that's the debounce), which would silently drop the
+  // latest edit if it happens to run as part of an unmount.
+  const pendingSaveRef = useRef<null | (() => void)>(null)
 
   // The current Excel shown on the Data tab (single-workbook workflow).
   const currentTable = tables[0] ?? null
@@ -558,7 +575,8 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     // this effect with the flag cleared, so it pushes normally.
     const skipCloud = savedFromRemoteRef.current
     savedFromRemoteRef.current = false
-    const handle = setTimeout(() => {
+    const save = () => {
+      pendingSaveRef.current = null
       const currentTables = blockedWorksList ? (withheldTablesRef.current ?? tables) : tables
       // Persist every office's data, with this office's slot reflecting the
       // (possibly withheld) real data. currentOfficeKey routes the cloud sync so
@@ -588,8 +606,13 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
         },
         skipCloud
       )
-    }, 400)
-    return () => clearTimeout(handle)
+    }
+    pendingSaveRef.current = save
+    const handle = setTimeout(save, 400)
+    return () => {
+      clearTimeout(handle)
+      if (pendingSaveRef.current === save) pendingSaveRef.current = null
+    }
   }, [
     hydrated,
     blockedWorksList,
@@ -709,6 +732,62 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
           .join('\n')
       }))
     await api.exportTable({ id: 'mb-scrutiny', name: 'MB Scrutiny', path: '', headers, rows }, 'MB Scrutiny list')
+  }
+
+  // Rebuild MB Scrutiny records from a previously-downloaded .xlsx (same
+  // column layout as exportMbScrutiny above) — a safety net for records lost
+  // to a sync hiccup, an accidental delete, or a fresh machine. Records
+  // already present (matched by MB No. + Agency + Received date) are left
+  // alone, so restoring the same file twice is harmless.
+  async function restoreMbScrutiny() {
+    const tables = await api.pickExcels()
+    if (tables.length === 0) return
+    const parseDMY = (s: string): string | undefined => {
+      const m = s.trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/)
+      if (!m) return undefined
+      const [, d, mo, y] = m
+      return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`
+    }
+    const restored: MBScrutinyItem[] = tables
+      .flatMap((t) => t.rows)
+      .map((r) => {
+        const mbNo = (r['MB No.'] ?? '').trim()
+        const agencyName = (r['Agency name'] ?? '').trim()
+        const receivedDate = parseDMY(r['Received date'] ?? '')
+        if (!mbNo || !agencyName || !receivedDate) return null
+        const serialNo = Number(r['S.No'])
+        const remarks = (r['Remarks / objections'] ?? '')
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => ({ text: line.replace(/^\[[x ]\]\s*/, '').trim(), done: line.startsWith('[x]') }))
+        const item: MBScrutinyItem = {
+          id: nextMbRestoreId(),
+          serialNo: Number.isFinite(serialNo) && serialNo > 0 ? serialNo : 0,
+          mbNo,
+          agencyName,
+          receivedDate,
+          targetDate: parseDMY(r['Target date'] ?? ''),
+          done: (r['Status'] ?? '').trim().toLowerCase() === 'completed',
+          completedDate: parseDMY(r['Scrutiny completed date'] ?? ''),
+          remarks: remarks.length > 0 ? remarks : undefined
+        }
+        return item
+      })
+      .filter((it): it is MBScrutinyItem => it !== null)
+    if (restored.length === 0) return
+    const existingKey = (it: MBScrutinyItem) => `${it.mbNo}|${it.agencyName}|${it.receivedDate}`
+    const existingKeys = new Set(officeMb.map(existingKey))
+    const toAdd: MBScrutinyItem[] = []
+    const seen = new Set<string>()
+    for (const it of restored) {
+      const key = existingKey(it)
+      if (existingKeys.has(key) || seen.has(key)) continue
+      seen.add(key)
+      toAdd.push(it)
+    }
+    if (toAdd.length === 0) return
+    setOfficeMb(assignMissingSerialNos([...officeMb, ...toAdd]))
   }
 
   // Create the built-in works database (standard APP columns, one blank row).
@@ -1016,7 +1095,16 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     <>
       <Skyline />
       <UpdateBanner />
-      <ProfileMenu onLogout={onLogout} />
+      <ProfileMenu
+        onLogout={() => {
+          // Logging out unmounts this component, which would otherwise
+          // clearTimeout() the debounced save below and drop whatever was
+          // just typed (e.g. MB Scrutiny data entered seconds earlier).
+          // Flush it synchronously first so it's written before that happens.
+          pendingSaveRef.current?.()
+          onLogout()
+        }}
+      />
       <div className="shell">
       <Sidebar
         active={tab}
@@ -1286,7 +1374,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                   >
                     <IconRefresh /> Clear
                   </button>
-                  <div ref={intimationHeaderActionRef} />
+                  <div className="header-action-slot" ref={intimationHeaderActionRef} />
                 </div>
               )}
             </div>
@@ -1337,7 +1425,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 >
                   <IconRefresh /> Clear
                 </button>
-                <div ref={workOrderHeaderActionRef} />
+                <div className="header-action-slot" ref={workOrderHeaderActionRef} />
               </div>
             </div>
             <WorkOrderAgreementTab
@@ -1386,15 +1474,45 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 <h1>MB Scrutiny list{officeLabel ? ` — ${officeLabel}` : ''}</h1>
                 <p>Log each Measurement Book received for scrutiny and track it through to completion. This register is specific to the selected office.</p>
               </div>
-              {officeMb.length > 0 && (
-                <div className="page-head-action">
+              <div className="page-head-action">
+                {officeMb.length > 0 && (
                   <button className="ghost" onClick={exportMbScrutiny} title="Download as Excel">
                     <IconDownload /> Download
                   </button>
-                </div>
-              )}
+                )}
+                <button
+                  className="ghost"
+                  onClick={() => void restoreMbScrutiny()}
+                  title="Restore from a previously downloaded Excel file"
+                >
+                  <IconUpload /> Restore
+                </button>
+              </div>
             </div>
             <MbScrutinyList items={officeMb} onChange={setOfficeMb} />
+
+            <div className="settings-template-section" style={{ marginTop: 32 }}>
+              <div className="settings-section-head">
+                <button
+                  type="button"
+                  className="settings-section-toggle"
+                  onClick={() => setMbMeasurementOpen((o) => !o)}
+                  aria-expanded={mbMeasurementOpen}
+                >
+                  <IconChevronRight className={`settings-section-chevron ${mbMeasurementOpen ? 'open' : ''}`} />
+                  <span className="settings-section-toggle-titles">
+                    <h3 className="settings-template-section-title">Measurement Sheet Extraction</h3>
+                    <p className="sub">
+                      Upload photos or a scanned PDF of an MB measurement sheet to read it into an editable,
+                      downloadable Excel grid.
+                    </p>
+                  </span>
+                </button>
+              </div>
+              <div style={{ display: mbMeasurementOpen ? undefined : 'none' }}>
+                <MbMeasurementUploadTab />
+              </div>
+            </div>
           </section>
         </KeepAlive>
 

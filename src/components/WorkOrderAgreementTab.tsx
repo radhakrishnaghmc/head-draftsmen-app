@@ -23,7 +23,7 @@ import {
 } from '@core/workOrderAgreement'
 import type { WorkOrderAgreementFields } from '@core/workOrderAgreement'
 import { extractItemNo, stripItemNoTag } from '@core/bidDocument'
-import { corporationByName, resolveFromDirectory, entriesOf } from '../zoneCircleDirectory'
+import { corporationByName, resolveFromDirectory, entriesOf, CORPORATIONS } from '../zoneCircleDirectory'
 import { type Office, officeScopedKey, TEMPLATE_KEYS } from '../office'
 import { boqToScheduleA, buildBoqFromEstimate, extractWorkNameFromBoq } from '../boqTransform'
 import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
@@ -42,7 +42,8 @@ import {
 import NoteSubmittedEditor from './NoteSubmittedEditor'
 import { mismatchHint } from '../docClassify'
 import type { PlaceholderMatch } from '@core/createDocument'
-import type { ScheduleAMeta, AgreementBundleFile } from '../../electron/ipc-contract'
+import type { ScheduleAMeta, AgreementBundleFile, VerifyDocItem } from '../../electron/ipc-contract'
+import { VerifyButton } from './VerifyButton'
 import type { ExcelTable } from '@core/types'
 import { pdfToTextLines, pdfToPositionedLines } from '../pdfToText'
 import {
@@ -1184,6 +1185,60 @@ export default function WorkOrderAgreementTab({
     }
   }
 
+  // Builds one VerifyDocItem per ready document — re-derives ECV/Contract
+  // (and, for the two documents that actually print a computed EMD/ASD
+  // figure, that too) from the current source uploads, so the Verify button
+  // can cross-check them against what's actually baked into each generated
+  // document. No AI involved.
+  async function getVerifyItems(): Promise<VerifyDocItem[]> {
+    const ecv = fields.ecvRupees.trim() ? Number(fields.ecvRupees.replace(/,/g, '')) : null
+    const tenderPct = fields.tenderPercent.trim() ? Number(fields.tenderPercent) : null
+    const contract = fields.contractRupees.trim() ? Number(fields.contractRupees.replace(/,/g, '')) : null
+    const reserved = fields.reservation.trim() !== ''
+    const corporation = fields.corporation
+      ? { expected: fields.corporation, all: CORPORATIONS.map((c) => c.name) }
+      : undefined
+    // Only the Tender Document (fixed 1% EMD, never reservation-exempt) and
+    // the Forwarding Slip (1.5%, "Exempted" text for reserved works instead
+    // of a figure) print a computed EMD amount — every other document here
+    // only ever prints ECV/Contract, so leave their emdPct unset rather than
+    // flag a figure that was never supposed to be there.
+    const emdPctFor: Partial<Record<DocKind, number>> = {
+      civilTender: 0.01,
+      ...(reserved ? {} : { forwardingSlip: 0.015 })
+    }
+
+    const items: VerifyDocItem[] = []
+    const add = async (kind: DocKind, b64: string | null) => {
+      if (!b64) return
+      items.push({
+        name: docName(kind),
+        docxBase64: await fillDoc(kind),
+        values: {},
+        amounts: { ecv, contract, tenderPct, emdPct: emdPctFor[kind] },
+        corporation,
+        reserved
+      })
+    }
+
+    if (seMode) {
+      await add('zonalWorkOrder', zonalWorkOrderB64)
+      await add('seAgreementBond', seAgreementBondB64)
+      await add('seAgreementNote', seAgreementNoteB64)
+      await add('zonalConcludingAgreement', zonalConcludingAgreementB64)
+      await add('zonalMemoEe', zonalMemoEeB64)
+      await add('contractDeed', contractDeedB64)
+    } else {
+      await add('fileBacker', fileBackerB64)
+      await add('civilTender', civilTenderB64)
+      await add('forwardingSlip', forwardingSlipB64)
+      await add('agreement', agreementB64)
+      await add('qccIntimation', qccIntimationB64)
+      await add('workOrder', workOrderB64)
+    }
+    return items
+  }
+
   // Generate every agreement-workspace document at once, into one folder the
   // user picks — each in the format chosen by the toggle next to the button
   // (Word or PDF). Schedule A is always Excel, the one format it actually
@@ -1666,9 +1721,19 @@ export default function WorkOrderAgreementTab({
     </div>
   )
 
+  // Same "required documents uploaded and document is generated" gate as the
+  // download-all bar — Verify has nothing to check before that.
+  const verifyBlock = docsReady && !only && <VerifyButton getItems={getVerifyItems} />
+  const headerActions = (
+    <>
+      {downloadAllButton}
+      {verifyBlock}
+    </>
+  )
+
   return (
     <div className={only ? 'wo-compact' : 'card'}>
-      {headerMounted && headerActionRef?.current && createPortal(downloadAllButton, headerActionRef.current)}
+      {headerMounted && headerActionRef?.current && createPortal(headerActions, headerActionRef.current)}
       <div ref={printScratchRef} style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }} aria-hidden />
 
       <div className={only ? 'wo-compact-body' : 'empty empty--tight'}>
@@ -1988,7 +2053,7 @@ export default function WorkOrderAgreementTab({
               the work there; the documents below still fill from your uploads.
             </div>
           )}
-          {!headerMounted && downloadAllButton}
+          {!headerMounted && headerActions}
           <div className={`wo-tiles${theme === 'flat1' ? ' wo-tiles-flat' : ''}`}>
           {/* Order (main tab): File Backer, Note Submitted, Forwarding Slip,
               Agreement Bond, Schedule A, Work Order, Tender Document, QCC
