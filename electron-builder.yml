@@ -6,6 +6,11 @@ directories:
 files:
   - out/**/*
   - package.json
+  # mobile/ is a separate React Native app living at the project root (not
+  # part of the Electron app) — without an explicit exclusion it gets swept
+  # into app.asar wholesale by electron-builder's default **/* file matching,
+  # which reads the filesystem directly and ignores git tracking status.
+  - '!mobile/**'
   # onnxruntime-web (the browser/WASM backend) is a dependency of
   # @huggingface/transformers, but our embedding feature only ever runs in
   # the Electron main process (electron/embeddingsWorker.ts, invoked over
