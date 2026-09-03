@@ -8,6 +8,5 @@ build/icon.iconset/
 .env
 .claude/
 CLAUDE.local.md
-mobile/
 *.premerge.bak
 resources/~$*
