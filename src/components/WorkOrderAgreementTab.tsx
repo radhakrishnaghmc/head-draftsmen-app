@@ -557,13 +557,15 @@ export default function WorkOrderAgreementTab({
         // picked one.
         const workOrderVariant = localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.workOrder, office)) ?? undefined
         const agreementVariant = localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.agreement, office)) ?? undefined
+        const fileBackerVariant = localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.fileBacker, office)) ?? undefined
+        const civilTenderVariant = localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.civilTender, office)) ?? undefined
         const [woB64, fbB64, agB64, qiB64, fsB64, ctB64] = await Promise.all([
           api.workOrderTemplate(workOrderVariant),
-          api.fileBackerTemplate(),
+          api.fileBackerTemplate(fileBackerVariant),
           api.agreementTemplate(agreementVariant),
           api.qccIntimationTemplate(),
           api.forwardingSlipTemplate(),
-          api.civilTenderTemplate()
+          api.civilTenderTemplate(civilTenderVariant)
         ])
         const [woLabels, fbLabels, agLabels, qiLabels, fsLabels, ctLabels] = await Promise.all([
           api.findPlaceholdersInDocument(woB64),

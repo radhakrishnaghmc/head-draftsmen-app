@@ -15,7 +15,13 @@ import type {
   VerifyDocResult
 } from './ipc-contract'
 import { collectTenderDocuments } from './tenderDocumentScan'
-import { workOrderTemplateFileName, agreementTemplateFileName } from '../core/workOrderTemplateVariants'
+import {
+  workOrderTemplateFileName,
+  agreementTemplateFileName,
+  intimationTemplateFileName,
+  fileBackerTemplateFileName,
+  civilTenderTemplateFileName
+} from '../core/workOrderTemplateVariants'
 import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer, readSheetPreviews } from '../core/excel'
 import type { SheetPreview } from '../core/excel'
 import { recognizeImages } from './ocr'
@@ -59,6 +65,8 @@ import { convertDocxToPdf, docxToPageImages } from '../core/docxToPdf'
 import { mergeDocxBuffers } from '../core/mergeDocx'
 import { splitDocxByPageBreaks } from '../core/splitDocx'
 import { ocrGpsOverlay } from './gpsOcr'
+import { fetchCementSteelRates, downloadCementSteelRateBuffer } from './cementSteelRates'
+import type { CementSteelRate } from '../core/cementSteelRates'
 import { sanitizeDocxForWord2007 } from '../core/word2007Compat'
 import {
   listParagraphs,
@@ -526,6 +534,34 @@ function registerHandlers(): void {
     }
   )
 
+  ipcMain.handle(
+    IPC.exportEvaluationSheetBatch,
+    async (_e, entries: { input: EvaluationSheetInput; suggestedName: string }[]): Promise<string[] | null> => {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Choose a folder to save all evaluation sheets into',
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (result.canceled || result.filePaths.length === 0) return null
+      const dir = result.filePaths[0]
+
+      const used = new Set<string>()
+      const written: string[] = []
+      for (const entry of entries) {
+        const base = entry.suggestedName || 'Evaluation Sheet'
+        let fileName = `${base}.xlsx`
+        let n = 2
+        while (used.has(fileName) || fs.existsSync(path.join(dir, fileName))) {
+          fileName = `${base} (${n}).xlsx`
+          n += 1
+        }
+        used.add(fileName)
+        fs.writeFileSync(path.join(dir, fileName), await buildEvaluationSheet(entry.input))
+        written.push(path.join(dir, fileName))
+      }
+      return written
+    }
+  )
+
   async function buildScheduleABuffer(table: ExcelTable, meta?: ScheduleAMeta, isSe?: boolean): Promise<Buffer> {
     const items = rowsToScheduleAItems(table)
     // A Zone-level (SE) office must never get the Executive Engineer / Circle
@@ -808,6 +844,26 @@ function registerHandlers(): void {
   ipcMain.handle(IPC.ocrGpsOverlay, async (_e, imageBytes: Uint8Array): Promise<string[]> => {
     return ocrGpsOverlay(Buffer.from(imageBytes))
   })
+
+  // Cement & Steel Rates tool — list circulars from the Public Health
+  // department's Downloads page, and save one via its short-lived token.
+  ipcMain.handle(IPC.fetchCementSteelRates, async (): Promise<CementSteelRate[]> => {
+    return fetchCementSteelRates()
+  })
+
+  ipcMain.handle(
+    IPC.downloadCementSteelRate,
+    async (_e, token: string, suggestedFileName: string): Promise<string | null> => {
+      const buffer = await downloadCementSteelRateBuffer(token)
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        title: `Save ${suggestedFileName}`,
+        defaultPath: suggestedFileName
+      })
+      if (result.canceled || !result.filePath) return null
+      fs.writeFileSync(result.filePath, buffer)
+      return result.filePath
+    }
+  )
 
   // Photos/PDF → Word/Excel tool — OCR each page image (in order) into text
   // lines, kept in reading order and separated by a blank line between pages so
@@ -1227,28 +1283,6 @@ function registerHandlers(): void {
     return docxBuffer.toString('base64')
   })
 
-  const intimationTemplateFile = () => {
-    const candidates = [
-      path.join(process.resourcesPath, 'intimation-template.docx'),
-      path.join(app.getAppPath(), 'resources', 'intimation-template.docx'),
-      path.join(app.getAppPath(), '..', 'resources', 'intimation-template.docx')
-    ]
-    return candidates.find((p) => {
-      try {
-        fs.accessSync(p)
-        return true
-      } catch {
-        return false
-      }
-    })
-  }
-
-  ipcMain.handle(IPC.intimationTemplate, async (): Promise<string> => {
-    const templatePath = intimationTemplateFile()
-    if (!templatePath) throw new Error('Intimation format is missing from the app bundle.')
-    return fs.readFileSync(templatePath).toString('base64')
-  })
-
   const bundledResourceFile = (fileName: string) =>
     [
       path.join(process.resourcesPath, fileName),
@@ -1263,6 +1297,12 @@ function registerHandlers(): void {
       }
     })
 
+  ipcMain.handle(IPC.intimationTemplate, async (_e, variantId?: string): Promise<string> => {
+    const templatePath = bundledResourceFile(intimationTemplateFileName(variantId))
+    if (!templatePath) throw new Error('Intimation format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
   ipcMain.handle(IPC.workOrderTemplate, async (_e, variantId?: string): Promise<string> => {
     const templatePath = bundledResourceFile(workOrderTemplateFileName(variantId))
     if (!templatePath) throw new Error('Work Order format is missing from the app bundle.')
@@ -1275,8 +1315,8 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  ipcMain.handle(IPC.fileBackerTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('file-backer-template.docx')
+  ipcMain.handle(IPC.fileBackerTemplate, async (_e, variantId?: string): Promise<string> => {
+    const templatePath = bundledResourceFile(fileBackerTemplateFileName(variantId))
     if (!templatePath) throw new Error('File Backer format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
@@ -1293,8 +1333,8 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  ipcMain.handle(IPC.civilTenderTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('civil-tender-template.docx')
+  ipcMain.handle(IPC.civilTenderTemplate, async (_e, variantId?: string): Promise<string> => {
+    const templatePath = bundledResourceFile(civilTenderTemplateFileName(variantId))
     if (!templatePath) throw new Error('Civil Tender Document format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })

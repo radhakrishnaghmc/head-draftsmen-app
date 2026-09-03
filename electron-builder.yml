@@ -73,12 +73,18 @@ extraResources:
     to: bid-document-se-template.docx
   - from: resources/intimation-template.docx
     to: intimation-template.docx
+  - from: resources/intimation-template-2.docx
+    to: intimation-template-2.docx
   - from: resources/work-order-template.docx
     to: work-order-template.docx
   - from: resources/work-order-template-kompally.docx
     to: work-order-template-kompally.docx
+  - from: resources/work-order-template-header2.docx
+    to: work-order-template-header2.docx
   - from: resources/file-backer-template.docx
     to: file-backer-template.docx
+  - from: resources/file-backer-template-header2.docx
+    to: file-backer-template-header2.docx
   - from: resources/agreement-template.docx
     to: agreement-template.docx
   - from: resources/agreement-template-kompally.docx
@@ -95,6 +101,8 @@ extraResources:
     to: forwarding-slip-template.docx
   - from: resources/civil-tender-template.docx
     to: civil-tender-template.docx
+  - from: resources/civil-tender-template-header2.docx
+    to: civil-tender-template-header2.docx
   - from: resources/se-agreement-bond-template.docx
     to: se-agreement-bond-template.docx
   - from: resources/zonal-work-order-template.docx

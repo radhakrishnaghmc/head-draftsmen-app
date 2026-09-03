@@ -112,7 +112,10 @@ export const CONTACT_KEYS = {
 // bundled with the app.
 export const TEMPLATE_KEYS = {
   workOrder: 'hda-template-work-order',
-  agreement: 'hda-template-agreement'
+  agreement: 'hda-template-agreement',
+  intimation: 'hda-template-intimation',
+  fileBacker: 'hda-template-file-backer',
+  civilTender: 'hda-template-civil-tender'
 } as const
 
 /**

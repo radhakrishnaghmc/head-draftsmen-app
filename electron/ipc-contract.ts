@@ -18,6 +18,7 @@ import type { DeviationItem, DeviationMeta } from '../core/deviationTemplate'
 import type { DocBlock } from '../core/docxBuilder'
 import type { OcrPage } from '../core/ocrReconstruct'
 import type { EvaluationSheetInput } from '../core/evaluationSheet'
+import type { CementSteelRate } from '../core/cementSteelRates'
 import type { VerifyIssue } from '../core/documentVerify'
 import type { PlaceholderMatch } from '../core/createDocument'
 import type { EstimateWorkItem } from '../core/estimateExtract'
@@ -114,6 +115,7 @@ export const IPC = {
   exportTable: 'data:exportTable',
   exportScheduleA: 'data:exportScheduleA',
   exportEvaluationSheet: 'data:exportEvaluationSheet',
+  exportEvaluationSheetBatch: 'data:exportEvaluationSheetBatch',
   exportAgreementBundle: 'doc:exportAgreementBundle',
   agreementBundleProgress: 'doc:agreementBundleProgress',
   tenderScanProgress: 'dialog:tenderScanProgress',
@@ -133,6 +135,8 @@ export const IPC = {
   mergeDocx: 'tools:mergeDocx',
   splitDocxSections: 'tools:splitDocxSections',
   saveDocxsToFolder: 'tools:saveDocxsToFolder',
+  fetchCementSteelRates: 'tools:fetchCementSteelRates',
+  downloadCementSteelRate: 'tools:downloadCementSteelRate',
   ocrGpsOverlay: 'tools:ocrGpsOverlay',
   ocrPhotosToLines: 'tools:ocrPhotosToLines',
   savePhotosAsWord: 'tools:savePhotosAsWord',
@@ -261,6 +265,8 @@ export interface DocuGenApi {
   exportScheduleA(table: ExcelTable, suggestedName: string, meta?: ScheduleAMeta): Promise<string | null>
   /** Build the Bid Capacity Evaluation Sheet (one column per participating bidder) and save it as .xlsx. Returns the written path, or null if cancelled. */
   exportEvaluationSheet(input: EvaluationSheetInput, suggestedName: string): Promise<string | null>
+  /** Save several evaluation sheets — one per uploaded tender — into ONE chosen folder in a single go. Returns the written paths, or null if cancelled. */
+  exportEvaluationSheetBatch(entries: { input: EvaluationSheetInput; suggestedName: string }[]): Promise<string[] | null>
   /** Save several agreement-workspace documents into ONE chosen folder, each in its given format (docx/pdf/xlsx). Returns the written paths plus any that failed (e.g. PDF conversion), or null if cancelled. */
   exportAgreementBundle(files: AgreementBundleFile[]): Promise<{ written: string[]; failed: string[] } | null>
   /** Fires as each file in an exportAgreementBundle call is written/converted, so the UI can show live progress instead of a single static "Preparing…". Returns an unsubscribe function. */
@@ -297,6 +303,10 @@ export interface DocuGenApi {
   splitDocxSections(docxBytes: Uint8Array): Promise<Uint8Array[]>
   /** Tool (Word workspace): save several .docx files (name + bytes) into ONE folder the user picks. Returns the folder and written paths, or null if cancelled. */
   saveDocxsToFolder(files: { name: string; bytes: Uint8Array }[]): Promise<{ dir: string; files: string[] } | null>
+  /** Tool (Cement & Steel Rates): fetch the current list of rate circulars from the Telangana Public Health department's Downloads page. */
+  fetchCementSteelRates(): Promise<CementSteelRate[]>
+  /** Tool (Cement & Steel Rates): download one circular by its (short-lived) token, via a save dialog. `suggestedFileName` should already carry the right extension. Returns the saved path, or null if cancelled. */
+  downloadCementSteelRate(token: string, suggestedFileName: string): Promise<string | null>
   /** Tool (GPS Photos): OCR the GPS overlay stamped on a photo (multi-threshold passes) and return its text lines, for parsing coordinates out of. Used only when the photo has no EXIF GPS. */
   ocrGpsOverlay(imageBytes: Uint8Array): Promise<string[]>
   /** Tool (Photos/PDF → Word/Excel): OCR each page image (data URLs, in order) and return all recognised lines in reading order, blank-line-separated between pages. Best-effort — always reviewed/edited before export. */
@@ -378,20 +388,20 @@ export interface DocuGenApi {
   printCreatedDocument(renderedHtml: string): Promise<void>
   /** Converts built Note Submitted HTML into a base64 .docx, for export via exportCreatedDocument. */
   noteSubmittedDocx(html: string): Promise<string>
-  /** Reads the bundled Intimation format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
-  intimationTemplate(): Promise<string>
+  /** Reads the bundled Intimation format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */
+  intimationTemplate(variantId?: string): Promise<string>
   /** Reads the bundled Work Order format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */
   workOrderTemplate(variantId?: string): Promise<string>
-  /** Reads the bundled File Backer format (.docx) — the file's cover page — base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
-  fileBackerTemplate(): Promise<string>
+  /** Reads the bundled File Backer format (.docx) — the file's cover page — base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */
+  fileBackerTemplate(variantId?: string): Promise<string>
   /** Reads the bundled Agreement format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */
   agreementTemplate(variantId?: string): Promise<string>
   /** Reads the bundled QCC Intimation letter (.docx) — the Dy.EE's request to Quality Control to inspect a starting work — base64-encoded for filling its {{placeholders}}. */
   qccIntimationTemplate(): Promise<string>
   /** Reads the bundled Forwarding Slip format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
   forwardingSlipTemplate(): Promise<string>
-  /** Reads the bundled full Civil Tender Document (.docx) — the 41-page NIT/tender document whose page 1 is the Forwarding Slip — returns it base64-encoded for filling its {{placeholders}}. */
-  civilTenderTemplate(): Promise<string>
+  /** Reads the bundled full Civil Tender Document (.docx) — the 41-page NIT/tender document whose page 1 is the Forwarding Slip — returns it base64-encoded for filling its {{placeholders}}. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */
+  civilTenderTemplate(variantId?: string): Promise<string>
   /** Reads the bundled Zone-level (SE office) Agreement Bond paper (.docx) — the "A G R E E M E N T" cover page signed by the Superintending Engineer. Base64-encoded, for filling its {{placeholders}}. */
   seAgreementBondTemplate(): Promise<string>
   /** Reads the bundled Zone-level (SE office) Work Order (.docx). Base64-encoded, for filling its {{placeholders}}. */

@@ -16,6 +16,16 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.29.1',
+    changes: [
+      'New tool: Cement & Steel Rates, in the sidebar — shows the latest official circular rates from the Telangana Public Health department, with an alert when a new circular is published.',
+      'Work Order, Intimation, File Backer and Tender Document templates each have a new logo-header style option (Telangana emblem + corporation title + corporation logo) alongside the existing plain-text header.',
+      'Evaluation Sheet now accepts several "View Bidders" PDF uploads (or phone photos of the same page) at once and issues one Bid Capacity Evaluation Sheet per tender, instead of one at a time.',
+      'MB Measurement tool: fixed misread depth values written as a handwritten average fraction (e.g. two readings over a line, divided by 2), and dropped stray OCR noise in the No./L/B/D columns instead of showing it as fabricated data.',
+      'Fixed the app icon showing up invisible/blank on dark Windows taskbars and desktops.'
+    ]
+  },
+  {
     version: '1.29.0',
     changes: [
       'Give Intimation, Agreement/Work Order, and Issue Documents now have a "Verify" button that checks every generated document for blank fields, leftover {{placeholders}}, or wrong EMD/ASD amounts before you send it out.',

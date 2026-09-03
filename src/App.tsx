@@ -19,6 +19,7 @@ import { type ThemeId, getStoredTheme, setStoredTheme } from './theme'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import { findWorksListErrors } from '@core/worksListAgent'
 import { mergeTables } from '@core/merge'
+import type { CementSteelRate } from '@core/cementSteelRates'
 import Sidebar, { type TabKey } from './components/Sidebar'
 import QcPartiesEditor from './components/QcPartiesEditor'
 import ExcelInline from './components/ExcelInline'
@@ -41,6 +42,7 @@ import WorkOrderAgreementTab from './components/WorkOrderAgreementTab'
 import IssueNoticesTab from './components/IssueNoticesTab'
 import PrintDocumentTab from './components/PrintDocumentTab'
 import ToolsTab from './components/ToolsTab'
+import CementSteelRatesPage from './components/CementSteelRatesPage'
 import SettingsTab from './components/SettingsTab'
 import TodoList from './components/TodoList'
 import MbScrutinyList from './components/MbScrutinyList'
@@ -130,6 +132,12 @@ interface Props {
 // localStorage so it survives updates (but not a reinstall/cache clear).
 const LAST_SEEN_VERSION_KEY = 'hda-last-seen-version'
 
+// Cement & Steel Rate circulars already seen on this machine, keyed by
+// "description|datePosted" (stable content identity — slNo shifts as new
+// circulars get inserted at the top of the department's own list).
+const CEMENT_STEEL_SEEN_KEY = 'hda-cement-steel-seen'
+const CEMENT_STEEL_REFRESH_MS = 60 * 60 * 1000
+
 /**
  * Keep a visited tab's content mounted (just hidden) instead of tearing it down
  * when the user navigates away, so any in-progress work (photo OCR, uploads,
@@ -173,6 +181,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   useEffect(() => {
     document.body.classList.toggle('theme-windows', theme === 'windows')
     document.body.classList.toggle('theme-dark', theme === 'dark')
+    document.body.classList.toggle('theme-tg', theme === 'tg')
   }, [theme])
 
   // Portal targets for the Agreement/Work Order and Intimation pages' own
@@ -192,6 +201,49 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   useEffect(() => {
     setMountedTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)))
   }, [tab])
+
+  // Blink the "Cement & Steel Rates" nav item when a background check finds a
+  // circular not yet seen on this machine. Doesn't block any other tab — it's
+  // purely a visual nudge, cleared the moment the user opens that tab.
+  const [cementSteelHasNew, setCementSteelHasNew] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    async function check() {
+      try {
+        const rates = await api.fetchCementSteelRates()
+        if (cancelled) return
+        const currentKeys = rates.map((r) => `${r.description}|${r.datePosted}`)
+        const seenRaw = localStorage.getItem(CEMENT_STEEL_SEEN_KEY)
+        if (seenRaw == null) {
+          // First run ever on this machine — nothing to compare against yet,
+          // so just record the baseline instead of blinking for the whole list.
+          localStorage.setItem(CEMENT_STEEL_SEEN_KEY, JSON.stringify(currentKeys))
+          return
+        }
+        const seen = new Set<string>(JSON.parse(seenRaw))
+        if (currentKeys.some((k) => !seen.has(k))) setCementSteelHasNew(true)
+      } catch {
+        // Best-effort background check — a failed fetch here just means no
+        // nudge this cycle; the tool itself surfaces the error if opened.
+      }
+    }
+    void check() // once on mount (covers "on launch" / "after every login", since App remounts on login)
+    const id = setInterval(check, CEMENT_STEEL_REFRESH_MS)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [])
+  // Opening the tab is the "seen it" signal — stop blinking immediately, and
+  // let the page's own fetch (below) record the new baseline once it loads.
+  useEffect(() => {
+    if (tab === 'cementSteel') setCementSteelHasNew(false)
+  }, [tab])
+  function recordCementSteelRatesSeen(rates: CementSteelRate[]) {
+    localStorage.setItem(CEMENT_STEEL_SEEN_KEY, JSON.stringify(rates.map((r) => `${r.description}|${r.datePosted}`)))
+    setCementSteelHasNew(false)
+  }
+
   // Show "What's New" once after an update: compare the running app version with
   // the one last seen on this machine (localStorage, so it persists across
   // updates but not across a reinstall). Newer → list what changed, then record
@@ -228,6 +280,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // other open tab's state the way the sidebar's whole-app reset would.
   // Bumping the key remounts only that one component from scratch.
   const [intimationInstanceKey, setIntimationInstanceKey] = useState(0)
+  const [evaluationInstanceKey, setEvaluationInstanceKey] = useState(0)
   const [workOrderInstanceKey, setWorkOrderInstanceKey] = useState(0)
   const [issueNoticesInstanceKey, setIssueNoticesInstanceKey] = useState(0)
   // Sub-tabs within the Intimation workspace: the Intimation letter, or the
@@ -1116,6 +1169,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
         office={office}
         onOfficeChange={changeOffice}
         onShowWhatsNew={() => setWhatsNew(CHANGELOG)}
+        cementSteelHasNew={cementSteelHasNew}
       />
 
       <main className="workspace">
@@ -1365,18 +1419,24 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                     : 'Upload the portal’s “View Bidders” PDF to issue the Bid Capacity Evaluation Sheet — one column per participating bidder.'}
                 </p>
               </div>
-              {intimationSubTab === 'intimation' && (
-                <div className="page-head-action">
-                  <button
-                    className="ghost"
-                    onClick={() => setIntimationInstanceKey((k) => k + 1)}
-                    title="Clear the uploaded documents and filled fields to start a new work"
-                  >
-                    <IconRefresh /> Clear
-                  </button>
-                  <div className="header-action-slot" ref={intimationHeaderActionRef} />
-                </div>
-              )}
+              <div className="page-head-action">
+                <button
+                  className="ghost"
+                  onClick={() =>
+                    intimationSubTab === 'intimation'
+                      ? setIntimationInstanceKey((k) => k + 1)
+                      : setEvaluationInstanceKey((k) => k + 1)
+                  }
+                  title={
+                    intimationSubTab === 'intimation'
+                      ? 'Clear the uploaded documents and filled fields to start a new work'
+                      : 'Clear the uploaded evaluation sheets to start over'
+                  }
+                >
+                  <IconRefresh /> Clear
+                </button>
+                {intimationSubTab === 'intimation' && <div className="header-action-slot" ref={intimationHeaderActionRef} />}
+              </div>
             </div>
             <div className="doc-tabs">
               <button
@@ -1395,6 +1455,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
             {intimationSubTab === 'intimation' ? (
               <GiveIntimationTab
                 key={intimationInstanceKey}
+                active={tab === 'intimation'}
                 tables={tables}
                 onChange={updateTable}
                 office={office}
@@ -1402,7 +1463,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 theme={theme}
               />
             ) : (
-              <EvaluationSheetTab office={office} />
+              <EvaluationSheetTab key={evaluationInstanceKey} office={office} />
             )}
           </section>
         </KeepAlive>
@@ -1567,6 +1628,21 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               </div>
             </div>
             <ToolsTab tables={tables} onChange={updateTable} office={office} documents={bakedDocuments} theme={theme} />
+          </section>
+        </KeepAlive>
+
+        <KeepAlive active={tab === 'cementSteel'} mounted={mountedTabs.has('cementSteel')}>
+          <section className="page">
+            <div className="page-head">
+              <div className="page-ic">
+                <IconDoc />
+              </div>
+              <div className="page-head-text">
+                <h1>Cement & Steel Rates</h1>
+                <p>Browse and download rate circulars fetched live from the Public Health department's website.</p>
+              </div>
+            </div>
+            <CementSteelRatesPage onLoaded={recordCementSteelRatesSeen} theme={theme} />
           </section>
         </KeepAlive>
 

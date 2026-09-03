@@ -7,7 +7,7 @@ import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { circleFromNit } from '@core/workOrderAgreement'
 import { resolveIntimationValue } from '@core/intimationFill'
 import { CMC_ZONE_CIRCLES, resolveFromDirectory, corporationByName } from '../zoneCircleDirectory'
-import type { Office } from '../office'
+import { officeScopedKey, TEMPLATE_KEYS, type Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLines } from '../pdfToText'
 import { base64ToUint8, PAGE_WIDTH, renderDocPreview, DOCX_PREVIEW_OPTIONS, normalizeDocxTextboxes } from './docPage'
@@ -135,7 +135,8 @@ export default function IntimationToolTab({ office }: Props) {
     let cancelled = false
     void (async () => {
       try {
-        const b64 = await api.intimationTemplate()
+        const intimationVariant = localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.intimation, office)) ?? undefined
+        const b64 = await api.intimationTemplate(intimationVariant)
         const found = await api.findPlaceholdersInDocument(b64)
         if (cancelled) return
         setTemplateB64(b64)
@@ -147,7 +148,7 @@ export default function IntimationToolTab({ office }: Props) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [office])
 
   // The Online Intimation supplies the agency's postal address (and, when the
   // L-1 is missing them, the NIT No / ECV / contract value). Optional here — the
@@ -274,7 +275,7 @@ export default function IntimationToolTab({ office }: Props) {
       <div ref={printScratchRef} style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }} aria-hidden />
 
       <div className="intimation-tool-uploads">
-        <div className="boq-actions boq-actions--start">
+        <div className="boq-actions">
           <button
             className="primary upload-btn"
             onClick={() => pdfInputRef.current?.click()}

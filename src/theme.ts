@@ -4,10 +4,10 @@
 // stays a plain localStorage value (same "survives updates, not a reinstall"
 // tier as LAST_SEEN_VERSION_KEY in App.tsx) rather than office-scoped or
 // synced state.
-export type ThemeId = 'default' | 'flat1' | 'windows' | 'dark'
+export type ThemeId = 'default' | 'flat1' | 'windows' | 'dark' | 'tg'
 
 const THEME_KEY = 'issueDocsTheme'
-const VALID: ThemeId[] = ['default', 'flat1', 'windows', 'dark']
+const VALID: ThemeId[] = ['default', 'flat1', 'windows', 'dark', 'tg']
 
 export function getStoredTheme(): ThemeId {
   const stored = localStorage.getItem(THEME_KEY)
@@ -22,5 +22,6 @@ export const THEME_OPTIONS: { id: ThemeId; label: string; description: string }[
   { id: 'default', label: 'Default', description: 'Document thumbnail tiles with a frosted-glass look.' },
   { id: 'flat1', label: 'Colured', description: 'Flat, solid-color tiles with a large icon.' },
   { id: 'windows', label: 'Windows theme', description: 'Flat, sharp-cornered surfaces styled after Windows 11 Settings.' },
-  { id: 'dark', label: 'Dark mode', description: 'Whole app restyled like iOS Dark Mode — true-black surfaces, frosted sidebar, system-blue buttons.' }
+  { id: 'dark', label: 'Dark mode', description: 'Whole app restyled like iOS Dark Mode — true-black surfaces, frosted sidebar, system-blue buttons.' },
+  { id: 'tg', label: 'TG', description: 'Whole app restyled to match the Telangana government (CMC) portal — navy-blue and cyan accents with a purple gradient partner.' }
 ]

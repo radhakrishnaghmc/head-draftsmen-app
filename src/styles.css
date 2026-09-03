@@ -1,6 +1,33 @@
 /* ============================================================
    DocuGen — design system
    ============================================================ */
+
+/* TG theme fonts — the exact families cmc.telangana.gov.in loads itself
+   (Cabin for body text, Ramabhadra for its brand/heading text), bundled
+   locally (SIL Open Font License) so they work offline and satisfy the
+   app's `style-src 'self'` CSP instead of fetching fonts.googleapis.com. */
+@font-face {
+  font-family: 'Cabin';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./assets/fonts/Cabin-Variable.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Cabin';
+  font-style: italic;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./assets/fonts/Cabin-Italic-Variable.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Ramabhadra';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/Ramabhadra-Regular.woff2') format('woff2');
+}
+
 :root {
   /* palette — Indian tricolour (Tiranga). The primary accent family (mapped
      onto the old indigo/violet token names) is India Saffron #FF9933; its
@@ -160,6 +187,67 @@ body.theme-dark {
   --shadow-glow: 0 0 0 3px rgba(10, 132, 255, 0.35);
 }
 
+/* TG theme (Settings → Themes) — recolored to match the Telangana government
+   CMC portal (cmc.telangana.gov.in): deep navy (#05386f/#0e3a86) for solid
+   fills/text, its bright cyan-blue accent (#0092d3, the portal's nav-bar and
+   button color) as the one interactive accent, and its banner/widget-header
+   gradient partner purple (#6641b0) for two-tone CTAs — same recipe as the
+   government site's own cyan-to-purple gradient. Shapes/blur/radii are left
+   at Default's values (this is a palette swap, not a shape restyle like the
+   Windows theme); the handful of components that hardcode the tricolour
+   accent instead of reading these tokens (sidebar wash, workspace glow,
+   button.primary and its lookalikes, nav-item hover) get their own
+   overrides further down, right next to the rule they're recoloring. */
+body.theme-tg {
+  --indigo-50: #eaf4fb;
+  --indigo-100: #d6ebf7;
+  --indigo-200: #a8d6ef;
+  --indigo-500: #0092d3; /* CMC portal accent blue — the one interactive accent */
+  --indigo-600: #05386f; /* CMC navy — solid fills / accent text */
+  --indigo-700: #0e3a86; /* CMC heading navy — darkest accent text / hairlines */
+  --violet-500: #6641b0; /* CMC banner-gradient purple — gradient partner for two-tone CTAs */
+  --chakra: #013464; /* CMC nav-bar navy */
+  --sky-100: #eaf4fb;
+  --sky-500: #0092d3;
+  --teal-500: #0074b6;
+  --teal-100: #e3f2fa;
+  --rose-500: #ca3737;
+  --rose-100: #fbe9e9;
+  --amber-500: #ed8114;
+  --amber-100: #fdf0e0;
+  --green-bg: #eaf7ec;
+  --orange-bg: #fdf0e0;
+
+  --bg-grad-a: #f4f8fb;
+  --bg-grad-b: #eaf1f7;
+  --surface: rgba(255, 255, 255, 0.82);
+  --surface-2: rgba(250, 252, 254, 0.68);
+  --border: rgba(5, 56, 111, 0.14);
+  --border-strong: rgba(5, 56, 111, 0.24);
+
+  --text: #0e2233;
+  --text-2: #3d556b;
+  --muted: #6d8296;
+
+  --ok: #1c9a5b; /* CMC green */
+  --ok-bg: #eaf7ec;
+
+  --shadow-sm: 0 1px 2px rgba(5, 56, 111, 0.08);
+  --shadow-md: 0 4px 16px -6px rgba(5, 56, 111, 0.16), 0 2px 6px -3px rgba(5, 56, 111, 0.09);
+  --shadow-lg: 0 24px 48px -16px rgba(5, 56, 111, 0.26);
+  --shadow-glow: 0 8px 24px -6px rgba(0, 146, 211, 0.45);
+
+  /* The portal's own body font, and boxier, less-rounded corners — its
+     buttons/cards are Bootstrap-default rounded rectangles, not full
+     pills, so buttons/chips/inputs read like the government site's own
+     form controls instead of Default's fully-rounded pill shapes. */
+  --font: 'Cabin', 'Segoe UI Variable', 'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, Roboto,
+    'Helvetica Neue', sans-serif;
+  --radius: 14px;
+  --radius-sm: 10px;
+  --radius-pill: 10px;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -223,6 +311,17 @@ body.theme-dark {
 }
 body.theme-dark::before {
   display: none;
+}
+
+/* TG theme: swap the tricolour glow blobs for the CMC portal's own cyan-to-
+   purple wash (its banner/nav-bar gradient), keeping the grain texture and
+   the Charminar/Thousand Pillar Temple skyline art (this theme recolors,
+   it doesn't flatten). */
+body.theme-tg {
+  background: radial-gradient(1200px 700px at 100% -10%, rgba(0, 146, 211, 0.14), transparent 60%),
+    radial-gradient(900px 520px at -10% 110%, rgba(102, 65, 176, 0.1), transparent 55%),
+    radial-gradient(1000px 480px at 50% 100%, rgba(255, 255, 255, 0.5), transparent 60%),
+    linear-gradient(180deg, var(--bg-grad-a), var(--bg-grad-b));
 }
 
 /* ---------- decorative background skyline ---------- */
@@ -379,6 +478,9 @@ body.theme-dark::before {
   background: rgba(255, 153, 51, 0.18);
   overflow: hidden;
 }
+body.theme-tg .update-progress-track {
+  background: rgba(0, 146, 211, 0.18);
+}
 .update-progress-fill {
   height: 100%;
   border-radius: var(--radius-pill);
@@ -510,6 +612,20 @@ body.theme-dark .skyline-bg,
 body.theme-dark .sidebar-art-bg {
   display: none;
 }
+/* TG theme: same vertical-band idea as Default, recolored to the CMC
+   portal's cyan/purple instead of the tricolour — decorative skyline art is
+   left visible (Telangana branding fits a Telangana-government theme). */
+body.theme-tg .sidebar {
+  background: linear-gradient(
+    180deg,
+    rgba(0, 146, 211, 0.16) 0%,
+    rgba(0, 146, 211, 0.07) 22%,
+    rgba(255, 255, 255, 0.92) 44%,
+    rgba(255, 255, 255, 0.92) 56%,
+    rgba(102, 65, 176, 0.07) 78%,
+    rgba(102, 65, 176, 0.17) 100%
+  );
+}
 
 .side-brand {
   display: flex;
@@ -523,12 +639,22 @@ body.theme-dark .sidebar-art-bg {
   object-fit: contain;
   filter: drop-shadow(0 4px 10px rgba(255, 153, 51, 0.35));
 }
+body.theme-tg .side-brand .logo {
+  filter: drop-shadow(0 4px 10px rgba(0, 146, 211, 0.35));
+}
 .side-brand h1 {
   margin: 0;
   font-size: 18px;
   font-weight: 750;
   letter-spacing: -0.02em;
   white-space: nowrap;
+}
+/* TG theme: the app's brand line reads in Ramabhadra, the same distinctive
+   display face the CMC portal uses for its own brand/heading text. */
+body.theme-tg .side-brand h1 {
+  font-family: 'Ramabhadra', var(--font);
+  font-weight: 400;
+  letter-spacing: 0;
 }
 .side-brand p {
   margin: 2px 0 0;
@@ -774,6 +900,15 @@ body.theme-windows .nav-item.on::before {
   border-radius: 2px;
   background: var(--tone-a, var(--indigo-500));
 }
+/* TG theme: same shadow/lift as Default, but the CMC portal's boxier
+   rounded-rectangle shape instead of a full pill, and the hardcoded
+   saffron hover tint swapped for the portal's accent blue. */
+body.theme-tg .nav-item {
+  border-radius: 8px;
+}
+body.theme-tg .nav-item:hover {
+  background: rgba(0, 146, 211, 0.1);
+}
 
 .nav-step {
   flex: none;
@@ -868,6 +1003,35 @@ body.theme-windows .nav-item.on::before {
 .nav-badge.ok {
   color: var(--ok);
   background: var(--ok-bg);
+}
+.nav-badge-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--rose-500);
+  animation: nav-item-blink-dot 1s ease-in-out infinite;
+}
+.nav-item-blink .nav-ic {
+  animation: nav-item-blink-ic 1s ease-in-out infinite;
+}
+@keyframes nav-item-blink-dot {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.75);
+  }
+}
+@keyframes nav-item-blink-ic {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }
 
 .side-foot {
@@ -1006,6 +1170,12 @@ body.theme-windows .nav-item.on::before {
     radial-gradient(820px 480px at 88% 15%, rgba(255, 255, 255, 0.5), transparent 55%),
     radial-gradient(760px 460px at 95% 75%, rgba(19, 136, 8, 0.14), transparent 55%),
     radial-gradient(1000px 620px at 30% 100%, rgba(19, 136, 8, 0.16), transparent 60%);
+}
+body.theme-tg .workspace {
+  background: radial-gradient(900px 520px at 12% 0%, rgba(0, 146, 211, 0.2), transparent 60%),
+    radial-gradient(820px 480px at 88% 15%, rgba(255, 255, 255, 0.5), transparent 55%),
+    radial-gradient(760px 460px at 95% 75%, rgba(102, 65, 176, 0.13), transparent 55%),
+    radial-gradient(1000px 620px at 30% 100%, rgba(102, 65, 176, 0.15), transparent 60%);
 }
 
 /* KeepAlive's wrapper (App.tsx) — fills the workspace's content box so the
@@ -1376,6 +1546,11 @@ button {
 body.theme-windows button {
   border-radius: 4px;
 }
+/* TG theme: Bootstrap-default rounded rectangles, like the CMC portal's own
+   buttons, instead of Default's full pill. */
+body.theme-tg button {
+  border-radius: 8px;
+}
 button:hover:not(:disabled) {
   background: var(--surface-2);
   border-color: var(--muted);
@@ -1410,6 +1585,21 @@ button.primary:hover:not(:disabled) {
 }
 button.primary:active:not(:disabled) {
   background: #c3e2bf;
+}
+/* TG theme: same flat pale-fill pill, recolored to the CMC portal's blue
+   instead of the hardcoded India-green (not a token, so it needs its own
+   override — same treatment as the sidebar's tricolour wash above). */
+body.theme-tg button.primary {
+  background: #d6ecf8;
+  color: #0a2e4a;
+  border-color: rgba(0, 146, 211, 0.32);
+}
+body.theme-tg button.primary:hover:not(:disabled) {
+  background: #c3e2f2;
+  border-color: rgba(0, 146, 211, 0.45);
+}
+body.theme-tg button.primary:active:not(:disabled) {
+  background: #b0d8ec;
 }
 
 button.ghost {
@@ -1603,6 +1793,15 @@ button.danger-ghost:hover:not(:disabled) {
     transparent 10px,
     rgba(255, 153, 51, 0.04) 10px,
     rgba(255, 153, 51, 0.04) 20px
+  );
+}
+body.theme-tg .empty {
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 10px,
+    rgba(0, 146, 211, 0.04) 10px,
+    rgba(0, 146, 211, 0.04) 20px
   );
 }
 .empty svg {
@@ -2777,6 +2976,9 @@ button.upload-btn {
   background: linear-gradient(to top, rgba(19, 136, 8, 0.92), rgba(19, 136, 8, 0));
   opacity: 0;
   transition: opacity 0.15s var(--ease);
+}
+body.theme-tg .wo-tile-open {
+  background: linear-gradient(to top, rgba(5, 56, 111, 0.92), rgba(5, 56, 111, 0));
 }
 .wo-tile:hover .wo-tile-open {
   opacity: 1;
@@ -4383,6 +4585,14 @@ button.danger:disabled {
   border-color: rgba(19, 136, 8, 0.45);
   background: linear-gradient(180deg, #e6f3e3, #d0e8cd);
   color: #14261a;
+}
+body.theme-tg .gen-output-modes .seg:hover {
+  border-color: rgba(0, 146, 211, 0.4);
+}
+body.theme-tg .gen-output-modes .seg.active {
+  border-color: rgba(0, 146, 211, 0.45);
+  background: linear-gradient(180deg, #e3f1fa, #cde6f5);
+  color: #0a2e4a;
 }
 /* Typed-in party-agency details for the 3rd/4th-party QC letters. */
 .gen-party-fields {
@@ -8796,6 +9006,15 @@ tr.on .rp-box span {
   flex-wrap: wrap;
   margin-bottom: 14px;
 }
+/* The Cement & Steel Rates toolbar reuses MB Scrutiny's search box next to a
+   tool-workspace action button — .mb-search's own margin-bottom (meant for
+   stacking above a list) threw off vertical centering here, and its
+   content-only width made it cramped; both fixed just for this pairing. */
+.gps-toolbar .mb-search {
+  flex: 1 1 260px;
+  max-width: 480px;
+  margin-bottom: 0;
+}
 .gps-counts {
   margin-left: auto;
   font-size: 13px;
@@ -9106,6 +9325,23 @@ tr.on .rp-box span {
   transform: translateY(-2px);
   box-shadow: 0 8px 18px -7px rgba(19, 100, 30, 0.32);
 }
+body.theme-tg .pdf-ws-railbtn,
+body.theme-tg .pdf-ws-selbtn,
+body.theme-tg .pdf-ws-clearall,
+body.theme-tg .pdf-ws-clearbtn {
+  background: linear-gradient(180deg, #e3f1fa, #cde6f5);
+  color: #0a2e4a;
+  border-color: rgba(0, 146, 211, 0.28);
+  box-shadow: 0 4px 12px -6px rgba(0, 90, 140, 0.28);
+}
+body.theme-tg .pdf-ws-railbtn:hover:not(:disabled),
+body.theme-tg .pdf-ws-selbtn:hover:not(:disabled),
+body.theme-tg .pdf-ws-clearall:hover:not(:disabled),
+body.theme-tg .pdf-ws-clearbtn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #d6ecf8, #b0d8ec);
+  border-color: rgba(0, 146, 211, 0.4);
+  box-shadow: 0 8px 18px -7px rgba(0, 90, 140, 0.32);
+}
 .pdf-ws-clearall {
   width: 100%;
   justify-content: center;
@@ -9264,6 +9500,9 @@ tr.on .rp-box span {
   border-color: rgba(19, 136, 8, 0.5);
   background: var(--surface);
 }
+body.theme-tg .pdf-ws-dropzone:hover:not(:disabled) {
+  border-color: rgba(0, 146, 211, 0.5);
+}
 .pdf-ws-dropzone:disabled {
   opacity: 0.6;
   cursor: default;
@@ -9353,6 +9592,10 @@ tr.on .rp-box span {
 .pdf-ws-page.on {
   border-color: rgba(19, 136, 8, 0.65);
   box-shadow: 0 0 0 2px rgba(19, 136, 8, 0.28);
+}
+body.theme-tg .pdf-ws-page.on {
+  border-color: rgba(0, 146, 211, 0.65);
+  box-shadow: 0 0 0 2px rgba(0, 146, 211, 0.28);
 }
 .pdf-ws-page-thumb {
   position: relative;

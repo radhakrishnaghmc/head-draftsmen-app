@@ -25,7 +25,7 @@ import {
 } from '@core/seEvaluationNotes'
 import { parseCementSteelRateLines } from '@core/cementSteelRate'
 import { resolveFromDirectory, entriesOf, corporationByName, CORPORATIONS } from '../zoneCircleDirectory'
-import type { Office } from '../office'
+import { officeScopedKey, TEMPLATE_KEYS, type Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLines, pdfToPositionedLines } from '../pdfToText'
 import { pdfPagesToDataUrls } from '../pdfToImages'
@@ -50,6 +50,15 @@ interface Props {
   headerActionRef?: RefObject<HTMLDivElement | null>
   /** Issue Documents tile style, set in Settings → Themes (see theme.ts) — applied to this page's output tiles too. */
   theme: ThemeId
+  /**
+   * Whether this tab is the one currently on screen. App.tsx keeps this
+   * component mounted (but hidden) when the user switches to another tab
+   * (KeepAlive), so re-reading the office's chosen Intimation template
+   * variant only on mount would keep showing whatever variant was picked
+   * when the user first opened this tab — even after they change it in
+   * Settings and switch back. Toggling true re-triggers that read.
+   */
+  active?: boolean
 }
 
 /** The Intimation letter (or SE LOA) plus its 4 SE companion notes — each shown as a tile that expands into the preview modal, same layout as the Agreement page's document tiles. */
@@ -423,7 +432,7 @@ function notice_nitNo(pdf: TenderEvaluation, row: Record<string, string>): strin
  * docx-preview of the filled letter with Word / PDF / Print. (Note Submitted
  * lives on the Agreement & Work Order tab.)
  */
-export default function GiveIntimationTab({ tables, onChange, office, headerActionRef, theme }: Props) {
+export default function GiveIntimationTab({ tables, onChange, office, headerActionRef, theme, active }: Props) {
   const table = tables[0] ?? null
 
   // Whether headerActionRef's DOM node is actually mounted yet — reading
@@ -530,14 +539,21 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
 
   // Load the bundled format for this office/work (SE LOA — reserved or not —
   // when zone-level, otherwise the EE Intimation) and read its placeholders.
-  // Reloads if the office kind flips or the selected work's reserved status does.
+  // Reloads if the office kind flips, the selected work's reserved status does,
+  // or this tab becomes active again — App.tsx keeps this component mounted
+  // across tab switches (KeepAlive), so re-checking only on mount would miss a
+  // template variant changed in Settings while this tab sat hidden.
   useEffect(() => {
+    if (active === false) return
     let cancelled = false
     setTemplateB64(null)
     setLabels([])
     void (async () => {
       try {
-        const b64 = seMode ? await api.loaSeTemplate(seReserved, office.corporation) : await api.intimationTemplate()
+        const intimationVariant = localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.intimation, office)) ?? undefined
+        const b64 = seMode
+          ? await api.loaSeTemplate(seReserved, office.corporation)
+          : await api.intimationTemplate(intimationVariant)
         const found = await api.findPlaceholdersInDocument(b64)
         if (cancelled) return
         setTemplateB64(b64)
@@ -549,7 +565,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     return () => {
       cancelled = true
     }
-  }, [seMode, seReserved, office.corporation])
+  }, [seMode, seReserved, office.corporation, active])
 
   // Load the TS Note / Eligibility Criteria docx templates once, when the
   // office is zone-level — the 2 SE companion notes that use a fixed template

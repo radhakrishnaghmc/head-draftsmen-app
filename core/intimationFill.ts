@@ -1,5 +1,5 @@
 import { computeWorkAmounts, tenderPercentFromRow } from './worksAmounts'
-import { wrapAgencyAddress } from './workOrderAgreement'
+import { wrapAgencyAddress, type WorkOrderAgreementFields } from './workOrderAgreement'
 import { isReservedWork } from './tenderAgents/nameOfWork'
 import { zoneAbbr } from './loaSe'
 import type { IntimationNotice } from './intimationNotice'
@@ -160,5 +160,58 @@ export function resolveIntimationValue(
       return asd != null && asd > 0 ? `ASD Rs.${asd}/-` : ''
     default:
       return ''
+  }
+}
+
+/**
+ * Settings' Document Templates section preview: fills every Intimation
+ * template variant's {{Placeholder}}s straight off the shared
+ * WorkOrderAgreementFields sample data (same fields Work Order/Agreement
+ * preview tiles use), rather than the real notice/PDF/Works-List-row sources
+ * resolveIntimationValue reads from — there's no upload to preview with, just
+ * one office's sample values. Keys match the literal placeholder text in
+ * resources/intimation-template*.docx exactly (case-sensitive).
+ */
+export function intimationPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
+  const ecv = Number(f.ecvRupees)
+  const tenderPct = Number(f.tenderPercent)
+  const contract = Number(f.contractRupees)
+  const estLakhs = Number(f.estimateLakhs)
+  const hasEcv = f.ecvRupees.trim() !== '' && Number.isFinite(ecv)
+  const hasPct = f.tenderPercent.trim() !== '' && Number.isFinite(tenderPct)
+  const emd = hasEcv ? Math.round(ecv * 0.015) : null
+  const asd = !hasEcv ? null : hasPct && tenderPct > 25 ? Math.round((ecv * (tenderPct - 25)) / 100) : 0
+  const reserved = isEmdExempt(f.nameOfWork)
+  const emdText = reserved
+    ? asd && asd > 0
+      ? `Rs. 1 ½ Rs.Exempted,ASD Rs.${asd}/-`
+      : 'Rs. 1 ½ Rs.Exempted/-'
+    : emd == null
+      ? ''
+      : asd && asd > 0
+        ? `Rs. 1 ½ Rs.${emd},ASD Rs.${asd}/-`
+        : `Rs. 1 ½ Rs.${emd}/-`
+  const priceBidDate = f.noticeDate || f.intimationDate
+  return {
+    'Address of the agency': wrapAgencyAddress(f.address),
+    'Agency Name': f.agencyName,
+    CNO: f.cno,
+    Circle: f.circle,
+    'Contract Amount': Number.isFinite(contract) ? money2(contract) : '',
+    'Corp Full Caps': (f.corporationFullName ?? '').toUpperCase(),
+    Corporation: f.corporation,
+    ECV: hasEcv ? money2(ecv) : '',
+    'EMD 1.5%': emdText,
+    'Estimate Amount': Number.isFinite(estLakhs) ? `Rs.${estLakhs.toFixed(2)} Lakhs` : '',
+    'Financial year': f.financialYear,
+    'Name of the work': f.nameOfWork,
+    'Nit No': f.noticeNo,
+    'Price Bid opening date': priceBidDate,
+    Pricebidopen: priceBidDate,
+    'Tender Id': f.tenderId,
+    'Tender Pencentage': hasPct ? String(tenderPct) : '',
+    Zone: f.zone,
+    ZoneAbbr: zoneAbbr(f.zone),
+    'agency phone number': f.phone
   }
 }

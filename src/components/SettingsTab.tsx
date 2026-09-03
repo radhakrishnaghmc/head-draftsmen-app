@@ -8,9 +8,22 @@ import {
   DEFAULT_WORK_ORDER_TEMPLATE_VARIANT,
   AGREEMENT_TEMPLATE_VARIANTS,
   DEFAULT_AGREEMENT_TEMPLATE_VARIANT,
+  INTIMATION_TEMPLATE_VARIANTS,
+  DEFAULT_INTIMATION_TEMPLATE_VARIANT,
+  FILE_BACKER_TEMPLATE_VARIANTS,
+  DEFAULT_FILE_BACKER_TEMPLATE_VARIANT,
+  CIVIL_TENDER_TEMPLATE_VARIANTS,
+  DEFAULT_CIVIL_TENDER_TEMPLATE_VARIANT,
   type TemplateVariantOption
 } from '@core/workOrderTemplateVariants'
-import { workOrderPlaceholders, agreementPlaceholders, type WorkOrderAgreementFields } from '@core/workOrderAgreement'
+import {
+  workOrderPlaceholders,
+  agreementPlaceholders,
+  fileBackerPlaceholders,
+  civilTenderPlaceholders,
+  type WorkOrderAgreementFields
+} from '@core/workOrderAgreement'
+import { intimationPlaceholders } from '@core/intimationFill'
 import { MAX_CONCURRENT_SESSIONS } from '@core/sessionSlots'
 import { THEME_OPTIONS, type ThemeId } from '../theme'
 import type { ActiveSessionInfo } from '../../electron/ipc-contract'
@@ -67,6 +80,15 @@ function sampleFields(office: Office): WorkOrderAgreementFields {
     noticeDate: '09-02-2026',
     intimationDate: '17.04.2026'
   }
+}
+
+// Settings' preview tile just needs some representative placeholder values —
+// no real L-1 upload or Agreement/Schedule-A extras to read them from — so
+// the bid-date/contractor fields resolve to the sample office's own values
+// and the two hand-entered extras (pages of Agreement, Schedule 'A' items)
+// stay blank the same way an unfilled document would show them.
+function civilTenderSettingsPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
+  return civilTenderPlaceholders(f, {}, {})
 }
 
 interface TemplateSectionProps {
@@ -520,6 +542,39 @@ export default function SettingsTab({ office, theme, onThemeChange }: Props) {
           fields={fields}
           fetchTemplate={api.agreementTemplate}
           placeholders={agreementPlaceholders}
+        />
+
+        <TemplateSection
+          title="Intimation"
+          subtitle="Some circles word and lay out their own Intimation letter differently."
+          storageKey={officeScopedKey(TEMPLATE_KEYS.intimation, office)}
+          variants={INTIMATION_TEMPLATE_VARIANTS}
+          defaultVariant={DEFAULT_INTIMATION_TEMPLATE_VARIANT}
+          fields={fields}
+          fetchTemplate={api.intimationTemplate}
+          placeholders={intimationPlaceholders}
+        />
+
+        <TemplateSection
+          title="File Backer"
+          subtitle="Some circles word and lay out their own File Backer cover page differently."
+          storageKey={officeScopedKey(TEMPLATE_KEYS.fileBacker, office)}
+          variants={FILE_BACKER_TEMPLATE_VARIANTS}
+          defaultVariant={DEFAULT_FILE_BACKER_TEMPLATE_VARIANT}
+          fields={fields}
+          fetchTemplate={api.fileBackerTemplate}
+          placeholders={fileBackerPlaceholders}
+        />
+
+        <TemplateSection
+          title="Tender Document"
+          subtitle="Some circles word and lay out their own Tender Document header differently."
+          storageKey={officeScopedKey(TEMPLATE_KEYS.civilTender, office)}
+          variants={CIVIL_TENDER_TEMPLATE_VARIANTS}
+          defaultVariant={DEFAULT_CIVIL_TENDER_TEMPLATE_VARIANT}
+          fields={fields}
+          fetchTemplate={api.civilTenderTemplate}
+          placeholders={civilTenderSettingsPlaceholders}
         />
       </div>
     </>

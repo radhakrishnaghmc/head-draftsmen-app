@@ -21,7 +21,8 @@ import {
   IconBell,
   IconTools,
   IconSettings,
-  IconWhatsApp
+  IconWhatsApp,
+  IconDoc
 } from './Icons'
 
 export type TabKey =
@@ -37,6 +38,7 @@ export type TabKey =
   | 'search'
   | 'todo'
   | 'tools'
+  | 'cementSteel'
   | 'settings'
 
 interface Props {
@@ -54,6 +56,8 @@ interface Props {
   onOfficeChange: (office: Office) => void
   /** Re-open the "What's New" dialog on demand (it otherwise only shows once, automatically, right after an update). */
   onShowWhatsNew: () => void
+  /** True while a newly-found Cement & Steel Rate circular hasn't been seen yet — blinks that nav item until it's opened. */
+  cementSteelHasNew?: boolean
 }
 
 interface Item {
@@ -63,6 +67,7 @@ interface Item {
   badge?: string | number
   warn?: boolean
   ok?: boolean
+  blink?: boolean
   tone?: 'green' | 'sky' | 'rose' | 'amber' | 'teal'
 }
 
@@ -173,6 +178,12 @@ export default function Sidebar(props: Props) {
       tone: 'teal'
     },
     {
+      key: 'cementSteel',
+      label: 'Cement & Steel Rates',
+      icon: <IconDoc />,
+      blink: props.cementSteelHasNew
+    },
+    {
       key: 'settings',
       label: 'Settings',
       icon: <IconSettings />
@@ -205,7 +216,7 @@ export default function Sidebar(props: Props) {
         {items.map((it, i) => (
           <button
             key={it.key}
-            className={`nav-item ${props.active === it.key ? 'on' : ''} ${it.tone ? `tone-${it.tone}` : ''}`}
+            className={`nav-item ${props.active === it.key ? 'on' : ''} ${it.tone ? `tone-${it.tone}` : ''} ${it.blink ? 'nav-item-blink' : ''}`}
             onClick={() => props.onSelect(it.key)}
             onDoubleClick={() => props.onReset(it.key)}
             title="Click to switch (work continues in the background); double-click to close all workspaces and start fresh"
@@ -215,7 +226,9 @@ export default function Sidebar(props: Props) {
             <span className="nav-text">
               <span className="nav-label">{it.label}</span>
             </span>
-            {it.warn ? (
+            {it.blink ? (
+              <span className="nav-badge-dot" aria-label="New" />
+            ) : it.warn ? (
               <span className="nav-badge warn">
                 <IconWarn />
               </span>

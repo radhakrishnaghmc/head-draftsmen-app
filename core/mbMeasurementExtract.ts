@@ -84,6 +84,21 @@ export function generateRowBounds(start: number, pitch: number, bottomLimit: num
 }
 
 /**
+ * Leading numeric-looking token in an OCR'd No./L/B/D/Contents cell: a plain
+ * number, a "1x1"-style multiplier, or a dash placeholder. Cells in this
+ * column group that DON'T start with one of these (e.g. "pwell", "CeoL") are
+ * OCR noise hallucinated from a blank or near-blank crop — general OCR
+ * models tend to produce plausible-looking text rather than nothing when fed
+ * paper grain/shadow — and are dropped rather than shown as fabricated data.
+ */
+const LEADING_NUMERIC_TOKEN = /^\s*([0-9]+(?:\.[0-9]+)?(?:\s*[xX×]\s*[0-9]+(?:\.[0-9]+)?)?|[—–-])/
+
+export function extractNumericToken(raw: string): string {
+  const m = raw.match(LEADING_NUMERIC_TOKEN)
+  return m ? m[1].replace(/\s+/g, '') : ''
+}
+
+/**
  * Split a raw L/B/D cell's text into up to 3 values. Multiple stacked
  * measurements in one cell (e.g. a wall measured in 3 segments) come through
  * as separate lines/segments from OCR; a single measurement lands in the
@@ -92,7 +107,7 @@ export function generateRowBounds(start: number, pitch: number, bottomLimit: num
 export function splitMultiValue(raw: string): [string, string, string] {
   const parts = raw
     .split(/\r?\n|[,;]/)
-    .map((s) => normalizeNumericCell(s))
+    .map((s) => extractNumericToken(normalizeNumericCell(s)))
     .filter((s) => s.length > 0)
   return [parts[0] ?? '', parts[1] ?? '', parts[2] ?? '']
 }
@@ -104,16 +119,39 @@ export function normalizeNumericCell(raw: string): string {
   return s.replace(/[、;]/g, '.').replace(/:/g, '.')
 }
 
+/**
+ * The "D" (depth) column on this form is often filled as the average of two
+ * readings, written as a small handwritten fraction: numerator "a+b" over a
+ * denominator on the next line (e.g. "0.40+0.40" over "2"). OCR returns the
+ * two lines in top-to-bottom order; this recognizes that shape and resolves
+ * it to the averaged value instead of the fraction being torn apart into two
+ * unrelated readings by splitMultiValue.
+ */
+export function resolveAverageFraction(raw: string): string | undefined {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+  if (lines.length !== 2) return undefined
+  const sumMatch = lines[0].replace(/\s+/g, '').match(/^(\d+(?:\.\d+)?)\+(\d+(?:\.\d+)?)$/)
+  const denominator = Number(lines[1])
+  if (!sumMatch || !Number.isFinite(denominator) || denominator <= 0) return undefined
+  const average = (Number(sumMatch[1]) + Number(sumMatch[2])) / denominator
+  return String(Math.round(average * 100) / 100)
+}
+
 /** cells columns must follow MB_MEASUREMENT_COLUMNS order: [date, description, no, l, b, d, contents]. */
 export function buildMbMeasurementRows(grid: string[][]): MbMeasurementRow[] {
   return grid.map((cells) => {
+    const dRaw = cells[5] ?? ''
+    const averagedDepth = resolveAverageFraction(dRaw)
     const [l1, l2, l3] = splitMultiValue(cells[3] ?? '')
     const [b1, b2, b3] = splitMultiValue(cells[4] ?? '')
-    const [d1, d2, d3] = splitMultiValue(cells[5] ?? '')
+    const [d1, d2, d3] = averagedDepth !== undefined ? [averagedDepth, '', ''] : splitMultiValue(dRaw)
     return {
       date: (cells[0] ?? '').trim(),
       description: (cells[1] ?? '').trim(),
-      no: normalizeNumericCell(cells[2] ?? ''),
+      no: extractNumericToken(normalizeNumericCell(cells[2] ?? '')),
       l1,
       l2,
       l3,
@@ -123,7 +161,7 @@ export function buildMbMeasurementRows(grid: string[][]): MbMeasurementRow[] {
       d1,
       d2,
       d3,
-      contents: normalizeNumericCell(cells[6] ?? '')
+      contents: extractNumericToken(normalizeNumericCell(cells[6] ?? ''))
     }
   })
 }
