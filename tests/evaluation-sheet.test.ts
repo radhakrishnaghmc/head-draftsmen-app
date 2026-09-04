@@ -119,4 +119,20 @@ describe('buildEvaluationSheet', () => {
     expect(String(ws.getCell('B21').value)).toBe('Remarks')
     expect(ws.getCell('C21').value).toBeNull() // Remarks blank under each bidder
   })
+
+  it('sizes the Name of Work row to fit long text instead of clipping it', async () => {
+    const shortWs = await load(await buildEvaluationSheet(input))
+    const shortHeight = shortWs.getRow(3).height ?? 0
+
+    const longWs = await load(
+      await buildEvaluationSheet({
+        ...input,
+        workLine: 'Name of the work: ' + 'A very long work name that wraps across several lines '.repeat(5) + 'ecv: 1723159.00'
+      })
+    )
+    const longHeight = longWs.getRow(3).height ?? 0
+
+    expect(shortHeight).toBeGreaterThan(0)
+    expect(longHeight).toBeGreaterThan(shortHeight)
+  })
 })

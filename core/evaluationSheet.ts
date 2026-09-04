@@ -70,6 +70,21 @@ export function columnLetter(n: number): string {
 const THIN = { style: 'thin' as const }
 const ALL_BORDERS = { top: THIN, left: THIN, bottom: THIN, right: THIN }
 
+// Rough Excel-column-width-unit-to-character conversion for Book Antiqua
+// 11pt, used only to pick a row height tall enough to show the wrapped Name
+// of Work banner in full — same technique as estimateTemplate.ts's
+// wrappedRowHeight, since exceljs never auto-fits a merged, wrapped cell's
+// row height (and neither does every consuming spreadsheet application, e.g.
+// Google Sheets), so it has to be computed and set explicitly here.
+const CHARS_PER_WIDTH_UNIT = 1.6
+const LINE_HEIGHT_POINTS = 14
+
+function wrappedRowHeight(text: string, mergedWidthUnits: number): number {
+  const charsPerLine = Math.max(10, Math.floor(mergedWidthUnits * CHARS_PER_WIDTH_UNIT))
+  const lines = Math.max(1, Math.ceil(text.length / charsPerLine))
+  return lines * LINE_HEIGHT_POINTS + 4
+}
+
 /**
  * Build the Evaluation Sheet workbook and return its .xlsx bytes.
  * Deterministic: the same input always produces the same sheet.
@@ -99,6 +114,10 @@ export async function buildEvaluationSheet(input: EvaluationSheetInput): Promise
   banner(R_TITLE, 'TENDER DETAILS', 12)
   banner(R_NIT, input.nitLine, 11)
   banner(R_WORK, input.workLine, 11)
+  // Name of Work is often long enough to wrap several lines — size the row
+  // to fit it instead of leaving exceljs's default height, which clips it.
+  const tableWidthUnits = 5 + 58 + (nCols - 2) * 20
+  ws.getRow(R_WORK).height = wrappedRowHeight(input.workLine, tableWidthUnits)
 
   // Header row: Sl. No | Requirements | <bidder names>.
   const headerCells = ['Sl. No.', 'Requirements as per Tender conditions', ...bidders]
