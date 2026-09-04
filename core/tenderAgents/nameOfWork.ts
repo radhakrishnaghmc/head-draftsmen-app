@@ -65,6 +65,13 @@ function isFieldLabelLine(line: string): boolean {
  *   Circle-58, Quthbullapur Zone CMC) (Reserved for SC)         <- value part 2
  *   Works Percentage                                            <- next field
  *
+ * A third, rarer layout wraps the label into the *middle* of the value's
+ * own line, with the label's line carrying value part 2 rather than nothing:
+ *
+ *   Temporary lighting with 120W LED lamps at various lakes and ponds   <- value part 1
+ *   Name of Work surroundings in Jeedimetla Circle-55, Pariki cheruvu   <- label + value part 2
+ *   in Gajularamaram-57 Quthbullapur Zone CMC (as per field req dates)  <- value part 3
+ *
  * A single-line regex captures only the part after the label, dropping the
  * first line — producing a fragment that then mis-matches a different work.
  * So: take any text after the label on its line, else the value line just
@@ -76,14 +83,16 @@ function extractFromLabelBlock(lines: string[]): string | undefined {
 
   const parts: string[] = []
   const after = lines[li].replace(/^.*?name of work\s*/i, '').trim()
-  if (after) {
-    parts.push(after)
-  } else {
-    // Label alone: the value's first part wraps ABOVE the label. Collect EVERY
-    // preceding value line (a long title routinely spans two or more), walking
-    // up until the previous field label (e.g. "Notice Number") or a boundary —
-    // not just the single line immediately above, which used to drop the title
-    // and leave only its "…under Municipal General Funds…" tail.
+  // A lowercase first letter means `after` is mid-sentence — the value's
+  // opening words wrapped onto the line ABOVE the label (the third layout
+  // above), not a fresh title starting right at the label. A real work name
+  // starts capitalized, so this never misfires on the plain single-line case.
+  if (!after || /^[a-z]/.test(after)) {
+    // Collect EVERY preceding value line (a long title routinely spans two or
+    // more), walking up until the previous field label (e.g. "Notice Number")
+    // or a boundary — not just the single line immediately above, which used
+    // to drop the title and leave only its "…under Municipal General Funds…"
+    // tail.
     const above: string[] = []
     for (let j = li - 1; j >= 0; j--) {
       const t = (lines[j] ?? '').trim()
@@ -94,6 +103,7 @@ function extractFromLabelBlock(lines: string[]): string | undefined {
     above.reverse()
     parts.push(...above)
   }
+  if (after) parts.push(after)
   for (let j = li + 1; j < lines.length; j++) {
     const t = lines[j].trim()
     if (!t) continue

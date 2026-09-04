@@ -439,3 +439,40 @@ describe('tender agents — a second office with a structurally different NIT fo
     expect(r.agencyNames).toEqual([])
   })
 })
+
+describe('tender agents — Name of Work wraps around the label on BOTH sides (real Nizampet-58 NIT.21 View Bidders page)', () => {
+  // The label lands mid-value, with value text both before it (previous
+  // line) AND after it on its own line — a third layout distinct from
+  // "label alone" and "label+value all on one line" (see nameOfWork.ts's
+  // extractFromLabelBlock doc comment). Previously the "after" text alone
+  // was returned, silently dropping the whole first line of the title.
+  const VIEW_BIDDERS_LINES = [
+    'Welcome to mc-mplty-nzpt Profile | Training Manuals | Logout',
+    'Dashboard Indent Management Tender Creation Tender Evaluation LOA',
+    'Evaluation Stages',
+    'Current Tender Details',
+    'Enquiry/IFB/Tender',
+    '21/6/DB/EE/Nizampet Circle-58/CMC/2026-',
+    '729766',
+    'Tender ID',
+    '27,Dated 29.08.2026',
+    'Notice Number',
+    'Temporary lighting with 120W LED lamps at various lakes and ponds in chintal-54, Jeedimetla-55 and Vennelagadda Cheruvu',
+    'Name of Work surroundings in Jeedimetla Circle-55, Pariki cheruvu in Gajularamaram-57 Quthbullapur Zone CMC on the occasion of Ganesh',
+    'immersion for F/y 2026 (as per field requirement dates).',
+    'Tender Category Works Tender Evaluation Type Percentage',
+    'Estimated Contract',
+    'Tender Type OPEN - NCB 534805.00',
+    'Value',
+    'Bid Submission Start Bid Submission Closing',
+    '31/08/2026 08:00 PM 03/09/2026 05:30 PM',
+    'Date & Time Date'
+  ]
+
+  it('reassembles all three parts of the title, not just the text after the label', () => {
+    const r = runTenderAgents(VIEW_BIDDERS_LINES)
+    expect(r.nameOfWork).toBe(
+      'Temporary lighting with 120W LED lamps at various lakes and ponds in chintal-54, Jeedimetla-55 and Vennelagadda Cheruvu surroundings in Jeedimetla Circle-55, Pariki cheruvu in Gajularamaram-57 Quthbullapur Zone CMC on the occasion of Ganesh immersion for F/y 2026 (as per field requirement dates).'
+    )
+  })
+})
