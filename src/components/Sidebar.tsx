@@ -22,10 +22,12 @@ import {
   IconTools,
   IconSettings,
   IconWhatsApp,
-  IconDoc
+  IconDoc,
+  IconGrid
 } from './Icons'
 
 export type TabKey =
+  | 'overview'
   | 'dashboard'
   | 'data'
   | 'printDoc'
@@ -108,6 +110,11 @@ export default function Sidebar(props: Props) {
   }
 
   const items: Item[] = [
+    {
+      key: 'overview',
+      label: 'Dashboard',
+      icon: <IconGrid />
+    },
     {
       key: 'data',
       label: 'Works List',

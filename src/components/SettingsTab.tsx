@@ -397,14 +397,14 @@ function ActiveDevicesCard() {
 }
 
 /**
- * Settings — "Themes": lets a user try the flat/solid-color Issue Documents
- * tile style ("Test theme 1", built as the .doc-tile-flat CSS variant) side
- * by side with the original thumbnail tiles ("Default"), and switch back at
- * any time. A static mock tile (not a real DocThumbnail render) — this card
- * doesn't have a real .docx on hand to render, and the point here is
- * comparing the two tile *styles*, not previewing actual document content.
- * This is a display preference for this machine, not office data, so it's
- * stored in localStorage only (see theme.ts) rather than office-scoped.
+ * Settings — "Themes": lets a user try the Aurora restyle of the Issue
+ * Documents tiles side by side with the original thumbnail tiles
+ * ("Default"), and switch back at any time. A static mock tile (not a real
+ * DocThumbnail render) — this card doesn't have a real .docx on hand to
+ * render, and the point here is comparing the two tile *styles*, not
+ * previewing actual document content. This is a display preference for
+ * this machine, not office data, so it's stored in localStorage only (see
+ * theme.ts) rather than office-scoped.
  */
 function ThemeSection({ theme, onThemeChange }: { theme: ThemeId; onThemeChange: (theme: ThemeId) => void }) {
   return (
@@ -426,24 +426,8 @@ function ThemeSection({ theme, onThemeChange }: { theme: ThemeId; onThemeChange:
             title={`Use "${opt.label}" for Issue Documents tiles`}
           >
             <div className="wo-tile-preview settings-theme-preview">
-              <div
-                className={`doc-tile-card tone-sky settings-theme-mock ${
-                  opt.id === 'flat1'
-                    ? 'doc-tile-flat'
-                    : opt.id === 'windows'
-                      ? 'settings-theme-mock-windows'
-                      : opt.id === 'dark'
-                        ? 'settings-theme-mock-dark'
-                        : ''
-                }`}
-              >
-                {opt.id === 'flat1' ? (
-                  <span className="doc-tile-flat-thumb">
-                    <span className="settings-theme-mock-thumb" />
-                  </span>
-                ) : (
-                  <span className="settings-theme-mock-thumb" />
-                )}
+              <div className="doc-tile-card tone-sky settings-theme-mock">
+                <span className="settings-theme-mock-thumb" />
                 <span className="doc-tile-card-name">Sample Document</span>
                 <span className="doc-tile-card-meta">Added 01.01.2026</span>
               </div>

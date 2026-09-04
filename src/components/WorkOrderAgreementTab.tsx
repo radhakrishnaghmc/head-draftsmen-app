@@ -55,7 +55,6 @@ import {
 } from './docPage'
 import { renderAsync } from '../lazyDocxPreview'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconCheck, IconClipboard, IconTable } from './Icons'
-import type { ThemeId } from '../theme'
 
 interface Props {
   tables: ExcelTable[]
@@ -110,8 +109,6 @@ interface Props {
    * instead of buried in the body below several upload/field sections.
    */
   headerActionRef?: RefObject<HTMLDivElement | null>
-  /** Issue Documents tile style, set in Settings → Themes (see theme.ts) — applied to this page's output tiles too. */
-  theme: ThemeId
 }
 
 function stripExt(name: string): string {
@@ -315,8 +312,7 @@ export default function WorkOrderAgreementTab({
   onContent,
   zoneLogin = false,
   office,
-  headerActionRef,
-  theme
+  headerActionRef
 }: Props) {
   const standalone = standaloneProp || scheduleAOnly || !!only
   const table = tables[0] ?? null
@@ -2056,7 +2052,7 @@ export default function WorkOrderAgreementTab({
             </div>
           )}
           {!headerMounted && headerActions}
-          <div className={`wo-tiles${theme === 'flat1' ? ' wo-tiles-flat' : ''}`}>
+          <div className="wo-tiles">
           {/* Order (main tab): File Backer, Note Submitted, Forwarding Slip,
               Agreement Bond, Schedule A, Work Order, Tender Document, QCC
               Intimation. The Tools single-document panels (`only`) still show

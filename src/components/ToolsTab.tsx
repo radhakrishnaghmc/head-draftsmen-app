@@ -18,7 +18,6 @@ import { circlesOf, corporationByName } from '../zoneCircleDirectory'
 import type { CreatedDocument, ExcelTable } from '@core/types'
 import type { Office } from '../office'
 import { closeOnBackdropMouseDown } from '../overlayClose'
-import type { ThemeId } from '../theme'
 
 // Tones cycled across the document tiles so the row of blank-form tiles reads
 // like the rest of the frosted-glass grid.
@@ -73,8 +72,6 @@ interface Props {
    * empty (Zone/Circle already baked in, other placeholders left to hand-fill),
    * regardless of the selected office. */
   documents?: CreatedDocument[]
-  /** Issue Documents tile style, set in Settings → Themes (see theme.ts) — applied to this grid too, so the whole app's tiles match. */
-  theme: ThemeId
 }
 
 /**
@@ -83,7 +80,7 @@ interface Props {
  * panels below. Today: the Excel Sheet Separator, and reading an estimate from
  * photos / a scanned PDF. New tools slot in as additional tiles or panels.
  */
-export default function ToolsTab({ tables, onChange, office, documents = [], theme }: Props) {
+export default function ToolsTab({ tables, onChange, office, documents = [] }: Props) {
   // Off-screen holder the docx is rendered into before it's handed to the OS
   // print dialog — printCreatedDocument needs plain HTML, not a docx buffer.
   const printScratchRef = useRef<HTMLDivElement>(null)
@@ -196,12 +193,12 @@ export default function ToolsTab({ tables, onChange, office, documents = [], the
       workOrder: {
         icon: <IconClipboard />,
         label: 'Work Order',
-        body: <WorkOrderAgreementTab standalone only="workOrder" tables={[]} onChange={() => {}} office={office} theme={theme} />
+        body: <WorkOrderAgreementTab standalone only="workOrder" tables={[]} onChange={() => {}} office={office} />
       },
       agreement: {
         icon: <IconClipboard />,
         label: 'Agreement Bond',
-        body: <WorkOrderAgreementTab standalone only="agreement" tables={[]} onChange={() => {}} office={office} theme={theme} />
+        body: <WorkOrderAgreementTab standalone only="agreement" tables={[]} onChange={() => {}} office={office} />
       },
       intimation: {
         icon: <IconBell />,
@@ -213,7 +210,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [], the
         label: 'Schedule A',
         // No autoOpen: open the workspace first (with its upload button), like
         // the other file tools, instead of popping the file dialog immediately.
-        body: <WorkOrderAgreementTab scheduleAOnly onContent={() => {}} tables={tables} onChange={() => {}} theme={theme} />
+        body: <WorkOrderAgreementTab scheduleAOnly onContent={() => {}} tables={tables} onChange={() => {}} />
       },
       electrical: {
         icon: <IconBolt />,
@@ -242,7 +239,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [], the
 
   return (
     <div className="card">
-      <div className={`doc-tile-grid tools-grid${theme === 'flat1' ? ' tools-grid-flat' : ''}`}>
+      <div className="doc-tile-grid tools-grid">
         <button className="doc-tile-card tone-teal tool-card" onClick={() => openFullPage('excel')}>
           <span className="tool-card-ic">
             <IconTable />

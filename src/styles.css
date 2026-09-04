@@ -102,150 +102,55 @@
     'Helvetica Neue', sans-serif;
 }
 
-/* Windows theme (Settings → Themes) — flat, sharp-cornered surfaces styled
-   after the Windows 11 Settings app: light-gray flat fills, thin hairline
-   borders, small corner radii, no glass blur. Scoped to body.theme-windows
-   (toggled in App.tsx) rather than a container class so it reaches the
-   whole app in one place, including elements that render outside .shell
-   (Skyline/UpdateBanner/ProfileMenu) and portaled modals on document.body.
-   Most of the app already reads these same tokens for its surfaces/borders/
-   shadows/radii, so overriding them here is enough to flatten the bulk of
-   the UI; components below (sidebar, nav, buttons, tiles) hardcode their own
-   colors/shapes instead of using the tokens and get explicit overrides. */
-body.theme-windows {
-  --bg-grad-a: #f3f3f3;
-  --bg-grad-b: #f3f3f3;
-  --surface: #ffffff;
-  --surface-2: #f6f6f6;
-  --border: #e5e5e5;
-  --border-strong: #d6d6d6;
-  --glass-blur: none;
-  --radius: 8px;
-  --radius-sm: 6px;
-  --radius-pill: 6px;
-  --shadow-sm: 0 0 0 1px rgba(0, 0, 0, 0.03);
-  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.14);
-  --shadow-glow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
+/* Aurora theme (Settings → Themes) — a light, lavender-and-purple palette
+   inspired by modern SaaS analytics dashboards: a vivid purple interactive
+   accent, soft pastel tones (mint/coral/peach/lavender) for the app's
+   existing tone-coded tiles and badges, and a near-white lavender
+   background in place of the tricolour wash. Shapes/blur/radii are left at
+   Default's values (fully-rounded pills, frosted glass) — this is a
+   palette swap like TG, not a shape restyle like Windows. */
+body.theme-aurora {
+  --indigo-50: #f5f2fe;
+  --indigo-100: #e9e2fc;
+  --indigo-200: #cdbdf7;
+  --indigo-500: #7c5cf4; /* primary purple accent */
+  --indigo-600: #6440e0; /* deeper purple — solid accent fills / accent text */
+  --indigo-700: #4c2db3; /* darkest purple — accent text / hairlines */
+  --violet-500: #b39dff; /* lighter violet — gradient partner for two-tone CTAs */
+  --chakra: #4527a8;
+  --sky-100: #eef0fe;
+  --sky-500: #7c8cf8; /* periwinkle */
+  --teal-500: #14b8a6;
+  --teal-100: #e1faf5;
+  --rose-500: #fb6f92; /* coral pink */
+  --rose-100: #ffe9ef;
+  --amber-500: #f5a94e; /* peach */
+  --amber-100: #fff2e0;
+  --green-bg: #e6faf0;
+  --orange-bg: #fff2e0;
 
-/* Dark mode (Settings → Themes) — Apple's iOS/iPadOS Dark Mode system
-   palette (Human Interface Guidelines system colors), not an inverted or
-   desaturated version of Default: true-black systemBackground, elevated
-   secondary/tertiary surfaces (systemGray6/5), systemBlue as the one
-   interactive accent (buttons, links, focus, "selected"), and each tone
-   category mapped onto its own iOS system color (systemGreen/Pink/Orange/
-   Teal) the way iOS itself color-codes Settings rows — so this reads as
-   "the app, reskinned as an iOS app" rather than a plain black-and-white
-   filter. --glass-blur is restored (not disabled like the Windows theme)
-   at iOS's own vibrancy recipe (saturate(180%) blur(20px)) since iOS
-   leans on frosted materials for bars/sidebars rather than flat fills.
-   Scoped to body.theme-dark (toggled in App.tsx), mutually exclusive with
-   body.theme-windows. */
-body.theme-dark {
-  --indigo-50: #1c1c1e;
-  --indigo-100: #2c2c2e;
-  --indigo-200: #3a3a3c;
-  --indigo-500: #0a84ff; /* systemBlue (dark) — the one interactive accent */
-  --indigo-600: #409cff;
-  --indigo-700: #70b8ff;
-  --violet-500: #5e5ce6; /* systemIndigo — gradient partner for two-tone CTAs */
-  --chakra: #0a84ff;
-  --sky-100: #1c1c1e;
-  --sky-500: #64d2ff; /* systemCyan */
-  --teal-500: #40c8e0; /* systemTeal */
-  --teal-100: #1c1c1e;
-  --rose-500: #ff375f; /* systemPink */
-  --rose-100: #1c1c1e;
-  --amber-500: #ff9f0a; /* systemOrange */
-  --amber-100: #1c1c1e;
-  --green-bg: #1c1c1e;
-  --orange-bg: #1c1c1e;
+  --bg-grad-a: #f8f7fd;
+  --bg-grad-b: #efeafd;
+  --surface: rgba(255, 255, 255, 0.86);
+  --surface-2: rgba(252, 250, 255, 0.7);
+  --border: rgba(108, 92, 231, 0.14);
+  --border-strong: rgba(108, 92, 231, 0.26);
 
-  --bg-grad-a: #000000; /* systemBackground */
-  --bg-grad-b: #000000;
-  --surface: #1c1c1e; /* secondarySystemBackground */
-  --surface-2: #2c2c2e; /* tertiarySystemBackground */
-  --border: rgba(84, 84, 88, 0.6); /* iOS separator */
-  --border-strong: rgba(120, 120, 124, 0.75);
-  --glass-blur: saturate(180%) blur(20px);
+  --text: #241b45;
+  --text-2: #59517f;
+  --muted: #8b84ab;
 
-  --text: #ffffff; /* label */
-  --text-2: rgba(235, 235, 245, 0.6); /* secondaryLabel */
-  --muted: rgba(235, 235, 245, 0.5);
+  --ok: #17a673;
+  --ok-bg: #e6faf0;
+  --warn: #e08a2e;
+  --warn-bg: #fff2e0;
+  --danger: #ef4360;
+  --danger-bg: #ffe9ef;
 
-  --ok: #30d158; /* systemGreen */
-  --ok-bg: rgba(48, 209, 88, 0.15);
-  --warn: #ff9f0a; /* systemOrange */
-  --warn-bg: rgba(255, 159, 10, 0.15);
-  --danger: #ff453a; /* systemRed */
-  --danger-bg: rgba(255, 69, 58, 0.15);
-
-  --shadow-sm: 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --shadow-md: 0 8px 20px -8px rgba(0, 0, 0, 0.6);
-  --shadow-lg: 0 24px 48px -16px rgba(0, 0, 0, 0.8);
-  --shadow-glow: 0 0 0 3px rgba(10, 132, 255, 0.35);
-}
-
-/* TG theme (Settings → Themes) — recolored to match the Telangana government
-   CMC portal (cmc.telangana.gov.in): deep navy (#05386f/#0e3a86) for solid
-   fills/text, its bright cyan-blue accent (#0092d3, the portal's nav-bar and
-   button color) as the one interactive accent, and its banner/widget-header
-   gradient partner purple (#6641b0) for two-tone CTAs — same recipe as the
-   government site's own cyan-to-purple gradient. Shapes/blur/radii are left
-   at Default's values (this is a palette swap, not a shape restyle like the
-   Windows theme); the handful of components that hardcode the tricolour
-   accent instead of reading these tokens (sidebar wash, workspace glow,
-   button.primary and its lookalikes, nav-item hover) get their own
-   overrides further down, right next to the rule they're recoloring. */
-body.theme-tg {
-  --indigo-50: #eaf4fb;
-  --indigo-100: #d6ebf7;
-  --indigo-200: #a8d6ef;
-  --indigo-500: #0092d3; /* CMC portal accent blue — the one interactive accent */
-  --indigo-600: #05386f; /* CMC navy — solid fills / accent text */
-  --indigo-700: #0e3a86; /* CMC heading navy — darkest accent text / hairlines */
-  --violet-500: #6641b0; /* CMC banner-gradient purple — gradient partner for two-tone CTAs */
-  --chakra: #013464; /* CMC nav-bar navy */
-  --sky-100: #eaf4fb;
-  --sky-500: #0092d3;
-  --teal-500: #0074b6;
-  --teal-100: #e3f2fa;
-  --rose-500: #ca3737;
-  --rose-100: #fbe9e9;
-  --amber-500: #ed8114;
-  --amber-100: #fdf0e0;
-  --green-bg: #eaf7ec;
-  --orange-bg: #fdf0e0;
-
-  --bg-grad-a: #f4f8fb;
-  --bg-grad-b: #eaf1f7;
-  --surface: rgba(255, 255, 255, 0.82);
-  --surface-2: rgba(250, 252, 254, 0.68);
-  --border: rgba(5, 56, 111, 0.14);
-  --border-strong: rgba(5, 56, 111, 0.24);
-
-  --text: #0e2233;
-  --text-2: #3d556b;
-  --muted: #6d8296;
-
-  --ok: #1c9a5b; /* CMC green */
-  --ok-bg: #eaf7ec;
-
-  --shadow-sm: 0 1px 2px rgba(5, 56, 111, 0.08);
-  --shadow-md: 0 4px 16px -6px rgba(5, 56, 111, 0.16), 0 2px 6px -3px rgba(5, 56, 111, 0.09);
-  --shadow-lg: 0 24px 48px -16px rgba(5, 56, 111, 0.26);
-  --shadow-glow: 0 8px 24px -6px rgba(0, 146, 211, 0.45);
-
-  /* The portal's own body font, and boxier, less-rounded corners — its
-     buttons/cards are Bootstrap-default rounded rectangles, not full
-     pills, so buttons/chips/inputs read like the government site's own
-     form controls instead of Default's fully-rounded pill shapes. */
-  --font: 'Cabin', 'Segoe UI Variable', 'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, Roboto,
-    'Helvetica Neue', sans-serif;
-  --radius: 14px;
-  --radius-sm: 10px;
-  --radius-pill: 10px;
+  --shadow-sm: 0 1px 2px rgba(76, 39, 168, 0.08);
+  --shadow-md: 0 4px 16px -6px rgba(76, 39, 168, 0.16), 0 2px 6px -3px rgba(76, 39, 168, 0.09);
+  --shadow-lg: 0 24px 48px -16px rgba(76, 39, 168, 0.26);
+  --shadow-glow: 0 8px 24px -6px rgba(124, 92, 244, 0.45);
 }
 
 * {
@@ -289,39 +194,23 @@ body::before {
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
 }
-/* Windows theme: flat Windows-gray fill, no tricolour glow blobs and no
-   grain texture, and no backdrop-filter blur anywhere in the app. */
-body.theme-windows {
-  background: var(--bg-grad-a);
-}
-body.theme-windows::before {
-  display: none;
-}
-body.theme-windows * {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
-/* Dark mode: flat true-black base (no tricolour glow blobs, no grain
-   texture) — but unlike the Windows theme, backdrop-filter blur is left
-   alone here: iOS leans on frosted "materials" for bars/sidebars/sheets,
-   so surfaces that already read var(--glass-blur) (now an iOS vibrancy
-   recipe, see the :root override above) should stay blurred. */
-body.theme-dark {
-  background: var(--bg-grad-a);
-}
-body.theme-dark::before {
-  display: none;
-}
 
-/* TG theme: swap the tricolour glow blobs for the CMC portal's own cyan-to-
-   purple wash (its banner/nav-bar gradient), keeping the grain texture and
-   the Charminar/Thousand Pillar Temple skyline art (this theme recolors,
-   it doesn't flatten). */
-body.theme-tg {
-  background: radial-gradient(1200px 700px at 100% -10%, rgba(0, 146, 211, 0.14), transparent 60%),
-    radial-gradient(900px 520px at -10% 110%, rgba(102, 65, 176, 0.1), transparent 55%),
-    radial-gradient(1000px 480px at 50% 100%, rgba(255, 255, 255, 0.5), transparent 60%),
+/* Aurora theme: swap the tricolour glow blobs for a soft purple/coral wash,
+   and drop the grain texture and the Charminar/temple skyline art — this
+   theme is a generic modern-SaaS look, not Telangana-branded, so the
+   Telangana decorative art doesn't belong (same call as Windows/Dark). */
+body.theme-aurora {
+  background: radial-gradient(1200px 700px at 10% -10%, rgba(124, 92, 244, 0.14), transparent 60%),
+    radial-gradient(900px 520px at 90% 10%, rgba(251, 111, 146, 0.1), transparent 55%),
+    radial-gradient(1000px 480px at 50% 100%, rgba(255, 255, 255, 0.6), transparent 60%),
     linear-gradient(180deg, var(--bg-grad-a), var(--bg-grad-b));
+}
+body.theme-aurora::before {
+  display: none;
+}
+body.theme-aurora .skyline-bg,
+body.theme-aurora .sidebar-art-bg {
+  display: none;
 }
 
 /* ---------- decorative background skyline ---------- */
@@ -416,7 +305,9 @@ body.theme-tg {
 
 .profile-menu {
   position: fixed;
-  top: 18px;
+  /* Matches .workspace's new 28px top padding, so the badge sits on the same
+     row as the page title and the sidebar's "Head Draughtsman" brand block. */
+  top: 28px;
   right: 24px;
   z-index: 15;
 }
@@ -478,8 +369,8 @@ body.theme-tg {
   background: rgba(255, 153, 51, 0.18);
   overflow: hidden;
 }
-body.theme-tg .update-progress-track {
-  background: rgba(0, 146, 211, 0.18);
+body.theme-aurora .update-progress-track {
+  background: rgba(124, 92, 244, 0.18);
 }
 .update-progress-fill {
   height: 100%;
@@ -590,41 +481,11 @@ code {
   -webkit-backdrop-filter: saturate(180%) blur(18px);
   border-right: 1px solid var(--border);
 }
-/* Windows theme: a flat light-gray Settings-style nav panel — no tricolour
-   tint, no blur, and no decorative art (the Charminar/temple skyline and the
-   Telangana Thalli statue don't belong in a Windows-Settings look). */
-body.theme-windows .sidebar {
-  background: #f3f3f3;
-}
-body.theme-windows .skyline-bg,
-body.theme-windows .sidebar-art-bg {
-  display: none;
-}
-/* Dark mode: no decorative art (doesn't belong in an iOS look) and a
-   translucent dark fill instead of the sidebar's hardcoded tricolour
-   gradient (not a token) — translucent, not flat, so the sidebar's own
-   backdrop-filter (already an iOS vibrancy blur, see .sidebar above) reads
-   as genuine frosted glass over the black base instead of a solid panel. */
-body.theme-dark .sidebar {
-  background: rgba(20, 20, 22, 0.78);
-}
-body.theme-dark .skyline-bg,
-body.theme-dark .sidebar-art-bg {
-  display: none;
-}
-/* TG theme: same vertical-band idea as Default, recolored to the CMC
-   portal's cyan/purple instead of the tricolour — decorative skyline art is
-   left visible (Telangana branding fits a Telangana-government theme). */
-body.theme-tg .sidebar {
-  background: linear-gradient(
-    180deg,
-    rgba(0, 146, 211, 0.16) 0%,
-    rgba(0, 146, 211, 0.07) 22%,
-    rgba(255, 255, 255, 0.92) 44%,
-    rgba(255, 255, 255, 0.92) 56%,
-    rgba(102, 65, 176, 0.07) 78%,
-    rgba(102, 65, 176, 0.17) 100%
-  );
+/* Aurora theme: a clean near-white sidebar with only a faint purple wash at
+   the top (matching the reference dashboard's plain-white sidebar) instead
+   of Default's full-height tricolour band. */
+body.theme-aurora .sidebar {
+  background: linear-gradient(180deg, rgba(124, 92, 244, 0.12) 0%, rgba(124, 92, 244, 0.04) 30%, rgba(255, 255, 255, 0.94) 55%, rgba(255, 255, 255, 0.94) 100%);
 }
 
 .side-brand {
@@ -639,8 +500,8 @@ body.theme-tg .sidebar {
   object-fit: contain;
   filter: drop-shadow(0 4px 10px rgba(255, 153, 51, 0.35));
 }
-body.theme-tg .side-brand .logo {
-  filter: drop-shadow(0 4px 10px rgba(0, 146, 211, 0.35));
+body.theme-aurora .side-brand .logo {
+  filter: drop-shadow(0 4px 10px rgba(124, 92, 244, 0.35));
 }
 .side-brand h1 {
   margin: 0;
@@ -648,13 +509,6 @@ body.theme-tg .side-brand .logo {
   font-weight: 750;
   letter-spacing: -0.02em;
   white-space: nowrap;
-}
-/* TG theme: the app's brand line reads in Ramabhadra, the same distinctive
-   display face the CMC portal uses for its own brand/heading text. */
-body.theme-tg .side-brand h1 {
-  font-family: 'Ramabhadra', var(--font);
-  font-weight: 400;
-  letter-spacing: 0;
 }
 .side-brand p {
   margin: 2px 0 0;
@@ -845,69 +699,8 @@ body.theme-tg .side-brand h1 {
   border-color: var(--border);
   box-shadow: 0 6px 16px -8px rgba(30, 41, 59, 0.4), var(--shadow-sm);
 }
-/* Windows theme: Settings-style nav rows — small-radius rectangles instead
-   of pills, a flat gray hover (no orange tint, no slide), and the selected
-   row picked out with a colored left accent bar instead of a shadow. */
-body.theme-windows .nav-item {
-  border-radius: 4px;
-}
-body.theme-windows .nav-item:hover {
-  background: rgba(0, 0, 0, 0.05);
-  transform: none;
-}
-body.theme-windows .nav-item.on {
-  position: relative;
-  background: #ffffff;
-  border-color: var(--border);
-  box-shadow: none;
-}
-/* Dark mode: iOS grouped-list-row nav — continuous rounded rows on the
-   dark palette, systemBlue left accent bar on the selected row (iOS's own
-   selection idiom), and a plain translucent-white hover in place of the
-   default's hardcoded saffron tint (not a token). */
-body.theme-dark .nav-item {
-  border-radius: 10px;
-}
-body.theme-dark .nav-item:hover {
-  background: rgba(255, 255, 255, 0.06);
-  transform: none;
-}
-body.theme-dark .nav-item.on {
-  position: relative;
-  background: var(--surface);
-  border-color: var(--border);
-  box-shadow: none;
-}
-body.theme-dark .nav-item.on::before {
-  content: '';
-  position: absolute;
-  left: -8px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 18px;
-  border-radius: 2px;
-  background: var(--indigo-500);
-}
-body.theme-windows .nav-item.on::before {
-  content: '';
-  position: absolute;
-  left: -8px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 18px;
-  border-radius: 2px;
-  background: var(--tone-a, var(--indigo-500));
-}
-/* TG theme: same shadow/lift as Default, but the CMC portal's boxier
-   rounded-rectangle shape instead of a full pill, and the hardcoded
-   saffron hover tint swapped for the portal's accent blue. */
-body.theme-tg .nav-item {
-  border-radius: 8px;
-}
-body.theme-tg .nav-item:hover {
-  background: rgba(0, 146, 211, 0.1);
+body.theme-aurora .nav-item:hover {
+  background: rgba(124, 92, 244, 0.1);
 }
 
 .nav-step {
@@ -1165,17 +958,23 @@ body.theme-tg .nav-item:hover {
   min-width: 0;
   height: 100vh;
   overflow: hidden;
-  padding: 68px 44px 80px;
+  /* Top matches .sidebar's 22px + .side-brand's 6px so the page title, the
+     "Head Draughtsman" brand block and the fixed .profile-menu badge all
+     read as one top row instead of a staircase. Right is wider than left so
+     a page-head's right-aligned actions (e.g. Add Task/Import Data) clear
+     the profile badge (fixed, right: 24px, 38px wide) instead of running
+     under it now that the row sits this high. */
+  padding: 28px 70px 80px 44px;
   background: radial-gradient(900px 520px at 12% 0%, rgba(255, 153, 51, 0.22), transparent 60%),
     radial-gradient(820px 480px at 88% 15%, rgba(255, 255, 255, 0.5), transparent 55%),
     radial-gradient(760px 460px at 95% 75%, rgba(19, 136, 8, 0.14), transparent 55%),
     radial-gradient(1000px 620px at 30% 100%, rgba(19, 136, 8, 0.16), transparent 60%);
 }
-body.theme-tg .workspace {
-  background: radial-gradient(900px 520px at 12% 0%, rgba(0, 146, 211, 0.2), transparent 60%),
+body.theme-aurora .workspace {
+  background: radial-gradient(900px 520px at 12% 0%, rgba(124, 92, 244, 0.18), transparent 60%),
     radial-gradient(820px 480px at 88% 15%, rgba(255, 255, 255, 0.5), transparent 55%),
-    radial-gradient(760px 460px at 95% 75%, rgba(102, 65, 176, 0.13), transparent 55%),
-    radial-gradient(1000px 620px at 30% 100%, rgba(102, 65, 176, 0.15), transparent 60%);
+    radial-gradient(760px 460px at 95% 75%, rgba(251, 111, 146, 0.12), transparent 55%),
+    radial-gradient(1000px 620px at 30% 100%, rgba(245, 169, 78, 0.12), transparent 60%);
 }
 
 /* KeepAlive's wrapper (App.tsx) — fills the workspace's content box so the
@@ -1185,7 +984,7 @@ body.theme-tg .workspace {
 }
 
 .page {
-  /* No width cap: every tab fills the workspace to its 44px side padding, so the
+  /* No width cap: every tab fills the workspace to its side padding, so the
      left/right gap is uniform across all tabs (page and page.wide alike). */
   max-width: none;
   margin: 0 auto;
@@ -1222,7 +1021,21 @@ body.theme-tg .workspace {
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-bottom: 2px;
+  /* A plain positive margin (no padding/negative-margin cancellation trick,
+     see .page-head::before) so this participates in .page's flex gap like
+     any normal item — its reserved space always matches its real content
+     height, even right after a resize reflows the title/subtitle onto more
+     lines. The old trick (equal padding + negative margin on both sides)
+     computed the same *steady-state* gap, but position:sticky elements can
+     momentarily under-report their box size to layout when their content
+     height changes size while already stuck (a Chromium sticky-reflow
+     quirk) — the negative margin then briefly overlapped the row below
+     until the next reflow. Keeping the box's own margin/padding simple
+     removes that failure mode. .page's own 20px flex gap already applies on
+     top of this, so 8px here lands the total visible gap around 28px —
+     comfortably more than the old ~20px so a page-head that's briefly a row
+     taller (title/subtitle wraps) never reads as touching the row below. */
+  margin-bottom: 8px;
   /* Stuck to the top of .page (its scrolling ancestor — .workspace itself
      doesn't scroll) so the page title/action stays in place while everything
      below it scrolls, instead of the whole page — including the title —
@@ -1230,13 +1043,45 @@ body.theme-tg .workspace {
   position: sticky;
   top: 0;
   z-index: 5;
-  background: var(--bg-grad-a);
-  /* padding is fully offset by matching negative margins on both sides — it
-     only exists to give the sticky background a bit of breathing room while
-     stuck, not to add net vertical space (that regressed every page's
-     spacing when only the top side was offset). */
-  padding: 14px 0;
-  margin: -14px 0;
+}
+/* The sticky background, decoupled from .page-head's own box so it can
+   bleed 14px above the title (covering content scrolling up underneath)
+   without that bleed being part of .page-head's flex sizing — see the
+   .page-head margin comment above. Translucent + blurred, not a flat fill —
+   a flat color sat as a visibly different-toned rectangle over .workspace's
+   radial-gradient blobs (sharpest in the aurora theme), reading as a stray
+   glare/patch right where the sticky header's edge met the hero card below.
+   Blending with whatever's behind removes that seam in every theme. */
+.page-head::before {
+  content: '';
+  position: absolute;
+  top: -14px;
+  left: 0;
+  right: 0;
+  height: 14px;
+  z-index: -1;
+  background: var(--surface);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+/* The rounded, visible card lives here, not on ::before. ::before is now
+   just the 14px bleed strip itself (not a full-height duplicate of this
+   layer) — it used to extend all the way to bottom:0, which meant it sat
+   as an unrounded, same-colored layer directly behind this one, silently
+   defeating its border-radius (cutting a rounded corner off ::after just
+   revealed another square corner of ::before underneath, not the page's
+   actual background). Shrinking ::before to only the strip above this
+   box's real top edge — the part .page's own overflow-clip line hides in
+   the first place — lets this layer's corners actually show. */
+.page-head::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--surface);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: var(--radius);
 }
 .page-head-action {
   margin-left: auto;
@@ -1540,17 +1385,6 @@ button {
   box-shadow: none;
   transition: background 0.15s var(--ease), border-color 0.15s var(--ease), color 0.15s var(--ease);
 }
-/* Windows theme: Settings-style buttons are small rounded rectangles, not
-   pills — every button app-wide shares this shape, same as the pill rule
-   above does for Default. */
-body.theme-windows button {
-  border-radius: 4px;
-}
-/* TG theme: Bootstrap-default rounded rectangles, like the CMC portal's own
-   buttons, instead of Default's full pill. */
-body.theme-tg button {
-  border-radius: 8px;
-}
 button:hover:not(:disabled) {
   background: var(--surface-2);
   border-color: var(--muted);
@@ -1586,20 +1420,19 @@ button.primary:hover:not(:disabled) {
 button.primary:active:not(:disabled) {
   background: #c3e2bf;
 }
-/* TG theme: same flat pale-fill pill, recolored to the CMC portal's blue
-   instead of the hardcoded India-green (not a token, so it needs its own
-   override — same treatment as the sidebar's tricolour wash above). */
-body.theme-tg button.primary {
-  background: #d6ecf8;
-  color: #0a2e4a;
-  border-color: rgba(0, 146, 211, 0.32);
+/* Aurora theme: same flat pale-fill pill, recolored to the theme's purple
+   accent instead of the hardcoded India-green. */
+body.theme-aurora button.primary {
+  background: #e9e2fc;
+  color: #2f1f66;
+  border-color: rgba(124, 92, 244, 0.32);
 }
-body.theme-tg button.primary:hover:not(:disabled) {
-  background: #c3e2f2;
-  border-color: rgba(0, 146, 211, 0.45);
+body.theme-aurora button.primary:hover:not(:disabled) {
+  background: #dccffa;
+  border-color: rgba(124, 92, 244, 0.45);
 }
-body.theme-tg button.primary:active:not(:disabled) {
-  background: #b0d8ec;
+body.theme-aurora button.primary:active:not(:disabled) {
+  background: #cdbdf7;
 }
 
 button.ghost {
@@ -1795,13 +1628,13 @@ button.danger-ghost:hover:not(:disabled) {
     rgba(255, 153, 51, 0.04) 20px
   );
 }
-body.theme-tg .empty {
+body.theme-aurora .empty {
   background: repeating-linear-gradient(
     45deg,
     transparent,
     transparent 10px,
-    rgba(0, 146, 211, 0.04) 10px,
-    rgba(0, 146, 211, 0.04) 20px
+    rgba(124, 92, 244, 0.04) 10px,
+    rgba(124, 92, 244, 0.04) 20px
   );
 }
 .empty svg {
@@ -2977,8 +2810,8 @@ button.upload-btn {
   opacity: 0;
   transition: opacity 0.15s var(--ease);
 }
-body.theme-tg .wo-tile-open {
-  background: linear-gradient(to top, rgba(5, 56, 111, 0.92), rgba(5, 56, 111, 0));
+body.theme-aurora .wo-tile-open {
+  background: linear-gradient(to top, rgba(76, 39, 168, 0.92), rgba(76, 39, 168, 0));
 }
 .wo-tile:hover .wo-tile-open {
   opacity: 1;
@@ -2989,48 +2822,6 @@ body.theme-tg .wo-tile-open {
   font-weight: 650;
   color: var(--text);
   text-align: center;
-}
-/* Test theme 1's flat, solid-color look, carried over to the "output
-   document" tiles (Give Intimation, Agreement and Work Order, Issue
-   Notices — anywhere a .wo-tiles grid shows a live docx render, not just
-   Issue Documents/Tools' .doc-tile-card grid). These already show the real
-   document — the live render itself IS the "live tile" here, so unlike
-   .doc-tile-flat this doesn't touch .wo-tile-preview's size or padding at
-   all (kept identical to Default on request) — only the border/shadow and
-   the name footer switch to solid tone color, cycling the same 6 tones as
-   the doc-tile-card grid by position among the tiles actually rendered. */
-.wo-tiles-flat .wo-tile {
-  border: none;
-  box-shadow: 0 10px 22px -9px color-mix(in srgb, var(--tone-a, var(--indigo-500)) 55%, transparent);
-}
-.wo-tiles-flat .wo-tile:hover {
-  box-shadow: 0 16px 32px -10px color-mix(in srgb, var(--tone-a, var(--indigo-500)) 68%, transparent);
-}
-.wo-tiles-flat .wo-tile-preview {
-  border-bottom: none;
-}
-.wo-tiles-flat .wo-tile-foot {
-  background: var(--tone-a, var(--indigo-500));
-  color: #fff;
-  font-weight: 750;
-}
-.wo-tiles-flat .wo-tile:nth-of-type(6n + 1) {
-  --tone-a: var(--indigo-500);
-}
-.wo-tiles-flat .wo-tile:nth-of-type(6n + 2) {
-  --tone-a: var(--sky-500);
-}
-.wo-tiles-flat .wo-tile:nth-of-type(6n + 3) {
-  --tone-a: var(--rose-500);
-}
-.wo-tiles-flat .wo-tile:nth-of-type(6n + 4) {
-  --tone-a: var(--amber-500);
-}
-.wo-tiles-flat .wo-tile:nth-of-type(6n + 5) {
-  --tone-a: var(--teal-500);
-}
-.wo-tiles-flat .wo-tile:nth-of-type(6n + 6) {
-  --tone-a: var(--ok);
 }
 
 /* ---------- work order & agreement: expanded modal ---------- */
@@ -3331,6 +3122,18 @@ textarea:placeholder-shown {
 }
 .link-import {
   margin-bottom: 16px;
+}
+.link-import .card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.link-import .card-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 .link-import-row {
   display: flex;
@@ -4586,13 +4389,13 @@ button.danger:disabled {
   background: linear-gradient(180deg, #e6f3e3, #d0e8cd);
   color: #14261a;
 }
-body.theme-tg .gen-output-modes .seg:hover {
-  border-color: rgba(0, 146, 211, 0.4);
+body.theme-aurora .gen-output-modes .seg:hover {
+  border-color: rgba(124, 92, 244, 0.4);
 }
-body.theme-tg .gen-output-modes .seg.active {
-  border-color: rgba(0, 146, 211, 0.45);
-  background: linear-gradient(180deg, #e3f1fa, #cde6f5);
-  color: #0a2e4a;
+body.theme-aurora .gen-output-modes .seg.active {
+  border-color: rgba(124, 92, 244, 0.45);
+  background: linear-gradient(180deg, #ece6fd, #d9cdfb);
+  color: #2f1f66;
 }
 /* Typed-in party-agency details for the 3rd/4th-party QC letters. */
 .gen-party-fields {
@@ -4920,142 +4723,12 @@ body.theme-tg .gen-output-modes .seg.active {
   outline-offset: 3px;
 }
 
-/* Issue Documents — flat, solid-color tile trial (weather-app reference):
-   a full solid tone fill instead of the frosted-glass blobs, a large white
-   icon (or an embedded live thumbnail — see .doc-tile-flat-thumb below),
-   and bold white text. Settings → Themes ("Test theme 1") toggles this app-
-   wide across every .doc-tile-card tile grid — Issue Documents AND Tools —
-   by adding 'doc-tile-flat' to Issue Documents' own tiles directly, or
-   'tools-grid-flat' to the Tools grid's container (see ToolsTab.tsx), which
-   every rule below also matches so both grids share one definition. */
-.doc-tile-card.doc-tile-flat,
-.tools-grid-flat .doc-tile-card {
-  background: var(--tone-a);
-  border: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  box-shadow: 0 12px 26px -10px color-mix(in srgb, var(--tone-a) 65%, transparent);
-  padding: 30px 16px 18px;
-}
-.doc-tile-card.doc-tile-flat::before,
-.doc-tile-card.doc-tile-flat::after,
-.tools-grid-flat .doc-tile-card::before,
-.tools-grid-flat .doc-tile-card::after {
+/* Aurora — the blurred corner-blob "glare" reads as a lit-up smudge over the
+   pastel background rather than depth, so drop it and keep the flat frosted
+   card. */
+body.theme-aurora .doc-tile-card::before,
+body.theme-aurora .doc-tile-card::after {
   display: none;
-}
-.doc-tile-card.doc-tile-flat:hover,
-.tools-grid-flat .doc-tile-card:hover {
-  box-shadow: 0 20px 36px -12px color-mix(in srgb, var(--tone-a) 75%, transparent);
-}
-.doc-tile-card.doc-tile-flat.selected,
-.tools-grid-flat .doc-tile-card.on {
-  border: none;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.95), 0 12px 26px -10px color-mix(in srgb, var(--tone-a) 65%, transparent);
-}
-.doc-tile-flat-ic {
-  display: grid;
-  place-items: center;
-  width: 64px;
-  height: 64px;
-  color: #fff;
-}
-.doc-tile-flat-ic svg {
-  width: 52px;
-  height: 52px;
-  stroke-width: 1.4;
-}
-/* The live DocThumbnail (real, shrunk-down render of the doc — same one
-   .doc-tile-card's Default style uses), embedded on top of the flat tone
-   fill instead of a generic icon. .doc-thumb-box already carries its own
-   white card look (rounded, bordered, shadowed); the wrapper here just
-   centers it and gives it a little breathing room from the solid color
-   around it so it reads as a distinct "page" floating on the tile. Tools'
-   blank-form tiles (.doc-blank-card) render a DocThumbnail directly with no
-   wrapper span, so their .doc-thumb-box is targeted straight — same white-
-   card-on-tone look, just without the extra padding ring. */
-.doc-tile-flat-thumb {
-  display: grid;
-  place-items: center;
-  padding: 4px;
-  border-radius: calc(var(--radius, 12px) + 4px);
-  background: rgba(255, 255, 255, 0.18);
-}
-.doc-tile-flat-thumb .doc-thumb-box,
-.tools-grid-flat .doc-blank-card .doc-thumb-box {
-  border-color: rgba(255, 255, 255, 0.85);
-}
-/* Tools' own tiles have no document to render (they open a workspace, not a
-   file) — their existing tone-tinted icon circle (.tool-card-ic) would go
-   near-invisible on a solid fill of that same tone, so it switches to a
-   translucent white circle with a white icon instead, matching the flat
-   theme's white-on-color look everywhere else. */
-.tools-grid-flat .tool-card-ic {
-  background: rgba(255, 255, 255, 0.22);
-  color: #fff;
-}
-.doc-tile-card.doc-tile-flat .doc-tile-card-name,
-.tools-grid-flat .doc-tile-card .doc-tile-card-name {
-  color: #fff;
-  font-weight: 750;
-}
-.doc-tile-card.doc-tile-flat .doc-tile-card-meta,
-.tools-grid-flat .doc-tile-card .doc-tile-card-meta {
-  color: rgba(255, 255, 255, 0.85);
-}
-.doc-tile-card.doc-tile-flat > .doc-tile-check {
-  background: rgba(255, 255, 255, 0.92);
-  border-color: rgba(255, 255, 255, 0.6);
-}
-
-/* Windows theme — flat white Fluent-style cards instead of frosted glass
-   (Default) or solid tone fills (Test theme 1): thin hairline border, small
-   radius, no blur and no blurred color-blob decoration. Applied straight to
-   every .doc-tile-card since the theme is already scoped app-wide via
-   body.theme-windows, so — unlike Test theme 1 — no per-grid container
-   class is needed to reach Issue Documents and Tools alike. */
-body.theme-windows .doc-tile-card {
-  background: #ffffff;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: var(--shadow-sm);
-}
-body.theme-windows .doc-tile-card::before,
-body.theme-windows .doc-tile-card::after {
-  display: none;
-}
-body.theme-windows .doc-tile-card:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-md);
-  transform: none;
-}
-body.theme-windows .doc-tile-card.selected,
-body.theme-windows .doc-tile-card.on {
-  border-color: var(--tone-a, var(--indigo-500));
-  box-shadow: 0 0 0 1px var(--tone-a, var(--indigo-500));
-}
-
-/* Dark mode — iOS grouped-list cell: secondarySystemBackground fill, hairline
-   separator, and a continuous ~14px corner radius (iOS card/cell rounding,
-   not the Windows theme's sharp 6px). */
-body.theme-dark .doc-tile-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: var(--shadow-sm);
-}
-body.theme-dark .doc-tile-card::before,
-body.theme-dark .doc-tile-card::after {
-  display: none;
-}
-body.theme-dark .doc-tile-card:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-md);
-  transform: none;
-}
-body.theme-dark .doc-tile-card.selected,
-body.theme-dark .doc-tile-card.on {
-  border-color: var(--tone-a, var(--indigo-500));
-  box-shadow: 0 0 0 1px var(--tone-a, var(--indigo-500));
 }
 
 /* ---------- Upload Photos: numbered, draggable photo tiles ---------- */
@@ -6542,30 +6215,38 @@ tr.on .rp-box span {
      (never grows past its own content) when content genuinely doesn't
      fit — a short table stays content-sized, a long one still gets
      capped and internally scrolled exactly as before. */
-  /* min-height matches .sheet-wrap's own 540px floor below (search bar +
-     ~14 rows), not 0 — a real Windows report: the list loaded showing only
-     1 row, because with min-height:0 here .page's flex-shrink was free to
-     squeeze this card down to whatever it liked with nothing stopping it,
-     regardless of what .sheet-wrap needs internally. .sheet-wrap's own
-     floor doesn't help if the container it sits in was already shrunk
-     smaller than that floor — its content then overflows this card's box
-     and gets clipped by the overflow:hidden above, same failure mode as
-     the original clipping bug, just approached from the other side.
-     Keeping both floors in agreement fixes it either way. */
+  /* min-height must cover the link-import header + search bar + .sheet-wrap's
+     own 640px floor below (~15 rows) + the Add row/Add column footer, not 0
+     — a real Windows report: the list loaded showing only 1 row, because
+     with min-height:0 here .page's flex-shrink was free to squeeze this
+     card down to whatever it liked with nothing stopping it, regardless of
+     what .sheet-wrap needs internally. .sheet-wrap's own floor doesn't help
+     if the container it sits in was already shrunk smaller than that floor
+     (by the OUTER .page flex pass, which sizes this card before this card's
+     own flex column distributes that size to its children) — its content
+     then overflows this card's box and gets clipped by the overflow:hidden
+     above, same failure mode as the original clipping bug, just approached
+     from the other side. Keeping both floors in agreement (this one ==
+     header + search bar + .sheet-wrap's floor + footer) fixes it either
+     way — bump this any time .sheet-wrap's own floor or the header content
+     above it changes. */
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
-  min-height: 600px;
+  min-height: 860px;
 }
 .sheet-inline .sheet-wrap {
   max-width: 100%;
   border-top: none;
-  /* At least ~14 rows always visible, on any platform/font metrics — was
-     min-height:0 (full shrink allowed, no floor at all), which is what let
-     a real Windows machine collapse this down to a single visible row.
-     Still shrinks freely above this floor when more space is available or
-     less is needed; still scrolls internally past it either way. */
-  min-height: 540px;
+  /* Fixed at exactly ~15 rows (header row + 15 data rows at this table's
+     row height) — min and max pinned to the same value so the pane never
+     grows past 15 rows regardless of how many the Works List holds, and
+     never shrinks below it either (was a 540px floor only, which a real
+     Windows machine could still collapse toward; pinning both ends is
+     more predictable than relying on ancestor flex space). Past 15 rows
+     the pane scrolls internally instead of growing the whole card/page. */
+  min-height: 640px;
+  max-height: 640px;
 }
 /* The Works List table (33 fixed-width columns) is always wider than the
    pane — .sheet-wrap's overflow-x:auto genuinely scrolls (confirmed: real
@@ -6594,6 +6275,9 @@ tr.on .rp-box span {
 }
 .sheet-inline .editor-warn {
   margin: 12px 14px 0;
+}
+.sheet-inline-header {
+  padding: 14px 14px 0;
 }
 .sheet-inline .sheet-foot {
   border-top: 1px solid var(--border);
@@ -9325,22 +9009,22 @@ tr.on .rp-box span {
   transform: translateY(-2px);
   box-shadow: 0 8px 18px -7px rgba(19, 100, 30, 0.32);
 }
-body.theme-tg .pdf-ws-railbtn,
-body.theme-tg .pdf-ws-selbtn,
-body.theme-tg .pdf-ws-clearall,
-body.theme-tg .pdf-ws-clearbtn {
-  background: linear-gradient(180deg, #e3f1fa, #cde6f5);
-  color: #0a2e4a;
-  border-color: rgba(0, 146, 211, 0.28);
-  box-shadow: 0 4px 12px -6px rgba(0, 90, 140, 0.28);
+body.theme-aurora .pdf-ws-railbtn,
+body.theme-aurora .pdf-ws-selbtn,
+body.theme-aurora .pdf-ws-clearall,
+body.theme-aurora .pdf-ws-clearbtn {
+  background: linear-gradient(180deg, #ece6fd, #d9cdfb);
+  color: #2f1f66;
+  border-color: rgba(124, 92, 244, 0.28);
+  box-shadow: 0 4px 12px -6px rgba(76, 39, 168, 0.28);
 }
-body.theme-tg .pdf-ws-railbtn:hover:not(:disabled),
-body.theme-tg .pdf-ws-selbtn:hover:not(:disabled),
-body.theme-tg .pdf-ws-clearall:hover:not(:disabled),
-body.theme-tg .pdf-ws-clearbtn:hover:not(:disabled) {
-  background: linear-gradient(180deg, #d6ecf8, #b0d8ec);
-  border-color: rgba(0, 146, 211, 0.4);
-  box-shadow: 0 8px 18px -7px rgba(0, 90, 140, 0.32);
+body.theme-aurora .pdf-ws-railbtn:hover:not(:disabled),
+body.theme-aurora .pdf-ws-selbtn:hover:not(:disabled),
+body.theme-aurora .pdf-ws-clearall:hover:not(:disabled),
+body.theme-aurora .pdf-ws-clearbtn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #ddd2fb, #c4b3f8);
+  border-color: rgba(124, 92, 244, 0.4);
+  box-shadow: 0 8px 18px -7px rgba(76, 39, 168, 0.32);
 }
 .pdf-ws-clearall {
   width: 100%;
@@ -9500,8 +9184,8 @@ body.theme-tg .pdf-ws-clearbtn:hover:not(:disabled) {
   border-color: rgba(19, 136, 8, 0.5);
   background: var(--surface);
 }
-body.theme-tg .pdf-ws-dropzone:hover:not(:disabled) {
-  border-color: rgba(0, 146, 211, 0.5);
+body.theme-aurora .pdf-ws-dropzone:hover:not(:disabled) {
+  border-color: rgba(124, 92, 244, 0.5);
 }
 .pdf-ws-dropzone:disabled {
   opacity: 0.6;
@@ -9593,9 +9277,9 @@ body.theme-tg .pdf-ws-dropzone:hover:not(:disabled) {
   border-color: rgba(19, 136, 8, 0.65);
   box-shadow: 0 0 0 2px rgba(19, 136, 8, 0.28);
 }
-body.theme-tg .pdf-ws-page.on {
-  border-color: rgba(0, 146, 211, 0.65);
-  box-shadow: 0 0 0 2px rgba(0, 146, 211, 0.28);
+body.theme-aurora .pdf-ws-page.on {
+  border-color: rgba(124, 92, 244, 0.65);
+  box-shadow: 0 0 0 2px rgba(124, 92, 244, 0.28);
 }
 .pdf-ws-page-thumb {
   position: relative;
@@ -10057,11 +9741,11 @@ body.theme-tg .pdf-ws-page.on {
   height: 13px;
 }
 /* Settings — Themes: reuses .wo-tile's picker chrome, but the preview inside
-   is a small static mock built from the real .doc-tile-card/.doc-tile-flat
-   classes (not a live DocThumbnail render — this card has no real .docx on
-   hand, and the point is comparing tile *styles* side by side, not content).
-   Centered in the fixed-height .wo-tile-preview box since the mock tile is
-   much smaller than a full document-page preview. */
+   is a small static mock built from the real .doc-tile-card class (not a
+   live DocThumbnail render — this card has no real .docx on hand, and the
+   point is comparing tile *styles* side by side, not content). Centered in
+   the fixed-height .wo-tile-preview box since the mock tile is much smaller
+   than a full document-page preview. */
 .settings-theme-preview {
   display: flex;
   align-items: center;
@@ -10076,49 +9760,6 @@ body.theme-tg .pdf-ws-page.on {
 }
 .settings-theme-mock:hover {
   transform: none;
-}
-/* Previews the Windows theme's flat-white-card look regardless of which
-   theme is currently active app-wide (unlike the live body.theme-windows
-   scoping used everywhere else) — same reasoning as .doc-tile-flat being
-   applied directly to the "Test theme 1" mock. */
-.settings-theme-mock.settings-theme-mock-windows {
-  background: #ffffff;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-.settings-theme-mock.settings-theme-mock-windows::before,
-.settings-theme-mock.settings-theme-mock-windows::after {
-  display: none;
-}
-/* Previews Dark mode's iOS system-color card the same way, forced on
-   regardless of the currently-active theme (mirrors settings-theme-mock-
-   windows above) so all four options can be compared side by side. */
-.settings-theme-mock.settings-theme-mock-dark {
-  background: #1c1c1e;
-  border: 1px solid rgba(84, 84, 88, 0.6);
-  border-radius: 14px;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-.settings-theme-mock.settings-theme-mock-dark::before,
-.settings-theme-mock.settings-theme-mock-dark::after {
-  display: none;
-}
-.settings-theme-mock.settings-theme-mock-dark .doc-tile-card-name,
-.settings-theme-mock.settings-theme-mock-dark .doc-tile-card-meta {
-  color: #ffffff;
-}
-.settings-theme-mock.settings-theme-mock-dark .settings-theme-mock-thumb {
-  background: #2c2c2e;
-  border-color: rgba(120, 120, 124, 0.75);
-  background-image:
-    linear-gradient(to right, #0a84ff 0, #0a84ff 100%),
-    linear-gradient(to right, #48484a 0, #48484a 100%),
-    linear-gradient(to right, #48484a 0, #48484a 100%);
 }
 .settings-theme-mock-thumb {
   width: 78px;
@@ -10161,4 +9802,554 @@ body.theme-tg .pdf-ws-page.on {
   border: none;
   font: inherit;
   cursor: pointer;
+}
+
+/* ---------- Dashboard (Overview) ---------- */
+.overview-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* .page's own scrollbar renders flush against its right border, well left
+   of .workspace's 70px right padding — reading as pinned to the cards
+   instead of the window. Extending .ov-page 16px into that padding (and
+   padding it back out by the same amount so the cards themselves don't
+   shift) carries the scrollbar 16px closer to the window edge without
+   touching .workspace's padding, which other tabs' page-head actions
+   still rely on for profile-badge clearance. */
+.ov-page {
+  margin-right: -16px;
+  padding-right: 16px;
+}
+
+.ov-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.ov-stat {
+  background: var(--surface);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 6px);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ov-stat-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-2);
+  font-weight: 600;
+}
+.ov-stat b {
+  font-size: 30px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+.ov-stat-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+.ov-stat-arrow {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.2);
+  transform: rotate(45deg);
+}
+.ov-stat-hero {
+  background: linear-gradient(150deg, var(--indigo-600), var(--indigo-700));
+  border-color: transparent;
+  color: #fff;
+}
+.ov-stat-hero .ov-stat-top {
+  color: rgba(255, 255, 255, 0.85);
+}
+.ov-stat-hero .ov-stat-sub {
+  color: rgba(255, 255, 255, 0.7);
+}
+.ov-stat-warn b {
+  color: var(--danger);
+}
+
+.ov-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr;
+  gap: 16px;
+}
+.ov-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: calc(var(--radius) + 6px);
+}
+.ov-card .card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.ov-card .card-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.ov-new-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  padding: 5px 10px;
+}
+
+/* Weekly Activity bars */
+.ov-bars {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 140px;
+  padding-top: 6px;
+}
+.ov-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+}
+.ov-bar-track {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.ov-bar {
+  width: 60%;
+  min-height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--indigo-100);
+  transition: height 0.3s var(--ease);
+}
+.ov-bar-today {
+  background: linear-gradient(180deg, var(--indigo-500), var(--indigo-700));
+}
+.ov-bar-label {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* Reminders */
+.ov-reminder-title {
+  margin: 4px 0 2px;
+  font-size: 15px;
+  font-weight: 650;
+}
+.ov-reminder-date {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.ov-reminder-btn {
+  align-self: flex-start;
+}
+
+/* Upcoming task list */
+.ov-task-list,
+.ov-mb-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ov-task-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.ov-task-ic {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--indigo-50);
+  color: var(--indigo-600);
+}
+.ov-task-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ov-task-text {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov-task-date {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* MB Scrutiny list */
+.ov-mb-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ov-mb-name {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov-mb-sub {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.ov-status-chip {
+  flex: none;
+  font-size: 11px;
+  font-weight: 650;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+}
+.ov-status-done {
+  background: rgba(10, 167, 123, 0.14);
+  color: var(--ok);
+}
+.ov-status-progress {
+  background: var(--amber-100);
+  color: var(--warn);
+}
+
+/* Monitoring Format status — donut + icon tiles */
+.ov-mf-status {
+  margin-bottom: 20px;
+}
+.ov-mf-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ov-mf-titles h3 {
+  margin: 0;
+}
+.ov-mf-titles .sub {
+  margin: 0;
+}
+.ov-mf-body {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+.ov-mf-donut-wrap {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  flex: none;
+  margin: 4px auto;
+}
+.ov-mf-donut-seg {
+  fill: none;
+  stroke-width: 14;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.5s var(--ease), stroke-dashoffset 0.5s var(--ease);
+}
+.ov-mf-tiles {
+  flex: 1 1 420px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  gap: 12px;
+}
+.ov-mf-tile {
+  --tile-color: var(--indigo-500);
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--tile-color) 7%, var(--surface-2));
+  overflow: hidden;
+  transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.ov-mf-tile::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--tile-color);
+}
+.ov-mf-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(15, 15, 25, 0.08);
+}
+.ov-mf-tile-ic {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--tile-color) 18%, transparent);
+  color: var(--tile-color);
+}
+.ov-mf-tile-ic svg {
+  width: 17px;
+  height: 17px;
+}
+.ov-mf-tile-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.ov-mf-tile-label {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.ov-mf-tile-nums {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.ov-mf-tile-no {
+  font-size: 21px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+.ov-mf-tile-pct {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tile-color);
+  background: color-mix(in srgb, var(--tile-color) 16%, transparent);
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+}
+.ov-mf-tile-amt {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* Task Progress donut */
+.ov-donut-wrap {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  margin: 4px auto 10px;
+}
+.ov-donut {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.ov-donut-track {
+  fill: none;
+  stroke: var(--indigo-100);
+  stroke-width: 12;
+}
+.ov-donut-fill {
+  fill: none;
+  stroke: var(--indigo-600);
+  stroke-width: 12;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.4s var(--ease);
+}
+.ov-donut-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.ov-donut-text b {
+  font-size: 22px;
+  font-weight: 750;
+}
+.ov-donut-text span {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.ov-donut-legend {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.ov-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+.ov-dot-done {
+  background: var(--indigo-600);
+}
+.ov-dot-pending {
+  background: var(--indigo-100);
+}
+
+/* Monitoring Format card (Works List page) */
+.mf-card {
+  margin-top: 16px;
+}
+.mf-card .card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.mf-card .card-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.mf-toggle {
+  flex: 1;
+  min-width: 0;
+}
+.mf-new-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  padding: 5px 10px;
+}
+.mf-link-row {
+  margin-bottom: 12px;
+}
+.mf-error {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  color: var(--red-600, #dc2626);
+}
+.mf-sub {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.mf-table {
+  display: flex;
+  flex-direction: column;
+}
+.mf-row {
+  display: grid;
+  grid-template-columns: 1.4fr 0.8fr 1fr;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.mf-row:last-child {
+  border-bottom: none;
+}
+.mf-head {
+  color: var(--muted);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding-top: 0;
+}
+
+/* Cement & Steel promo card */
+.ov-promo {
+  width: 100%;
+  font: inherit;
+  background: linear-gradient(150deg, var(--indigo-700), #0c2a14);
+  border-radius: var(--radius);
+  padding: 20px;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  border: none;
+  text-align: left;
+}
+.ov-promo-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #fff;
+}
+.ov-promo-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.18);
+}
+.ov-promo-title {
+  margin: 8px 0 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+.ov-promo-sub {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+.ov-promo-btn {
+  margin-top: 10px;
+  align-self: flex-start;
+  background: #fff;
+  color: var(--indigo-700);
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 7px 16px;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+@media (max-width: 1200px) {
+  .ov-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .ov-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 760px) {
+  .ov-stats {
+    grid-template-columns: 1fr;
+  }
+  .ov-grid {
+    grid-template-columns: 1fr;
+  }
 }

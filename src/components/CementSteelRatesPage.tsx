@@ -2,13 +2,10 @@ import { useEffect, useState } from 'react'
 import { api } from '../ipc'
 import { IconDoc, IconDownload, IconWarn, IconRefresh, IconSearch } from './Icons'
 import type { CementSteelRate } from '@core/cementSteelRates'
-import type { ThemeId } from '../theme'
 
 interface Props {
   /** Called with the freshly-fetched list whenever a load succeeds, so the caller can record what's now been seen. */
   onLoaded?: (rates: CementSteelRate[]) => void
-  /** Issue Documents tile style, set in Settings → Themes — applied to this tile grid too, so it matches the rest of the app. */
-  theme: ThemeId
 }
 
 function sanitizeFileName(name: string): string {
@@ -44,7 +41,7 @@ function periodKey(r: CementSteelRate): number {
  * circulars (Downloads section of publichealth.telangana.gov.in) as tiles,
  * and download any one of them straight from the source site.
  */
-export default function CementSteelRatesPage({ onLoaded, theme }: Props) {
+export default function CementSteelRatesPage({ onLoaded }: Props) {
   const [rates, setRates] = useState<CementSteelRate[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -128,7 +125,7 @@ export default function CementSteelRatesPage({ onLoaded, theme }: Props) {
         {loading && !rates && <p className="estimate-hint">Fetching the Cement & Steel Rates list from the department website…</p>}
 
         {rates && rates.length > 0 && (
-          <div className={`doc-tile-grid tools-grid${theme === 'flat1' ? ' tools-grid-flat' : ''}`}>
+          <div className="doc-tile-grid tools-grid">
             {filtered.map((r) => (
               <button
                 key={r.token}

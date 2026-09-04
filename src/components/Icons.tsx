@@ -28,6 +28,15 @@ export const IconTable = (p: P) => (
   </svg>
 )
 
+export const IconGrid = (p: P) => (
+  <svg {...base(p)}>
+    <rect x="3" y="3" width="8" height="8" rx="1.5" />
+    <rect x="13" y="3" width="8" height="8" rx="1.5" />
+    <rect x="3" y="13" width="8" height="8" rx="1.5" />
+    <rect x="13" y="13" width="8" height="8" rx="1.5" />
+  </svg>
+)
+
 export const IconCalendar = (p: P) => (
   <svg {...base(p)}>
     <rect x="3" y="4" width="18" height="17" rx="2" />

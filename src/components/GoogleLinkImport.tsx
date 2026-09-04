@@ -38,7 +38,10 @@ export default function GoogleLinkImport({ onImport }: Props) {
   }
 
   return (
-    <div className="card link-import">
+    <div className="link-import">
+      <div className="card-head">
+        <h3>Works List Link</h3>
+      </div>
       <div className="link-import-row">
         <IconLink />
         <input

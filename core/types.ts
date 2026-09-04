@@ -1,6 +1,8 @@
 // Framework-agnostic shared types for DocuGen core logic.
 // No Electron/DOM imports here so this module can be reused in a future web app.
 
+import type { MonitoringFormatSummary } from './monitoringFormat'
+
 /** A query against the Telangana e-procurement tender listing. */
 export interface TenderQuery {
   /** 0-based row offset for server-side pagination. */
@@ -282,4 +284,12 @@ export interface PersistedState {
   seededDocVersion?: number
   bidDocumentBatches?: BidDocumentBatch[]
   mbScrutiny?: MBScrutinyItem[]
+  /**
+   * The Monitoring Format summary (Works List progress table) remembered per
+   * office (key: "Corporation|Zone|Circle"), imported once from the office's
+   * MF workbook and shown on the Dashboard. Synced like qcParties/worksListLinks.
+   */
+  monitoringFormatByOffice?: Record<string, MonitoringFormatSummary>
+  /** The Monitoring Format Google Sheets link remembered per office, like worksListLinks — so it's pre-filled next time instead of re-pasting it. */
+  monitoringFormatLinks?: Record<string, string>
 }

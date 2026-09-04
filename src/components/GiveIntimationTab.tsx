@@ -33,7 +33,6 @@ import { base64ToUint8, PAGE_WIDTH, renderDocPreview, DOCX_PREVIEW_OPTIONS, norm
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell, IconCheck } from './Icons'
 import type { ExcelTable } from '@core/types'
 import type { AgreementBundleFile, VerifyDocItem } from '../../electron/ipc-contract'
-import type { ThemeId } from '../theme'
 import { VerifyButton } from './VerifyButton'
 
 interface Props {
@@ -48,8 +47,6 @@ interface Props {
    * body below the upload buttons.
    */
   headerActionRef?: RefObject<HTMLDivElement | null>
-  /** Issue Documents tile style, set in Settings → Themes (see theme.ts) — applied to this page's output tiles too. */
-  theme: ThemeId
   /**
    * Whether this tab is the one currently on screen. App.tsx keeps this
    * component mounted (but hidden) when the user switches to another tab
@@ -432,7 +429,7 @@ function notice_nitNo(pdf: TenderEvaluation, row: Record<string, string>): strin
  * docx-preview of the filled letter with Word / PDF / Print. (Note Submitted
  * lives on the Agreement & Work Order tab.)
  */
-export default function GiveIntimationTab({ tables, onChange, office, headerActionRef, theme, active }: Props) {
+export default function GiveIntimationTab({ tables, onChange, office, headerActionRef, active }: Props) {
   const table = tables[0] ?? null
 
   // Whether headerActionRef's DOM node is actually mounted yet — reading
@@ -1441,7 +1438,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
 
           {!headerMounted && downloadAllButton}
 
-          <div className={`wo-tiles${theme === 'flat1' ? ' wo-tiles-flat' : ''}`}>
+          <div className="wo-tiles">
             <button className="wo-tile" onClick={() => openDoc('intimation')}>
               <div className="wo-tile-preview">
                 <div ref={previewRef} className="wo-tile-doc" />

@@ -12,7 +12,6 @@ import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLines } from '../pdfToText'
 import { base64ToUint8, PAGE_WIDTH, renderDocPreview } from './docPage'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell } from './Icons'
-import type { ThemeId } from '../theme'
 
 interface Props {
   /** The chosen office — decides which format this Notice prints as: a
@@ -21,8 +20,6 @@ interface Props {
    * the EE-signed one. Its Corporation also picks which zone/circle
    * directory to resolve the uploaded work's own office block from. */
   office?: Office
-  /** Issue Documents tile style, set in Settings → Themes (see theme.ts) — applied to this page's output tiles too. */
-  theme: ThemeId
 }
 
 /** The office block this Notice's letterhead carries — resolved from the work name. */
@@ -81,7 +78,7 @@ function detectOffice(
  * The LOA No/Date and the agency phone aren't printed on either upload, so
  * they're always hand-typed below.
  */
-export default function IssueNoticesTab({ office, theme }: Props) {
+export default function IssueNoticesTab({ office }: Props) {
   const entries = useMemo(
     () => (corporationByName(office?.corporation)?.entries?.length
       ? corporationByName(office?.corporation)!.entries
@@ -407,7 +404,7 @@ export default function IssueNoticesTab({ office, theme }: Props) {
       )}
 
       {ready && (
-        <div className={`wo-tiles${theme === 'flat1' ? ' wo-tiles-flat' : ''}`}>
+        <div className="wo-tiles">
           <div
             role="button"
             tabIndex={0}

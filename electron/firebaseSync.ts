@@ -329,6 +329,8 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       lastGoogleLink: m.lastGoogleLink ?? undefined,
       worksListLinks: m.worksListLinks ?? {},
       qcParties: m.qcParties ?? undefined,
+      monitoringFormatByOffice: m.monitoringFormatByOffice ?? undefined,
+      monitoringFormatLinks: m.monitoringFormatLinks ?? {},
       tenderReminders: m.tenderReminders ?? [],
       createdDocuments,
       bidDocumentBatches: m.bidDocumentBatches ?? [],
@@ -391,6 +393,8 @@ function subscribeRemote(
         lastGoogleLink: data.lastGoogleLink ?? undefined,
         worksListLinks: data.worksListLinks ?? {},
         qcParties: data.qcParties ?? undefined,
+        monitoringFormatByOffice: data.monitoringFormatByOffice ?? undefined,
+        monitoringFormatLinks: data.monitoringFormatLinks ?? {},
         tenderReminders: data.tenderReminders ?? [],
         bidDocumentBatches: data.bidDocumentBatches ?? []
       })
@@ -507,6 +511,8 @@ export async function pushState(state: PersistedState): Promise<void> {
         lastGoogleLink: state.lastGoogleLink ?? null,
         worksListLinks: state.worksListLinks ?? {},
         qcParties: state.qcParties ?? {},
+        monitoringFormatByOffice: state.monitoringFormatByOffice ?? {},
+        monitoringFormatLinks: state.monitoringFormatLinks ?? {},
         tenderReminders: state.tenderReminders ?? [],
         bidDocumentBatches: state.bidDocumentBatches ?? [],
         mbScrutiny: state.mbScrutiny ?? [],

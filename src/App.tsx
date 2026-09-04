@@ -26,6 +26,8 @@ import ExcelInline from './components/ExcelInline'
 import CollisionPanel from './components/CollisionPanel'
 import SearchTender from './components/SearchTender'
 import Dashboard from './components/Dashboard'
+import OverviewDashboard from './components/OverviewDashboard'
+import MonitoringFormatCard from './components/MonitoringFormatCard'
 import Skyline from './components/Skyline'
 import ProfileMenu from './components/ProfileMenu'
 import UpdateBanner from './components/UpdateBanner'
@@ -68,7 +70,8 @@ import {
   IconTools,
   IconSettings,
   IconWarn,
-  IconChevronRight
+  IconChevronRight,
+  IconGrid
 } from './components/Icons'
 import type {
   ExcelTable,
@@ -84,6 +87,7 @@ import type {
   QcOfficeParties
 } from '@core/types'
 import type { CalendarData } from '@core/calendar'
+import type { MonitoringFormatSummary } from '@core/monitoringFormat'
 
 // Older persisted reminders stored a single work (workName/tenderId/bidClosing)
 // directly on the reminder instead of an `items` array — fold that into items.
@@ -174,14 +178,11 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     setTheme(next)
     setStoredTheme(next)
   }
-  // Windows theme and Dark mode both restyle the whole app (including
-  // elements outside .shell, like Skyline/ProfileMenu, and portaled modals
-  // on document.body), so they're scoped via body classes rather than a
-  // container class.
+  // Aurora restyles the whole app (including elements outside .shell, like
+  // Skyline/ProfileMenu, and portaled modals on document.body), so it's
+  // scoped via a body class rather than a container class.
   useEffect(() => {
-    document.body.classList.toggle('theme-windows', theme === 'windows')
-    document.body.classList.toggle('theme-dark', theme === 'dark')
-    document.body.classList.toggle('theme-tg', theme === 'tg')
+    document.body.classList.toggle('theme-aurora', theme === 'aurora')
   }, [theme])
 
   // Portal targets for the Agreement/Work Order and Intimation pages' own
@@ -200,6 +201,14 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   const [resetNonce, setResetNonce] = useState(0)
   useEffect(() => {
     setMountedTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)))
+  }, [tab])
+  // Dashboard's own .page keeps whatever scrollTop it had from a previous visit
+  // (KeepAlive hides tabs with display:none rather than unmounting them), so
+  // without this a leftover scroll position tucks the top stat row half behind
+  // the sticky page-head on return. Reset it to top every time it re-activates.
+  const overviewPageRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (tab === 'overview' && overviewPageRef.current) overviewPageRef.current.scrollTop = 0
   }, [tab])
 
   // Blink the "Cement & Steel Rates" nav item when a background check finds a
@@ -324,6 +333,8 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // 3rd/4th-party QC agencies remembered per office (key: officeKey) — entered
   // once on the Works List page and reused by the 3rd/4th-party QC letters.
   const [qcParties, setQcParties] = useState<Record<string, QcOfficeParties>>({})
+  const [monitoringFormatByOffice, setMonitoringFormatByOffice] = useState<Record<string, MonitoringFormatSummary>>({})
+  const [monitoringFormatLinks, setMonitoringFormatLinks] = useState<Record<string, string>>({})
   // A remembered link queued to auto-import once the office prop has updated to
   // the newly-selected office (so the import validates against the new office).
   const [pendingOfficeImport, setPendingOfficeImport] = useState<string | null>(null)
@@ -544,6 +555,8 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
           setLastGoogleLink(s.lastGoogleLink ?? null)
           setWorksListLinks(s.worksListLinks ?? {})
           setQcParties(s.qcParties ?? {})
+          setMonitoringFormatByOffice(s.monitoringFormatByOffice ?? {})
+          setMonitoringFormatLinks(s.monitoringFormatLinks ?? {})
           setTenderReminders((s.tenderReminders ?? []).map(migrateTenderReminder))
           setCreatedDocuments(s.createdDocuments ?? [])
           setSeededDocVersion(s.seededDocVersion ?? 0)
@@ -598,6 +611,8 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       if (partial.lastGoogleLink !== undefined) setLastGoogleLink(partial.lastGoogleLink ?? null)
       if (partial.worksListLinks) setWorksListLinks(partial.worksListLinks)
       if (partial.qcParties) setQcParties(partial.qcParties)
+      if (partial.monitoringFormatByOffice) setMonitoringFormatByOffice((prev) => ({ ...prev, ...partial.monitoringFormatByOffice }))
+      if (partial.monitoringFormatLinks) setMonitoringFormatLinks(partial.monitoringFormatLinks)
       if (partial.tenderReminders) setTenderReminders(partial.tenderReminders.map(migrateTenderReminder))
       if (partial.createdDocuments) setCreatedDocuments(partial.createdDocuments)
       if (partial.seededDocVersion !== undefined) setSeededDocVersion(partial.seededDocVersion)
@@ -651,6 +666,8 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
           lastGoogleLink: lastGoogleLink ?? undefined,
           worksListLinks,
           qcParties,
+          monitoringFormatByOffice,
+          monitoringFormatLinks,
           tenderReminders,
           createdDocuments,
           seededDocVersion,
@@ -678,6 +695,8 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     lastGoogleLink,
     worksListLinks,
     qcParties,
+    monitoringFormatByOffice,
+    monitoringFormatLinks,
     tenderReminders,
     createdDocuments,
     seededDocVersion,
@@ -726,6 +745,13 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       prev.some((b) => !b.officeKey) ? prev.map((b) => (b.officeKey ? b : { ...b, officeKey: currentOfficeKey })) : prev
     )
   }, [hydrated, currentOfficeKey])
+
+  function setOfficeMonitoringFormat(summary: MonitoringFormatSummary) {
+    if (currentOfficeKey) setMonitoringFormatByOffice((prev) => ({ ...prev, [currentOfficeKey]: summary }))
+  }
+  function saveMonitoringFormatLink(url: string) {
+    if (currentOfficeKey) setMonitoringFormatLinks((prev) => (prev[currentOfficeKey] === url ? prev : { ...prev, [currentOfficeKey]: url }))
+  }
 
   const collisions = dataset?.collisions ?? []
   const unresolved = collisions.filter((c) => !resolution[c.column])
@@ -1174,6 +1200,36 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
 
       <main className="workspace">
         <Fragment key={resetNonce}>
+        <KeepAlive active={tab === 'overview'} mounted={mountedTabs.has('overview')}>
+          <section className="page wide ov-page" ref={overviewPageRef}>
+            <div className="page-head">
+              <div className="page-ic green">
+                <IconGrid />
+              </div>
+              <div className="page-head-text">
+                <h1>Dashboard</h1>
+                <p>Plan, prioritize, and accomplish your tasks with ease.</p>
+              </div>
+              <div className="page-head-action">
+                <button className="primary" onClick={() => setTab('todo')}>
+                  <IconPlus /> Add Task
+                </button>
+                <button className="ghost" onClick={() => setTab('data')}>
+                  Import Data
+                </button>
+              </div>
+            </div>
+            <OverviewDashboard
+              office={office}
+              monitoringFormat={currentOfficeKey ? monitoringFormatByOffice[currentOfficeKey] : undefined}
+              todos={officeTodos}
+              mbScrutiny={officeMb}
+              cementSteelHasNew={cementSteelHasNew}
+              onNavigate={setTab}
+            />
+          </section>
+        </KeepAlive>
+
         <KeepAlive active={tab === 'dashboard'} mounted={mountedTabs.has('dashboard')}>
           <section className="page wide">
             <div className="page-head">
@@ -1263,7 +1319,13 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
             )}
             {refreshError && <div className="notice error">{refreshError}</div>}
             {refreshSummary && <div className="notice ok">{refreshSummary}</div>}
-            <GoogleLinkImport onImport={importFromGoogleLink} />
+            <MonitoringFormatCard
+              office={office}
+              monitoringFormat={currentOfficeKey ? monitoringFormatByOffice[currentOfficeKey] : undefined}
+              onImportMonitoringFormat={setOfficeMonitoringFormat}
+              monitoringFormatLink={currentOfficeKey ? monitoringFormatLinks[currentOfficeKey] : undefined}
+              onSaveMonitoringFormatLink={saveMonitoringFormatLink}
+            />
             {circleMismatchConfirm &&
               createPortal(
                 <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => resolveCircleMismatch(false))}>
@@ -1321,18 +1383,18 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 document.body
               )}
             {currentTable ? (
-              <>
-                <ExcelInline
-                  key={`${currentTable.id}:${worksFlash?.token ?? 0}`}
-                  table={currentTable}
-                  onChange={updateTable}
-                  autofillRow={autofillWorksRowForLogin}
-                  flashRows={worksFlash?.rows}
-                  flashMessage={worksFlash?.message}
-                />
-              </>
+              <ExcelInline
+                key={`${currentTable.id}:${worksFlash?.token ?? 0}`}
+                table={currentTable}
+                onChange={updateTable}
+                autofillRow={autofillWorksRowForLogin}
+                flashRows={worksFlash?.rows}
+                flashMessage={worksFlash?.message}
+                header={<GoogleLinkImport onImport={importFromGoogleLink} />}
+              />
             ) : (
               <div className="card">
+                <GoogleLinkImport onImport={importFromGoogleLink} />
                 <div className="empty">
                   <IconTable />
                   <p>No works database yet. Create one with the standard work columns and start adding rows.</p>
@@ -1367,7 +1429,6 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               onGoToWorksList={() => setTab('data')}
               office={office}
               qcParties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
-              theme={theme}
             />
           </section>
         </KeepAlive>
@@ -1460,7 +1521,6 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 onChange={updateTable}
                 office={office}
                 headerActionRef={intimationHeaderActionRef}
-                theme={theme}
               />
             ) : (
               <EvaluationSheetTab key={evaluationInstanceKey} office={office} />
@@ -1496,7 +1556,6 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               zoneLogin={!!loginZone && !loginCircle}
               office={office}
               headerActionRef={workOrderHeaderActionRef}
-              theme={theme}
             />
           </section>
         </KeepAlive>
@@ -1521,7 +1580,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 </button>
               </div>
             </div>
-            <IssueNoticesTab key={issueNoticesInstanceKey} office={office} theme={theme} />
+            <IssueNoticesTab key={issueNoticesInstanceKey} office={office} />
           </section>
         </KeepAlive>
 
@@ -1627,7 +1686,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 <h1>Tools</h1>
               </div>
             </div>
-            <ToolsTab tables={tables} onChange={updateTable} office={office} documents={bakedDocuments} theme={theme} />
+            <ToolsTab tables={tables} onChange={updateTable} office={office} documents={bakedDocuments} />
           </section>
         </KeepAlive>
 
@@ -1642,7 +1701,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                 <p>Browse and download rate circulars fetched live from the Public Health department's website.</p>
               </div>
             </div>
-            <CementSteelRatesPage onLoaded={recordCementSteelRatesSeen} theme={theme} />
+            <CementSteelRatesPage onLoaded={recordCementSteelRatesSeen} />
           </section>
         </KeepAlive>
 

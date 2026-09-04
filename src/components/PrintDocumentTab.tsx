@@ -11,7 +11,6 @@ import { IconDoc, IconEye, IconPrint, IconDownload, IconSearch } from './Icons'
 import { base64ToUint8, PAGE_WIDTH, renderDocPreview } from './docPage'
 import { closeOnBackdropMouseDown } from '../overlayClose'
 import DocThumbnail from './DocThumbnail'
-import type { ThemeId } from '../theme'
 import type { VerifyDocItem } from '../../electron/ipc-contract'
 import { VerifyButton } from './VerifyButton'
 
@@ -25,8 +24,6 @@ interface Props {
   office: Office
   /** The current office's 3rd/4th-party QC agencies (set on the Works List page) — fills those letters' "To" block. */
   qcParties?: QcOfficeParties
-  /** Issue Documents tile style, set in Settings → Themes (see theme.ts). */
-  theme: ThemeId
 }
 
 /**
@@ -71,7 +68,7 @@ function isPartyDoc(doc: CreatedDocument | null): boolean {
   return doc?.id === PARTY_3RD_ID || doc?.id === PARTY_4TH_ID
 }
 
-export default function PrintDocumentTab({ tables, documents, onChange, onGoToWorksList, office, qcParties, theme }: Props) {
+export default function PrintDocumentTab({ tables, documents, onChange, onGoToWorksList, office, qcParties }: Props) {
   const table = tables[0] ?? null
 
   // Reorder/delete still act on the full synced list; only display is filtered.
@@ -520,7 +517,6 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                 className={[
                   'doc-tile-card',
                   'tool-card',
-                  theme === 'flat1' ? 'doc-tile-flat' : '',
                   TILE_TONES[i % TILE_TONES.length],
                   selectedIds.has(doc.id) ? 'selected' : '',
                   dragIndex === i ? 'dragging' : '',
@@ -557,13 +553,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
                     onChange={() => toggleSelected(doc.id)}
                   />
                 </label>
-                {theme === 'flat1' ? (
-                  <span className="doc-tile-flat-thumb">
-                    <DocThumbnail docx={doc.docx} width={72} />
-                  </span>
-                ) : (
-                  <DocThumbnail docx={doc.docx} />
-                )}
+                <DocThumbnail docx={doc.docx} />
                 <span className="doc-tile-card-name">{doc.name}</span>
                 <span className="doc-tile-card-meta">Added {doc.createdDate}</span>
                 <span

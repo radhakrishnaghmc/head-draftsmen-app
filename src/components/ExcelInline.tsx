@@ -72,6 +72,8 @@ interface Props {
   flashRows?: number[]
   /** Message shown under each flashed row so the user can verify the right row was updated. */
   flashMessage?: string
+  /** Rendered above the search bar, inside this same card — e.g. the Works List link-import row. */
+  header?: React.ReactNode
 }
 
 const WIN_RE = /win/
@@ -102,7 +104,7 @@ function orderHeaders(hs: string[]): string[] {
  * Rename headers, edit cells, and add/delete rows & columns — every valid edit
  * is committed straight back to the workspace (and persisted).
  */
-export default function ExcelInline({ table, onChange, autofillRow, flashRows, flashMessage }: Props) {
+export default function ExcelInline({ table, onChange, autofillRow, flashRows, flashMessage, header }: Props) {
   const orderedHeaders = orderHeaders(table.headers)
   const [headers, setHeaders] = useState<string[]>(() => orderedHeaders)
   const [matrix, setMatrix] = useState<string[][]>(() =>
@@ -281,6 +283,7 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
 
   return (
     <section className="card sheet-inline">
+      {header && <div className="sheet-inline-header">{header}</div>}
       {error && <div className="notice warn editor-warn">{error}</div>}
 
       <div className="sheet-search">
