@@ -210,10 +210,13 @@ export function findMonitoringFormatSheet(sheets: SheetGrid[], office: OfficeLik
     const zone = office.zone.trim().toLowerCase()
     const byLabel = withLabel.find(({ label }) => label && label.includes(zone) && !/^\d+-/.test(label))
     if (byLabel) return byLabel.sheet
-    // A zone-only office has no circle number — the one "MF" sheet whose tab
-    // name doesn't look like a per-circle sheet ("C##") is the zone rollup.
+    // A zone-only office has no circle number. Its tab is often just an
+    // abbreviation (e.g. "QBZ MF") that won't textually match the zone name,
+    // so among the "MF" sheets that don't look like a per-circle sheet
+    // ("C##"), fall back to the first one — the zone rollup is conventionally
+    // the first sheet in these workbooks.
     const byName = candidates.filter((s) => !/^c\d/i.test(s.sheetName.trim()))
-    if (byName.length === 1) return byName[0]
+    if (byName.length > 0) return byName[0]
   }
 
   return null

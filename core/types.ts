@@ -123,6 +123,8 @@ export interface TenderReminder {
   status: 'pending' | 'found' | 'not-found'
   /** ISO date (YYYY-MM-DD) the reminder was created. */
   createdDate: string
+  /** The office (key: "Corporation|Zone|Circle") this reminder was added under — like the Works List/To Do, so switching offices doesn't show another office's reminders. Absent on reminders created before per-office scoping. */
+  officeKey?: string
 }
 
 /**

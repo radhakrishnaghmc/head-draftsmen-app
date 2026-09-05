@@ -16,6 +16,16 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.29.2',
+    changes: [
+      'Dashboard is now the screen you land on when you open the app.',
+      'Dashboard "Upcoming" card now also shows NIT/tender bid-closing reminders, not just To Do and MB Scrutiny items.',
+      'Tender reminders are now kept separately per office, like the Works List and To Do — a reminder added under one office no longer shows up under another.',
+      'Fixed the Monitoring Format import not finding the right sheet for some zone-level offices.',
+      'Fixed the Dashboard scrollbar overlapping the profile icon in the top-right corner.'
+    ]
+  },
+  {
     version: '1.29.1',
     changes: [
       'New tool: Cement & Steel Rates, in the sidebar — shows the latest official circular rates from the Telangana Public Health department, with an alert when a new circular is published.',

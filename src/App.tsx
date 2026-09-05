@@ -192,12 +192,12 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   const workOrderHeaderActionRef = useRef<HTMLDivElement>(null)
   const intimationHeaderActionRef = useRef<HTMLDivElement>(null)
 
-  const [tab, setTab] = useState<TabKey>('dashboard')
+  const [tab, setTab] = useState<TabKey>('overview')
   // Keep-alive bookkeeping: every tab the user has visited stays mounted (hidden)
   // so its work/state survives navigating away. `resetNonce` is part of the panes'
   // React key — bumping it (a sidebar double-click) remounts them all, the
   // explicit "terminate every workspace" gesture.
-  const [mountedTabs, setMountedTabs] = useState<Set<TabKey>>(() => new Set<TabKey>(['dashboard']))
+  const [mountedTabs, setMountedTabs] = useState<Set<TabKey>>(() => new Set<TabKey>(['overview']))
   const [resetNonce, setResetNonce] = useState(0)
   useEffect(() => {
     setMountedTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)))
@@ -713,6 +713,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // Bid document batches, same per-office scoping — otherwise a batch issued
   // for one office keeps showing under every other office switched to.
   const officeBidBatches = bidDocumentBatches.filter((b) => (b.officeKey ?? '') === currentOfficeKey)
+  // Tender reminders, same per-office scoping — otherwise a reminder added
+  // under one office keeps showing under every other office switched to.
+  const officeTenderReminders = tenderReminders.filter((r) => (r.officeKey ?? '') === currentOfficeKey)
   // Short label of the office these per-office lists are scoped to, for the page header.
   const officeLabel = office.circle || office.zone || ''
   function setOfficeTodos(next: TodoItem[]) {
@@ -743,6 +746,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     )
     setBidDocumentBatches((prev) =>
       prev.some((b) => !b.officeKey) ? prev.map((b) => (b.officeKey ? b : { ...b, officeKey: currentOfficeKey })) : prev
+    )
+    setTenderReminders((prev) =>
+      prev.some((r) => !r.officeKey) ? prev.map((r) => (r.officeKey ? r : { ...r, officeKey: currentOfficeKey })) : prev
     )
   }, [hydrated, currentOfficeKey])
 
@@ -1013,7 +1019,10 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     const id = `reminder-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const d = new Date()
     const createdDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    setTenderReminders((prev) => [...prev, { id, nitNo, items: [], status: 'pending', createdDate }])
+    setTenderReminders((prev) => [
+      ...prev,
+      { id, nitNo, items: [], status: 'pending', createdDate, officeKey: currentOfficeKey || undefined }
+    ])
     await lookupTenderReminder(id, nitNo)
   }
 
@@ -1051,7 +1060,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       bidClosing: row[7] || undefined
     }
     setTenderReminders((prev) => {
-      const idx = prev.findIndex((r) => r.nitNo === nitNo)
+      const idx = prev.findIndex((r) => r.nitNo === nitNo && (r.officeKey ?? '') === currentOfficeKey)
       if (idx !== -1) {
         const existing = prev[idx]
         const itemIdx = existing.items.findIndex((it) => item.tenderId && it.tenderId === item.tenderId)
@@ -1066,7 +1075,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       const id = `reminder-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const d = new Date()
       const createdDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      return [...prev, { id, nitNo, items: [item], status: 'found', createdDate }]
+      return [...prev, { id, nitNo, items: [item], status: 'found', createdDate, officeKey: currentOfficeKey || undefined }]
     })
   }
 
@@ -1201,7 +1210,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       <main className="workspace">
         <Fragment key={resetNonce}>
         <KeepAlive active={tab === 'overview'} mounted={mountedTabs.has('overview')}>
-          <section className="page wide ov-page" ref={overviewPageRef}>
+          <section className="page wide" ref={overviewPageRef}>
             <div className="page-head">
               <div className="page-ic green">
                 <IconGrid />
@@ -1224,6 +1233,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               monitoringFormat={currentOfficeKey ? monitoringFormatByOffice[currentOfficeKey] : undefined}
               todos={officeTodos}
               mbScrutiny={officeMb}
+              tenderReminders={officeTenderReminders}
               cementSteelHasNew={cementSteelHasNew}
               onNavigate={setTab}
             />
@@ -1649,7 +1659,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
             </div>
             <SearchTender onAddReminder={addTenderReminderFromRow} />
             <TenderReminders
-              reminders={tenderReminders}
+              reminders={officeTenderReminders}
               onDelete={removeTenderReminder}
               onRefresh={refreshTenderReminder}
               refreshingId={refreshingReminderId}

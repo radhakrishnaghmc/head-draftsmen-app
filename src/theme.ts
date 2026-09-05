@@ -20,5 +20,5 @@ export function setStoredTheme(theme: ThemeId): void {
 
 export const THEME_OPTIONS: { id: ThemeId; label: string; description: string }[] = [
   { id: 'default', label: 'Default', description: 'Document thumbnail tiles with a frosted-glass look.' },
-  { id: 'aurora', label: 'Aurora', description: 'Whole app restyled with a light lavender background, a vivid purple accent, and soft pastel tones — a modern SaaS dashboard look.' }
+  { id: 'aurora', label: 'Aurora', description: 'Whole app restyled with a light background, a vivid cyan accent, and soft pastel tones — a modern SaaS dashboard look.' }
 ]

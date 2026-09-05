@@ -1,12 +1,13 @@
 import { useMemo, type SVGProps } from 'react'
 import type { TabKey } from './Sidebar'
 import type { Office } from '../office'
-import type { TodoItem, MBScrutinyItem } from '@core/types'
+import type { TodoItem, MBScrutinyItem, TenderReminder } from '@core/types'
 import type { MonitoringFormatSummary, MonitoringFormatRow } from '@core/monitoringFormat'
 import { indianDigitGroups } from '@core/worksAmounts'
 import {
   IconChecklist,
   IconEye,
+  IconSearch,
   IconPlus,
   IconDoc,
   IconArrow,
@@ -23,6 +24,7 @@ interface Props {
   monitoringFormat?: MonitoringFormatSummary
   todos: TodoItem[]
   mbScrutiny: MBScrutinyItem[]
+  tenderReminders: TenderReminder[]
   cementSteelHasNew: boolean
   onNavigate: (tab: TabKey) => void
 }
@@ -48,14 +50,8 @@ const MF_TILES: {
 const DONUT_R = 50
 const DONUT_C = 2 * Math.PI * DONUT_R
 
-const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
-
 function todayISO(): string {
   const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-function dateISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
@@ -65,11 +61,18 @@ function formatDDMMYYYY(iso: string): string {
   return `${d}.${m}.${y}`
 }
 
+function deadlineTab(kind: 'todo' | 'mb' | 'tender'): TabKey {
+  if (kind === 'mb') return 'mbScrutiny'
+  if (kind === 'tender') return 'search'
+  return 'todo'
+}
+
 interface Deadline {
   id: string
   text: string
-  dueDate: string
-  kind: 'todo' | 'mb'
+  dueLabel: string
+  sortTs: number
+  kind: 'todo' | 'mb' | 'tender'
 }
 
 /**
@@ -84,6 +87,7 @@ export default function OverviewDashboard({
   monitoringFormat,
   todos,
   mbScrutiny,
+  tenderReminders,
   cementSteelHasNew,
   onNavigate
 }: Props) {
@@ -101,35 +105,59 @@ export default function OverviewDashboard({
   const totalTracked = completedCount + pendingCount
   const progressPct = totalTracked === 0 ? 0 : Math.round((completedCount / totalTracked) * 100)
 
-  // Current calendar week (Sun–Sat), counting items of either kind marked done on each day.
-  const weekCounts = useMemo(() => {
-    const now = new Date()
-    const sunday = new Date(now)
-    sunday.setDate(now.getDate() - now.getDay())
-    const doneDates = [
-      ...todos.filter((t) => t.done && t.completedDate).map((t) => t.completedDate as string),
-      ...mbScrutiny.filter((m) => m.done && m.completedDate).map((m) => m.completedDate as string)
-    ]
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(sunday)
-      d.setDate(sunday.getDate() + i)
-      const iso = dateISO(d)
-      return { iso, isToday: iso === today, count: doneDates.filter((x) => x === iso).length }
-    })
-  }, [todos, mbScrutiny, today])
-  const weekMax = Math.max(1, ...weekCounts.map((d) => d.count))
 
   const deadlines: Deadline[] = useMemo(() => {
+    // Sorted by a best-effort timestamp — To Do/MB dates are ISO so this is
+    // exact; tender bid-closing times come from the portal as free text, so an
+    // unparseable one just sorts to the end rather than being dropped.
     const items: Deadline[] = [
       ...todos
         .filter((t) => !t.done && t.targetDate)
-        .map((t) => ({ id: t.id, text: t.text, dueDate: t.targetDate, kind: 'todo' as const })),
+        .map((t) => ({
+          id: t.id,
+          text: t.text,
+          dueLabel: formatDDMMYYYY(t.targetDate),
+          sortTs: Date.parse(t.targetDate),
+          kind: 'todo' as const
+        })),
       ...mbScrutiny
         .filter((m) => !m.done && m.targetDate)
-        .map((m) => ({ id: m.id, text: `MB No. ${m.mbNo} — ${m.agencyName}`, dueDate: m.targetDate as string, kind: 'mb' as const }))
+        .map((m) => ({
+          id: m.id,
+          text: `MB No. ${m.mbNo} — ${m.agencyName}`,
+          dueLabel: formatDDMMYYYY(m.targetDate as string),
+          sortTs: Date.parse(m.targetDate as string),
+          kind: 'mb' as const
+        })),
+      // Every reminder shows up here, not just ones with a resolved bid-closing
+      // date — a pending/not-found lookup still gets an entry (dueLabel
+      // explains the state, sortTs pushes it after anything with a real date)
+      // so it isn't silently invisible on the dashboard while still listed on
+      // the Search Tender tab's own Tender Reminders card.
+      ...tenderReminders.flatMap((r) =>
+        r.items.length > 0
+          ? r.items.map((it, i) => ({
+              id: `${r.id}-${i}`,
+              text: it.workName || r.nitNo,
+              dueLabel: it.bidClosing ? `Bid closing ${it.bidClosing}` : 'Bid closing time pending',
+              sortTs: it.bidClosing ? Date.parse(it.bidClosing) : Infinity,
+              kind: 'tender' as const
+            }))
+          : [
+              {
+                id: r.id,
+                text: r.nitNo,
+                dueLabel: r.status === 'pending' ? 'Looking up bid closing time…' : 'Not found on the portal yet',
+                sortTs: Infinity,
+                kind: 'tender' as const
+              }
+            ]
+      )
     ]
-    return items.sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-  }, [todos, mbScrutiny])
+    return items
+      .map((d) => (Number.isNaN(d.sortTs) ? { ...d, sortTs: Infinity } : d))
+      .sort((a, b) => a.sortTs - b.sortTs)
+  }, [todos, mbScrutiny, tenderReminders])
 
   const nextDeadline = deadlines[0]
   const upcoming = deadlines.slice(0, 5)
@@ -141,44 +169,6 @@ export default function OverviewDashboard({
 
   return (
     <div className="overview-dashboard">
-      <div className="ov-stats">
-        <div className="ov-stat ov-stat-hero">
-          <div className="ov-stat-top">
-            <span>Total Works (Monitoring Format)</span>
-            <span className="ov-stat-arrow">
-              <IconArrow />
-            </span>
-          </div>
-          <b>{mfTotals ? mfTotals.totalWorks.no : '—'}</b>
-          <span className="ov-stat-sub">
-            {mfTotals
-              ? `${indianDigitGroups(mfTotals.totalWorks.amt)} · ${monitoringFormat!.officeLabel}`
-              : `Not imported yet${officeLabel ? ` for ${officeLabel}` : ''}`}
-          </span>
-        </div>
-        <div className="ov-stat">
-          <div className="ov-stat-top">
-            <span>Tasks Completed</span>
-          </div>
-          <b>{completedCount}</b>
-          <span className="ov-stat-sub">To Do + MB Scrutiny, all time</span>
-        </div>
-        <div className="ov-stat">
-          <div className="ov-stat-top">
-            <span>Tasks Pending</span>
-          </div>
-          <b>{pendingCount}</b>
-          <span className="ov-stat-sub">Still open</span>
-        </div>
-        <div className={`ov-stat ${overdueCount > 0 ? 'ov-stat-warn' : ''}`}>
-          <div className="ov-stat-top">
-            <span>Overdue</span>
-          </div>
-          <b>{overdueCount}</b>
-          <span className="ov-stat-sub">{overdueCount > 0 ? 'Needs attention' : 'Nothing overdue'}</span>
-        </div>
-      </div>
-
       <div className="card ov-card ov-mf-status">
         <div className="card-head">
           <span className="ov-mf-titles">
@@ -258,27 +248,45 @@ export default function OverviewDashboard({
         )}
       </div>
 
-      <div className="ov-grid">
-        <div className="card ov-card ov-analytics">
-          <div className="card-head">
-            <h3>Weekly Activity</h3>
+      <div className="ov-stats">
+        <div className="ov-stat ov-stat-hero">
+          <div className="ov-stat-top">
+            <span>Total Works (Monitoring Format)</span>
+            <span className="ov-stat-arrow">
+              <IconArrow />
+            </span>
           </div>
-          <div className="ov-bars">
-            {weekCounts.map((d, i) => (
-              <div key={d.iso} className="ov-bar-col">
-                <div className="ov-bar-track">
-                  <div
-                    className={`ov-bar ${d.isToday ? 'ov-bar-today' : ''}`}
-                    style={{ height: `${Math.max(6, (d.count / weekMax) * 100)}%` }}
-                    title={`${d.count} completed`}
-                  />
-                </div>
-                <span className="ov-bar-label">{WEEKDAY_LABELS[i]}</span>
-              </div>
-            ))}
-          </div>
+          <b>{mfTotals ? mfTotals.totalWorks.no : '—'}</b>
+          <span className="ov-stat-sub">
+            {mfTotals
+              ? `${indianDigitGroups(mfTotals.totalWorks.amt)} · ${monitoringFormat!.officeLabel}`
+              : `Not imported yet${officeLabel ? ` for ${officeLabel}` : ''}`}
+          </span>
         </div>
+        <div className="ov-stat">
+          <div className="ov-stat-top">
+            <span>Tasks Completed</span>
+          </div>
+          <b>{completedCount}</b>
+          <span className="ov-stat-sub">To Do + MB Scrutiny, all time</span>
+        </div>
+        <div className="ov-stat">
+          <div className="ov-stat-top">
+            <span>Tasks Pending</span>
+          </div>
+          <b>{pendingCount}</b>
+          <span className="ov-stat-sub">Still open</span>
+        </div>
+        <div className={`ov-stat ${overdueCount > 0 ? 'ov-stat-warn' : ''}`}>
+          <div className="ov-stat-top">
+            <span>Overdue</span>
+          </div>
+          <b>{overdueCount}</b>
+          <span className="ov-stat-sub">{overdueCount > 0 ? 'Needs attention' : 'Nothing overdue'}</span>
+        </div>
+      </div>
 
+      <div className="ov-grid">
         <div className="card ov-card ov-reminder">
           <div className="card-head">
             <h3>Reminders</h3>
@@ -286,8 +294,10 @@ export default function OverviewDashboard({
           {nextDeadline ? (
             <>
               <p className="ov-reminder-title">{nextDeadline.text}</p>
-              <p className="ov-reminder-date">Due {formatDDMMYYYY(nextDeadline.dueDate)}</p>
-              <button className="primary ov-reminder-btn" onClick={() => onNavigate(nextDeadline.kind === 'mb' ? 'mbScrutiny' : 'todo')}>
+              <p className="ov-reminder-date">
+                {nextDeadline.kind === 'tender' ? nextDeadline.dueLabel : `Due ${nextDeadline.dueLabel}`}
+              </p>
+              <button className="primary ov-reminder-btn" onClick={() => onNavigate(deadlineTab(nextDeadline.kind))}>
                 Open
               </button>
             </>
@@ -313,10 +323,12 @@ export default function OverviewDashboard({
             <ul className="ov-task-list">
               {upcoming.map((d) => (
                 <li key={`${d.kind}-${d.id}`}>
-                  <span className="ov-task-ic">{d.kind === 'mb' ? <IconEye /> : <IconChecklist />}</span>
+                  <span className="ov-task-ic">
+                    {d.kind === 'mb' ? <IconEye /> : d.kind === 'tender' ? <IconSearch /> : <IconChecklist />}
+                  </span>
                   <span className="ov-task-body">
                     <span className="ov-task-text">{d.text}</span>
-                    <span className="ov-task-date">Due date: {formatDDMMYYYY(d.dueDate)}</span>
+                    <span className="ov-task-date">{d.kind === 'tender' ? d.dueLabel : `Due date: ${d.dueLabel}`}</span>
                   </span>
                 </li>
               ))}

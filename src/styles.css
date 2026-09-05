@@ -102,24 +102,25 @@
     'Helvetica Neue', sans-serif;
 }
 
-/* Aurora theme (Settings → Themes) — a light, lavender-and-purple palette
-   inspired by modern SaaS analytics dashboards: a vivid purple interactive
-   accent, soft pastel tones (mint/coral/peach/lavender) for the app's
-   existing tone-coded tiles and badges, and a near-white lavender
-   background in place of the tricolour wash. Shapes/blur/radii are left at
-   Default's values (fully-rounded pills, frosted glass) — this is a
-   palette swap like TG, not a shape restyle like Windows. */
+/* Aurora theme (Settings → Themes) — a light, cyan-accented palette inspired
+   by modern SaaS analytics dashboards: a vivid cyan-blue interactive accent
+   (matching telangana.gov.in's own accessible focus-outline blue, #109cde),
+   soft pastel tones (mint/coral/peach) for the app's existing tone-coded
+   tiles and badges, and a near-white background in place of the tricolour
+   wash. Shapes/blur/radii are left at Default's values (fully-rounded
+   pills, frosted glass) — this is a palette swap like TG, not a shape
+   restyle like Windows. */
 body.theme-aurora {
-  --indigo-50: #f5f2fe;
-  --indigo-100: #e9e2fc;
-  --indigo-200: #cdbdf7;
-  --indigo-500: #7c5cf4; /* primary purple accent */
-  --indigo-600: #6440e0; /* deeper purple — solid accent fills / accent text */
-  --indigo-700: #4c2db3; /* darkest purple — accent text / hairlines */
-  --violet-500: #b39dff; /* lighter violet — gradient partner for two-tone CTAs */
-  --chakra: #4527a8;
-  --sky-100: #eef0fe;
-  --sky-500: #7c8cf8; /* periwinkle */
+  --indigo-50: #eaf8fd;
+  --indigo-100: #d2f0fa;
+  --indigo-200: #9de0f3;
+  --indigo-500: #109cde; /* primary cyan accent — telangana.gov.in's focus-outline blue */
+  --indigo-600: #0c7fb3; /* deeper cyan — solid accent fills / accent text */
+  --indigo-700: #0a5f87; /* darkest cyan — accent text / hairlines */
+  --violet-500: #5cd2ef; /* lighter cyan — gradient partner for two-tone CTAs */
+  --chakra: #063f5c;
+  --sky-100: #e3f6fc;
+  --sky-500: #38b6e0; /* periwinkle */
   --teal-500: #14b8a6;
   --teal-100: #e1faf5;
   --rose-500: #fb6f92; /* coral pink */
@@ -129,16 +130,16 @@ body.theme-aurora {
   --green-bg: #e6faf0;
   --orange-bg: #fff2e0;
 
-  --bg-grad-a: #f8f7fd;
-  --bg-grad-b: #efeafd;
+  --bg-grad-a: #f5fbfd;
+  --bg-grad-b: #e6f6fb;
   --surface: rgba(255, 255, 255, 0.86);
   --surface-2: rgba(252, 250, 255, 0.7);
-  --border: rgba(108, 92, 231, 0.14);
-  --border-strong: rgba(108, 92, 231, 0.26);
+  --border: rgba(16, 156, 222, 0.14);
+  --border-strong: rgba(16, 156, 222, 0.26);
 
-  --text: #241b45;
-  --text-2: #59517f;
-  --muted: #8b84ab;
+  --text: #12283a;
+  --text-2: #3d5b6d;
+  --muted: #6f8b98;
 
   --ok: #17a673;
   --ok-bg: #e6faf0;
@@ -147,10 +148,10 @@ body.theme-aurora {
   --danger: #ef4360;
   --danger-bg: #ffe9ef;
 
-  --shadow-sm: 0 1px 2px rgba(76, 39, 168, 0.08);
-  --shadow-md: 0 4px 16px -6px rgba(76, 39, 168, 0.16), 0 2px 6px -3px rgba(76, 39, 168, 0.09);
-  --shadow-lg: 0 24px 48px -16px rgba(76, 39, 168, 0.26);
-  --shadow-glow: 0 8px 24px -6px rgba(124, 92, 244, 0.45);
+  --shadow-sm: 0 1px 2px rgba(10, 95, 135, 0.08);
+  --shadow-md: 0 4px 16px -6px rgba(10, 95, 135, 0.16), 0 2px 6px -3px rgba(10, 95, 135, 0.09);
+  --shadow-lg: 0 24px 48px -16px rgba(10, 95, 135, 0.26);
+  --shadow-glow: 0 8px 24px -6px rgba(16, 156, 222, 0.45);
 }
 
 * {
@@ -195,12 +196,13 @@ body::before {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
 }
 
-/* Aurora theme: swap the tricolour glow blobs for a soft purple/coral wash,
+/* Aurora theme: swap the tricolour glow blobs for a soft cyan/coral wash,
    and drop the grain texture and the Charminar/temple skyline art — this
-   theme is a generic modern-SaaS look, not Telangana-branded, so the
-   Telangana decorative art doesn't belong (same call as Windows/Dark). */
+   theme is a generic modern-SaaS look, not Telangana-branded (its accent
+   color happens to match telangana.gov.in's own site blue, but there's no
+   tricolour/skyline/Telangana decorative art here, same call as Windows/Dark). */
 body.theme-aurora {
-  background: radial-gradient(1200px 700px at 10% -10%, rgba(124, 92, 244, 0.14), transparent 60%),
+  background: radial-gradient(1200px 700px at 10% -10%, rgba(16, 156, 222, 0.14), transparent 60%),
     radial-gradient(900px 520px at 90% 10%, rgba(251, 111, 146, 0.1), transparent 55%),
     radial-gradient(1000px 480px at 50% 100%, rgba(255, 255, 255, 0.6), transparent 60%),
     linear-gradient(180deg, var(--bg-grad-a), var(--bg-grad-b));
@@ -370,7 +372,7 @@ body.theme-aurora .sidebar-art-bg {
   overflow: hidden;
 }
 body.theme-aurora .update-progress-track {
-  background: rgba(124, 92, 244, 0.18);
+  background: rgba(16, 156, 222, 0.18);
 }
 .update-progress-fill {
   height: 100%;
@@ -481,11 +483,11 @@ code {
   -webkit-backdrop-filter: saturate(180%) blur(18px);
   border-right: 1px solid var(--border);
 }
-/* Aurora theme: a clean near-white sidebar with only a faint purple wash at
+/* Aurora theme: a clean near-white sidebar with only a faint cyan wash at
    the top (matching the reference dashboard's plain-white sidebar) instead
    of Default's full-height tricolour band. */
 body.theme-aurora .sidebar {
-  background: linear-gradient(180deg, rgba(124, 92, 244, 0.12) 0%, rgba(124, 92, 244, 0.04) 30%, rgba(255, 255, 255, 0.94) 55%, rgba(255, 255, 255, 0.94) 100%);
+  background: linear-gradient(180deg, rgba(16, 156, 222, 0.12) 0%, rgba(16, 156, 222, 0.04) 30%, rgba(255, 255, 255, 0.94) 55%, rgba(255, 255, 255, 0.94) 100%);
 }
 
 .side-brand {
@@ -501,7 +503,7 @@ body.theme-aurora .sidebar {
   filter: drop-shadow(0 4px 10px rgba(255, 153, 51, 0.35));
 }
 body.theme-aurora .side-brand .logo {
-  filter: drop-shadow(0 4px 10px rgba(124, 92, 244, 0.35));
+  filter: drop-shadow(0 4px 10px rgba(16, 156, 222, 0.35));
 }
 .side-brand h1 {
   margin: 0;
@@ -700,7 +702,7 @@ body.theme-aurora .side-brand .logo {
   box-shadow: 0 6px 16px -8px rgba(30, 41, 59, 0.4), var(--shadow-sm);
 }
 body.theme-aurora .nav-item:hover {
-  background: rgba(124, 92, 244, 0.1);
+  background: rgba(16, 156, 222, 0.1);
 }
 
 .nav-step {
@@ -963,15 +965,17 @@ body.theme-aurora .nav-item:hover {
      read as one top row instead of a staircase. Right is wider than left so
      a page-head's right-aligned actions (e.g. Add Task/Import Data) clear
      the profile badge (fixed, right: 24px, 38px wide) instead of running
-     under it now that the row sits this high. */
-  padding: 28px 70px 80px 44px;
+     under it now that the row sits this high. 10px of that 70px moved into
+     .page's own padding-right (its content-to-scrollbar gap) — total stays
+     70px so page-head's available width, and its wrap point, don't change. */
+  padding: 28px 60px 80px 44px;
   background: radial-gradient(900px 520px at 12% 0%, rgba(255, 153, 51, 0.22), transparent 60%),
     radial-gradient(820px 480px at 88% 15%, rgba(255, 255, 255, 0.5), transparent 55%),
     radial-gradient(760px 460px at 95% 75%, rgba(19, 136, 8, 0.14), transparent 55%),
     radial-gradient(1000px 620px at 30% 100%, rgba(19, 136, 8, 0.16), transparent 60%);
 }
 body.theme-aurora .workspace {
-  background: radial-gradient(900px 520px at 12% 0%, rgba(124, 92, 244, 0.18), transparent 60%),
+  background: radial-gradient(900px 520px at 12% 0%, rgba(16, 156, 222, 0.18), transparent 60%),
     radial-gradient(820px 480px at 88% 15%, rgba(255, 255, 255, 0.5), transparent 55%),
     radial-gradient(760px 460px at 95% 75%, rgba(251, 111, 146, 0.12), transparent 55%),
     radial-gradient(1000px 620px at 30% 100%, rgba(245, 169, 78, 0.12), transparent 60%);
@@ -997,6 +1001,10 @@ body.theme-aurora .workspace {
   height: 100%;
   min-height: 0;
   overflow-y: auto;
+  /* A little breathing room between the content and this scrollbar, so the
+     thumb doesn't sit flush against card edges/text — shifts content a touch
+     toward the sidebar instead of running to the scrollbar's own edge. */
+  padding-right: 10px;
   /* Without an explicit overflow-x, UAs treat the paired "visible" as "auto"
      (CSS Overflow §3) once overflow-y is non-visible — so a wide child (the
      Works List table) that still manages to bulge past .sheet-inline's own
@@ -1420,19 +1428,19 @@ button.primary:hover:not(:disabled) {
 button.primary:active:not(:disabled) {
   background: #c3e2bf;
 }
-/* Aurora theme: same flat pale-fill pill, recolored to the theme's purple
+/* Aurora theme: same flat pale-fill pill, recolored to the theme's cyan
    accent instead of the hardcoded India-green. */
 body.theme-aurora button.primary {
-  background: #e9e2fc;
-  color: #2f1f66;
-  border-color: rgba(124, 92, 244, 0.32);
+  background: #d2f0fa;
+  color: #063f5c;
+  border-color: rgba(16, 156, 222, 0.32);
 }
 body.theme-aurora button.primary:hover:not(:disabled) {
-  background: #dccffa;
-  border-color: rgba(124, 92, 244, 0.45);
+  background: #b9e8f8;
+  border-color: rgba(16, 156, 222, 0.45);
 }
 body.theme-aurora button.primary:active:not(:disabled) {
-  background: #cdbdf7;
+  background: #9de0f3;
 }
 
 button.ghost {
@@ -1633,8 +1641,8 @@ body.theme-aurora .empty {
     45deg,
     transparent,
     transparent 10px,
-    rgba(124, 92, 244, 0.04) 10px,
-    rgba(124, 92, 244, 0.04) 20px
+    rgba(16, 156, 222, 0.04) 10px,
+    rgba(16, 156, 222, 0.04) 20px
   );
 }
 .empty svg {
@@ -2811,7 +2819,7 @@ button.upload-btn {
   transition: opacity 0.15s var(--ease);
 }
 body.theme-aurora .wo-tile-open {
-  background: linear-gradient(to top, rgba(76, 39, 168, 0.92), rgba(76, 39, 168, 0));
+  background: linear-gradient(to top, rgba(10, 95, 135, 0.92), rgba(10, 95, 135, 0));
 }
 .wo-tile:hover .wo-tile-open {
   opacity: 1;
@@ -4390,12 +4398,12 @@ button.danger:disabled {
   color: #14261a;
 }
 body.theme-aurora .gen-output-modes .seg:hover {
-  border-color: rgba(124, 92, 244, 0.4);
+  border-color: rgba(16, 156, 222, 0.4);
 }
 body.theme-aurora .gen-output-modes .seg.active {
-  border-color: rgba(124, 92, 244, 0.45);
-  background: linear-gradient(180deg, #ece6fd, #d9cdfb);
-  color: #2f1f66;
+  border-color: rgba(16, 156, 222, 0.45);
+  background: linear-gradient(180deg, #ddf4fb, #c3ecf9);
+  color: #063f5c;
 }
 /* Typed-in party-agency details for the 3rd/4th-party QC letters. */
 .gen-party-fields {
@@ -9013,18 +9021,18 @@ body.theme-aurora .pdf-ws-railbtn,
 body.theme-aurora .pdf-ws-selbtn,
 body.theme-aurora .pdf-ws-clearall,
 body.theme-aurora .pdf-ws-clearbtn {
-  background: linear-gradient(180deg, #ece6fd, #d9cdfb);
-  color: #2f1f66;
-  border-color: rgba(124, 92, 244, 0.28);
-  box-shadow: 0 4px 12px -6px rgba(76, 39, 168, 0.28);
+  background: linear-gradient(180deg, #ddf4fb, #c3ecf9);
+  color: #063f5c;
+  border-color: rgba(16, 156, 222, 0.28);
+  box-shadow: 0 4px 12px -6px rgba(10, 95, 135, 0.28);
 }
 body.theme-aurora .pdf-ws-railbtn:hover:not(:disabled),
 body.theme-aurora .pdf-ws-selbtn:hover:not(:disabled),
 body.theme-aurora .pdf-ws-clearall:hover:not(:disabled),
 body.theme-aurora .pdf-ws-clearbtn:hover:not(:disabled) {
-  background: linear-gradient(180deg, #ddd2fb, #c4b3f8);
-  border-color: rgba(124, 92, 244, 0.4);
-  box-shadow: 0 8px 18px -7px rgba(76, 39, 168, 0.32);
+  background: linear-gradient(180deg, #c9eefa, #a9e2f5);
+  border-color: rgba(16, 156, 222, 0.4);
+  box-shadow: 0 8px 18px -7px rgba(10, 95, 135, 0.32);
 }
 .pdf-ws-clearall {
   width: 100%;
@@ -9185,7 +9193,7 @@ body.theme-aurora .pdf-ws-clearbtn:hover:not(:disabled) {
   background: var(--surface);
 }
 body.theme-aurora .pdf-ws-dropzone:hover:not(:disabled) {
-  border-color: rgba(124, 92, 244, 0.5);
+  border-color: rgba(16, 156, 222, 0.5);
 }
 .pdf-ws-dropzone:disabled {
   opacity: 0.6;
@@ -9278,8 +9286,8 @@ body.theme-aurora .pdf-ws-dropzone:hover:not(:disabled) {
   box-shadow: 0 0 0 2px rgba(19, 136, 8, 0.28);
 }
 body.theme-aurora .pdf-ws-page.on {
-  border-color: rgba(124, 92, 244, 0.65);
-  box-shadow: 0 0 0 2px rgba(124, 92, 244, 0.28);
+  border-color: rgba(16, 156, 222, 0.65);
+  box-shadow: 0 0 0 2px rgba(16, 156, 222, 0.28);
 }
 .pdf-ws-page-thumb {
   position: relative;
@@ -9811,18 +9819,6 @@ body.theme-aurora .pdf-ws-page.on {
   gap: 18px;
 }
 
-/* .page's own scrollbar renders flush against its right border, well left
-   of .workspace's 70px right padding — reading as pinned to the cards
-   instead of the window. Extending .ov-page 16px into that padding (and
-   padding it back out by the same amount so the cards themselves don't
-   shift) carries the scrollbar 16px closer to the window edge without
-   touching .workspace's padding, which other tabs' page-head actions
-   still rely on for profile-badge clearance. */
-.ov-page {
-  margin-right: -16px;
-  padding-right: 16px;
-}
-
 .ov-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -9909,46 +9905,6 @@ body.theme-aurora .pdf-ws-page.on {
   gap: 4px;
   font-size: 12.5px;
   padding: 5px 10px;
-}
-
-/* Weekly Activity bars */
-.ov-bars {
-  flex: 1;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 140px;
-  padding-top: 6px;
-}
-.ov-bar-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  height: 100%;
-}
-.ov-bar-track {
-  flex: 1;
-  width: 100%;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-}
-.ov-bar {
-  width: 60%;
-  min-height: 6px;
-  border-radius: var(--radius-pill);
-  background: var(--indigo-100);
-  transition: height 0.3s var(--ease);
-}
-.ov-bar-today {
-  background: linear-gradient(180deg, var(--indigo-500), var(--indigo-700));
-}
-.ov-bar-label {
-  font-size: 11.5px;
-  color: var(--muted);
 }
 
 /* Reminders */
@@ -10326,7 +10282,7 @@ body.theme-aurora .pdf-ws-page.on {
 }
 .ov-promo-btn {
   margin-top: 10px;
-  align-self: flex-start;
+  align-self: center;
   background: #fff;
   color: var(--indigo-700);
   border: none;
@@ -10335,6 +10291,10 @@ body.theme-aurora .pdf-ws-page.on {
   font-size: 12.5px;
   font-weight: 650;
   cursor: pointer;
+}
+button.ov-promo:hover:not(:disabled) {
+  background: linear-gradient(150deg, var(--indigo-700), #0c2a14);
+  border-color: transparent;
 }
 
 @media (max-width: 1200px) {
