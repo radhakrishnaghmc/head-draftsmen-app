@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { IconPlus, IconTrash, IconCheck, IconEdit } from './Icons'
+import { IconPlus, IconTrash, IconCheck, IconEdit, IconRestore } from './Icons'
 import type { TodoItem } from '@core/types'
 
 interface Props {
@@ -35,10 +35,18 @@ export default function TodoList({ todos, onChange }: Props) {
   // The task currently being edited inline, and its working text. null = none.
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
+  const [showBin, setShowBin] = useState(false)
 
   const visible = useMemo(
-    () => todos.filter((t) => !t.done || t.completedDate === today),
+    () => todos.filter((t) => !t.deletedAt && (!t.done || t.completedDate === today)),
     [todos, today]
+  )
+  const binned = useMemo(
+    () =>
+      todos
+        .filter((t) => t.deletedAt)
+        .sort((a, b) => (b.deletedAt ?? '').localeCompare(a.deletedAt ?? '')),
+    [todos]
   )
 
   function addItem() {
@@ -86,8 +94,12 @@ export default function TodoList({ todos, onChange }: Props) {
     setEditText('')
   }
 
-  function removeItem(id: string) {
-    onChange(todos.filter((t) => t.id !== id))
+  function moveToBin(id: string) {
+    onChange(todos.map((t) => (t.id === id ? { ...t, deletedAt: new Date().toISOString() } : t)))
+  }
+
+  function restoreItem(id: string) {
+    onChange(todos.map((t) => (t.id === id ? { ...t, deletedAt: undefined } : t)))
   }
 
   return (
@@ -110,7 +122,39 @@ export default function TodoList({ todos, onChange }: Props) {
         </button>
       </div>
 
-      {visible.length === 0 ? (
+      <div className="mb-tabs">
+        <button className={`mb-tab tone-bin ${showBin ? 'open' : ''}`} onClick={() => setShowBin((v) => !v)}>
+          <span className="mb-section-ic">
+            <IconTrash />
+          </span>
+          <span className="mb-tab-label">Bin</span>
+          <span className="mb-section-count">{binned.length}</span>
+        </button>
+      </div>
+
+      {showBin ? (
+        binned.length === 0 ? (
+          <p className="mb-section-empty">The Bin is empty.</p>
+        ) : (
+          <ul className="todo-list">
+            {binned.map((t) => (
+              <li key={t.id} className="todo-item mb-item-binned">
+                <div className="todo-body">
+                  <span className="todo-text">{t.text}</span>
+                  <span className="todo-dates">
+                    Added {formatDDMMYYYY(t.createdDate)}
+                    {t.deletedAt && ` · Moved to Bin ${formatDDMMYYYY(t.deletedAt.slice(0, 10))}`}
+                  </span>
+                </div>
+                <button className="ghost" title="Restore" onClick={() => restoreItem(t.id)}>
+                  <IconRestore />
+                  Restore
+                </button>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : visible.length === 0 ? (
         <div className="empty">
           <IconCheck />
           <p>Nothing to do — add a task above.</p>
@@ -162,8 +206,9 @@ export default function TodoList({ todos, onChange }: Props) {
                   <IconEdit />
                 </button>
               )}
-              <button className="danger-ghost" title="Delete" onClick={() => removeItem(t.id)}>
+              <button className="danger-ghost" title="Move to Bin" onClick={() => moveToBin(t.id)}>
                 <IconTrash />
+                Bin
               </button>
             </li>
           ))}

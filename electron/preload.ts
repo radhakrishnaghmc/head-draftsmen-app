@@ -56,6 +56,7 @@ const api: DocuGenApi = {
   fetchCementSteelRates: () => ipcRenderer.invoke(IPC.fetchCementSteelRates),
   downloadCementSteelRate: (token, suggestedFileName) =>
     ipcRenderer.invoke(IPC.downloadCementSteelRate, token, suggestedFileName),
+  fetchCementSteelRateBytes: (token) => ipcRenderer.invoke(IPC.fetchCementSteelRateBytes, token),
   ocrGpsOverlay: (imageBytes) => ipcRenderer.invoke(IPC.ocrGpsOverlay, imageBytes),
   ocrPhotosToLines: (dataUrls) => ipcRenderer.invoke(IPC.ocrPhotosToLines, dataUrls),
   savePhotosAsWord: (text, suggestedName) => ipcRenderer.invoke(IPC.savePhotosAsWord, text, suggestedName),

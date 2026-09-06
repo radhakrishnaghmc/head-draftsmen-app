@@ -1,8 +1,6 @@
 import { useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { IconPlus, IconTrash, IconCheck, IconRefresh, IconEye, IconChevronRight, IconSearch } from './Icons'
+import { IconPlus, IconTrash, IconCheck, IconRefresh, IconEye, IconChevronRight, IconSearch, IconRestore } from './Icons'
 import type { MBScrutinyItem } from '@core/types'
-import { closeOnBackdropMouseDown } from '../overlayClose'
 
 function nextSerialNo(items: MBScrutinyItem[]): number {
   return items.reduce((max, it) => Math.max(max, it.serialNo || 0), 0) + 1
@@ -40,14 +38,13 @@ export default function MbScrutinyList({ items, onChange }: Props) {
   const [receivedDate, setReceivedDate] = useState(todayISO())
   const [targetDate, setTargetDate] = useState('')
   const [remarkDrafts, setRemarkDrafts] = useState<Record<string, string>>({})
-  const [pendingDelete, setPendingDelete] = useState<MBScrutinyItem | null>(null)
   const [search, setSearch] = useState('')
   // Behaves like a tab group: at most one list is shown at a time, so the
   // completed list never stacks under the pending one. Clicking the active
   // tab again collapses it (shows neither list).
-  const [activeTab, setActiveTab] = useState<'pending' | 'done' | null>('pending')
+  const [activeTab, setActiveTab] = useState<'pending' | 'done' | 'bin' | null>('pending')
 
-  function toggleTab(tab: 'pending' | 'done') {
+  function toggleTab(tab: 'pending' | 'done' | 'bin') {
     setActiveTab((cur) => (cur === tab ? null : tab))
   }
 
@@ -61,15 +58,22 @@ export default function MbScrutinyList({ items, onChange }: Props) {
   const pendingItems = useMemo(
     () =>
       items
-        .filter((it) => !it.done && matchesSearch(it))
+        .filter((it) => !it.done && !it.deletedAt && matchesSearch(it))
         .sort((a, b) => (a.receivedDate < b.receivedDate ? -1 : a.receivedDate > b.receivedDate ? 1 : 0)),
     [items, query]
   )
   const doneItems = useMemo(
     () =>
       items
-        .filter((it) => it.done && matchesSearch(it))
+        .filter((it) => it.done && !it.deletedAt && matchesSearch(it))
         .sort((a, b) => (b.completedDate ?? '').localeCompare(a.completedDate ?? '')),
+    [items, query]
+  )
+  const binItems = useMemo(
+    () =>
+      items
+        .filter((it) => it.deletedAt && matchesSearch(it))
+        .sort((a, b) => (b.deletedAt ?? '').localeCompare(a.deletedAt ?? '')),
     [items, query]
   )
 
@@ -111,10 +115,12 @@ export default function MbScrutinyList({ items, onChange }: Props) {
     )
   }
 
-  function confirmDelete() {
-    if (!pendingDelete) return
-    onChange(items.filter((it) => it.id !== pendingDelete.id))
-    setPendingDelete(null)
+  function moveToBin(id: string) {
+    update(id, { deletedAt: new Date().toISOString() })
+  }
+
+  function restoreItem(id: string) {
+    onChange(items.map((it) => (it.id === id ? { ...it, deletedAt: undefined } : it)))
   }
 
   function addRemark(id: string) {
@@ -214,8 +220,32 @@ export default function MbScrutinyList({ items, onChange }: Props) {
             />
           </label>
         )}
-        <button className="danger-ghost" title="Delete" onClick={() => setPendingDelete(it)}>
+        <button className="danger-ghost" title="Move to Bin" onClick={() => moveToBin(it.id)}>
           <IconTrash />
+          Bin
+        </button>
+      </li>
+    )
+  }
+
+  function renderBinRow(it: MBScrutinyItem) {
+    return (
+      <li key={it.id} className="todo-item mb-item mb-item-binned">
+        <span className="mb-serial" title="Register S.No. — fixed for this MB">
+          #{it.serialNo}
+        </span>
+        <div className="todo-body">
+          <span className="todo-text">
+            MB No. {it.mbNo} · {it.agencyName}
+          </span>
+          <span className="todo-dates">
+            Received {formatDDMMYYYY(it.receivedDate)}
+            {it.deletedAt && ` · Moved to Bin ${formatDDMMYYYY(it.deletedAt.slice(0, 10))}`}
+          </span>
+        </div>
+        <button className="ghost" title="Restore" onClick={() => restoreItem(it.id)}>
+          <IconRestore />
+          Restore
         </button>
       </li>
     )
@@ -299,6 +329,17 @@ export default function MbScrutinyList({ items, onChange }: Props) {
               <span className="mb-section-count">{doneItems.length}</span>
               <IconChevronRight className="mb-tab-chevron" />
             </button>
+            <button
+              className={`mb-tab tone-bin ${activeTab === 'bin' ? 'open' : ''}`}
+              onClick={() => toggleTab('bin')}
+            >
+              <span className="mb-section-ic">
+                <IconTrash />
+              </span>
+              <span className="mb-tab-label">Bin</span>
+              <span className="mb-section-count">{binItems.length}</span>
+              <IconChevronRight className="mb-tab-chevron" />
+            </button>
           </div>
 
           {activeTab === 'pending' &&
@@ -320,34 +361,17 @@ export default function MbScrutinyList({ items, onChange }: Props) {
             ) : (
               <ul className="todo-list mb-section">{doneItems.map(renderRow)}</ul>
             ))}
+
+          {activeTab === 'bin' &&
+            (binItems.length === 0 ? (
+              <p className="mb-section-empty">
+                {query ? `No binned MBs match "${search.trim()}".` : 'The Bin is empty.'}
+              </p>
+            ) : (
+              <ul className="todo-list mb-section">{binItems.map(renderBinRow)}</ul>
+            ))}
         </>
       )}
-
-      {pendingDelete &&
-        createPortal(
-          <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setPendingDelete(null))}>
-            <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-              <div className="confirm-ic">
-                <IconTrash />
-              </div>
-              <h3>Delete this MB record?</h3>
-              <p className="confirm-warn">
-                You're about to permanently remove MB No. <strong>{pendingDelete.mbNo}</strong> (
-                {pendingDelete.agencyName}).
-              </p>
-              <p className="confirm-hint">Once deleted, this cannot be recovered.</p>
-              <div className="confirm-actions">
-                <button className="ghost" onClick={() => setPendingDelete(null)}>
-                  Cancel
-                </button>
-                <button className="danger" onClick={confirmDelete}>
-                  Delete
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
     </div>
   )
 }

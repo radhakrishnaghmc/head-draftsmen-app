@@ -1,8 +1,8 @@
-import { useMemo, type SVGProps } from 'react'
+import { useMemo, useState, type SVGProps } from 'react'
 import type { TabKey } from './Sidebar'
 import type { Office } from '../office'
 import type { TodoItem, MBScrutinyItem, TenderReminder } from '@core/types'
-import type { MonitoringFormatSummary, MonitoringFormatRow } from '@core/monitoringFormat'
+import type { MonitoringFormatSummary, MfStatusKey } from '@core/monitoringFormat'
 import { indianDigitGroups } from '@core/worksAmounts'
 import {
   IconChecklist,
@@ -10,13 +10,13 @@ import {
   IconSearch,
   IconPlus,
   IconDoc,
-  IconArrow,
   IconCheck,
   IconBolt,
   IconCalendar,
   IconClipboard,
   IconWarn,
-  IconClose
+  IconClose,
+  IconRefresh
 } from './Icons'
 
 interface Props {
@@ -27,6 +27,7 @@ interface Props {
   tenderReminders: TenderReminder[]
   cementSteelHasNew: boolean
   onNavigate: (tab: TabKey) => void
+  onExportStatusWorks: (key: MfStatusKey, label: string) => Promise<boolean>
 }
 
 // Fixed draw order — never reassigned per data, so a color always means the
@@ -35,7 +36,7 @@ interface Props {
 // their own categorical hue from the app's existing brand palette.
 const MF_TILES: {
   label: string
-  key: Exclude<keyof MonitoringFormatRow, 'itemType'>
+  key: MfStatusKey
   color: string
   icon: (p: SVGProps<SVGSVGElement>) => JSX.Element
 }[] = [
@@ -50,9 +51,12 @@ const MF_TILES: {
 const DONUT_R = 50
 const DONUT_C = 2 * Math.PI * DONUT_R
 
-function todayISO(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+// One evenly-spaced hue per work type — generated rather than a fixed list
+// since the item-type set (CC Roads, SWD, Parks, …) is whatever the office's
+// own Monitoring Format workbook defines, not a closed set the app controls.
+function workTypeColor(i: number, total: number): string {
+  const hue = Math.round((210 + (i * 360) / Math.max(total, 1)) % 360)
+  return `hsl(${hue}, 62%, 50%)`
 }
 
 function formatDDMMYYYY(iso: string): string {
@@ -89,18 +93,48 @@ export default function OverviewDashboard({
   mbScrutiny,
   tenderReminders,
   cementSteelHasNew,
-  onNavigate
+  onNavigate,
+  onExportStatusWorks
 }: Props) {
   const officeLabel = office.circle || office.zone || office.corporation || ''
-  const today = todayISO()
+
+  // Per-tile Excel-download feedback: the click triggers a native save dialog
+  // with no visible page change of its own, so the tile itself shows a spinner
+  // while it's in flight and a brief checkmark once the file is written (a
+  // cancelled dialog just falls back to idle, no error needed).
+  const [exportingKey, setExportingKey] = useState<MfStatusKey | null>(null)
+  const [exportedKey, setExportedKey] = useState<MfStatusKey | null>(null)
+
+  async function handleExportTile(key: MfStatusKey, label: string) {
+    if (exportingKey) return
+    setExportingKey(key)
+    setExportedKey(null)
+    try {
+      const saved = await onExportStatusWorks(key, label)
+      if (saved) {
+        setExportedKey(key)
+        setTimeout(() => setExportedKey((k) => (k === key ? null : k)), 2000)
+      }
+    } finally {
+      setExportingKey((k) => (k === key ? null : k))
+    }
+  }
 
   const mfTotals = monitoringFormat?.totals
 
-  const completedCount = todos.filter((t) => t.done).length + mbScrutiny.filter((m) => m.done).length
-  const pendingCount = todos.filter((t) => !t.done).length + mbScrutiny.filter((m) => !m.done).length
-  const overdueCount =
-    todos.filter((t) => !t.done && t.targetDate && t.targetDate < today).length +
-    mbScrutiny.filter((m) => !m.done && m.targetDate && m.targetDate < today).length
+  const workTypes = useMemo(() => {
+    const rows = (monitoringFormat?.rows || []).filter((r) => r.totalWorks.no > 0)
+    const sorted = [...rows].sort((a, b) => b.totalWorks.no - a.totalWorks.no)
+    return sorted.map((row, i) => ({ row, color: workTypeColor(i, sorted.length) }))
+  }, [monitoringFormat])
+
+  // Binned tasks/MBs are hidden from the dashboard entirely — they're neither
+  // pending nor completed work anymore, just recoverable clutter.
+  const activeTodos = useMemo(() => todos.filter((t) => !t.deletedAt), [todos])
+  const activeMb = useMemo(() => mbScrutiny.filter((m) => !m.deletedAt), [mbScrutiny])
+
+  const completedCount = activeTodos.filter((t) => t.done).length + activeMb.filter((m) => m.done).length
+  const pendingCount = activeTodos.filter((t) => !t.done).length + activeMb.filter((m) => !m.done).length
 
   const totalTracked = completedCount + pendingCount
   const progressPct = totalTracked === 0 ? 0 : Math.round((completedCount / totalTracked) * 100)
@@ -111,7 +145,7 @@ export default function OverviewDashboard({
     // exact; tender bid-closing times come from the portal as free text, so an
     // unparseable one just sorts to the end rather than being dropped.
     const items: Deadline[] = [
-      ...todos
+      ...activeTodos
         .filter((t) => !t.done && t.targetDate)
         .map((t) => ({
           id: t.id,
@@ -120,7 +154,7 @@ export default function OverviewDashboard({
           sortTs: Date.parse(t.targetDate),
           kind: 'todo' as const
         })),
-      ...mbScrutiny
+      ...activeMb
         .filter((m) => !m.done && m.targetDate)
         .map((m) => ({
           id: m.id,
@@ -157,14 +191,14 @@ export default function OverviewDashboard({
     return items
       .map((d) => (Number.isNaN(d.sortTs) ? { ...d, sortTs: Infinity } : d))
       .sort((a, b) => a.sortTs - b.sortTs)
-  }, [todos, mbScrutiny, tenderReminders])
+  }, [activeTodos, activeMb, tenderReminders])
 
   const nextDeadline = deadlines[0]
   const upcoming = deadlines.slice(0, 5)
 
   const recentMb = useMemo(
-    () => [...mbScrutiny].sort((a, b) => b.receivedDate.localeCompare(a.receivedDate)).slice(0, 4),
-    [mbScrutiny]
+    () => [...activeMb].sort((a, b) => b.receivedDate.localeCompare(a.receivedDate)).slice(0, 4),
+    [activeMb]
   )
 
   return (
@@ -227,18 +261,102 @@ export default function OverviewDashboard({
               {MF_TILES.map(({ label, key, color, icon: Icon }) => {
                 const bucket = mfTotals[key]
                 const pct = mfTotals.totalWorks.no > 0 ? Math.round((bucket.no / mfTotals.totalWorks.no) * 100) : 0
+                const isExporting = exportingKey === key
+                const isExported = exportedKey === key
                 return (
-                  <div key={key} className="ov-mf-tile" style={{ ['--tile-color' as string]: color }}>
+                  <button
+                    key={key}
+                    type="button"
+                    className={`ov-mf-tile${isExporting ? ' ov-mf-tile-busy' : ''}${isExported ? ' ov-mf-tile-done' : ''}`}
+                    style={{ ['--tile-color' as string]: color }}
+                    disabled={bucket.no === 0 || isExporting}
+                    title={bucket.no > 0 ? `Download Excel of ${label} works` : undefined}
+                    onClick={() => handleExportTile(key, label)}
+                  >
                     <span className="ov-mf-tile-ic">
-                      <Icon />
+                      {isExporting ? <IconRefresh className="ov-mf-tile-spin" /> : isExported ? <IconCheck /> : <Icon />}
                     </span>
                     <span className="ov-mf-tile-main">
-                      <span className="ov-mf-tile-label">{label}</span>
+                      <span className="ov-mf-tile-label">
+                        {label}
+                        {isExporting && <span className="ov-mf-tile-status"> · Downloading…</span>}
+                        {isExported && <span className="ov-mf-tile-status ov-mf-tile-status-done"> · Downloaded</span>}
+                      </span>
                       <span className="ov-mf-tile-nums">
                         <b className="ov-mf-tile-no">{bucket.no}</b>
                         <span className="ov-mf-tile-pct">{pct}%</span>
                       </span>
-                      <span className="ov-mf-tile-amt">{indianDigitGroups(bucket.amt)}</span>
+                      <span className="ov-mf-tile-amt">Rs. {indianDigitGroups(bucket.amt)}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="card ov-card ov-wt-status">
+        <div className="card-head">
+          <span className="ov-mf-titles">
+            <h3>Type of Work</h3>
+            {mfTotals && <span className="sub">{monitoringFormat!.officeLabel} · all statuses</span>}
+          </span>
+        </div>
+        {!mfTotals || workTypes.length === 0 ? (
+          <div className="empty">
+            <p>Import the office's Monitoring Format workbook (Works List page) to see work types here.</p>
+          </div>
+        ) : (
+          <div className="ov-mf-body">
+            <div className="ov-mf-donut-wrap">
+              <svg viewBox="0 0 120 120" className="ov-donut ov-mf-donut">
+                <circle cx="60" cy="60" r={DONUT_R} className="ov-donut-track" />
+                {(() => {
+                  let cursor = 0
+                  return workTypes.map(({ row, color }) => {
+                    const share = mfTotals.totalWorks.no > 0 ? row.totalWorks.no / mfTotals.totalWorks.no : 0
+                    if (share <= 0) return null
+                    const segLen = share * DONUT_C
+                    const gap = 2
+                    const dash = `${Math.max(segLen - gap, 0)} ${DONUT_C - segLen + gap}`
+                    const offset = -cursor
+                    cursor += segLen
+                    return (
+                      <circle
+                        key={row.itemType}
+                        cx="60"
+                        cy="60"
+                        r={DONUT_R}
+                        className="ov-mf-donut-seg"
+                        style={{ stroke: color, strokeDasharray: dash, strokeDashoffset: offset }}
+                      />
+                    )
+                  })
+                })()}
+              </svg>
+              <div className="ov-donut-text">
+                <b>{mfTotals.totalWorks.no}</b>
+                <span>Total Works</span>
+              </div>
+            </div>
+
+            <div className="ov-mf-tiles">
+              {workTypes.map(({ row, color }) => {
+                const pct =
+                  mfTotals.totalWorks.no > 0 ? Math.round((row.totalWorks.no / mfTotals.totalWorks.no) * 100) : 0
+                return (
+                  <div key={row.itemType} className="ov-mf-tile ov-wt-tile" style={{ ['--tile-color' as string]: color }}>
+                    <span className="ov-wt-tile-dot" />
+                    <span className="ov-mf-tile-main">
+                      <span className="ov-mf-tile-label" title={row.itemType}>
+                        {row.itemType}
+                      </span>
+                      <span className="ov-mf-tile-nums">
+                        <b className="ov-mf-tile-no">{row.totalWorks.no}</b>
+                        <span className="ov-mf-tile-pct">{pct}%</span>
+                      </span>
+                      <span className="ov-mf-tile-amt">Rs. {indianDigitGroups(row.totalWorks.amt)}</span>
                     </span>
                   </div>
                 )
@@ -248,45 +366,35 @@ export default function OverviewDashboard({
         )}
       </div>
 
-      <div className="ov-stats">
-        <div className="ov-stat ov-stat-hero">
-          <div className="ov-stat-top">
-            <span>Total Works (Monitoring Format)</span>
-            <span className="ov-stat-arrow">
-              <IconArrow />
-            </span>
-          </div>
-          <b>{mfTotals ? mfTotals.totalWorks.no : '—'}</b>
-          <span className="ov-stat-sub">
-            {mfTotals
-              ? `${indianDigitGroups(mfTotals.totalWorks.amt)} · ${monitoringFormat!.officeLabel}`
-              : `Not imported yet${officeLabel ? ` for ${officeLabel}` : ''}`}
-          </span>
-        </div>
-        <div className="ov-stat">
-          <div className="ov-stat-top">
-            <span>Tasks Completed</span>
-          </div>
-          <b>{completedCount}</b>
-          <span className="ov-stat-sub">To Do + MB Scrutiny, all time</span>
-        </div>
-        <div className="ov-stat">
-          <div className="ov-stat-top">
-            <span>Tasks Pending</span>
-          </div>
-          <b>{pendingCount}</b>
-          <span className="ov-stat-sub">Still open</span>
-        </div>
-        <div className={`ov-stat ${overdueCount > 0 ? 'ov-stat-warn' : ''}`}>
-          <div className="ov-stat-top">
-            <span>Overdue</span>
-          </div>
-          <b>{overdueCount}</b>
-          <span className="ov-stat-sub">{overdueCount > 0 ? 'Needs attention' : 'Nothing overdue'}</span>
-        </div>
-      </div>
-
       <div className="ov-grid">
+        <div className="card ov-card ov-mb">
+          <div className="card-head">
+            <h3>MB Scrutiny</h3>
+            <button className="ghost ov-new-btn" onClick={() => onNavigate('mbScrutiny')}>
+              <IconPlus /> Add MB
+            </button>
+          </div>
+          {recentMb.length === 0 ? (
+            <div className="empty">
+              <p>No MBs received yet.</p>
+            </div>
+          ) : (
+            <ul className="ov-mb-list">
+              {recentMb.map((m) => (
+                <li key={m.id}>
+                  <span className="ov-mb-name">
+                    {m.agencyName}
+                    <span className="ov-mb-sub">MB No. {m.mbNo}</span>
+                  </span>
+                  <span className={`ov-status-chip ${m.done ? 'ov-status-done' : 'ov-status-progress'}`}>
+                    {m.done ? 'Completed' : 'In Progress'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         <div className="card ov-card ov-reminder">
           <div className="card-head">
             <h3>Reminders</h3>
@@ -329,34 +437,6 @@ export default function OverviewDashboard({
                   <span className="ov-task-body">
                     <span className="ov-task-text">{d.text}</span>
                     <span className="ov-task-date">{d.kind === 'tender' ? d.dueLabel : `Due date: ${d.dueLabel}`}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="card ov-card ov-mb">
-          <div className="card-head">
-            <h3>MB Scrutiny</h3>
-            <button className="ghost ov-new-btn" onClick={() => onNavigate('mbScrutiny')}>
-              <IconPlus /> Add MB
-            </button>
-          </div>
-          {recentMb.length === 0 ? (
-            <div className="empty">
-              <p>No MBs received yet.</p>
-            </div>
-          ) : (
-            <ul className="ov-mb-list">
-              {recentMb.map((m) => (
-                <li key={m.id}>
-                  <span className="ov-mb-name">
-                    {m.agencyName}
-                    <span className="ov-mb-sub">MB No. {m.mbNo}</span>
-                  </span>
-                  <span className={`ov-status-chip ${m.done ? 'ov-status-done' : 'ov-status-progress'}`}>
-                    {m.done ? 'Completed' : 'In Progress'}
                   </span>
                 </li>
               ))}

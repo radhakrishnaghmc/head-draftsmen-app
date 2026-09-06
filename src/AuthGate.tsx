@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import App from './App'
-import LoginPage from './components/LoginPage'
+import LoginPage, { REMEMBERED_LOGIN_ID_KEY } from './components/LoginPage'
 import { api } from './ipc'
 import { type Office, loadOffice, saveOffice, isOfficeReady, normalizeOffice } from './office'
 
@@ -9,12 +9,16 @@ import { type Office, loadOffice, saveOffice, isOfficeReady, normalizeOffice } f
 const SESSION_KEY = 'hda-authed'
 
 export default function AuthGate() {
-  // Skip the login screen in dev (`npm run dev`) only — import.meta.env.DEV
-  // is Vite's own build-mode flag, false in any built/packaged output, so
-  // this can't leak into a real release. Logging out during dev still shows
-  // the login screen again (setAuthed(false) below), it just isn't required
-  // on launch.
-  const [authed, setAuthed] = useState(() => sessionStorage.getItem(SESSION_KEY) === '1' || import.meta.env.DEV)
+  // Login is required on every launch, dev included — LoginPage locks the
+  // Login ID to the fixed test account in dev (import.meta.env.DEV), so
+  // `npm run dev` never touches a real office's live per-login state.
+  const [authed, setAuthed] = useState(() => sessionStorage.getItem(SESSION_KEY) === '1')
+
+  // The signed-in user's Login ID, for display (profile menu). LoginPage
+  // writes this same key to localStorage right before calling onSuccess, so
+  // reading it back here (both up front and on each fresh login) always
+  // reflects whoever is actually signed in.
+  const [loginId, setLoginId] = useState(() => localStorage.getItem(REMEMBERED_LOGIN_ID_KEY) ?? '')
 
   // The chosen office (Corporation / Zone / Circle) is selected in the sidebar,
   // not derived from the login, and remembered across launches.
@@ -61,6 +65,7 @@ export default function AuthGate() {
       <LoginPage
         onSuccess={() => {
           sessionStorage.setItem(SESSION_KEY, '1')
+          setLoginId(localStorage.getItem(REMEMBERED_LOGIN_ID_KEY) ?? '')
           setAuthed(true)
         }}
       />
@@ -76,6 +81,7 @@ export default function AuthGate() {
     <App
       office={office}
       onOfficeChange={setOffice}
+      loginId={loginId}
       onLogout={() => {
         void api.logout()
         sessionStorage.removeItem(SESSION_KEY)

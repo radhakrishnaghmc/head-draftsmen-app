@@ -10,15 +10,29 @@ interface Props {
 
 // Remembered across app restarts (localStorage, not sessionStorage) so the
 // Login ID field is pre-filled next time — the password is never stored.
-const REMEMBERED_LOGIN_ID_KEY = 'hda-remembered-login-id'
+// Exported so AuthGate can read the signed-in user's login ID for display
+// (e.g. in the profile menu) without threading it through extra props.
+export const REMEMBERED_LOGIN_ID_KEY = 'hda-remembered-login-id'
 
 /**
  * Login gate shown before the app itself. Credentials are checked entirely
  * in the main process (against a private Google Sheet) — this component
  * only ever sees a pass/fail result, never the sheet or its contents.
  */
+// The only Login ID usable in `npm run dev` — keeps local development off of
+// real office accounts and their live per-login state, always exercising the
+// same known test account instead.
+const DEV_TEST_LOGIN_ID = 'radhakrishna'
+
+// Set VITE_DEV_PASSWORD in a local, gitignored .env(.local) file to skip the
+// login screen entirely in `npm run dev` — never set/read outside DEV, so a
+// real build never auto-signs-in with anything.
+const DEV_AUTOLOGIN_PASSWORD = import.meta.env.DEV ? (import.meta.env.VITE_DEV_PASSWORD as string | undefined) : undefined
+
 export default function LoginPage({ onSuccess }: Props) {
-  const [loginId, setLoginId] = useState(() => localStorage.getItem(REMEMBERED_LOGIN_ID_KEY) ?? '')
+  const [loginId, setLoginId] = useState(() =>
+    import.meta.env.DEV ? DEV_TEST_LOGIN_ID : localStorage.getItem(REMEMBERED_LOGIN_ID_KEY) ?? ''
+  )
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -28,9 +42,38 @@ export default function LoginPage({ onSuccess }: Props) {
   // whenever either field changes so it can't be reused with a different
   // login ID/password than the one that actually hit the limit.
   const [maxSessionsHit, setMaxSessionsHit] = useState(false)
+  // While a dev auto-login (see DEV_AUTOLOGIN_PASSWORD) is in flight or has
+  // already succeeded, the form itself is never shown — a failure (e.g. a
+  // stale password in .env) drops back to the normal form, pre-filled, so it
+  // can be fixed by hand instead of looping silently.
+  const [devAutoLoginPending, setDevAutoLoginPending] = useState(!!DEV_AUTOLOGIN_PASSWORD)
 
   useEffect(() => {
     api.getAppVersion().then(setVersion)
+  }, [])
+
+  useEffect(() => {
+    if (!DEV_AUTOLOGIN_PASSWORD) return
+    setPassword(DEV_AUTOLOGIN_PASSWORD)
+    ;(async () => {
+      setBusy(true)
+      try {
+        const result = await api.login(DEV_TEST_LOGIN_ID, DEV_AUTOLOGIN_PASSWORD, false)
+        if (result.ok) {
+          localStorage.setItem(REMEMBERED_LOGIN_ID_KEY, DEV_TEST_LOGIN_ID)
+          onSuccess()
+        } else {
+          setError('Dev auto-login failed — check VITE_DEV_PASSWORD in .env.')
+          setDevAutoLoginPending(false)
+        }
+      } catch {
+        setError('Could not verify login. Check your internet connection and try again.')
+        setDevAutoLoginPending(false)
+      } finally {
+        setBusy(false)
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    })()
   }, [])
 
   async function attemptLogin(forceLogout: boolean) {
@@ -79,6 +122,14 @@ export default function LoginPage({ onSuccess }: Props) {
     await attemptLogin(true)
   }
 
+  if (devAutoLoginPending) {
+    return (
+      <div className="login-screen">
+        <div className="login-card app-boot" />
+      </div>
+    )
+  }
+
   return (
     <div className="login-screen">
       <form className="login-card" onSubmit={submit}>
@@ -95,8 +146,10 @@ export default function LoginPage({ onSuccess }: Props) {
               setError(null)
               setMaxSessionsHit(false)
             }}
-            autoFocus
+            autoFocus={!import.meta.env.DEV}
             autoComplete="username"
+            readOnly={import.meta.env.DEV}
+            title={import.meta.env.DEV ? 'Dev environment always signs in as the test account.' : undefined}
           />
         </label>
 

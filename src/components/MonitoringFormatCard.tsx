@@ -1,18 +1,22 @@
 import { useEffect, useState } from 'react'
 import type { Office } from '../office'
-import type { MonitoringFormatSummary } from '@core/monitoringFormat'
-import { extractMonitoringFormatForOffice } from '@core/monitoringFormat'
+import type { MonitoringFormatSummary, MonitoringFormatWorkRow } from '@core/monitoringFormat'
+import { extractMonitoringFormatForOffice, extractMonitoringFormatWorksForOffice } from '@core/monitoringFormat'
+import { findMonitoringFormatErrors } from '@core/worksListAgent'
 import { indianDigitGroups } from '@core/worksAmounts'
 import { api } from '../ipc'
-import { IconPlus, IconLink, IconChevronRight } from './Icons'
+import { IconPlus, IconLink, IconChevronRight, IconWarn, IconCheck, IconClose } from './Icons'
 
 interface Props {
   office: Office
   monitoringFormat?: MonitoringFormatSummary
-  onImportMonitoringFormat: (summary: MonitoringFormatSummary) => void
+  monitoringFormatWorks?: MonitoringFormatWorkRow[]
+  onImportMonitoringFormat: (summary: MonitoringFormatSummary, works: MonitoringFormatWorkRow[]) => void
   monitoringFormatLink?: string
   onSaveMonitoringFormatLink: (url: string) => void
 }
+
+type VerifyStatus = 'idle' | 'checking' | 'ok' | 'error'
 
 /**
  * Lives on the Works List page, next to the works-database link import — the
@@ -22,6 +26,7 @@ interface Props {
 export default function MonitoringFormatCard({
   office,
   monitoringFormat,
+  monitoringFormatWorks,
   onImportMonitoringFormat,
   monitoringFormatLink,
   onSaveMonitoringFormatLink
@@ -30,6 +35,19 @@ export default function MonitoringFormatCard({
   const [error, setError] = useState<string | null>(null)
   const [link, setLink] = useState(monitoringFormatLink ?? '')
   const [open, setOpen] = useState(false)
+  const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>('idle')
+  const [verifyIssues, setVerifyIssues] = useState<string[]>([])
+
+  async function verify() {
+    if (!monitoringFormat || !monitoringFormatWorks) return
+    setVerifyStatus('checking')
+    // Yield one tick so the "Verifying…" state actually paints before the
+    // (synchronous) scan runs, instead of jumping straight to the result.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const issues = findMonitoringFormatErrors(monitoringFormat, monitoringFormatWorks)
+    setVerifyIssues(issues.map((v) => v.message))
+    setVerifyStatus(issues.length === 0 ? 'ok' : 'error')
+  }
 
   // Re-sync the input when switching to an office with its own remembered
   // link (or none) — but not on every render, so typing isn't clobbered.
@@ -43,7 +61,7 @@ export default function MonitoringFormatCard({
     try {
       const sheets = await api.pickDataSheet()
       if (!sheets) return
-      onImportMonitoringFormat(extractMonitoringFormatForOffice(sheets, office))
+      onImportMonitoringFormat(extractMonitoringFormatForOffice(sheets, office), extractMonitoringFormatWorksForOffice(sheets, office))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -58,7 +76,7 @@ export default function MonitoringFormatCard({
     setBusy(true)
     try {
       const sheets = await api.importAllSheetsFromLink(url)
-      onImportMonitoringFormat(extractMonitoringFormatForOffice(sheets, office))
+      onImportMonitoringFormat(extractMonitoringFormatForOffice(sheets, office), extractMonitoringFormatWorksForOffice(sheets, office))
       onSaveMonitoringFormatLink(url)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -80,9 +98,38 @@ export default function MonitoringFormatCard({
           <h3>Monitoring Format</h3>
         </button>
         {open && (
-          <button className="ghost mf-new-btn" onClick={importFile} disabled={busy}>
-            <IconPlus /> {busy ? 'Importing…' : 'Import file'}
-          </button>
+          <>
+            {monitoringFormat && (
+              <div className="verify-block">
+                <button type="button" className="verify-btn" onClick={() => void verify()} disabled={verifyStatus === 'checking'}>
+                  {verifyStatus === 'checking' ? 'Verifying…' : 'Verify'}
+                </button>
+                {verifyStatus === 'ok' && (
+                  <span className="verify-ok">
+                    <IconCheck /> No errors found
+                  </span>
+                )}
+                {verifyStatus === 'error' && (
+                  <div className="verify-banner verify-blinking" role="alert">
+                    <div className="verify-banner-title">
+                      <IconWarn /> Errors found
+                      <button type="button" className="verify-banner-close" aria-label="Dismiss" onClick={() => setVerifyStatus('idle')}>
+                        <IconClose />
+                      </button>
+                    </div>
+                    <ul>
+                      {verifyIssues.map((message, i) => (
+                        <li key={i}>{message}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+            <button className="ghost mf-new-btn" onClick={importFile} disabled={busy}>
+              <IconPlus /> {busy ? 'Importing…' : 'Import file'}
+            </button>
+          </>
         )}
       </div>
       {open && (

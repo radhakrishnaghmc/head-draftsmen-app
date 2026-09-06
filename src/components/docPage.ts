@@ -110,9 +110,10 @@ function uint8ToBase64(bytes: Uint8Array): string {
 }
 
 /**
- * Renders a filled .docx as an accurate preview — via LibreOffice's own
- * docx→PDF→PNG raster pipeline (core/docxToPdf.ts's docxToPageImages), one
- * image per page — so preview and print show exactly what Word would
+ * Renders a filled .docx as an accurate preview — LibreOffice converts
+ * docx→PDF, then Electron's Chromium/PDFium rasterizes PDF→PNG
+ * (core/docxToPdf.ts's docxToPageImages), one image per page — so preview
+ * and print show exactly what Word would
  * produce: real font metrics, real page breaks, real WordArt, not
  * docx-preview.js's approximate HTML re-implementation (see
  * normalizeDocxTextboxes above for the kind of gap that leaves).

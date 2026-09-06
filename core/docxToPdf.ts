@@ -96,72 +96,6 @@ async function convertWithRetry(
   )
 }
 
-/**
- * Same idea as sofficeConvert, but N input files converted in ONE soffice
- * invocation instead of N separate ones. `soffice`'s own process-startup
- * cost (loading config/fonts) dominates a single conversion's wall time far
- * more than the actual rendering work does — this matters most on Windows,
- * where that startup cost is markedly higher than on macOS/Linux — so
- * passing every file to one invocation pays that cost once instead of once
- * per file. Measured on a real 5-page document (page->PNG step only): 11.0s
- * as 5 separate calls vs 3.85s batched (2.9x) — byte-identical output — and
- * the win scales with page count. `names` must be unique (no extension) —
- * they become both the input and output filename stem, so the caller can
- * map results back to the page each one came from.
- */
-async function sofficeConvertBatch(
-  soffice: string,
-  inputs: { name: string; buffer: Buffer }[],
-  inExt: string,
-  convertTo: string,
-  outExt: string = convertTo
-): Promise<Map<string, Buffer>> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docugen-convert-'))
-  try {
-    const inputPaths = inputs.map(({ name, buffer }) => {
-      const p = path.join(dir, `${name}.${inExt}`)
-      fs.writeFileSync(p, buffer)
-      return p
-    })
-    await execFileAsync(soffice, ['--headless', '--convert-to', convertTo, '--outdir', dir, ...inputPaths], {
-      // Scales with batch size — a single file's 60s budget wouldn't be
-      // enough headroom for a many-page document processed in one invocation.
-      timeout: 60000 + inputs.length * 5000
-    })
-    const results = new Map<string, Buffer>()
-    for (const { name } of inputs) {
-      results.set(name, fs.readFileSync(path.join(dir, `${name}.${outExt}`)))
-    }
-    return results
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true })
-  }
-}
-
-/** Batched counterpart to convertWithRetry — same transient-lock retry, for sofficeConvertBatch. */
-async function convertWithRetryBatch(
-  soffice: string,
-  inputs: { name: string; buffer: Buffer }[],
-  inExt: string,
-  convertTo: string,
-  outExt: string = convertTo
-): Promise<Map<string, Buffer>> {
-  let lastErr: unknown
-  for (let attempt = 0; attempt < 4; attempt++) {
-    try {
-      return await sofficeConvertBatch(soffice, inputs, inExt, convertTo, outExt)
-    } catch (err) {
-      lastErr = err
-      await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)))
-    }
-  }
-  throw new Error(
-    'PDF conversion requires LibreOffice to be installed on this computer. ' +
-      'Install it from libreoffice.org, then try again — or use the Word (.docx) or Print option instead.\n' +
-      (lastErr instanceof Error ? lastErr.message : String(lastErr))
-  )
-}
-
 /** Convert a .docx buffer to PDF via a local LibreOffice install. Throws a clear error when LibreOffice isn't installed, instead of a cryptic ENOENT. */
 export async function convertDocxToPdf(docxBuffer: Buffer): Promise<Buffer> {
   return convertWithRetry(findSofficeBinary(), docxBuffer, 'docx', 'pdf')
@@ -169,71 +103,46 @@ export async function convertDocxToPdf(docxBuffer: Buffer): Promise<Buffer> {
 
 /**
  * Renders a .docx as one PNG per page — LibreOffice's own docx→PDF
- * conversion (convertDocxToPdf), then LibreOffice's own PDF→PNG raster
- * export for each page in turn (pdf-lib splits the PDF into single-page
- * PDFs first, since `soffice --convert-to png` only ever rasterizes a
- * document's first page).
+ * conversion (convertDocxToPdf), then rasterized to PNG by the
+ * `rasterizePages` callback the caller injects.
  *
- * This is the app's accurate document preview/print path — deliberately
- * NOT pdf.js (see src/pdfToImages.ts, used elsewhere for scanned-PDF OCR):
- * a LibreOffice-produced PDF for a font the machine doesn't have installed
- * (e.g. "Book Antiqua", "Segoe UI" — both Microsoft-only, absent from every
- * non-Windows LibreOffice install) embeds a substituted font whose glyph
- * mapping pdf.js decodes wrong, silently swapping in different characters
- * (reported as: "Quthbullapur" rendering as "8uthbulla/ur") — confirmed by
- * rendering the exact same, byte-verified-correct PDF through Poppler
- * (correct) and pdf.js (garbled) side by side. LibreOffice's own rasterizer
- * (used here) renders that same substituted font correctly, because it's
- * the same engine that chose the substitution in the first place.
+ * This file must never import `electron` (it also runs in contexts that
+ * don't have it), so the actual PDF→PNG rasterization — which does need a
+ * real browser engine — lives in electron/pdfRaster.ts and is passed in
+ * here instead of called directly. See that file's doc comment for why:
+ * in short, LibreOffice's own `--convert-to png` rasterizer turned out to
+ * have its own, separate bug mis-shaping Telugu/complex-script glyphs, so
+ * it's no longer used for this path.
+ *
+ * Deliberately not pdf.js either (see src/pdfToImages.ts, used elsewhere for
+ * scanned-PDF OCR): a LibreOffice-produced PDF for a font the machine
+ * doesn't have installed (e.g. "Book Antiqua", "Segoe UI" — both
+ * Microsoft-only, absent from every non-Windows LibreOffice install) embeds
+ * a substituted font whose glyph mapping pdf.js decodes wrong, silently
+ * swapping in different characters (reported as: "Quthbullapur" rendering
+ * as "8uthbulla/ur") — confirmed by rendering the exact same,
+ * byte-verified-correct PDF through Poppler (correct) and pdf.js (garbled)
+ * side by side. Electron's bundled Chromium/PDFium PDF viewer renders both
+ * that substituted font AND Telugu correctly, which is why it's used here.
  */
-// LibreOffice's plain `--convert-to png` rasterizes at 96dpi (screen
-// resolution) — fine on screen, since PAGE_WIDTH/PAGE_HEIGHT are that same
-// 96dpi A4 size and the browser shows the PNG 1:1, but that image is also
-// what gets sent to the printer/PDF export, where 96dpi stretched across a
-// real page comes out visibly soft — "photo print" rather than crisp text.
-// Requesting PixelWidth/PixelHeight explicitly (computed per page from the
-// PDF's own point size, so it holds for any page size/orientation, not just
-// portrait A4) renders at a real print resolution instead.
+// Requesting pixel dimensions computed from the PDF's own point size (rather
+// than rasterizing at screen resolution) keeps the printed/exported page
+// crisp instead of "photo print" soft. 300dpi is real print resolution.
 const PRINT_DPI = 300
 
-export async function docxToPageImages(docxBuffer: Buffer): Promise<Buffer[]> {
+export async function docxToPageImages(
+  docxBuffer: Buffer,
+  rasterizePages: (pdf: Buffer, pageSizes: { pixelWidth: number; pixelHeight: number }[]) => Promise<Buffer[]>
+): Promise<Buffer[]> {
   const soffice = findSofficeBinary()
   const pdf = await convertWithRetry(soffice, docxBuffer, 'docx', 'pdf')
   const src = await PDFDocument.load(pdf)
-  const pageCount = src.getPageCount()
-
-  // Split into single-page PDFs first (soffice's own --convert-to only ever
-  // rasterizes a document's first page), then group by pixel size — the
-  // PixelWidth/PixelHeight filter applies to a whole soffice invocation, not
-  // per file, so pages that differ in size (rare, but not impossible) need
-  // their own batch. In practice this is almost always one group covering
-  // every page, which is exactly what makes batching such a large win: see
-  // sofficeConvertBatch's own doc comment for the measured 2.9x.
-  const groups = new Map<string, { name: string; buffer: Buffer }[]>()
-  const pageIndexByName = new Map<string, number>()
-  for (let i = 0; i < pageCount; i++) {
-    const single = await PDFDocument.create()
-    const [copied] = await single.copyPages(src, [i])
-    single.addPage(copied)
-    const { width, height } = copied.getSize()
-    const pixelWidth = Math.round((width / 72) * PRINT_DPI)
-    const pixelHeight = Math.round((height / 72) * PRINT_DPI)
-    const key = `${pixelWidth}x${pixelHeight}`
-    const name = `page-${i}`
-    pageIndexByName.set(name, i)
-    const bucket = groups.get(key) ?? []
-    bucket.push({ name, buffer: Buffer.from(await single.save()) })
-    groups.set(key, bucket)
-  }
-
-  const images: Buffer[] = new Array(pageCount)
-  for (const [key, inputs] of groups) {
-    const [pixelWidth, pixelHeight] = key.split('x')
-    const filter = `png:draw_png_Export:{"PixelWidth":{"type":"long","value":"${pixelWidth}"},"PixelHeight":{"type":"long","value":"${pixelHeight}"}}`
-    const results = await convertWithRetryBatch(soffice, inputs, 'pdf', filter, 'png')
-    for (const [name, buffer] of results) {
-      images[pageIndexByName.get(name)!] = buffer
+  const pageSizes = src.getPages().map((page) => {
+    const { width, height } = page.getSize()
+    return {
+      pixelWidth: Math.round((width / 72) * PRINT_DPI),
+      pixelHeight: Math.round((height / 72) * PRINT_DPI)
     }
-  }
-  return images
+  })
+  return rasterizePages(pdf, pageSizes)
 }

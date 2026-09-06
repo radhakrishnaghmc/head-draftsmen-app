@@ -8,6 +8,7 @@
 import type { ExcelTable } from './types'
 import { normalizeWorkNameForMatch } from './tenderAgents/nameOfWork'
 import { lakhsToRupees, rupeesFromCell } from './worksAmounts'
+import type { MonitoringFormatSummary, MonitoringFormatWorkRow, MonitoringFormatRow } from './monitoringFormat'
 
 export interface WorksListViolation {
   type:
@@ -16,9 +17,10 @@ export interface WorksListViolation {
     | 'duplicate-tender-id'
     | 'ecv-exceeds-estimate'
     | 'emd-inconsistent'
-  /** The Wincode/Tender ID/work name/row this violation centres on — meaning depends on `type`. */
+    | 'mf-abstract-mismatch'
+  /** The Wincode/Tender ID/work name/item-type/row this violation centres on — meaning depends on `type`. */
   key: string
-  /** Every row index (0-based, into table.rows) involved. */
+  /** Every row index (0-based, into table.rows) involved — empty for a Monitoring Format mismatch, which isn't tied to a Works List row. */
   rowIndices: number[]
   /** A human-readable explanation for a UI banner/list. */
   message: string
@@ -186,6 +188,143 @@ export function findEmdInconsistencyViolations(table: ExcelTable): WorksListViol
     }
   })
   return violations
+}
+
+/** Abstract row label, normalized for matching between the Abstract and the list of works — same source workbook, but casing/spacing sometimes differs between the two sheets. */
+function normalizeAbstractLabel(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+/**
+ * Cross-checks one Abstract pivot's per-group totals (per item type, or per
+ * ward) against the workbook's own "list of works" sheets — the Abstract is
+ * meant to be a roll-up of exactly those rows, so if one sheet gets
+ * hand-edited (or a row added/removed) without the other following, the two
+ * silently drift apart. Group labels are matched case/whitespace-insensitively
+ * since the same label is often typed slightly differently on the Abstract
+ * vs. the list. `groupOf` picks the list-of-works column that corresponds to
+ * the Abstract rows being checked (typeOfWork for the item-type pivot, ward
+ * for the ward-wise one).
+ */
+function findAbstractTallyMismatches(
+  abstractRows: MonitoringFormatRow[],
+  works: MonitoringFormatWorkRow[],
+  groupOf: (w: MonitoringFormatWorkRow) => string
+): WorksListViolation[] {
+  const violations: WorksListViolation[] = []
+  const byGroup = new Map<string, MonitoringFormatWorkRow[]>()
+  for (const w of works) {
+    const key = normalizeAbstractLabel(groupOf(w))
+    if (!key) continue
+    const bucket = byGroup.get(key) ?? []
+    bucket.push(w)
+    byGroup.set(key, bucket)
+  }
+
+  for (const row of abstractRows) {
+    const key = normalizeAbstractLabel(row.itemType)
+    if (!key || key === 'total') continue
+    const matches = byGroup.get(key) ?? []
+    const actualNo = matches.length
+    const actualAmt = matches.reduce((sum, w) => sum + w.estimateAmt, 0)
+    const noMismatch = actualNo !== row.totalWorks.no
+    // Amounts come off a spreadsheet, so allow for float/rounding noise rather
+    // than flagging a paise-level difference that isn't a real data problem.
+    const amtMismatch = Math.abs(actualAmt - row.totalWorks.amt) >= 1
+    if (!noMismatch && !amtMismatch) continue
+    const parts: string[] = []
+    if (noMismatch) {
+      parts.push(`${row.totalWorks.no} work${row.totalWorks.no === 1 ? '' : 's'} in the Abstract vs ${actualNo} in the list of works`)
+    }
+    if (amtMismatch) {
+      parts.push(`Rs ${rupeeFigure(row.totalWorks.amt)} in the Abstract vs Rs ${rupeeFigure(actualAmt)} in the list of works`)
+    }
+    violations.push({
+      type: 'mf-abstract-mismatch',
+      key: row.itemType,
+      rowIndices: [],
+      message: `"${row.itemType}": ${parts.join(' and ')} — Abstract and list of works don't tally.`
+    })
+  }
+  return violations
+}
+
+/**
+ * Every Abstract-vs-list-of-works tally check: the per-item-type pivot
+ * (always present), plus the per-ward pivot when the sheet has one.
+ */
+export function findMonitoringFormatMismatches(
+  summary: MonitoringFormatSummary,
+  works: MonitoringFormatWorkRow[]
+): WorksListViolation[] {
+  const violations = findAbstractTallyMismatches(summary.rows, works, (w) => w.typeOfWork)
+  if (summary.wardRows) {
+    violations.push(...findAbstractTallyMismatches(summary.wardRows, works, (w) => w.ward))
+  }
+  return violations
+}
+
+/**
+ * The same Wincode/name identity rules checked on the main Works List
+ * (findWincodeUniquenessViolations) apply just as much within the
+ * Monitoring Format's own "list of works" rows — Tender ID, ECV, and EMD
+ * aren't columns the Monitoring Format carries at all, so only the identity
+ * checks (not the amount ones) carry over here.
+ */
+export function findMonitoringFormatWorksIdentityViolations(works: MonitoringFormatWorkRow[]): WorksListViolation[] {
+  const violations: WorksListViolation[] = []
+  const byWincode = new Map<string, { slNo: string; name: string }[]>()
+  const byName = new Map<string, { slNo: string; wincode: string; rawName: string }[]>()
+
+  works.forEach((w) => {
+    const wincode = w.winCode.trim()
+    const rawName = w.workName
+    const name = normalizeWorkNameForMatch(rawName)
+    if (wincode) {
+      const bucket = byWincode.get(wincode) ?? []
+      bucket.push({ slNo: w.slNo, name })
+      byWincode.set(wincode, bucket)
+    }
+    if (name) {
+      const bucket = byName.get(name) ?? []
+      bucket.push({ slNo: w.slNo, wincode, rawName: rawName.trim() })
+      byName.set(name, bucket)
+    }
+  })
+
+  for (const [wincode, entries] of byWincode) {
+    const distinctNames = new Set(entries.map((e) => e.name).filter(Boolean))
+    if (distinctNames.size > 1) {
+      violations.push({
+        type: 'duplicate-wincode',
+        key: `mf-${wincode}`,
+        rowIndices: [],
+        message: `List of works: Wincode "${wincode}" is used for ${distinctNames.size} different works (Sl.No ${entries.map((e) => e.slNo).join(', ')}) — a Wincode should identify exactly one work.`
+      })
+    }
+  }
+
+  for (const [, entries] of byName) {
+    const distinctWincodes = new Set(entries.map((e) => e.wincode).filter(Boolean))
+    if (distinctWincodes.size > 1) {
+      violations.push({
+        type: 'duplicate-name',
+        key: `mf-${entries[0].rawName}`,
+        rowIndices: [],
+        message: `List of works: "${entries[0].rawName}" is entered under ${distinctWincodes.size} different Wincodes (${[...distinctWincodes].join(', ')}) — it should have just one.`
+      })
+    }
+  }
+
+  return violations
+}
+
+/** Every Monitoring Format check in one call (item-type tally + the list of works' own identity rules) — the entry point the Errors button (App.tsx) uses alongside findWorksListErrors. */
+export function findMonitoringFormatErrors(
+  summary: MonitoringFormatSummary,
+  works: MonitoringFormatWorkRow[]
+): WorksListViolation[] {
+  return [...findMonitoringFormatMismatches(summary, works), ...findMonitoringFormatWorksIdentityViolations(works)]
 }
 
 export interface WorksListSearchResult {

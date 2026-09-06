@@ -9,7 +9,7 @@ import type { SheetGrid } from '../core/sheet'
 // Mirrors the real "MF" sheet layout: a "Name of the Cir(c)le:-"/"Date:-"
 // label row, three header rows (group / sub-group / No.-Amt.), then one row
 // per item type, ending in the sheet's own "Total" row.
-function mfSheet(sheetName: string, officeLabel: string, rows: string[][]): SheetGrid {
+function mfSheet(sheetName: string, officeLabel: string, rows: string[][], extraRows: string[][] = []): SheetGrid {
   const grid = [
     ['Monitoring Format 2026-27'],
     ['Name of the Cir(c)le:-', officeLabel, '', 'Date:-', '23.07.2026'],
@@ -41,9 +41,47 @@ function mfSheet(sheetName: string, officeLabel: string, rows: string[][]): Shee
     ],
     [],
     ['', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt'],
-    ...rows
+    ...rows,
+    ...extraRows
   ]
   return { id: 's1', name: 'MF', path: '', sheetName, grid, startRow: 0 }
+}
+
+// A ward-wise pivot block, mirroring the item-type one's own 3-row header
+// (group / blank / No.-Amt.) — appears below the item-type block's own
+// Total row on the same Abstract sheet.
+function wardBlockRows(rows: string[][]): string[][] {
+  return [
+    [],
+    [
+      'Ward',
+      'Total Works',
+      '',
+      'Completed',
+      '',
+      'upto 25%',
+      '',
+      'upto 50%',
+      '',
+      'upto 75%',
+      '',
+      'Above 75%',
+      '',
+      'Progress Total',
+      '',
+      'To be Started',
+      '',
+      'Tender Process',
+      '',
+      'Held Up',
+      '',
+      'Cancelled',
+      ''
+    ],
+    [],
+    ['', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt', 'No.', 'Amt'],
+    ...rows
+  ]
 }
 
 const ccRoadsRow = ['CC ROADS', '95', '2,473.5', '44', '1,107.5', '5', '178', '4', '127', '0', '0', '0', '0', '9', '305', '26', '638', '9', '231', '0', '0', '0', '0']
@@ -87,6 +125,26 @@ describe('parseMonitoringFormatSheet', () => {
   it('throws when the sheet has no "Item type" header row', () => {
     const sheet: SheetGrid = { id: 's1', name: 'MF', path: '', sheetName: 'Not MF', grid: [['foo', 'bar']], startRow: 0 }
     expect(() => parseMonitoringFormatSheet(sheet)).toThrow(/doesn't look like a Monitoring Format sheet/)
+  })
+
+  it('leaves wardRows/wardTotals undefined when the sheet has no ward-wise block', () => {
+    const sheet = mfSheet('C58 MF', '58-Nizampet', [ccRoadsRow, swdRow, totalRow])
+    const summary = parseMonitoringFormatSheet(sheet)
+    expect(summary.wardRows).toBeUndefined()
+    expect(summary.wardTotals).toBeUndefined()
+  })
+
+  it('parses a ward-wise block below the item-type one, on the same sheet', () => {
+    const ward1 = ['Bachupally', '60', '1,500', '30', '750', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '20', '500', '10', '250', '0', '0', '0', '0']
+    const ward2 = ['Nizampet', '45', '1,473.5', '19', '607.5', '5', '178', '4', '127', '0', '0', '0', '0', '9', '305', '6', '138', '1', '81', '0', '0', '0', '0']
+    const wardTotal = ['Total', '105', '2973.5', '49', '1357.5', '5', '178', '4', '127', '0', '0', '0', '0', '9', '305', '26', '638', '11', '331', '0', '0', '0', '0']
+    const sheet = mfSheet('C58 MF', '58-Nizampet', [ccRoadsRow, swdRow, totalRow], wardBlockRows([ward1, ward2, wardTotal]))
+    const summary = parseMonitoringFormatSheet(sheet)
+
+    expect(summary.rows.map((r) => r.itemType)).toEqual(['CC ROADS', 'SWD'])
+    expect(summary.wardRows?.map((r) => r.itemType)).toEqual(['Bachupally', 'Nizampet'])
+    expect(summary.wardRows?.[0].totalWorks).toEqual({ no: 60, amt: 1500 })
+    expect(summary.wardTotals?.totalWorks).toEqual({ no: 105, amt: 2973.5 })
   })
 })
 

@@ -16,6 +16,16 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.30.0',
+    changes: [
+      'Dashboard status tiles (Completed, In Progress, To Be Started, etc.) can now be clicked to download an Excel of just the works behind that count.',
+      'Works List errors now also flag when the Monitoring Format Abstract\'s totals for an item type or ward don\'t match the actual list of works.',
+      'Cement & Steel Rates tool now picks the latest circular by the rate period it actually covers, not by its upload date — fixes wrong rates being shown when several months are posted the same day.',
+      'Fixed some documents (with an embedded Telugu font in the letterhead) showing Word\'s "unreadable content, recover?" prompt.',
+      'Fixed occasional blank/garbled pages in document previews and PDF exports.'
+    ]
+  },
+  {
     version: '1.29.2',
     changes: [
       'Dashboard is now the screen you land on when you open the app.',

@@ -62,6 +62,7 @@ import { convertPdfToDocx } from '../core/pdfToDocx'
 import { buildDocx, type DocBlock } from '../core/docxBuilder'
 import type { OcrPage } from '../core/ocrReconstruct'
 import { convertDocxToPdf, docxToPageImages } from '../core/docxToPdf'
+import { rasterizePdfPages } from './pdfRaster'
 import { mergeDocxBuffers } from '../core/mergeDocx'
 import { splitDocxByPageBreaks } from '../core/splitDocx'
 import { ocrGpsOverlay } from './gpsOcr'
@@ -129,6 +130,12 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
+
+  // TEMP debug: forward renderer console output to this terminal so a blank
+  // preview's actual error is visible without opening DevTools. Remove once diagnosed.
+  mainWindow.webContents.on('console-message', (_e, _level, message, line, sourceId) => {
+    console.log(`[renderer] ${message} (${sourceId}:${line})`)
+  })
 
   // Without this, `mainWindow` keeps pointing at a destroyed BrowserWindow
   // after the user closes it — any later async callback (e.g. a Firestore
@@ -865,6 +872,10 @@ function registerHandlers(): void {
     }
   )
 
+  ipcMain.handle(IPC.fetchCementSteelRateBytes, async (_e, token: string): Promise<Uint8Array> => {
+    return new Uint8Array(await downloadCementSteelRateBuffer(token))
+  })
+
   // Photos/PDF → Word/Excel tool — OCR each page image (in order) into text
   // lines, kept in reading order and separated by a blank line between pages so
   // the renderer can show one editable block the user reviews before exporting.
@@ -991,7 +1002,7 @@ function registerHandlers(): void {
   })
 
   ipcMain.handle(IPC.docxToPageImages, async (_e, docxBytes: Uint8Array): Promise<Uint8Array[]> => {
-    const images = await docxToPageImages(Buffer.from(docxBytes))
+    const images = await docxToPageImages(Buffer.from(docxBytes), (pdf, sizes) => rasterizePdfPages(pdf, sizes))
     return images.map((buf) => new Uint8Array(buf))
   })
 

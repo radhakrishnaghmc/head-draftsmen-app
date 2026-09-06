@@ -121,6 +121,90 @@ function fixIndentAttrs(xml: Document): boolean {
   return changed
 }
 
+// Real Word 2013+ authored the office logo/header-variant templates with a
+// Telugu-script font ("Noto Sans Telugu") embedded via Word's own "Embed
+// fonts in the file" option (needed for the Telugu caption under the state
+// emblem in the letterhead). Word 2007 predates the OOXML font-embedding
+// extension (<w:embedRegular> etc.) and refuses to open a document
+// referencing an element it has never heard of — the same "problems with the
+// contents" failure as the bidi constructs above, just a different offending
+// element. The app doesn't need pixel-exact Telugu rendering in body text
+// (Word substitutes a fallback for the declared font name either way), so the
+// fix is to drop the embedding — font part, fontTable refs, and the
+// relationship — rather than try to make Word 2007 understand it.
+const EMBED_FONT_ELS = ['w:embedRegular', 'w:embedBold', 'w:embedItalic', 'w:embedBoldItalic']
+
+/** Strip <w:embedRegular>/etc. from every <w:font>, returning the r:id values removed. */
+function stripFontEmbedRefs(xml: Document): string[] {
+  const rids: string[] = []
+  for (const tag of EMBED_FONT_ELS) {
+    for (const el of els(xml, tag)) {
+      const rid = el.getAttribute('r:id')
+      if (rid) rids.push(rid)
+      el.parentNode?.removeChild(el as never)
+    }
+  }
+  return rids
+}
+
+/**
+ * Drop embedded font parts (see EMBED_FONT_ELS comment above): removes the
+ * <w:embedRegular>/… refs from word/fontTable.xml, the matching
+ * relationships from its .rels, the now-orphaned word/fonts/*.fntdata parts,
+ * the orphaned fntdata content-type default, and the now-inaccurate
+ * <w:embedTrueTypeFonts/> flag in settings.xml. No-op if the package embeds
+ * no fonts. Operates directly on the zip (not a single-part Document) since
+ * font embedding spans four separate parts.
+ */
+function stripEmbeddedFonts(zip: PizZip): boolean {
+  const fontTableName = 'word/fontTable.xml'
+  const fontTableText = zip.file(fontTableName)?.asText()
+  if (!fontTableText || !fontTableText.includes('w:embed')) return false
+
+  const fontTableXml = new DOMParser().parseFromString(fontTableText, 'text/xml')
+  const rids = stripFontEmbedRefs(fontTableXml)
+  if (rids.length === 0) return false
+  zip.file(fontTableName, new XMLSerializer().serializeToString(fontTableXml))
+
+  const relsName = 'word/_rels/fontTable.xml.rels'
+  const relsText = zip.file(relsName)?.asText()
+  if (relsText) {
+    const relsXml = new DOMParser().parseFromString(relsText, 'text/xml')
+    const rels = els(relsXml, 'Relationship')
+    const targets = rels
+      .filter((r) => rids.includes(r.getAttribute('Id') ?? ''))
+      .map((r) => r.getAttribute('Target') ?? '')
+    for (const rel of rels) {
+      if (rids.includes(rel.getAttribute('Id') ?? '')) rel.parentNode?.removeChild(rel as never)
+    }
+    zip.file(relsName, new XMLSerializer().serializeToString(relsXml))
+    for (const target of targets) {
+      const partName = `word/${target.replace(/^\.?\/*/, '')}`
+      if (zip.file(partName)) zip.remove(partName)
+    }
+  }
+
+  // [Content_Types].xml's <Default Extension="fntdata" .../> is now orphaned.
+  const ctName = '[Content_Types].xml'
+  const ctText = zip.file(ctName)?.asText()
+  if (ctText && /Extension="fntdata"/i.test(ctText)) {
+    const ctXml = new DOMParser().parseFromString(ctText, 'text/xml')
+    for (const def of els(ctXml, 'Default')) {
+      if (def.getAttribute('Extension') === 'fntdata') def.parentNode?.removeChild(def as never)
+    }
+    zip.file(ctName, new XMLSerializer().serializeToString(ctXml))
+  }
+
+  // <w:embedTrueTypeFonts/> would tell Word this document still embeds fonts.
+  const settingsName = 'word/settings.xml'
+  const settingsText = zip.file(settingsName)?.asText()
+  if (settingsText && settingsText.includes('embedTrueTypeFonts')) {
+    zip.file(settingsName, settingsText.replace(/<w:embedTrueTypeFonts\s*\/>/g, ''))
+  }
+
+  return true
+}
+
 // Canonical child-element order for each ordered property container (the OOXML
 // CT_* sequence). A child not listed keeps its relative position after the known
 // ones. Both the physical (left/right) and logical (start/end) side names are
@@ -180,6 +264,10 @@ function reorderChildren(parent: Element, order: string[]): boolean {
  *      (1)-(3) — passes an XML well-formedness check, since a hyphen in an
  *      element name is syntactically legal; only OOXML's own schema (which
  *      Word validates against, not a generic XML parser) rejects it.
+ *   5. Embedded font parts (see stripEmbeddedFonts) — found in the logo-
+ *      header template variants, which real Word 2013+ saved with "Embed
+ *      fonts in the file" on. Word 2007 predates the font-embedding OOXML
+ *      extension entirely and refuses to open the file over it.
  * Every FIXABLE_PART_RE part is parsed unconditionally (not gated behind
  * MAYBE_RE) because a child-order problem can exist with none of the bidi
  * patterns present.
@@ -187,6 +275,7 @@ function reorderChildren(parent: Element, order: string[]): boolean {
 export function sanitizeDocxForWord2007(buffer: Buffer): Buffer {
   const zip = new PizZip(buffer)
   let changed = false
+  if (stripEmbeddedFonts(zip)) changed = true
   for (const name of Object.keys(zip.files)) {
     if (!FIXABLE_PART_RE.test(name)) continue
     let xmlText = zip.file(name)?.asText()

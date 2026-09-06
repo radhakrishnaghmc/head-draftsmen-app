@@ -190,6 +190,39 @@ describe('sanitizeDocxForWord2007', () => {
     expect(fixedDoc).not.toMatch(/<\/w:sz-cs>/)
     expect(fixedDoc).toContain('<w:szCs w:val="20"/>')
   })
+
+  it('strips embedded fonts from the logo-header template variants — Word 2007 predates font embedding entirely', () => {
+    // Real bug, found live: downloaded documents from the new logo-header
+    // template variants (Nizampet Circle-58's own letterhead) errored out in
+    // older Word. Unlike every fix above, this isn't a bidi/schema-order/
+    // typo issue — real Word 2013+ saved these templates with "Embed fonts
+    // in the file" on, to carry "Noto Sans Telugu" for the Telugu caption
+    // under the state emblem. That bakes a <w:embedRegular> ref into
+    // word/fontTable.xml, a relationship in its .rels, and a word/fonts/*
+    // .fntdata part — all of which are OOXML's font-embedding extension,
+    // which Word 2007's schema has never heard of, so it refuses to open
+    // the package at all. Word substitutes a fallback font for a declared
+    // name it can't find either way, so dropping the embedding is lossless
+    // in practice for this app's use.
+    for (const name of [
+      'work-order-template-header2.docx',
+      'civil-tender-template-header2.docx',
+      'file-backer-template-header2.docx',
+      'intimation-template-2.docx'
+    ]) {
+      const buf = readFileSync(resolve(__dirname, '../resources', name))
+      const zipBefore = new PizZip(buf)
+      const fontParts = Object.keys(zipBefore.files).filter((f) => /^word\/fonts\//.test(f))
+      expect(fontParts.length, `${name} should carry an embedded font`).toBeGreaterThan(0)
+      expect(part(buf, 'word/fontTable.xml')).toMatch(/<w:embedRegular\b/)
+
+      const out = sanitizeDocxForWord2007(buf)
+      const zipAfter = new PizZip(out)
+      for (const f of fontParts) expect(zipAfter.file(f), `${f} should be removed`).toBeNull()
+      expect(part(out, 'word/fontTable.xml')).not.toMatch(/<w:embed(Regular|Bold|Italic)\b/)
+      expect(part(out, 'word/settings.xml')).not.toContain('embedTrueTypeFonts')
+    }
+  })
 })
 
 import { convertHtmlToDocx } from '../core/htmlToDocx'

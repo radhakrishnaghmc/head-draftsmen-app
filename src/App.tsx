@@ -17,7 +17,7 @@ import { entriesOf, corporationByName } from './zoneCircleDirectory'
 import { type Office, officeKey, isOfficeReady } from './office'
 import { type ThemeId, getStoredTheme, setStoredTheme } from './theme'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
-import { findWorksListErrors } from '@core/worksListAgent'
+import { findWorksListErrors, findMonitoringFormatErrors } from '@core/worksListAgent'
 import { mergeTables } from '@core/merge'
 import type { CementSteelRate } from '@core/cementSteelRates'
 import Sidebar, { type TabKey } from './components/Sidebar'
@@ -87,7 +87,12 @@ import type {
   QcOfficeParties
 } from '@core/types'
 import type { CalendarData } from '@core/calendar'
-import type { MonitoringFormatSummary } from '@core/monitoringFormat'
+import type { MonitoringFormatSummary, MonitoringFormatWorkRow, MfStatusKey } from '@core/monitoringFormat'
+import {
+  filterMonitoringFormatWorksByStatus,
+  extractMonitoringFormatForOffice,
+  extractMonitoringFormatWorksForOffice
+} from '@core/monitoringFormat'
 
 // Older persisted reminders stored a single work (workName/tenderId/bidClosing)
 // directly on the reminder instead of an `items` array — fold that into items.
@@ -130,6 +135,8 @@ interface Props {
   /** The Head Draughtsman's chosen office (Corporation/Zone/Circle), selected in the sidebar — drives document prep and Works List validation. */
   office: Office
   onOfficeChange: (office: Office) => void
+  /** The signed-in user's Login ID — shown in the profile menu. */
+  loginId: string
 }
 
 // The app version last shown in the "What's New" dialog on this machine —
@@ -156,7 +163,7 @@ function KeepAlive({ active, mounted, children }: { active: boolean; mounted: bo
   return <div className="tab-pane" style={{ display: active ? 'block' : 'none' }}>{children}</div>
 }
 
-export default function App({ onLogout, office, onOfficeChange }: Props) {
+export default function App({ onLogout, office, onOfficeChange, loginId }: Props) {
   // The office identity drives every Zone/Circle behaviour below. Kept as local
   // aliases so the rest of the app reads the same as when these came from the
   // login (Circle is optional — a zone-level Head Draughtsman picks just a Zone).
@@ -335,6 +342,11 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   const [qcParties, setQcParties] = useState<Record<string, QcOfficeParties>>({})
   const [monitoringFormatByOffice, setMonitoringFormatByOffice] = useState<Record<string, MonitoringFormatSummary>>({})
   const [monitoringFormatLinks, setMonitoringFormatLinks] = useState<Record<string, string>>({})
+  // Detail rows behind the Abstract's per-status counts — persisted/synced
+  // alongside monitoringFormatByOffice so the Dashboard's "download this
+  // status's works" tiles keep working after a restart without forcing a
+  // re-import; otherwise re-derived from the workbook each time it's imported.
+  const [monitoringFormatWorksByOffice, setMonitoringFormatWorksByOffice] = useState<Record<string, MonitoringFormatWorkRow[]>>({})
   // A remembered link queued to auto-import once the office prop has updated to
   // the newly-selected office (so the import validates against the new office).
   const [pendingOfficeImport, setPendingOfficeImport] = useState<string | null>(null)
@@ -427,11 +439,21 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
   // Every Works List error check (Wincode/Tender ID identity, ECV vs.
   // estimate, EMD 1%/1.5% consistency — see core/worksListAgent.ts) —
   // recomputed only when the (debounced) table itself changes, not on every
-  // render, since it walks every row.
-  const worksListErrors = useMemo(
-    () => (debouncedTable ? findWorksListErrors(debouncedTable) : []),
-    [debouncedTable]
-  )
+  // render, since it walks every row. Also runs every Monitoring Format
+  // check (Abstract-vs-list-of-works tally per item type, plus the list of
+  // works' own Wincode/name identity rules) when both have been imported for
+  // this office — same background health-check, surfaced through the same
+  // Errors button.
+  const officeMonitoringFormat = currentOfficeKey ? monitoringFormatByOffice[currentOfficeKey] : undefined
+  const officeMonitoringFormatWorks = currentOfficeKey ? monitoringFormatWorksByOffice[currentOfficeKey] : undefined
+  const worksListErrors = useMemo(() => {
+    const tableIssues = debouncedTable ? findWorksListErrors(debouncedTable) : []
+    const mfIssues =
+      officeMonitoringFormat && officeMonitoringFormatWorks
+        ? findMonitoringFormatErrors(officeMonitoringFormat, officeMonitoringFormatWorks)
+        : []
+    return [...tableIssues, ...mfIssues]
+  }, [debouncedTable, officeMonitoringFormat, officeMonitoringFormatWorks])
   const [showWincodeViolations, setShowWincodeViolations] = useState(false)
 
   // Global dataset (all Excels merged) — used for collision detection on the
@@ -556,6 +578,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
           setWorksListLinks(s.worksListLinks ?? {})
           setQcParties(s.qcParties ?? {})
           setMonitoringFormatByOffice(s.monitoringFormatByOffice ?? {})
+          setMonitoringFormatWorksByOffice(s.monitoringFormatWorksByOffice ?? {})
           setMonitoringFormatLinks(s.monitoringFormatLinks ?? {})
           setTenderReminders((s.tenderReminders ?? []).map(migrateTenderReminder))
           setCreatedDocuments(s.createdDocuments ?? [])
@@ -612,6 +635,8 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       if (partial.worksListLinks) setWorksListLinks(partial.worksListLinks)
       if (partial.qcParties) setQcParties(partial.qcParties)
       if (partial.monitoringFormatByOffice) setMonitoringFormatByOffice((prev) => ({ ...prev, ...partial.monitoringFormatByOffice }))
+      if (partial.monitoringFormatWorksByOffice)
+        setMonitoringFormatWorksByOffice((prev) => ({ ...prev, ...partial.monitoringFormatWorksByOffice }))
       if (partial.monitoringFormatLinks) setMonitoringFormatLinks(partial.monitoringFormatLinks)
       if (partial.tenderReminders) setTenderReminders(partial.tenderReminders.map(migrateTenderReminder))
       if (partial.createdDocuments) setCreatedDocuments(partial.createdDocuments)
@@ -667,6 +692,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
           worksListLinks,
           qcParties,
           monitoringFormatByOffice,
+          monitoringFormatWorksByOffice,
           monitoringFormatLinks,
           tenderReminders,
           createdDocuments,
@@ -696,6 +722,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     worksListLinks,
     qcParties,
     monitoringFormatByOffice,
+    monitoringFormatWorksByOffice,
     monitoringFormatLinks,
     tenderReminders,
     createdDocuments,
@@ -752,8 +779,61 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
     )
   }, [hydrated, currentOfficeKey])
 
-  function setOfficeMonitoringFormat(summary: MonitoringFormatSummary) {
-    if (currentOfficeKey) setMonitoringFormatByOffice((prev) => ({ ...prev, [currentOfficeKey]: summary }))
+  function setOfficeMonitoringFormat(summary: MonitoringFormatSummary, works: MonitoringFormatWorkRow[]) {
+    if (!currentOfficeKey) return
+    setMonitoringFormatByOffice((prev) => ({ ...prev, [currentOfficeKey]: summary }))
+    setMonitoringFormatWorksByOffice((prev) => ({ ...prev, [currentOfficeKey]: works }))
+  }
+
+  // Dashboard status tile click: download an Excel of just the works behind
+  // that tile's count, pulled from the Monitoring Format workbook's "list of
+  // works" sheet(s) rather than the Abstract (which only has totals).
+  async function exportMonitoringFormatStatusWorks(key: MfStatusKey, label: string): Promise<boolean> {
+    let works = currentOfficeKey ? monitoringFormatWorksByOffice[currentOfficeKey] : undefined
+    // The detail rows behind the tile counts weren't persisted before this
+    // field was added, so a session hydrated from an older save has the
+    // totals (shown on the tile) but not the rows needed to export them —
+    // silently re-fetch from the remembered link rather than doing nothing.
+    if (!works && currentOfficeKey) {
+      const link = monitoringFormatLinks[currentOfficeKey]
+      if (!link) return false
+      try {
+        const sheets = await api.importAllSheetsFromLink(link)
+        works = extractMonitoringFormatWorksForOffice(sheets, office)
+        setOfficeMonitoringFormat(extractMonitoringFormatForOffice(sheets, office), works)
+      } catch {
+        return false
+      }
+    }
+    if (!works) return false
+    const matches = filterMonitoringFormatWorksByStatus(works, key)
+    const headers = [
+      'Sl.No',
+      'Circle',
+      'Ward',
+      'Name of Work',
+      'Type of Work',
+      'Estimate (Rs. Lakhs)',
+      'Agency Details',
+      'Target Date',
+      'Status'
+    ]
+    const rows = matches.map((w) => ({
+      'Sl.No': w.slNo,
+      Circle: w.circle,
+      Ward: w.ward,
+      'Name of Work': w.workName,
+      'Type of Work': w.typeOfWork,
+      'Estimate (Rs. Lakhs)': String(w.estimateAmt),
+      'Agency Details': w.agencyDetails,
+      'Target Date': w.targetDate,
+      Status: w.status
+    }))
+    const fileName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} ${label} works list`
+      .replace(/\s+/g, ' ')
+      .trim()
+    const savedPath = await api.exportTable({ id: 'mf-status-works', name: label, path: '', headers, rows }, fileName)
+    return savedPath != null
   }
   function saveMonitoringFormatLink(url: string) {
     if (currentOfficeKey) setMonitoringFormatLinks((prev) => (prev[currentOfficeKey] === url ? prev : { ...prev, [currentOfficeKey]: url }))
@@ -786,7 +866,8 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
 
   // Flatten the MB Scrutiny register into a table and save it as an .xlsx.
   async function exportMbScrutiny() {
-    if (officeMb.length === 0) return
+    const activeMb = officeMb.filter((it) => !it.deletedAt)
+    if (activeMb.length === 0) return
     const fmt = (iso?: string) => {
       if (!iso) return ''
       const [y, m, d] = iso.split('-')
@@ -802,7 +883,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       'Scrutiny completed date',
       'Remarks / objections'
     ]
-    const rows = [...officeMb]
+    const rows = [...activeMb]
       .sort((a, b) => (a.serialNo || 0) - (b.serialNo || 0))
       .map((it) => ({
         'S.No': String(it.serialNo ?? ''),
@@ -1184,6 +1265,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
       <Skyline />
       <UpdateBanner />
       <ProfileMenu
+        username={loginId}
         onLogout={() => {
           // Logging out unmounts this component, which would otherwise
           // clearTimeout() the debounced save below and drop whatever was
@@ -1236,6 +1318,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
               tenderReminders={officeTenderReminders}
               cementSteelHasNew={cementSteelHasNew}
               onNavigate={setTab}
+              onExportStatusWorks={exportMonitoringFormatStatusWorks}
             />
           </section>
         </KeepAlive>
@@ -1332,6 +1415,7 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
             <MonitoringFormatCard
               office={office}
               monitoringFormat={currentOfficeKey ? monitoringFormatByOffice[currentOfficeKey] : undefined}
+              monitoringFormatWorks={officeMonitoringFormatWorks}
               onImportMonitoringFormat={setOfficeMonitoringFormat}
               monitoringFormatLink={currentOfficeKey ? monitoringFormatLinks[currentOfficeKey] : undefined}
               onSaveMonitoringFormatLink={saveMonitoringFormatLink}
@@ -1379,7 +1463,9 @@ export default function App({ onLogout, office, onOfficeChange }: Props) {
                     <ul className="works-list-violation-list">
                       {worksListErrors.map((v) => (
                         <li key={`${v.type}:${v.key}`}>
-                          {v.message} (row{v.rowIndices.length > 1 ? 's' : ''} {v.rowIndices.map((i) => i + 1).join(', ')})
+                          {v.message}
+                          {v.rowIndices.length > 0 &&
+                            ` (row${v.rowIndices.length > 1 ? 's' : ''} ${v.rowIndices.map((i) => i + 1).join(', ')})`}
                         </li>
                       ))}
                     </ul>

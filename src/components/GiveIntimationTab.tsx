@@ -24,11 +24,12 @@ import {
   type AgencyApprovalData
 } from '@core/seEvaluationNotes'
 import { parseCementSteelRateLines } from '@core/cementSteelRate'
+import { CEMENT_STEEL_MONTHS, cementSteelRatePeriodKey } from '@core/cementSteelRates'
 import { resolveFromDirectory, entriesOf, corporationByName, CORPORATIONS } from '../zoneCircleDirectory'
 import { officeScopedKey, TEMPLATE_KEYS, type Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLines, pdfToPositionedLines } from '../pdfToText'
-import { pdfPagesToDataUrls } from '../pdfToImages'
+import { pdfPagesToDataUrls, pdfPagesToDataUrlsFromData } from '../pdfToImages'
 import { base64ToUint8, PAGE_WIDTH, renderDocPreview, DOCX_PREVIEW_OPTIONS, normalizeDocxTextboxes } from './docPage'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell, IconCheck } from './Icons'
 import type { ExcelTable } from '@core/types'
@@ -504,6 +505,10 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   const [cementSteelBusy, setCementSteelBusy] = useState(false)
   const [cementSteelError, setCementSteelError] = useState<string | null>(null)
   const [cementSteelFileName, setCementSteelFileName] = useState('')
+  // Month/year the user wants the Cement & Steel Rates circular for — drives
+  // fetchCementSteelRatesAuto's lookup against the department site's list.
+  const [rateFetchMonth, setRateFetchMonth] = useState('')
+  const [rateFetchYear, setRateFetchYear] = useState('')
   // From the uploaded "List of Bidders Made Non-Responsive" sheet — feeds the
   // Bid Evaluation note's participated/responsive/non-responsive counts, the
   // same way the EE Note Submitted's non-responsive upload works.
@@ -1019,6 +1024,24 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     }
   }
 
+  /** Shared by the manual upload and the auto-fetch below: OCRs a Cement &
+   * Steel rate circular's page images and fills the editable rate fields
+   * from whatever the parser finds (never overwrites a field it can't read). */
+  async function fillCementSteelRatesFromPages(dataUrls: string[]) {
+    const sheet = await api.ocrEstimatePhotos(dataUrls)
+    const lines = sheet.grid.map((row) => row[0] ?? '')
+    const rates = parseCementSteelRateLines(lines)
+    setManual((m) => ({
+      ...m,
+      cementRate: rates.cementRate ?? m.cementRate,
+      steelRate: rates.steelRate ?? m.steelRate,
+      msFlatsRate: rates.msFlatsRate ?? m.msFlatsRate,
+      memoRef: rates.memoRef ?? m.memoRef,
+      memoDate: rates.memoDate ?? m.memoDate,
+      rateMonth: rates.monthYear ?? m.rateMonth
+    }))
+  }
+
   /** Cement & Steel rate circular upload (SE only) — OCR'd the same way as an
    * estimate photo (see src/pdfToImages.ts), then parsed for the TS Note's
    * rate sentence. Populates editable fields rather than baking values in
@@ -1028,21 +1051,44 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     setCementSteelError(null)
     try {
       const dataUrls = await pdfPagesToDataUrls(file)
-      const sheet = await api.ocrEstimatePhotos(dataUrls)
-      const lines = sheet.grid.map((row) => row[0] ?? '')
-      const rates = parseCementSteelRateLines(lines)
+      await fillCementSteelRatesFromPages(dataUrls)
       setCementSteelFileName(file.name)
-      setManual((m) => ({
-        ...m,
-        cementRate: rates.cementRate ?? m.cementRate,
-        steelRate: rates.steelRate ?? m.steelRate,
-        msFlatsRate: rates.msFlatsRate ?? m.msFlatsRate,
-        memoRef: rates.memoRef ?? m.memoRef,
-        memoDate: rates.memoDate ?? m.memoDate,
-        rateMonth: rates.monthYear ?? m.rateMonth
-      }))
     } catch (e) {
       setCementSteelError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setCementSteelBusy(false)
+    }
+  }
+
+  /** Auto-downloads the Cement & Steel rate circular for the month/year the
+   * user picked, straight from the Public Health department site (the same
+   * list the sidebar's Cement & Steel Rates tab browses), and fills the rate
+   * fields from it — no manual upload needed when there's internet. On
+   * failure (no internet, or no circular posted yet for that period), the
+   * error points the user at the manual "Upload Cement & Steel rates" button
+   * below, which works fully offline off an already-downloaded sheet. */
+  async function fetchCementSteelRatesAuto() {
+    const monthIndex = CEMENT_STEEL_MONTHS.indexOf(rateFetchMonth)
+    if (monthIndex < 0 || !rateFetchYear.trim()) return
+    setCementSteelBusy(true)
+    setCementSteelError(null)
+    try {
+      const target = Number(rateFetchYear) * 12 + monthIndex
+      const rates = await api.fetchCementSteelRates()
+      const match = rates.find((r) => cementSteelRatePeriodKey(r) === target)
+      if (!match) {
+        throw new Error(
+          `No Cement & Steel Rates circular found for ${rateFetchMonth} ${rateFetchYear} on the department site yet.`
+        )
+      }
+      const bytes = await api.fetchCementSteelRateBytes(match.token)
+      const dataUrls = await pdfPagesToDataUrlsFromData(bytes)
+      await fillCementSteelRatesFromPages(dataUrls)
+      setCementSteelFileName(match.description)
+    } catch (e) {
+      setCementSteelError(
+        `${e instanceof Error ? e.message : String(e)} No internet, or use "Upload Cement & Steel rates" below to pick an already-downloaded sheet instead.`
+      )
     } finally {
       setCementSteelBusy(false)
     }
@@ -1304,6 +1350,41 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
 
       <div className="empty empty--tight">
         <IconBell />
+        {seMode && (
+          <div className="gps-toolbar cement-steel-fetch">
+            <label className="wo-date-field">
+              <span>Steel Rate Month</span>
+              <select value={rateFetchMonth} onChange={(e) => setRateFetchMonth(e.target.value)} disabled={cementSteelBusy}>
+                <option value="">Month</option>
+                {CEMENT_STEEL_MONTHS.map((m) => (
+                  <option key={m} value={m}>
+                    {m.charAt(0).toUpperCase() + m.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="wo-date-field">
+              <span>Year</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="e.g. 2026"
+                value={rateFetchYear}
+                onChange={(e) => setRateFetchYear(e.target.value)}
+                disabled={cementSteelBusy}
+              />
+            </label>
+            <button
+              type="button"
+              className="primary upload-btn"
+              onClick={() => void fetchCementSteelRatesAuto()}
+              disabled={cementSteelBusy || !rateFetchMonth || !rateFetchYear.trim()}
+              title="Downloads the circular for this month/year from the Public Health department site — same list as the sidebar's Cement & Steel Rates tab"
+            >
+              <IconDownload /> {cementSteelBusy ? 'Fetching…' : 'Fetch Cement & Steel rates'}
+            </button>
+          </div>
+        )}
         <div className="boq-actions boq-actions--grid">
           <button className="primary upload-btn" onClick={() => noticeInputRef.current?.click()} disabled={!templateB64}>
             <IconFolder /> {notice ? 'Change Online Intimation' : 'Upload Online Intimation'}

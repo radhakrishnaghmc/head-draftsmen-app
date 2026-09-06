@@ -1,5 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { IconPlus, IconTrash, IconSearch } from './Icons'
+import { IconPlus, IconTrash, IconSearch, IconChevronRight } from './Icons'
 import type { ExcelTable } from '@core/types'
 
 // Fixed column widths (px) — the sheet uses table-layout:fixed so column widths
@@ -111,6 +111,7 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
     table.rows.map((r) => orderedHeaders.map((h) => r[h] ?? ''))
   )
   const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(true)
 
   // Blink the just-updated rows, then settle: the "Updated from L1" message and
   // highlight clear after a few seconds so they don't linger over later edits.
@@ -283,6 +284,19 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
 
   return (
     <section className="card sheet-inline">
+      <div className="card-head">
+        <button
+          type="button"
+          className="settings-section-toggle mf-toggle"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+        >
+          <IconChevronRight className={`settings-section-chevron ${open ? 'open' : ''}`} />
+          <h3>Works List Database</h3>
+        </button>
+      </div>
+      {open && (
+        <>
       {header && <div className="sheet-inline-header">{header}</div>}
       {error && <div className="notice warn editor-warn">{error}</div>}
 
@@ -379,6 +393,8 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
           Rename headers to change field names. Rows here drive how many documents generate.
         </span>
       </div>
+        </>
+      )}
     </section>
   )
 }

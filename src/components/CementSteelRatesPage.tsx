@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../ipc'
 import { IconDoc, IconDownload, IconWarn, IconRefresh, IconSearch } from './Icons'
 import type { CementSteelRate } from '@core/cementSteelRates'
+import { cementSteelRatePeriodKey } from '@core/cementSteelRates'
 
 interface Props {
   /** Called with the freshly-fetched list whenever a load succeeds, so the caller can record what's now been seen. */
@@ -10,30 +11,6 @@ interface Props {
 
 function sanitizeFileName(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim()
-}
-
-const MONTHS = [
-  'january', 'february', 'march', 'april', 'may', 'june',
-  'july', 'august', 'september', 'october', 'november', 'december'
-]
-
-/**
- * The rate period a circular actually covers, as a single comparable number
- * (year * 12 + monthIndex). The department batch-uploads several months at
- * once (e.g. Dec 2025, May/Apr/Mar 2026 all "Posted" the same day), so the
- * "File Posted" date doesn't reflect the circular's own period — read the
- * month/year straight out of its description instead, and only fall back to
- * "File Posted" for the rare entry (e.g. an old quarterly one) with no plain
- * month name in its description.
- */
-function periodKey(r: CementSteelRate): number {
-  const monthMatch = /(january|february|march|april|may|june|july|august|september|october|november|december)\D{0,10}(\d{4})/i.exec(
-    r.description
-  )
-  if (monthMatch) return Number(monthMatch[2]) * 12 + MONTHS.indexOf(monthMatch[1].toLowerCase())
-  const dm = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(r.datePosted.trim())
-  if (dm) return Number(dm[3]) * 12 + (Number(dm[2]) - 1)
-  return 0
 }
 
 /**
@@ -53,7 +30,7 @@ export default function CementSteelRatesPage({ onLoaded }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const fetched = [...(await api.fetchCementSteelRates())].sort((a, b) => periodKey(b) - periodKey(a))
+      const fetched = [...(await api.fetchCementSteelRates())].sort((a, b) => cementSteelRatePeriodKey(b) - cementSteelRatePeriodKey(a))
       setRates(fetched)
       onLoaded?.(fetched)
     } catch (e) {

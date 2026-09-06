@@ -1,7 +1,7 @@
 // Framework-agnostic shared types for DocuGen core logic.
 // No Electron/DOM imports here so this module can be reused in a future web app.
 
-import type { MonitoringFormatSummary } from './monitoringFormat'
+import type { MonitoringFormatSummary, MonitoringFormatWorkRow } from './monitoringFormat'
 
 /** A query against the Telangana e-procurement tender listing. */
 export interface TenderQuery {
@@ -76,6 +76,12 @@ export interface TodoItem {
    * are adopted into the office in view on first load (see App.tsx).
    */
   officeKey?: string
+  /**
+   * ISO datetime the task was moved to the Bin. Set instead of ever removing
+   * a task outright — the Bin is where "delete" actually lands, so a task is
+   * never truly lost, only hidden from the main list until restored.
+   */
+  deletedAt?: string
 }
 
 /** One point noted during scrutiny — can be ticked off once attended to. */
@@ -107,6 +113,12 @@ export interface MBScrutinyItem {
    * the office in view on first load (see App.tsx).
    */
   officeKey?: string
+  /**
+   * ISO datetime the record was moved to the Bin. Set instead of ever removing
+   * a record outright — the Bin is where "delete" actually lands, so an MB
+   * entry is never truly lost, only hidden from the main list until restored.
+   */
+  deletedAt?: string
 }
 
 export interface TenderReminderItem {
@@ -294,4 +306,10 @@ export interface PersistedState {
   monitoringFormatByOffice?: Record<string, MonitoringFormatSummary>
   /** The Monitoring Format Google Sheets link remembered per office, like worksListLinks — so it's pre-filled next time instead of re-pasting it. */
   monitoringFormatLinks?: Record<string, string>
+  /**
+   * The per-work detail rows behind monitoringFormatByOffice's totals, kept in
+   * sync with it so the Dashboard's "download this status's works" tiles still
+   * work after an app restart without forcing a re-import.
+   */
+  monitoringFormatWorksByOffice?: Record<string, MonitoringFormatWorkRow[]>
 }

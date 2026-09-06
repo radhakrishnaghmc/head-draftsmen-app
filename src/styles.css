@@ -414,6 +414,15 @@ body.theme-aurora .update-progress-track {
   padding: 6px;
   animation: pop 0.12s var(--ease);
 }
+.profile-dropdown-user {
+  padding: 6px 10px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+  white-space: nowrap;
+}
 .profile-dropdown-item {
   display: flex;
   align-items: center;
@@ -1886,7 +1895,7 @@ button.upload-btn {
 }
 .mb-tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -1919,6 +1928,9 @@ button.upload-btn {
 }
 .mb-tab.tone-done.open {
   border-color: var(--green-700, #15803d);
+}
+.mb-tab.tone-bin.open {
+  border-color: var(--danger);
 }
 .mb-tab-label {
   flex: 1;
@@ -1998,6 +2010,10 @@ button.upload-btn {
   background: var(--green-bg);
   color: var(--green-700, #15803d);
 }
+.mb-tab.tone-bin .mb-section-ic {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
 .mb-section-count {
   font-size: 12px;
   font-weight: 700;
@@ -2029,6 +2045,10 @@ button.upload-btn {
 }
 .mb-item.done {
   border-left-color: var(--green-700, #15803d);
+}
+.mb-item-binned {
+  border-left-color: var(--muted);
+  opacity: 0.85;
 }
 .mb-item .todo-checkbox {
   margin-top: 3px;
@@ -6287,6 +6307,10 @@ tr.on .rp-box span {
 .sheet-inline-header {
   padding: 14px 14px 0;
 }
+.sheet-inline .card-head {
+  padding: 14px 14px 14px;
+  margin-bottom: 0;
+}
 .sheet-inline .sheet-foot {
   border-top: 1px solid var(--border);
 }
@@ -8698,6 +8722,17 @@ tr.on .rp-box span {
   flex-wrap: wrap;
   margin-bottom: 14px;
 }
+/* Give Intimation (SE): month/year + fetch button for auto-downloading the
+   Cement & Steel rate circular, sitting above the upload-buttons grid. */
+.cement-steel-fetch {
+  justify-content: center;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.cement-steel-fetch .wo-date-field {
+  min-width: 140px;
+}
 /* The Cement & Steel Rates toolbar reuses MB Scrutiny's search box next to a
    tool-workspace action button — .mb-search's own margin-bottom (meant for
    stacking above a list) threw off vertical centering here, and its
@@ -9819,11 +9854,6 @@ body.theme-aurora .pdf-ws-page.on {
   gap: 18px;
 }
 
-.ov-stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
 .ov-stat {
   background: var(--surface);
   backdrop-filter: var(--glass-blur);
@@ -9869,9 +9899,14 @@ body.theme-aurora .pdf-ws-page.on {
 }
 .ov-stat-hero .ov-stat-top {
   color: rgba(255, 255, 255, 0.85);
+  font-size: 15px;
+}
+.ov-stat-hero b {
+  font-size: 38px;
 }
 .ov-stat-hero .ov-stat-sub {
   color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
 }
 .ov-stat-warn b {
   color: var(--danger);
@@ -9879,13 +9914,19 @@ body.theme-aurora .pdf-ws-page.on {
 
 .ov-grid {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
 }
 .ov-card {
   display: flex;
   flex-direction: column;
   border-radius: calc(var(--radius) + 6px);
+  min-height: 320px;
+  /* Grid items default to min-width: auto, so a long unbroken string (a
+     tender's free-text work name, unlike the short MB/todo text this grid
+     was built around) forces the item wider than its column track and blows
+     out the whole .ov-grid layout instead of wrapping/truncating inside it. */
+  min-width: 0;
 }
 .ov-card .card-head {
   display: flex;
@@ -9912,6 +9953,12 @@ body.theme-aurora .pdf-ws-page.on {
   margin: 4px 0 2px;
   font-size: 15px;
   font-weight: 650;
+  /* Tender work names are free text and can be very long; clamp instead of
+     letting the card balloon to fit an unbroken title. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .ov-reminder-date {
   margin: 0 0 14px;
@@ -10053,7 +10100,15 @@ body.theme-aurora .pdf-ws-page.on {
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--tile-color) 7%, var(--surface-2));
   overflow: hidden;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
   transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.ov-mf-tile:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 .ov-mf-tile::before {
   content: '';
@@ -10062,7 +10117,7 @@ body.theme-aurora .pdf-ws-page.on {
   width: 3px;
   background: var(--tile-color);
 }
-.ov-mf-tile:hover {
+.ov-mf-tile:not(:disabled):hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(15, 15, 25, 0.08);
 }
@@ -10115,6 +10170,46 @@ body.theme-aurora .pdf-ws-page.on {
 .ov-mf-tile-amt {
   font-size: 11.5px;
   color: var(--muted);
+}
+.ov-mf-tile-busy {
+  cursor: default;
+  opacity: 0.85;
+}
+.ov-mf-tile-spin {
+  animation: spin 0.9s linear infinite;
+}
+.ov-mf-tile-done .ov-mf-tile-ic {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+.ov-mf-tile-status {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--muted);
+}
+.ov-mf-tile-status-done {
+  color: var(--ok);
+}
+
+/* Type of Work — same donut+tiles layout as Monitoring Format Works Status */
+.ov-wt-status {
+  margin-bottom: 20px;
+}
+.ov-wt-tile {
+  cursor: default;
+}
+.ov-wt-tile:hover {
+  transform: none;
+  box-shadow: none;
+}
+.ov-wt-tile-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  border-radius: 50%;
+  background: var(--tile-color);
 }
 
 /* Task Progress donut */
@@ -10298,17 +10393,11 @@ button.ov-promo:hover:not(:disabled) {
 }
 
 @media (max-width: 1200px) {
-  .ov-stats {
-    grid-template-columns: repeat(2, 1fr);
-  }
   .ov-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 @media (max-width: 760px) {
-  .ov-stats {
-    grid-template-columns: 1fr;
-  }
   .ov-grid {
     grid-template-columns: 1fr;
   }

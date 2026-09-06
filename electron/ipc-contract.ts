@@ -137,6 +137,7 @@ export const IPC = {
   saveDocxsToFolder: 'tools:saveDocxsToFolder',
   fetchCementSteelRates: 'tools:fetchCementSteelRates',
   downloadCementSteelRate: 'tools:downloadCementSteelRate',
+  fetchCementSteelRateBytes: 'tools:fetchCementSteelRateBytes',
   ocrGpsOverlay: 'tools:ocrGpsOverlay',
   ocrPhotosToLines: 'tools:ocrPhotosToLines',
   savePhotosAsWord: 'tools:savePhotosAsWord',
@@ -295,7 +296,7 @@ export interface DocuGenApi {
   savePdfsToFolder(files: { name: string; bytes: Uint8Array }[]): Promise<{ dir: string; files: string[] } | null>
   /** Tool (Word workspace): convert one .docx (raw bytes) to PDF via LibreOffice, for a page-level preview. Returns the PDF bytes; throws a clear error if LibreOffice isn't installed. */
   docxToPdf(docxBytes: Uint8Array): Promise<Uint8Array>
-  /** Accurate document preview/print: renders one .docx (raw bytes) as one PNG per page via LibreOffice's own docx→PDF→raster pipeline (NOT pdf.js — see core/docxToPdf.ts's docxToPageImages for why). Throws the same clear error as docxToPdf if LibreOffice isn't installed. */
+  /** Accurate document preview/print: renders one .docx (raw bytes) as one PNG per page — LibreOffice does the docx→PDF conversion, then Electron's own Chromium/PDFium rasterizes each page to PNG (neither LibreOffice's own PNG export nor pdf.js — see core/docxToPdf.ts's docxToPageImages for why). Throws the same clear error as docxToPdf if LibreOffice isn't installed. */
   docxToPageImages(docxBytes: Uint8Array): Promise<Uint8Array[]>
   /** Tool (Word workspace): merge several .docx files (raw bytes, in order) into one .docx and save it via a dialog. Returns the saved path, or null if cancelled. */
   mergeDocx(docxBytesList: Uint8Array[]): Promise<{ file: string } | null>
@@ -307,6 +308,8 @@ export interface DocuGenApi {
   fetchCementSteelRates(): Promise<CementSteelRate[]>
   /** Tool (Cement & Steel Rates): download one circular by its (short-lived) token, via a save dialog. `suggestedFileName` should already carry the right extension. Returns the saved path, or null if cancelled. */
   downloadCementSteelRate(token: string, suggestedFileName: string): Promise<string | null>
+  /** Give Intimation (SE): fetch one circular's raw bytes by its (short-lived) token, no save dialog — used to auto-fill Cement/Steel rates for a chosen month/year straight from the department site. */
+  fetchCementSteelRateBytes(token: string): Promise<Uint8Array>
   /** Tool (GPS Photos): OCR the GPS overlay stamped on a photo (multi-threshold passes) and return its text lines, for parsing coordinates out of. Used only when the photo has no EXIF GPS. */
   ocrGpsOverlay(imageBytes: Uint8Array): Promise<string[]>
   /** Tool (Photos/PDF → Word/Excel): OCR each page image (data URLs, in order) and return all recognised lines in reading order, blank-line-separated between pages. Best-effort — always reviewed/edited before export. */

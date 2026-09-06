@@ -5,7 +5,7 @@ dist/
 build/icon.iconset/
 *.log
 .DS_Store
-.env
+.env*
 .claude/
 CLAUDE.local.md
 *.premerge.bak
