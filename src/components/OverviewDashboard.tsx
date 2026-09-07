@@ -196,6 +196,11 @@ export default function OverviewDashboard({
   const nextDeadline = deadlines[0]
   const upcoming = deadlines.slice(0, 5)
 
+  // Is the nearest deadline already past? Infinity (undated tender lookups)
+  // never counts as overdue.
+  const nextOverdue =
+    !!nextDeadline && Number.isFinite(nextDeadline.sortTs) && nextDeadline.sortTs < Date.now()
+
   const recentMb = useMemo(
     () => [...activeMb].sort((a, b) => b.receivedDate.localeCompare(a.receivedDate)).slice(0, 4),
     [activeMb]
@@ -203,6 +208,30 @@ export default function OverviewDashboard({
 
   return (
     <div className="overview-dashboard">
+      <div className="ov-stat-row">
+        <div className="ov-stat ov-stat-hero">
+          <span className="ov-stat-top">Total works</span>
+          <b>{mfTotals ? mfTotals.totalWorks.no : '—'}</b>
+          <span className="ov-stat-sub">
+            {mfTotals ? monitoringFormat!.officeLabel : 'Import a Monitoring Format to populate'}
+          </span>
+        </div>
+        <div className="ov-stat">
+          <span className="ov-stat-top">Pending items</span>
+          <b>{pendingCount}</b>
+          <span className="ov-stat-sub">To Do &amp; MB Scrutiny open</span>
+        </div>
+        <div className="ov-stat">
+          <span className="ov-stat-top">Completed</span>
+          <b>{progressPct}%</b>
+          <span className="ov-stat-sub">{completedCount} of {totalTracked} done</span>
+        </div>
+        <div className={`ov-stat${nextOverdue ? ' ov-stat-warn' : ''}`}>
+          <span className="ov-stat-top">Next deadline</span>
+          <b className="ov-stat-deadline">{nextDeadline ? nextDeadline.dueLabel : '—'}</b>
+          <span className="ov-stat-sub">{nextDeadline ? nextDeadline.text : 'Nothing scheduled'}</span>
+        </div>
+      </div>
       <div className="card ov-card ov-mf-status">
         <div className="card-head">
           <span className="ov-mf-titles">
@@ -224,37 +253,49 @@ export default function OverviewDashboard({
           </div>
         ) : (
           <div className="ov-mf-body">
-            <div className="ov-mf-donut-wrap">
-              <svg viewBox="0 0 120 120" className="ov-donut ov-mf-donut">
-                <circle cx="60" cy="60" r={DONUT_R} className="ov-donut-track" />
-                {(() => {
-                  let cursor = 0
-                  return MF_TILES.map(({ key, color }) => {
-                    const no = mfTotals[key].no
-                    const share = mfTotals.totalWorks.no > 0 ? no / mfTotals.totalWorks.no : 0
-                    if (share <= 0) return null
-                    const segLen = share * DONUT_C
-                    const gap = 2
-                    const dash = `${Math.max(segLen - gap, 0)} ${DONUT_C - segLen + gap}`
-                    const offset = -cursor
-                    cursor += segLen
-                    return (
-                      <circle
-                        key={key}
-                        cx="60"
-                        cy="60"
-                        r={DONUT_R}
-                        className="ov-mf-donut-seg"
-                        style={{ stroke: color, strokeDasharray: dash, strokeDashoffset: offset }}
-                      />
-                    )
-                  })
-                })()}
-              </svg>
-              <div className="ov-donut-text">
-                <b>{mfTotals.totalWorks.no}</b>
-                <span>Total Works</span>
+            <div className="ov-mf-donut-col">
+              <div className="ov-mf-donut-wrap">
+                <svg viewBox="0 0 120 120" className="ov-donut ov-mf-donut">
+                  <circle cx="60" cy="60" r={DONUT_R} className="ov-donut-track" />
+                  {(() => {
+                    let cursor = 0
+                    return MF_TILES.map(({ key, color }) => {
+                      const no = mfTotals[key].no
+                      const share = mfTotals.totalWorks.no > 0 ? no / mfTotals.totalWorks.no : 0
+                      if (share <= 0) return null
+                      const segLen = share * DONUT_C
+                      const gap = 2
+                      const dash = `${Math.max(segLen - gap, 0)} ${DONUT_C - segLen + gap}`
+                      const offset = -cursor
+                      cursor += segLen
+                      return (
+                        <circle
+                          key={key}
+                          cx="60"
+                          cy="60"
+                          r={DONUT_R}
+                          className="ov-mf-donut-seg"
+                          style={{ stroke: color, strokeDasharray: dash, strokeDashoffset: offset }}
+                        />
+                      )
+                    })
+                  })()}
+                </svg>
+                <div className="ov-donut-text">
+                  <b>{mfTotals.totalWorks.no}</b>
+                  <span>Total Works</span>
+                </div>
               </div>
+
+              <ul className="ov-donut-legend-list">
+                {MF_TILES.filter(({ key }) => mfTotals[key].no > 0).map(({ label, key, color }) => (
+                  <li key={key}>
+                    <i className="ov-donut-legend-dot" style={{ background: color }} />
+                    {label}
+                    <b>{mfTotals[key].no}</b>
+                  </li>
+                ))}
+              </ul>
             </div>
 
             <div className="ov-mf-tiles">
@@ -268,7 +309,7 @@ export default function OverviewDashboard({
                     key={key}
                     type="button"
                     className={`ov-mf-tile${isExporting ? ' ov-mf-tile-busy' : ''}${isExported ? ' ov-mf-tile-done' : ''}`}
-                    style={{ ['--tile-color' as string]: color }}
+                    style={{ ['--tile-color' as string]: color, ['--tile-pct' as string]: `${pct}%` }}
                     disabled={bucket.no === 0 || isExporting}
                     title={bucket.no > 0 ? `Download Excel of ${label} works` : undefined}
                     onClick={() => handleExportTile(key, label)}
@@ -309,36 +350,48 @@ export default function OverviewDashboard({
           </div>
         ) : (
           <div className="ov-mf-body">
-            <div className="ov-mf-donut-wrap">
-              <svg viewBox="0 0 120 120" className="ov-donut ov-mf-donut">
-                <circle cx="60" cy="60" r={DONUT_R} className="ov-donut-track" />
-                {(() => {
-                  let cursor = 0
-                  return workTypes.map(({ row, color }) => {
-                    const share = mfTotals.totalWorks.no > 0 ? row.totalWorks.no / mfTotals.totalWorks.no : 0
-                    if (share <= 0) return null
-                    const segLen = share * DONUT_C
-                    const gap = 2
-                    const dash = `${Math.max(segLen - gap, 0)} ${DONUT_C - segLen + gap}`
-                    const offset = -cursor
-                    cursor += segLen
-                    return (
-                      <circle
-                        key={row.itemType}
-                        cx="60"
-                        cy="60"
-                        r={DONUT_R}
-                        className="ov-mf-donut-seg"
-                        style={{ stroke: color, strokeDasharray: dash, strokeDashoffset: offset }}
-                      />
-                    )
-                  })
-                })()}
-              </svg>
-              <div className="ov-donut-text">
-                <b>{mfTotals.totalWorks.no}</b>
-                <span>Total Works</span>
+            <div className="ov-mf-donut-col">
+              <div className="ov-mf-donut-wrap">
+                <svg viewBox="0 0 120 120" className="ov-donut ov-mf-donut">
+                  <circle cx="60" cy="60" r={DONUT_R} className="ov-donut-track" />
+                  {(() => {
+                    let cursor = 0
+                    return workTypes.map(({ row, color }) => {
+                      const share = mfTotals.totalWorks.no > 0 ? row.totalWorks.no / mfTotals.totalWorks.no : 0
+                      if (share <= 0) return null
+                      const segLen = share * DONUT_C
+                      const gap = 2
+                      const dash = `${Math.max(segLen - gap, 0)} ${DONUT_C - segLen + gap}`
+                      const offset = -cursor
+                      cursor += segLen
+                      return (
+                        <circle
+                          key={row.itemType}
+                          cx="60"
+                          cy="60"
+                          r={DONUT_R}
+                          className="ov-mf-donut-seg"
+                          style={{ stroke: color, strokeDasharray: dash, strokeDashoffset: offset }}
+                        />
+                      )
+                    })
+                  })()}
+                </svg>
+                <div className="ov-donut-text">
+                  <b>{mfTotals.totalWorks.no}</b>
+                  <span>Total Works</span>
+                </div>
               </div>
+
+              <ul className="ov-donut-legend-list">
+                {workTypes.map(({ row, color }) => (
+                  <li key={row.itemType}>
+                    <i className="ov-donut-legend-dot" style={{ background: color }} />
+                    <span title={row.itemType}>{row.itemType}</span>
+                    <b>{row.totalWorks.no}</b>
+                  </li>
+                ))}
+              </ul>
             </div>
 
             <div className="ov-mf-tiles">
@@ -346,7 +399,11 @@ export default function OverviewDashboard({
                 const pct =
                   mfTotals.totalWorks.no > 0 ? Math.round((row.totalWorks.no / mfTotals.totalWorks.no) * 100) : 0
                 return (
-                  <div key={row.itemType} className="ov-mf-tile ov-wt-tile" style={{ ['--tile-color' as string]: color }}>
+                  <div
+                    key={row.itemType}
+                    className="ov-mf-tile ov-wt-tile"
+                    style={{ ['--tile-color' as string]: color, ['--tile-pct' as string]: `${pct}%` }}
+                  >
                     <span className="ov-wt-tile-dot" />
                     <span className="ov-mf-tile-main">
                       <span className="ov-mf-tile-label" title={row.itemType}>
@@ -464,6 +521,7 @@ export default function OverviewDashboard({
               <span>Completed</span>
             </div>
           </div>
+          <div className="ov-progress-bar" style={{ ['--done-pct' as string]: `${progressPct}%` }} />
           <div className="ov-donut-legend">
             <span>
               <i className="ov-dot ov-dot-done" /> Completed ({completedCount})

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import type { RefObject } from 'react'
-import { api } from '../ipc'
 import { renderAsync } from '../lazyDocxPreview'
 
 // A4 at 96dpi (this app is for a Telangana government department — A4, not
@@ -99,75 +98,23 @@ export function normalizeDocxTextboxes(container: HTMLElement): void {
   })
 }
 
-/** Converts raw bytes to a base64 string in fixed-size chunks — a plain `String.fromCharCode(...bytes)` call blows the engine's argument-count limit on a multi-hundred-KB PNG. */
-function uint8ToBase64(bytes: Uint8Array): string {
-  const CHUNK = 8192
-  let binary = ''
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-  }
-  return btoa(binary)
-}
-
 /**
- * Renders a filled .docx as an accurate preview — LibreOffice converts
- * docx→PDF, then Electron's Chromium/PDFium rasterizes PDF→PNG
- * (core/docxToPdf.ts's docxToPageImages), one image per page — so preview
- * and print show exactly what Word would
- * produce: real font metrics, real page breaks, real WordArt, not
- * docx-preview.js's approximate HTML re-implementation (see
- * normalizeDocxTextboxes above for the kind of gap that leaves).
- *
- * Deliberately renders LibreOffice's PDF output through LibreOffice's OWN
- * rasterizer again, rather than pdf.js: a LibreOffice-produced PDF for a
- * font this machine doesn't have installed (e.g. "Book Antiqua", "Segoe UI")
- * embeds a substituted font whose glyph mapping pdf.js decodes wrong,
- * silently swapping in different characters — confirmed by rendering the
- * exact same, byte-verified-correct PDF through Poppler (correct) and pdf.js
- * (garbled) side by side. LibreOffice's own rasterizer renders that same
- * substituted font correctly, because it's the same engine that chose the
- * substitution in the first place.
- *
- * Falls back to the existing renderAsync/DOCX_PREVIEW_OPTIONS HTML render
- * when LibreOffice isn't installed on this machine (core/docxToPdf.ts throws
- * a clear error in that case) — every call site already expects
- * docx-preview's own output shape (`div.docx-wrapper > section.docx`, one
- * per page), so this builds THAT exact shape for the accurate path too
- * (an `<img>` filling each `section.docx` instead of live DOM content) —
- * every caller's existing CSS (scaling, shadows, page counting via
- * `section.docx`) keeps working unchanged, whichever path actually rendered.
+ * Renders a filled .docx as an HTML preview via docx-preview's `renderAsync`
+ * (see normalizeDocxTextboxes above for its text-box gap). `accurate` is
+ * always false here — kept in the return type since callers branch on it —
+ * this used to also have a PDFium-rasterized image path (LibreOffice
+ * docx→PDF, then Electron's Chromium/PDFium PDF→PNG) for pixel-exact
+ * previews, but that path produced blank/black pages on some machines and
+ * was reverted in favor of this HTML render everywhere.
  */
 export async function renderDocPreview(
   docxBytes: Uint8Array,
   container: HTMLElement
 ): Promise<{ pageCount: number; accurate: boolean }> {
-  try {
-    const images = await api.docxToPageImages(docxBytes)
-    if (images.length === 0) throw new Error('LibreOffice produced no page images.')
-    container.innerHTML = ''
-    const wrapper = document.createElement('div')
-    wrapper.className = 'docx-wrapper'
-    for (const png of images) {
-      const section = document.createElement('section')
-      section.className = 'docx'
-      section.style.width = `${PAGE_WIDTH}px`
-      const img = document.createElement('img')
-      img.src = `data:image/png;base64,${uint8ToBase64(png)}`
-      img.alt = ''
-      img.style.display = 'block'
-      img.style.width = '100%'
-      img.style.height = 'auto'
-      section.appendChild(img)
-      wrapper.appendChild(section)
-    }
-    container.appendChild(wrapper)
-    return { pageCount: images.length, accurate: true }
-  } catch {
-    container.innerHTML = ''
-    await renderAsync(docxBytes, container, undefined, DOCX_PREVIEW_OPTIONS)
-    normalizeDocxTextboxes(container)
-    return { pageCount: container.querySelectorAll('section.docx').length, accurate: false }
-  }
+  container.innerHTML = ''
+  await renderAsync(docxBytes, container, undefined, DOCX_PREVIEW_OPTIONS)
+  normalizeDocxTextboxes(container)
+  return { pageCount: container.querySelectorAll('section.docx').length, accurate: false }
 }
 
 export function pageShellStyle(): string {

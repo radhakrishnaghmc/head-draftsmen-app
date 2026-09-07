@@ -190,6 +190,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // scoped via a body class rather than a container class.
   useEffect(() => {
     document.body.classList.toggle('theme-aurora', theme === 'aurora')
+    document.body.classList.toggle('theme-midnight', theme === 'midnight')
+    document.body.classList.toggle('theme-paper', theme === 'paper')
   }, [theme])
 
   // Portal targets for the Agreement/Work Order and Intimation pages' own

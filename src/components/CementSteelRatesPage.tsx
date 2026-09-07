@@ -62,7 +62,7 @@ export default function CementSteelRatesPage({ onLoaded }: Props) {
 
   return (
     <>
-      <div className="card pdf-workspace">
+      <div className="card pdf-workspace cement-steel-workspace">
         <div className="gps-toolbar">
           <button className="pdf-ws-clearbtn" onClick={load} disabled={loading}>
             <IconRefresh /> {loading ? 'Fetching…' : 'Refresh from website'}

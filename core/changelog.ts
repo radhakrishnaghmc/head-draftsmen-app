@@ -16,6 +16,15 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.31.0',
+    changes: [
+      'Fixed the Tender Document showing "Rs." twice before the Contract/Estimate Amount, ECV and EMD.',
+      'Fixed the Tender Document\'s Contract Amount sometimes printing on the line below "Rs." instead of next to it.',
+      'Added a new "Paper" theme (Settings → Themes) — a flat, white, no-glass look with its own Dashboard styling, including bar-chart and legend detail on the Monitoring Format and Type of Work cards.',
+      'Cement & Steel Rates tool tiles now use a plain flat color instead of a blurred color glow.'
+    ]
+  },
+  {
     version: '1.30.0',
     changes: [
       'Dashboard status tiles (Completed, In Progress, To Be Started, etc.) can now be clicked to download an Excel of just the works behind that count.',

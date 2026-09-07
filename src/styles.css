@@ -154,6 +154,118 @@ body.theme-aurora {
   --shadow-glow: 0 8px 24px -6px rgba(16, 156, 222, 0.45);
 }
 
+/* Midnight theme (Settings → Themes) — the app's first dark theme, a deep
+   slate "ops console" look tuned for the Overview Dashboard: a near-black
+   slate background, glassy translucent cards, an emerald-green status accent
+   (mapped onto the indigo/violet accent token names), and light foreground
+   text. Everything is token-driven, so overriding the same variable names the
+   Default/Aurora palettes set restyles the whole app without per-component
+   rules. Shapes/blur/radii inherit Default's values. */
+body.theme-midnight {
+  --indigo-50: rgba(34, 197, 94, 0.16); /* accent-tinted chip/pill background */
+  --indigo-100: rgba(34, 197, 94, 0.22);
+  --indigo-200: rgba(34, 197, 94, 0.3);
+  --indigo-500: #22c55e; /* emerald — interactive accent (focus, active borders) */
+  --indigo-600: #16a34a; /* deeper emerald — solid accent fills / accent text */
+  --indigo-700: #4ade80; /* light emerald — accent text on dark surfaces */
+  --violet-500: #34d399; /* teal-green — gradient partner for two-tone CTAs */
+  --chakra: #38bdf8;
+  --sky-100: rgba(56, 189, 248, 0.16);
+  --sky-500: #38bdf8; /* sky blue */
+  --teal-500: #2dd4bf;
+  --teal-100: rgba(45, 212, 191, 0.16);
+  --rose-500: #fb7185; /* coral */
+  --rose-100: rgba(251, 113, 133, 0.16);
+  --amber-500: #fbbf24; /* amber */
+  --amber-100: rgba(251, 191, 36, 0.16);
+  --green-bg: rgba(52, 211, 153, 0.16);
+  --orange-bg: rgba(251, 191, 36, 0.16);
+
+  --bg-grad-a: #0f172a;
+  --bg-grad-b: #0b1120;
+  --surface: rgba(27, 35, 54, 0.72);
+  --surface-2: rgba(30, 41, 59, 0.6);
+  --border: rgba(148, 163, 184, 0.16);
+  --border-strong: rgba(148, 163, 184, 0.3);
+
+  --text: #f1f5f9;
+  --text-2: #cbd5e1;
+  --muted: #94a3b8;
+
+  --ok: #34d399;
+  --ok-bg: rgba(52, 211, 153, 0.16);
+  --warn: #fbbf24;
+  --warn-bg: rgba(251, 191, 36, 0.16);
+  --danger: #f87171;
+  --danger-bg: rgba(248, 113, 113, 0.16);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 18px -6px rgba(0, 0, 0, 0.55), 0 2px 6px -3px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 28px 56px -18px rgba(0, 0, 0, 0.7);
+  --shadow-glow: 0 8px 26px -6px rgba(34, 197, 94, 0.4);
+}
+
+/* Paper theme (Settings → Themes) — the opposite of Midnight: plain opaque
+   white surfaces, zero blur/translucency (no "glass" anywhere — --glass-blur
+   itself is switched off so every backdrop-filter: var(--glass-blur) call
+   app-wide goes inert in one place), and shadows flattened to hairline
+   borders instead of the Default/Aurora soft-glow look. Still uses real
+   color, just sparingly: one soft blue accent (mapped onto indigo/violet)
+   plus the same categorical hues (teal/sky/rose/amber) at full saturation
+   for chips, donut segments and status dots, so the UI doesn't go
+   monochrome — only the surfaces/shadows go flat. */
+body.theme-paper {
+  /* Accent: light parrot-green (Settings → Themes reference dashboard) —
+     pale tints for badges/pills, a bright parrot green for solid fills
+     (hero KPI tile, Reminders tile, donut/progress fill), a slightly
+     deeper parrot green for hover states and the promo tile. */
+  --indigo-50: #f1fae3;
+  --indigo-100: #dcf2c0;
+  --indigo-200: #c3e89a;
+  --indigo-500: #8bc34a; /* parrot green — interactive accent (focus, active borders) */
+  --indigo-600: #6cb64a; /* solid parrot green — accent fills (hero KPI tile, Reminders tile) */
+  --indigo-700: #4c9a2a; /* deeper parrot green — hover state / promo tile */
+  --violet-500: #9bd66b; /* lighter parrot green — gradient partner, kept subtle since gradients are off */
+  --chakra: #6cb64a;
+  --sky-100: #e0f2fe;
+  --sky-500: #0284c7;
+  --teal-500: #0d9488;
+  --teal-100: #ccfbf1;
+  --rose-500: #e11d48;
+  --rose-100: #ffe4e6;
+  --amber-500: #d97706;
+  --amber-100: #fef3c7;
+  --green-bg: #ecfdf5;
+  --orange-bg: #fff7ed;
+
+  --bg-grad-a: #ffffff;
+  --bg-grad-b: #ffffff;
+  --surface: #ffffff; /* opaque, not translucent — no glass */
+  --surface-2: #f8fafc;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  --text: #1e293b;
+  --text-2: #475569;
+  --muted: #94a3b8;
+
+  --ok: #0d9488;
+  --ok-bg: #ecfdf5;
+  --warn: #d97706;
+  --warn-bg: #fff7ed;
+  --danger: #e11d48;
+  --danger-bg: #fff1f2;
+
+  /* Flat = hairline borders carry the separation, not shadow. Shadows kept
+     near-zero rather than removed outright so focus rings / popovers that
+     rely on --shadow-lg for legibility over other content still lift. */
+  --glass-blur: none;
+  --shadow-sm: none;
+  --shadow-md: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 4px 16px -4px rgba(15, 23, 42, 0.12);
+  --shadow-glow: none;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -212,6 +324,36 @@ body.theme-aurora::before {
 }
 body.theme-aurora .skyline-bg,
 body.theme-aurora .sidebar-art-bg {
+  display: none;
+}
+
+/* Midnight theme: deep slate background with faint emerald/sky glow blobs;
+   drop the grain texture and the Telangana skyline art (dark ops-console
+   look, not tricolour-branded — same call as Aurora/Windows). */
+body.theme-midnight {
+  background: radial-gradient(1100px 640px at 8% -12%, rgba(34, 197, 94, 0.14), transparent 58%),
+    radial-gradient(900px 520px at 95% 6%, rgba(56, 189, 248, 0.12), transparent 55%),
+    radial-gradient(1000px 520px at 50% 112%, rgba(15, 23, 42, 0.6), transparent 60%),
+    linear-gradient(180deg, var(--bg-grad-a), var(--bg-grad-b));
+}
+body.theme-midnight::before {
+  display: none;
+}
+body.theme-midnight .skyline-bg,
+body.theme-midnight .sidebar-art-bg {
+  display: none;
+}
+
+/* Paper theme: plain white, no gradient blobs, no grain texture, no skyline
+   art — flat means the background carries no decoration at all. */
+body.theme-paper {
+  background: #ffffff;
+}
+body.theme-paper::before {
+  display: none;
+}
+body.theme-paper .skyline-bg,
+body.theme-paper .sidebar-art-bg {
   display: none;
 }
 
@@ -497,6 +639,18 @@ code {
    of Default's full-height tricolour band. */
 body.theme-aurora .sidebar {
   background: linear-gradient(180deg, rgba(16, 156, 222, 0.12) 0%, rgba(16, 156, 222, 0.04) 30%, rgba(255, 255, 255, 0.94) 55%, rgba(255, 255, 255, 0.94) 100%);
+}
+/* Midnight theme: a dark slate sidebar with a faint emerald wash at the top,
+   so light token text (--text / --muted) reads against it instead of the
+   Default tricolour band. */
+body.theme-midnight .sidebar {
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.12) 0%, rgba(15, 23, 42, 0.86) 30%, rgba(11, 17, 32, 0.92) 100%);
+}
+/* Paper theme: flat white sidebar, separated from the workspace by a
+   hairline border instead of a shadow or tint wash. */
+body.theme-paper .sidebar {
+  background: #ffffff;
+  border-right: 1px solid var(--border);
 }
 
 .side-brand {
@@ -4717,6 +4871,16 @@ body.theme-aurora .gen-output-modes .seg.active {
 .doc-tile-card.tone-sky {
   --tone-a: var(--sky-500);
   --tone-b: #5fcbfa;
+}
+/* Cement & Steel Rates workspace: drop the blurred corner-glare blobs
+   entirely and fill the tile with one flat sky tint instead — a solid color
+   reads calmer here than a hue gradient across plain rate-circular tiles. */
+.cement-steel-workspace .doc-tile-card.tone-sky {
+  background: color-mix(in srgb, var(--sky-500) 10%, var(--surface));
+}
+.cement-steel-workspace .doc-tile-card.tone-sky::before,
+.cement-steel-workspace .doc-tile-card.tone-sky::after {
+  display: none;
 }
 .doc-tile-card.tone-rose {
   --tone-a: var(--rose-500);
@@ -9854,6 +10018,39 @@ body.theme-aurora .pdf-ws-page.on {
   gap: 18px;
 }
 
+/* KPI band across the top of the Overview Dashboard: a hero total plus three
+   at-a-glance metrics. Collapses 4→2→1 columns as the workspace narrows. */
+.ov-stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+@media (max-width: 1200px) {
+  .ov-stat-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .ov-stat-row {
+    grid-template-columns: 1fr;
+  }
+}
+/* The deadline value is free text (a date, or a long "Bid closing…" phrase),
+   so it uses a smaller size and clamps to two lines instead of ballooning. */
+.ov-stat-deadline {
+  font-size: 19px !important;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ov-stat-row .ov-stat-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ov-stat {
   background: var(--surface);
   backdrop-filter: var(--glass-blur);
@@ -10070,6 +10267,12 @@ body.theme-aurora .pdf-ws-page.on {
   gap: 32px;
   flex-wrap: wrap;
 }
+.ov-mf-donut-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+}
 .ov-mf-donut-wrap {
   position: relative;
   width: 150px;
@@ -10273,6 +10476,15 @@ body.theme-aurora .pdf-ws-page.on {
   background: var(--indigo-100);
 }
 
+/* Legend under a donut and the stacked completed/pending bar on Task
+   Progress: extra infographics that only the Paper theme turns on (kept in
+   the DOM always, hidden elsewhere) — the tile rows already carry this
+   detail visually in other themes' more decorative card style. */
+.ov-donut-legend-list,
+.ov-progress-bar {
+  display: none;
+}
+
 /* Monitoring Format card (Works List page) */
 .mf-card {
   margin-top: 16px;
@@ -10401,4 +10613,237 @@ button.ov-promo:hover:not(:disabled) {
   .ov-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Paper theme — Overview Dashboard: keeps the app's normal stacked layout
+   (KPI row, then the full-width Monitoring Format / Type of Work cards, then
+   the 3-column .ov-grid) rather than remixing cards into a custom grid — an
+   earlier attempt to mimic a reference SaaS dashboard's mixed grid put the
+   tall donut+tiles cards in the same row as short list cards, which left
+   huge uneven gaps. Only the flat/solid visual treatment below is
+   theme-specific. */
+body.theme-paper .overview-dashboard {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+/* Flat cards everywhere in the dashboard: hairline border, no shadow, a
+   bigger radius than the rest of the app to match the reference's rounder
+   tiles. */
+body.theme-paper .card,
+body.theme-paper .ov-card {
+  box-shadow: none;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+}
+
+/* KPI row: hero tile gets a solid accent fill (the reference's "Total
+   Projects" tile); the other three stay plain white with a circular
+   decorative trend badge top-right and their sub-label turned into a small
+   pill instead of plain text, same as the reference's "Increased from last
+   month" chips. */
+body.theme-paper .ov-stat {
+  position: relative;
+  border-radius: 20px;
+  padding: 20px 20px 18px;
+}
+body.theme-paper .ov-stat::after {
+  content: '\2197';
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+body.theme-paper .ov-stat-sub {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 10px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--indigo-50);
+  color: var(--indigo-700);
+  font-size: 11.5px;
+  font-weight: 650;
+  white-space: normal;
+}
+/* Light parrot-green fill needs dark text, not white — white on a light
+   background like this fails contrast, unlike the reference's dark-green
+   tile. */
+body.theme-paper .ov-stat-hero {
+  background: var(--indigo-600);
+  border-color: transparent;
+  color: var(--text);
+}
+body.theme-paper .ov-stat-hero .ov-stat-top {
+  color: rgba(20, 38, 30, 0.65);
+}
+body.theme-paper .ov-stat-hero b {
+  color: var(--text);
+  font-size: 34px;
+}
+body.theme-paper .ov-stat-hero::after {
+  background: rgba(255, 255, 255, 0.45);
+  border-color: rgba(20, 38, 30, 0.2);
+  color: var(--text);
+}
+body.theme-paper .ov-stat-hero .ov-stat-sub {
+  background: rgba(255, 255, 255, 0.45);
+  color: var(--indigo-700);
+}
+body.theme-paper .ov-stat-warn .ov-stat-sub {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* Reminders becomes the reference's solid accent tile (its "Meeting with
+   Arc Company" panel) instead of a plain white card. */
+body.theme-paper .ov-reminder {
+  background: var(--indigo-600);
+  border: none;
+}
+body.theme-paper .ov-reminder h3 {
+  color: var(--text);
+}
+body.theme-paper .ov-reminder-title {
+  color: var(--text);
+}
+body.theme-paper .ov-reminder-date {
+  color: rgba(20, 38, 30, 0.65);
+}
+body.theme-paper .ov-reminder .empty p {
+  color: rgba(20, 38, 30, 0.65);
+}
+body.theme-paper .ov-reminder-btn {
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--indigo-700);
+  border-radius: 999px;
+  border: none;
+}
+body.theme-paper .ov-reminder-btn:hover {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+/* Task icon bubbles pick up a soft accent tint instead of the plain
+   default background, matching the reference's colored list-row icons. */
+body.theme-paper .ov-task-ic {
+  background: var(--indigo-50);
+  color: var(--indigo-600);
+}
+
+/* Legend under the Monitoring Format / Type of Work donuts — a dot, label
+   and count per segment, so the chart reads on its own instead of only
+   through the separate tile list beside it. */
+body.theme-paper .ov-donut-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 150px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 130px;
+  overflow-y: auto;
+}
+body.theme-paper .ov-donut-legend-list li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+body.theme-paper .ov-donut-legend-list li span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body.theme-paper .ov-donut-legend-list b {
+  font-weight: 700;
+  color: var(--text);
+}
+body.theme-paper .ov-donut-legend-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+/* Task Progress: a stacked completed/pending bar alongside the donut —
+   the same number told a second way, as a bar-chart infographic. */
+body.theme-paper .ov-progress-bar {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  margin-top: 14px;
+  background: var(--indigo-50);
+  overflow: hidden;
+}
+body.theme-paper .ov-progress-bar::after {
+  content: '';
+  display: block;
+  height: 100%;
+  width: var(--done-pct, 0%);
+  border-radius: 999px;
+  background: var(--indigo-600);
+  transition: width 0.4s var(--ease);
+}
+
+/* Monitoring Format / Type of Work tile rows get a real bar-chart under each
+   row (track + fill sized to the tile's own share of the total, via the
+   --tile-pct variable set inline per tile) instead of just a number — turns
+   the plain list into an actual infographic in this flat theme. */
+body.theme-paper .ov-mf-tile,
+body.theme-paper .ov-wt-tile {
+  padding-bottom: 20px;
+}
+body.theme-paper .ov-mf-tile::after,
+body.theme-paper .ov-wt-tile::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 10px;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--tile-color) 0 var(--tile-pct, 0%),
+    var(--border) var(--tile-pct, 0%) 100%
+  );
+}
+
+/* Cement & Steel promo becomes the reference's dark "Time Tracker" tile —
+   near-black instead of an accent color, so it reads as the deck's one
+   deliberately different, attention-grabbing tile. */
+body.theme-paper .ov-promo {
+  background: var(--indigo-700);
+  border: none;
+}
+body.theme-paper .ov-promo-title,
+body.theme-paper .ov-promo-head {
+  color: #fff;
+}
+body.theme-paper .ov-promo-sub {
+  color: rgba(255, 255, 255, 0.7);
+}
+body.theme-paper .ov-promo-btn {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+body.theme-paper button.ov-promo:hover:not(:disabled) {
+  background: #0b1a14;
+}
+body.theme-paper .ov-promo-badge {
+  background: var(--indigo-500);
+  color: #fff;
 }

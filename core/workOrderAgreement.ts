@@ -600,15 +600,16 @@ export function civilTenderPlaceholders(
     'Corp Full': f.corporationFullName,
     'Corp Full Caps': (f.corporationFullName ?? '').toUpperCase(),
     'Name of the work': f.nameOfWork,
-    'Estimate Amount': estLakhs != null ? groupedRupees(estLakhs * 100000) : '',
+    // Template already prints "Rs." itself before each of these four — no prefix here.
+    'Estimate Amount': estLakhs != null ? groupedAmount(estLakhs * 100000) : '',
     // Page-1 forwarding slip answers "Are the rates … within the Estimate
     // rates …?" — same wording as the standalone Forwarding Slip.
     'Tender Percentage':
       pct == null ? '' : pct === 0 ? '0%, within the estimate rates' : `(-) ${formatPercent(pct)}% Less, within the estimate rates`,
     Contractor: contractor,
-    'Contract Amount': contract != null ? groupedRupees(contract) : '',
-    ECV: ecv != null ? groupedRupees(ecv) : '',
-    EMD: ecv != null ? groupedRupees(Math.round(ecv * 0.01)) : '',
+    'Contract Amount': contract != null ? groupedAmount(contract) : '',
+    ECV: ecv != null ? groupedAmount(ecv) : '',
+    EMD: ecv != null ? groupedAmount(Math.round(ecv * 0.01)) : '',
     'NIT No': pdf.noticeNo ?? '',
     Period: f.completionMonths.trim(),
     // Bid document downloading start/end; receipt of bids = closing.
