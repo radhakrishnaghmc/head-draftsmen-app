@@ -50,8 +50,19 @@ export function isNameContinuation(line: string): boolean {
   )
 }
 
-/** The price-bid table's numeric row core: "<ECV> <Less|Excess> <pct> <amount> L-<rank>" — every field the row itself carries, in one anchor both priceBidRow.ts (L-1 only) and agencyNames.ts (every rank) match against. */
-export const PRICE_ROW = /([\d,]+\.\d{2})\s+(Less|Excess)\s+([\d.]+)\s+([\d,]+\.\d{2})\s+L-?\s*(\d+)\b/i
+/** The price-bid table's numeric row core: "<ECV> <Less|Excess> <pct> <amount> L-<rank>" — every field the row itself carries, in one anchor both priceBidRow.ts (L-1 only) and agencyNames.ts (every rank) match against.
+ * The gap before "L-" is `\s*` (not `\s+`) and there's no trailing `\b`:
+ * a rasterized/no-text-layer L1 sheet (see pdfToTextLinesOrOcr) goes through
+ * OCR instead of pdf.js's text layer, and the OCR recognizer doesn't
+ * reliably keep the space between the Amount and Rank/Select cells — a real
+ * sample row came back "246858.75L-1S Selected" (glued to "L-1", plus a
+ * stray recognized letter right after the rank digit). The old `\s+…\b`
+ * required both a real space before "L-" and a non-word character right
+ * after the rank digit, so it silently failed to match that row at all —
+ * Contract Amount and Tender Percentage (both read off this same matched
+ * row) came back blank even though the ECV/agency-name text around it OCR'd
+ * fine. `\d+` is greedy already, so it doesn't need `\b` to stop cleanly. */
+export const PRICE_ROW = /([\d,]+\.\d{2})\s+(Less|Excess)\s+([\d.]+)\s+([\d,]+\.\d{2})\s*L-?\s*(\d+)/i
 
 /** A page's text lines joined into one string with runs of whitespace
  * collapsed — the shape most detectors below scan for a value that a

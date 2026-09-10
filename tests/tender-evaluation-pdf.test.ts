@@ -469,3 +469,34 @@ describe('parseAllBidders', () => {
     expect(r[0].name).toBe('Kummary Renuka Devi Civil Contractor')
   })
 })
+
+describe('Contract Amount / Tender Percentage from an OCR-read (rasterized, no text layer) L1 sheet', () => {
+  // A "Stage Selected Form" saved as a rasterized PDF has no selectable text
+  // (see pdfToTextLinesOrOcr), so it goes through OCR instead of pdf.js's
+  // text layer — a real OCR pass on one such sheet came back with the
+  // Amount/Rank/Select cells glued together with no space, plus a stray
+  // misrecognized letter right after the rank digit: "...246858.75L-1S
+  // Selected". The old PRICE_ROW regex required a real space before "L-"
+  // and a word boundary right after the rank digit, so it silently failed
+  // to match this row at all — Contract Amount and Tender Percentage (both
+  // read off the same matched row) came back blank in the Agreement tab
+  // even though the ECV/name text around it OCR'd fine.
+  const OCR_LINES = [
+    'Enquiry/IFB/Tender NIT No. 19/EE-59/QBZ/CMC/2026-27, Dt.27-',
+    'Tender ID722274',
+    'Notice Number 07-2026 (Item 5)',
+    'Name of Work Providing of Street lights',
+    'Tender Type eOPEN-NCB Estimated Contract Value 329145.00',
+    'Price Bid Details',
+    'Company Name Estimated Contract Value Excess/Less Percentage(%) Amount  Rank  Select',
+    'gmastanreddy 329145.00 Less 25 246858.75L-1S Selected',
+    'Vaidehi Enterprises 329145.00 Less 16.27 275593.11 L- 2'
+  ]
+
+  it('still reads the L-1 Contract Amount and Tender Percentage when the Amount/Rank/Select cells are glued together', () => {
+    const r = parseTenderEvaluation(OCR_LINES)
+    expect(r.tenderPercentage).toBe(25)
+    expect(r.contractRupees).toBe(246858.75)
+    expect(r.l1AgencyName).toBe('gmastanreddy')
+  })
+})
