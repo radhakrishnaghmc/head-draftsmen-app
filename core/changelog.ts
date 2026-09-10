@@ -16,6 +16,12 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.33.0',
+    changes: [
+      'Fixed Contract Amount and Tender Percentage sometimes not filling in on the Agreement tab after uploading an L-1 selection sheet saved as an image-only PDF.'
+    ]
+  },
+  {
     version: '1.32.0',
     changes: [
       'Excel-based estimates/BOQs now skip rows that are hidden in the sheet, instead of counting them as blank rows.',
