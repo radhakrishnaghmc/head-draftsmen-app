@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { RefObject } from 'react'
 import { renderAsync } from '../lazyDocxPreview'
+import { api } from '../ipc'
+import { FONT_SUBSTITUTES, buildFontFallbackCss } from '@core/fontFallbacks'
 
 // A4 at 96dpi (this app is for a Telangana government department — A4, not
 // US Letter) with a 1-inch margin all round, matching Word's default page
@@ -98,6 +100,44 @@ export function normalizeDocxTextboxes(container: HTMLElement): void {
   })
 }
 
+// Fetched once (main process reads the bundled Carlito files off disk) and
+// reused for every render — see core/fontFallbacks.ts for why this exists.
+// A failure here (e.g. an old build missing the bundled files) shouldn't
+// break the preview itself, so it just falls back to no substitute CSS.
+let fontFallbackCssPromise: Promise<string> | undefined
+function getFontFallbackCss(): Promise<string> {
+  if (!fontFallbackCssPromise) {
+    fontFallbackCssPromise = api
+      .fontFallbackFiles()
+      .then(buildFontFallbackCss)
+      .catch(() => '')
+  }
+  return fontFallbackCssPromise
+}
+
+/**
+ * Appends the metric-compatible substitute (see FONT_SUBSTITUTES) after each
+ * matching inline font-family docx-preview wrote, and injects the @font-face
+ * CSS that defines it — so the substitute is only ever used when the real
+ * font (still listed first) isn't installed on the viewing machine. Preview-
+ * only: the exported .docx itself never goes through this.
+ */
+async function addFontFallbacks(container: HTMLElement): Promise<void> {
+  container.querySelectorAll<HTMLElement>('[style*="font-family"]').forEach((el) => {
+    const primary = el.style.fontFamily.split(',')[0]?.trim().replace(/^['"]|['"]$/g, '')
+    const substitute = primary && FONT_SUBSTITUTES[primary.toLowerCase()]
+    if (substitute && !el.style.fontFamily.toLowerCase().includes(substitute.toLowerCase())) {
+      el.style.fontFamily = `${el.style.fontFamily}, ${substitute}, sans-serif`
+    }
+  })
+  const css = await getFontFallbackCss()
+  if (!css) return
+  const style = document.createElement('style')
+  style.setAttribute('data-font-fallbacks', '')
+  style.textContent = css
+  container.insertBefore(style, container.firstChild)
+}
+
 /**
  * Renders a filled .docx as an HTML preview via docx-preview's `renderAsync`
  * (see normalizeDocxTextboxes above for its text-box gap). `accurate` is
@@ -114,6 +154,7 @@ export async function renderDocPreview(
   container.innerHTML = ''
   await renderAsync(docxBytes, container, undefined, DOCX_PREVIEW_OPTIONS)
   normalizeDocxTextboxes(container)
+  await addFontFallbacks(container)
   return { pageCount: container.querySelectorAll('section.docx').length, accurate: false }
 }
 

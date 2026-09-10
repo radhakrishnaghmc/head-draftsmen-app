@@ -28,7 +28,7 @@ import { CEMENT_STEEL_MONTHS, cementSteelRatePeriodKey } from '@core/cementSteel
 import { resolveFromDirectory, entriesOf, corporationByName, CORPORATIONS } from '../zoneCircleDirectory'
 import { officeScopedKey, TEMPLATE_KEYS, type Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
-import { pdfToTextLines, pdfToPositionedLines } from '../pdfToText'
+import { pdfToTextLinesOrOcr, pdfToPositionedLines } from '../pdfToText'
 import { pdfPagesToDataUrls, pdfPagesToDataUrlsFromData } from '../pdfToImages'
 import { base64ToUint8, PAGE_WIDTH, renderDocPreview, DOCX_PREVIEW_OPTIONS, normalizeDocxTextboxes } from './docPage'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell, IconCheck } from './Icons'
@@ -476,7 +476,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   const [worksRowMatched, setWorksRowMatched] = useState<boolean | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
 
-  const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf' | 'bundle'>(null)
+  const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf' | 'bundle' | 'notice' | 'nonresp'>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
   // Which format "Download all documents" saves every document as. Defaults
@@ -535,6 +535,15 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   // Before either upload, stay blank too — SE mode shows its document catalog
   // pre-upload (see seDocsReady) and must not show row 0's unrelated work.
   const detailsRow = !notice || !pdfEval ? EMPTY_ROW : worksRowMatched === false ? EMPTY_ROW : (selectedRow ?? EMPTY_ROW)
+
+  // A previously-uploaded Online Intimation left over in state from a
+  // different work must never lend its agency name/address to this L-1's
+  // letter (or get written back into this row's Works List entry) just
+  // because both happen to be in memory together — only use it once it's
+  // confirmed to describe the same work as the uploaded L-1.
+  const workMatch = useMemo(() => (notice && pdfEval ? checkSameWork(notice, pdfEval) : null), [notice, pdfEval])
+  const workMismatch = workMatch?.status === 'mismatch'
+  const effectiveNotice = workMismatch ? null : notice
 
   // A reserved (SC/ST) work uses the LOA variant that omits the EMD balance item.
   const seReserved = seMode && isReservedWork(detailsRow, pdfEval ?? {})
@@ -601,27 +610,30 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       const next: Record<string, string> = {}
       for (const label of labels)
         next[label] = seMode
-          ? resolveLoaValue(label, notice ?? {}, pdfEval ?? {}, detailsRow, office, manual)
-          : resolveIntimationValue(label, notice ?? {}, pdfEval ?? {}, detailsRow, intimationOffice)
+          ? resolveLoaValue(label, effectiveNotice ?? {}, pdfEval ?? {}, detailsRow, office, manual)
+          : resolveIntimationValue(label, effectiveNotice ?? {}, pdfEval ?? {}, detailsRow, intimationOffice)
       return next
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [labels, rowIndex, notice, pdfEval, table, seMode, office, intimationOffice, manual, worksRowMatched])
+  }, [labels, rowIndex, effectiveNotice, pdfEval, table, seMode, office, intimationOffice, manual, worksRowMatched])
 
   // The Online Intimation can be uploaded as either the portal "View Intimation
   // Notice" .html page or the printed Intimation / LOA .pdf — both carry the
   // agency, address, NIT No, ECV and contract value, so parse by file type.
   async function handleNoticeFile(file: File) {
     setActionError(null)
+    setBusy('notice')
     try {
       const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
       const parsed = isPdf
-        ? parseIntimationNoticeText(await pdfToTextLines(file))
+        ? parseIntimationNoticeText(await pdfToTextLinesOrOcr(file))
         : parseIntimationNotice(await file.text())
       setNotice(parsed)
       setNoticeName(file.name)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -632,7 +644,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     setActionError(null)
     setPdfStatus(null)
     try {
-      const lines = await pdfToTextLines(file)
+      const lines = await pdfToTextLinesOrOcr(file)
       const ev = parseTenderEvaluation(lines)
       if (!ev.nameOfWork && !ev.tenderId) {
         throw new Error("Couldn't read tender details from that PDF — is it the Commercial Evaluation / Stage Selected page?")
@@ -658,6 +670,10 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
             embeddings = undefined
           }
         }
+        // A leftover Online Intimation from a different work must not lend its
+        // agency name/address into this row — only pass it through once it's
+        // confirmed to describe the same work as the just-uploaded L1.
+        const noticeForRow = notice && checkSameWork(notice, ev).status !== 'mismatch' ? notice : undefined
         // Finds the row so its supporting details fill the letter and select
         // it (an embedding/wording-drift match has no exact name to
         // re-derive from, so without this the selection would stay on row 0
@@ -671,7 +687,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
           table,
           [ev],
           embeddings,
-          notice ?? undefined
+          noticeForRow
         )
         if (matchedCount > 0) {
           const idx = matchedRowIndices[0]
@@ -697,10 +713,6 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     return api.fillPlaceholdersInDocument(templateB64, resolved, values)
   }
 
-  // Guard: the Online Intimation and the L1 selection form must describe the
-  // same work (matched by NIT No, or agency name when the NIT No is absent).
-  const workMatch = useMemo(() => (notice && pdfEval ? checkSameWork(notice, pdfEval) : null), [notice, pdfEval])
-  const workMismatch = workMatch?.status === 'mismatch'
   // The uploaded L1 form's work matched no Works List row. The letter takes its
   // name of work (and amounts, agency) from the uploads themselves — not the row
   // — so a no-match never blocks the letter; the Works List is only used to fill
@@ -759,16 +771,16 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
 
   const bidEvalData: BidEvaluationData = useMemo(
     () => ({
-      ...seRefsFor(pdfEval ?? {}, notice ?? {}, detailsRow, office, manual),
+      ...seRefsFor(pdfEval ?? {}, effectiveNotice ?? {}, detailsRow, office, manual),
       bidders: allBidders,
       nonRespCount
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pdfEval, notice, detailsRow, office, manual, allBidders, nonRespCount]
+    [pdfEval, effectiveNotice, detailsRow, office, manual, allBidders, nonRespCount]
   )
   const agencyApprovalData: AgencyApprovalData = useMemo(
     () => ({
-      ...seRefsFor(pdfEval ?? {}, notice ?? {}, detailsRow, office, manual),
+      ...seRefsFor(pdfEval ?? {}, effectiveNotice ?? {}, detailsRow, office, manual),
       zone: office.zone ?? '',
       // The L-1 sheet's own Server Time is also when the Technical Bid
       // evaluation was approved (same sitting), same fallback as techBidOpenDate.
@@ -776,7 +788,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       bidders: allBidders
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pdfEval, notice, detailsRow, office, manual, allBidders]
+    [pdfEval, effectiveNotice, detailsRow, office, manual, allBidders]
   )
 
   async function fillSeDoc(kind: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval'): Promise<string> {
@@ -1099,6 +1111,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   // Submitted flow uses (see WorkOrderAgreementTab's handleNonRespFile).
   async function handleNonRespFile(file: File) {
     setActionError(null)
+    setBusy('nonresp')
     try {
       const lines = await pdfToPositionedLines(file)
       const { count } = summarizeNonResponsiveness(lines)
@@ -1106,6 +1119,8 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       setNonRespFileName(file.name)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -1386,8 +1401,12 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
           </div>
         )}
         <div className="boq-actions boq-actions--grid">
-          <button className="primary upload-btn" onClick={() => noticeInputRef.current?.click()} disabled={!templateB64}>
-            <IconFolder /> {notice ? 'Change Online Intimation' : 'Upload Online Intimation'}
+          <button
+            className="primary upload-btn"
+            onClick={() => noticeInputRef.current?.click()}
+            disabled={!templateB64 || busy === 'notice'}
+          >
+            <IconFolder /> {busy === 'notice' ? 'Reading…' : notice ? 'Change Online Intimation' : 'Upload Online Intimation'}
           </button>
           <button
             className="primary upload-btn"
@@ -1407,8 +1426,12 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
             </button>
           )}
           {seMode && (
-            <button className="primary upload-btn" onClick={() => nonRespInputRef.current?.click()} disabled={!pdfEval}>
-              <IconFolder /> {nonRespFileName ? 'Change Non-responsive form' : 'Upload Non-responsive form'}
+            <button
+              className="primary upload-btn"
+              onClick={() => nonRespInputRef.current?.click()}
+              disabled={!pdfEval || busy === 'nonresp'}
+            >
+              <IconFolder /> {busy === 'nonresp' ? 'Reading…' : nonRespFileName ? 'Change Non-responsive form' : 'Upload Non-responsive form'}
             </button>
           )}
           <input

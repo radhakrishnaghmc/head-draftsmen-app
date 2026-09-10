@@ -191,19 +191,24 @@ describe('sanitizeDocxForWord2007', () => {
     expect(fixedDoc).toContain('<w:szCs w:val="20"/>')
   })
 
-  it('strips embedded fonts from the logo-header template variants — Word 2007 predates font embedding entirely', () => {
+  it('no longer embeds a font in the logo-header template variants — the Telugu caption uses the Windows-native Gautami font instead', () => {
     // Real bug, found live: downloaded documents from the new logo-header
     // template variants (Nizampet Circle-58's own letterhead) errored out in
-    // older Word. Unlike every fix above, this isn't a bidi/schema-order/
+    // older Word. Unlike every fix above, this wasn't a bidi/schema-order/
     // typo issue — real Word 2013+ saved these templates with "Embed fonts
     // in the file" on, to carry "Noto Sans Telugu" for the Telugu caption
-    // under the state emblem. That bakes a <w:embedRegular> ref into
+    // under the state emblem. That baked a <w:embedRegular> ref into
     // word/fontTable.xml, a relationship in its .rels, and a word/fonts/*
     // .fntdata part — all of which are OOXML's font-embedding extension,
-    // which Word 2007's schema has never heard of, so it refuses to open
-    // the package at all. Word substitutes a fallback font for a declared
-    // name it can't find either way, so dropping the embedding is lossless
-    // in practice for this app's use.
+    // which Word 2007's schema has never heard of, so it refused to open
+    // the package at all. Stripping the embedding at export time (below)
+    // avoided that failure, but Word still had to substitute SOME fallback
+    // for the undeclared "Noto Sans Telugu" name, and that substitution
+    // mis-shaped the Telugu glyphs instead of rendering them properly. The
+    // real fix is at the source: these templates' Telugu runs now declare
+    // `w:cs="Gautami"` directly — the same Windows-bundled complex-script
+    // font the (already Word-2007-clean) civil-tender-template.docx uses —
+    // so there's no embedding to strip and no substitution to mis-shape.
     for (const name of [
       'work-order-template-header2.docx',
       'civil-tender-template-header2.docx',
@@ -211,17 +216,62 @@ describe('sanitizeDocxForWord2007', () => {
       'intimation-template-2.docx'
     ]) {
       const buf = readFileSync(resolve(__dirname, '../resources', name))
-      const zipBefore = new PizZip(buf)
-      const fontParts = Object.keys(zipBefore.files).filter((f) => /^word\/fonts\//.test(f))
-      expect(fontParts.length, `${name} should carry an embedded font`).toBeGreaterThan(0)
-      expect(part(buf, 'word/fontTable.xml')).toMatch(/<w:embedRegular\b/)
+      const zip = new PizZip(buf)
+      const fontParts = Object.keys(zip.files).filter((f) => /^word\/fonts\//.test(f))
+      expect(fontParts.length, `${name} should carry no embedded font`).toBe(0)
+      expect(part(buf, 'word/fontTable.xml')).not.toMatch(/<w:embed(Regular|Bold|Italic)\b/)
+      expect(part(buf, 'word/settings.xml')).not.toContain('embedTrueTypeFonts')
 
-      const out = sanitizeDocxForWord2007(buf)
-      const zipAfter = new PizZip(out)
-      for (const f of fontParts) expect(zipAfter.file(f), `${f} should be removed`).toBeNull()
-      expect(part(out, 'word/fontTable.xml')).not.toMatch(/<w:embed(Regular|Bold|Italic)\b/)
-      expect(part(out, 'word/settings.xml')).not.toContain('embedTrueTypeFonts')
+      const doc = part(buf, 'word/document.xml')
+      expect(doc, `${name} should not reference "Noto Sans Telugu" anymore`).not.toContain('Noto Sans Telugu')
+      expect(doc, `${name}'s Telugu caption should use Gautami`).toContain('<w:rFonts w:cs="Gautami"/>')
+
+      // The font-stripping step of sanitizeDocxForWord2007 must be a no-op on
+      // these now-clean templates (some of them still pick up unrelated
+      // bidi/child-order fixes elsewhere in the same pass, so this only
+      // checks the font-related parts, not the whole buffer).
+      const sanitized = sanitizeDocxForWord2007(buf)
+      expect(part(sanitized, 'word/fontTable.xml')).toBe(part(buf, 'word/fontTable.xml'))
+      expect(part(sanitized, 'word/settings.xml')).toBe(part(buf, 'word/settings.xml'))
+      expect(Object.keys(new PizZip(sanitized).files).some((f) => /^word\/fonts\//.test(f))).toBe(false)
     }
+  })
+
+  it('stripEmbeddedFonts (via sanitizeDocxForWord2007) still strips a genuinely embedded font, should one reappear in a future re-export', () => {
+    // Regression guard for the fix above: builds a minimal but structurally
+    // real font-embedding package (fontTable.xml + its .rels + a .fntdata
+    // part + the settings.xml flag + the [Content_Types].xml Default) by
+    // hand, so the stripping logic itself stays covered even now that none
+    // of the bundled templates trigger it.
+    const zip = new PizZip()
+    zip.file(
+      '[Content_Types].xml',
+      '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+        '<Default Extension="fntdata" ContentType="application/x-fontdata"/></Types>'
+    )
+    zip.file(
+      'word/fontTable.xml',
+      '<?xml version="1.0"?><w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+        '<w:font w:name="Noto Sans Telugu"><w:embedRegular r:id="rId1" w:fontKey="{00000000-0000-0000-0000-000000000000}"/></w:font></w:fonts>'
+    )
+    zip.file(
+      'word/_rels/fontTable.xml.rels',
+      '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/font" Target="fonts/font1.fntdata"/></Relationships>'
+    )
+    zip.file('word/fonts/font1.fntdata', 'not-real-font-bytes')
+    zip.file(
+      'word/settings.xml',
+      '<?xml version="1.0"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:embedTrueTypeFonts/></w:settings>'
+    )
+    const buf = zip.generate({ type: 'nodebuffer' })
+
+    const out = sanitizeDocxForWord2007(buf)
+    const zipAfter = new PizZip(out)
+    expect(zipAfter.file('word/fonts/font1.fntdata'), 'font1.fntdata should be removed').toBeNull()
+    expect(part(out, 'word/fontTable.xml')).not.toMatch(/<w:embed(Regular|Bold|Italic)\b/)
+    expect(part(out, 'word/settings.xml')).not.toContain('embedTrueTypeFonts')
+    expect(part(out, '[Content_Types].xml')).not.toMatch(/Extension="fntdata"/)
   })
 })
 

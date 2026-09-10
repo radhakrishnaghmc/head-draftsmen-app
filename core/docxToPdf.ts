@@ -4,8 +4,69 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { PDFDocument } from 'pdf-lib'
+import PizZip from 'pizzip'
 
 const execFileAsync = promisify(execFile)
+
+/**
+ * The header2 letterhead templates (and a couple of others) declare their
+ * Telugu-script caption run as "Gautami" (see word2007Compat.ts's doc
+ * comment on stripEmbeddedFonts for why: a prior fix dropped the embedded
+ * Noto Sans Telugu font in favor of naming a Windows-native complex-script
+ * font, since Word 2007 can't open a document with the newer OOXML
+ * font-embedding elements). Real Word on a government office's Windows PC
+ * has Gautami built in and renders it fine.
+ *
+ * LibreOffice, though, doesn't ship Gautami and its own font-substitution
+ * logic doesn't pick a complex-script-capable stand-in for it — it reaches
+ * for "Arial Unicode MS" first, which has Telugu code points mapped to
+ * glyphs but no OpenType shaping rules for them, so conjuncts/matras render
+ * in the wrong shapes and positions (confirmed by rendering the exact same
+ * template through LibreOffice with and without this substitution, side by
+ * side: "Gautami" comes out visibly garbled, "Noto Sans Telugu" doesn't).
+ * This bites every LibreOffice-based PDF export (this file's whole reason
+ * to exist), regardless of which OS it runs on.
+ *
+ * The fix: rename just the font declaration, only in the buffer handed to
+ * `soffice` for conversion — never the .docx the user actually keeps, which
+ * must stay declaring Gautami for Word. No font needs bundling for this:
+ * LibreOffice ships Noto Sans Telugu inside its own app bundle on every
+ * platform (Mac/Windows/Linux all include it under its install dir's own
+ * `fonts` folder), so it's always available to `soffice` even on a machine
+ * with no Telugu font installed at the OS level.
+ */
+const PDF_FONT_SUBSTITUTES: Record<string, string> = {
+  Gautami: 'Noto Sans Telugu'
+}
+
+const FONT_ATTR_NAMES = ['ascii', 'hAnsi', 'cs', 'eastAsia']
+
+/** Exported for testing — see PDF_FONT_SUBSTITUTES above for why this exists. */
+export function substituteFontsForLibreOffice(docxBuffer: Buffer): Buffer {
+  const zip = new PizZip(docxBuffer)
+  const partNames = Object.keys(zip.files).filter(
+    (name) => name === 'word/document.xml' || name === 'word/styles.xml' || /^word\/(header|footer)\d*\.xml$/.test(name)
+  )
+  let anyChange = false
+  for (const name of partNames) {
+    const file = zip.file(name)
+    if (!file) continue
+    let xml = file.asText()
+    let fileChanged = false
+    for (const [from, to] of Object.entries(PDF_FONT_SUBSTITUTES)) {
+      const re = new RegExp(`(w:(?:${FONT_ATTR_NAMES.join('|')})=")${from}(")`, 'g')
+      if (re.test(xml)) {
+        xml = xml.replace(re, `$1${to}$2`)
+        fileChanged = true
+      }
+    }
+    if (fileChanged) {
+      zip.file(name, xml)
+      anyChange = true
+    }
+  }
+  return anyChange ? Buffer.from(zip.generate({ type: 'nodebuffer' })) : docxBuffer
+}
 
 const SOFFICE_CANDIDATES: Partial<Record<NodeJS.Platform, string[]>> = {
   darwin: ['/Applications/LibreOffice.app/Contents/MacOS/soffice'],
@@ -54,7 +115,11 @@ async function sofficeConvert(
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docugen-convert-'))
   try {
     const inputPath = path.join(dir, `source.${inExt}`)
-    fs.writeFileSync(inputPath, input)
+    // Only the temp file soffice actually reads gets the font rename (see
+    // substituteFontsForLibreOffice above) — `input` itself is left alone,
+    // so a caller that also writes the same buffer out as a .docx (e.g. the
+    // "Download all" bundle) still gets the Word-2007-safe Gautami original.
+    fs.writeFileSync(inputPath, inExt === 'docx' ? substituteFontsForLibreOffice(input) : input)
     await execFileAsync(soffice, ['--headless', '--convert-to', convertTo, '--outdir', dir, inputPath], {
       timeout: 60000
     })

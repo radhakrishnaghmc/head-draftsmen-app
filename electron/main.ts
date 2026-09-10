@@ -1274,6 +1274,16 @@ function registerHandlers(): void {
       fs.rm(file, { force: true }, () => {})
     })
     await win.loadFile(file)
+    // loadFile only waits for the DOM to parse (did-finish-load) — it does
+    // not wait for the @font-face Carlito fallback (declared as a `data:`
+    // URI in a <style> tag inside the printed HTML, see addFontFallbacks in
+    // docPage.ts) to actually finish decoding and get applied. Printing
+    // immediately after loadFile could snapshot the page mid-FOUT, still
+    // laid out with the browser's wider default sans substitute for
+    // "Calibri" — which is exactly what wraps the corp-title letterhead to
+    // two lines in the print output even though the on-screen preview (open
+    // long enough for the font swap to already have happened) looks fine.
+    await win.webContents.executeJavaScript('document.fonts.ready.then(() => undefined)').catch(() => {})
     win.show()
     win.focus()
     // Deliberately not closing the window from the print() callback: on
@@ -1307,6 +1317,16 @@ function registerHandlers(): void {
         return false
       }
     })
+
+  ipcMain.handle(IPC.fontFallbackFiles, async (): Promise<{ regular: string; bold: string }> => {
+    const regularPath = bundledResourceFile('fonts/Carlito-Regular.ttf')
+    const boldPath = bundledResourceFile('fonts/Carlito-Bold.ttf')
+    if (!regularPath || !boldPath) throw new Error('Font fallback files are missing from the app bundle.')
+    return {
+      regular: fs.readFileSync(regularPath).toString('base64'),
+      bold: fs.readFileSync(boldPath).toString('base64')
+    }
+  })
 
   ipcMain.handle(IPC.intimationTemplate, async (_e, variantId?: string): Promise<string> => {
     const templatePath = bundledResourceFile(intimationTemplateFileName(variantId))

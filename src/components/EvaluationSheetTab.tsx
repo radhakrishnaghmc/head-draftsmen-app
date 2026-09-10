@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { api } from '../ipc'
-import { pdfToTextLines } from '../pdfToText'
+import { pdfToTextLinesOrOcr } from '../pdfToText'
 import { parseTenderEvaluation } from '@core/tenderEvaluationPdf'
 import { parseParticipatingBidders } from '@core/viewBiddersPdf'
 import type { EvaluationSheetInput } from '@core/evaluationSheet'
@@ -74,7 +74,7 @@ export default function EvaluationSheetTab({ office }: Props) {
       for (const file of files) {
         const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
         try {
-          const lines = isPdf ? await pdfToTextLines(file) : await api.ocrPhotosToLines([await readAsDataUrl(file)])
+          const lines = isPdf ? await pdfToTextLinesOrOcr(file) : await api.ocrPhotosToLines([await readAsDataUrl(file)])
           const ev = parseTenderEvaluation(lines)
           const list = parseParticipatingBidders(lines)
           const entry: SheetEntry = {

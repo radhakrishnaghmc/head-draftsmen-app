@@ -166,6 +166,7 @@ export const IPC = {
   verifyDocuments: 'doc:verifyDocuments',
   exportCreatedDocument: 'doc:exportCreatedDocument',
   printCreatedDocument: 'doc:printCreatedDocument',
+  fontFallbackFiles: 'doc:fontFallbackFiles',
   noteSubmittedDocx: 'doc:noteSubmittedDocx',
   intimationTemplate: 'doc:intimationTemplate',
   workOrderTemplate: 'doc:workOrderTemplate',
@@ -389,6 +390,8 @@ export interface DocuGenApi {
   ): Promise<{ file: string; format: 'docx' | 'pdf' }[] | null>
   /** Open the OS print dialog directly against the already-rendered document HTML (docx-preview's own output, captured by the caller). */
   printCreatedDocument(renderedHtml: string): Promise<void>
+  /** Reads the bundled Carlito (Regular + Bold) font files, base64-encoded — the metric-compatible open substitute for "Calibri", embedded as a fallback @font-face in the docx-preview HTML (see core/fontFallbacks.ts) so letterhead titles don't mis-wrap on machines without Calibri installed. Fetched once and cached by the caller. */
+  fontFallbackFiles(): Promise<{ regular: string; bold: string }>
   /** Converts built Note Submitted HTML into a base64 .docx, for export via exportCreatedDocument. */
   noteSubmittedDocx(html: string): Promise<string>
   /** Reads the bundled Intimation format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */

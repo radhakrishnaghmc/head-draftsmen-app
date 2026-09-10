@@ -22,6 +22,25 @@ export async function pdfToTextLinesFromData(data: ArrayBuffer | Uint8Array): Pr
 }
 
 /**
+ * Like pdfToTextLines, but falls back to OCR when the PDF carries no
+ * selectable text layer at all — e.g. an eGP portal "Stage Selected Form" /
+ * L1 sheet saved via Microsoft Print to PDF from a canvas-rendered popup,
+ * which rasterizes the whole page instead of keeping real text (pdf.js then
+ * returns zero text items rather than an error, so the difference has to be
+ * detected here, not caught as an exception). Renders each page to an image
+ * (see pdfToImages.ts) and OCRs it through the same pipeline photo uploads
+ * use — every L1 sheet / tender-evaluation upload should go through this
+ * instead of pdfToTextLines directly, so this PDF variant reads like any
+ * other.
+ */
+export async function pdfToTextLinesOrOcr(file: File): Promise<string[]> {
+  const lines = await pdfToTextLines(file)
+  if (lines.length > 0) return lines
+  const [{ pdfPagesToDataUrls }, { api }] = await Promise.all([import('./pdfToImages'), import('./ipc')])
+  return api.ocrPhotosToLines(await pdfPagesToDataUrls(file))
+}
+
+/**
  * Same reconstruction as pdfToTextLinesFromData, but keeping each page's
  * lines separate — lets a caller tell whether a *specific* page has a real
  * text layer (e.g. to decide OCR vs. direct extraction per page of a mixed

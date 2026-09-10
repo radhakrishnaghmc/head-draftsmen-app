@@ -22,6 +22,13 @@ function tightenCode(s: string): string {
     .replace(/\s*([/\-])\s*/g, '$1')
     .replace(/\s+/g, ' ')
     .trim()
+    // A NIT code is never followed by its own trailing comma — one lands here
+    // when the value regex's lazy capture has to swallow the comma before
+    // " Dt." itself (a bare \s* can't skip over a non-space character), e.g.
+    // an office whose code has neither "/DB/" nor "Circle-"/"C-" in it (real
+    // sample: "21/EE-59/QBZ/CMC/2026-27, Dt. 29-08-2026" — a Quthbullapur
+    // Zone "Stage Selected Form"), so neither cleanNit branch below strips it.
+    .replace(/,$/, '')
 }
 
 /**

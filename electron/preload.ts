@@ -114,6 +114,7 @@ const api: DocuGenApi = {
   exportCreatedDocument: (docxBase64, suggestedName, formats) =>
     ipcRenderer.invoke(IPC.exportCreatedDocument, docxBase64, suggestedName, formats),
   printCreatedDocument: (renderedHtml) => ipcRenderer.invoke(IPC.printCreatedDocument, renderedHtml),
+  fontFallbackFiles: () => ipcRenderer.invoke(IPC.fontFallbackFiles),
   noteSubmittedDocx: (html) => ipcRenderer.invoke(IPC.noteSubmittedDocx, html),
   intimationTemplate: (variantId) => ipcRenderer.invoke(IPC.intimationTemplate, variantId),
   workOrderTemplate: (variantId) => ipcRenderer.invoke(IPC.workOrderTemplate, variantId),

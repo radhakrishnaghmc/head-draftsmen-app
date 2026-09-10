@@ -45,7 +45,7 @@ import type { PlaceholderMatch } from '@core/createDocument'
 import type { ScheduleAMeta, AgreementBundleFile, VerifyDocItem } from '../../electron/ipc-contract'
 import { VerifyButton } from './VerifyButton'
 import type { ExcelTable } from '@core/types'
-import { pdfToTextLines, pdfToPositionedLines } from '../pdfToText'
+import { pdfToTextLinesOrOcr, pdfToPositionedLines } from '../pdfToText'
 import {
   base64ToUint8,
   PAGE_WIDTH,
@@ -399,9 +399,17 @@ export default function WorkOrderAgreementTab({
   // determined (no L1 uploaded, or no works to match against).
   const [worksRowMatched, setWorksRowMatched] = useState<boolean | null>(null)
 
+  // A previously-uploaded Online Intimation left over in state from a
+  // different work must never lend its agency name/address to this L-1's
+  // documents just because both happen to be in memory together — only use
+  // it once it's confirmed to describe the same work as the uploaded L-1.
+  const workMatch = useMemo(() => (notice && pdfEval ? checkSameWork(notice, pdfEval) : null), [notice, pdfEval])
+  const workMismatch = !standalone && workMatch?.status === 'mismatch'
+  const effectiveNotice = workMismatch ? null : notice
+
   // Which output's preview is expanded to the full-size modal, if any.
   const [expanded, setExpanded] = useState<Output | null>(null)
-  const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf' | 'bundle' | 'emdReceipt'>(null)
+  const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf' | 'bundle' | 'emdReceipt' | 'notice' | 'nonresp'>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
   // Which format "Download all documents" saves every document as (Schedule
@@ -521,7 +529,7 @@ export default function WorkOrderAgreementTab({
     () =>
       deriveFromUploads
         ? notice || pdfEval
-          ? standaloneRowFromSources(pdfEval ?? {}, notice ?? {})
+          ? standaloneRowFromSources(pdfEval ?? {}, effectiveNotice ?? {})
           : null
         : !notice && !pdfEval
           ? null // Neither uploaded yet — stay blank rather than leaking row 0's
@@ -537,7 +545,7 @@ export default function WorkOrderAgreementTab({
             : table && table.rows.length > 0
               ? table.rows[Math.min(rowIndex, table.rows.length - 1)]
               : null,
-    [deriveFromUploads, notice, pdfEval, worksRowMatched, table, rowIndex]
+    [deriveFromUploads, notice, effectiveNotice, pdfEval, worksRowMatched, table, rowIndex]
   )
 
   // Load both bundled formats once, and read their placeholders.
@@ -670,7 +678,7 @@ export default function WorkOrderAgreementTab({
         corporationFullName: corporationByName(corp)?.fullName ?? f.corporationFullName
       }
     }
-    const f = deriveFields(notice ?? {}, pdfEval ?? {}, selectedRow ?? {})
+    const f = deriveFields(effectiveNotice ?? {}, pdfEval ?? {}, selectedRow ?? {})
     // The user-entered agreement date fills both documents (kept identical). When
     // it's left unset, the date stays BLANK — the Work Order and Agreement print
     // a "Dt:" line with a ruled blank to hand-write (see DATE_BLANK), rather than
@@ -699,7 +707,7 @@ export default function WorkOrderAgreementTab({
   }, [
     manualMode,
     manual,
-    notice,
+    effectiveNotice,
     pdfEval,
     selectedRow,
     agreementDate,
@@ -778,11 +786,15 @@ export default function WorkOrderAgreementTab({
     // (WorksListL1Update) already does — an L1/Intimation uploaded here is
     // no less authoritative than one uploaded there, and previously updated
     // nothing here at all, so the two flows silently disagreed.
+    // A leftover Online Intimation from a different work must not lend its
+    // agency name/address into this row — only pass it through once it's
+    // confirmed to describe the same work as this L-1.
+    const noticeForRow = noticeVal && checkSameWork(noticeVal, ev).status !== 'mismatch' ? noticeVal : undefined
     const { table: updated, matchedCount, matchedRowIndices } = updateWorksListFromEvaluations(
       table,
       [ev],
       embeddings,
-      noticeVal ?? undefined
+      noticeForRow
     )
     if (matchedCount > 0) {
       const idx = matchedRowIndices[0]
@@ -802,10 +814,11 @@ export default function WorkOrderAgreementTab({
   // contract value, just in different formats, so parse by file type.
   async function handleNoticeFile(file: File) {
     setActionError(null)
+    setBusy('notice')
     try {
       const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
       const parsed = isPdf
-        ? parseIntimationNoticeText(await pdfToTextLines(file))
+        ? parseIntimationNoticeText(await pdfToTextLinesOrOcr(file))
         : parseIntimationNotice(await file.text())
       setNotice(parsed)
       setNoticeName(file.name)
@@ -814,6 +827,8 @@ export default function WorkOrderAgreementTab({
       if (pdfEval) await syncWorksListRow(pdfEval, parsed)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -827,7 +842,7 @@ export default function WorkOrderAgreementTab({
     setPdfStatus(null)
     setWorksRowMatched(null)
     try {
-      const lines = await pdfToTextLines(file)
+      const lines = await pdfToTextLinesOrOcr(file)
       const ev = parseTenderEvaluation(lines)
       if (!ev.nameOfWork && !ev.tenderId) {
         throw new Error("Couldn't read tender details from that PDF — is it the Commercial Evaluation / Stage Selected page?")
@@ -929,7 +944,7 @@ export default function WorkOrderAgreementTab({
     try {
       const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
       const lines = isPdf
-        ? await pdfToTextLines(file)
+        ? await pdfToTextLinesOrOcr(file)
         : await api.ocrPhotosToLines([await readAsDataUrl(file)])
       const r = parseBalanceEmdReceipt(lines)
       if (r.balanceEmdRupees == null && !r.receiptNo) {
@@ -1020,7 +1035,7 @@ export default function WorkOrderAgreementTab({
                     kind === 'zonalMemoEe' ||
                     kind === 'seAgreementNote' ||
                     kind === 'contractDeed'
-                  ? zonalDocsPlaceholders(f, notice ?? {}, pdfEval ?? {})
+                  ? zonalDocsPlaceholders(f, effectiveNotice ?? {}, pdfEval ?? {})
                   : civilTenderPlaceholders(f, pdfEval ?? {}, { pagesOfAgreement, scheduleAItems })
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
     return api.fillPlaceholdersInDocument(b64, resolved, values)
@@ -1050,17 +1065,6 @@ export default function WorkOrderAgreementTab({
     await renderAsync(base64ToUint8(filled), container, undefined, DOCX_PREVIEW_OPTIONS)
     normalizeDocxTextboxes(container)
   }
-
-  // Guard: the Online Intimation and the L1 selection form must describe the
-  // same work (matched by NIT No, or agency name when the NIT No is absent) —
-  // otherwise the documents would splice one work's agency onto another's
-  // tender.
-  const workMatch = useMemo(
-    () => (notice && pdfEval ? checkSameWork(notice, pdfEval) : null),
-    [notice, pdfEval]
-  )
-  // Tools mode does no same-work verification — it uses whatever was uploaded.
-  const workMismatch = !standalone && workMatch?.status === 'mismatch'
 
   // The uploaded L1 form's work matched no Works List row, so the selected row
   // (and everything the documents fill from it — name of work, Circle, CNO,
@@ -1353,7 +1357,7 @@ export default function WorkOrderAgreementTab({
     // similar-sounding work, so the row is only trusted for what the uploads
     // don't carry (Circle, Financial Year, estimate). Same precedence as
     // every other document in this workspace (see deriveFields).
-    const seed = noteSubmittedFromRow(selectedRow, pdfEval ?? {}, notice ?? {}, table?.rows[0]?.['Circle'] ?? '')
+    const seed = noteSubmittedFromRow(selectedRow, pdfEval ?? {}, effectiveNotice ?? {}, table?.rows[0]?.['Circle'] ?? '')
     if (allBidders.length > 0) {
       seed.bidders = allBidders
       const l1 = allBidders[0]
@@ -1376,7 +1380,7 @@ export default function WorkOrderAgreementTab({
     }
     setNoteData(seed)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowIndex, table, allBidders, pdfEval, notice, deriveFromUploads, selectedRow, emdReceiptInfo])
+  }, [rowIndex, table, allBidders, pdfEval, notice, effectiveNotice, deriveFromUploads, selectedRow, emdReceiptInfo])
 
   const notePreviewHtml = useMemo(() => (noteData ? buildNoteSubmittedHtml(noteData) : ''), [noteData])
   // Same gate as the Work Order / Agreement tiles: don't build the Note
@@ -1400,6 +1404,7 @@ export default function WorkOrderAgreementTab({
   // Optional non-responsiveness statement — pre-fills the note's rejection line.
   async function handleNonRespFile(file: File) {
     setActionError(null)
+    setBusy('nonresp')
     try {
       const lines = await pdfToPositionedLines(file)
       const { count, detail } = summarizeNonResponsiveness(lines)
@@ -1411,6 +1416,8 @@ export default function WorkOrderAgreementTab({
       )
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -1743,8 +1750,12 @@ export default function WorkOrderAgreementTab({
             </button>
           )}
           {!scheduleAOnly && !(only && manualMode) && (
-            <button className="primary upload-btn" onClick={() => noticeInputRef.current?.click()} disabled={!templatesReady}>
-              <IconFolder /> {notice ? 'Change Online Intimation' : 'Upload Online Intimation'}
+            <button
+              className="primary upload-btn"
+              onClick={() => noticeInputRef.current?.click()}
+              disabled={!templatesReady || busy === 'notice'}
+            >
+              <IconFolder /> {busy === 'notice' ? 'Reading…' : notice ? 'Change Online Intimation' : 'Upload Online Intimation'}
             </button>
           )}
           {!scheduleAOnly && !(only && manualMode) && (
@@ -1767,8 +1778,12 @@ export default function WorkOrderAgreementTab({
             </button>
           )}
           {!scheduleAOnly && !only && (
-            <button className="primary upload-btn" onClick={() => nonRespInputRef.current?.click()} disabled={!pdfEval}>
-              <IconFolder /> Upload Non-responsive form
+            <button
+              className="primary upload-btn"
+              onClick={() => nonRespInputRef.current?.click()}
+              disabled={!pdfEval || busy === 'nonresp'}
+            >
+              <IconFolder /> {busy === 'nonresp' ? 'Reading…' : 'Upload Non-responsive form'}
             </button>
           )}
           <input

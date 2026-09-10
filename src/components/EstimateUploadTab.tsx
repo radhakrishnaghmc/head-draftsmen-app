@@ -436,21 +436,12 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
       return
     }
 
-    // A workbook may keep extra estimates on hidden sheets. Only process those
-    // when the user opts in — otherwise generate for the visible sheet(s) only.
-    // (Skip the prompt when every sheet is hidden: there'd be nothing to fall
-    // back to, so just use them all.)
-    const hiddenGrids = grids.filter((g) => g.hidden)
+    // A workbook may keep extra estimates on hidden sheets — never generate a
+    // BOQ for those, just quietly stick to the visible sheet(s). (Skip this
+    // when every sheet is hidden: there'd be nothing to fall back to, so use
+    // them all rather than reporting "no data".)
     const visibleGrids = grids.filter((g) => !g.hidden)
-    if (hiddenGrids.length > 0 && visibleGrids.length > 0) {
-      const names = hiddenGrids.map((g) => g.sheetName || g.name).join(', ')
-      const includeHidden = window.confirm(
-        `This workbook has ${hiddenGrids.length} hidden estimate sheet${hiddenGrids.length === 1 ? '' : 's'} (${names}).\n\n` +
-          `Click OK to generate the BOQ and documents for ALL sheets, including the hidden ones.\n` +
-          `Click Cancel to use only the visible sheet${visibleGrids.length === 1 ? '' : 's'}.`
-      )
-      grids = includeHidden ? grids : visibleGrids
-    }
+    if (visibleGrids.length > 0) grids = visibleGrids
 
     const added: Entry[] = []
     const worksTable = tables[0] ?? null

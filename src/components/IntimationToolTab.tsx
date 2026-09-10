@@ -9,7 +9,7 @@ import { resolveIntimationValue } from '@core/intimationFill'
 import { CMC_ZONE_CIRCLES, resolveFromDirectory, corporationByName } from '../zoneCircleDirectory'
 import { officeScopedKey, TEMPLATE_KEYS, type Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
-import { pdfToTextLines } from '../pdfToText'
+import { pdfToTextLinesOrOcr } from '../pdfToText'
 import { base64ToUint8, PAGE_WIDTH, renderDocPreview, DOCX_PREVIEW_OPTIONS, normalizeDocxTextboxes } from './docPage'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell } from './Icons'
 
@@ -93,7 +93,7 @@ export default function IntimationToolTab({ office }: Props) {
   // A hand-picked circle override (the auto-detected one is used until then).
   const [circleOverride, setCircleOverride] = useState('')
 
-  const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf'>(null)
+  const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf' | 'notice'>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
   const [previewPages, setPreviewPages] = useState(0)
@@ -155,15 +155,18 @@ export default function IntimationToolTab({ office }: Props) {
   // L-1 alone carries the work name (→ circle), agency name and amounts.
   async function handleNoticeFile(file: File) {
     setActionError(null)
+    setBusy('notice')
     try {
       const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
       const parsed = isPdf
-        ? parseIntimationNoticeText(await pdfToTextLines(file))
+        ? parseIntimationNoticeText(await pdfToTextLinesOrOcr(file))
         : parseIntimationNotice(await file.text())
       setNotice(parsed)
       setNoticeName(file.name)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -175,7 +178,7 @@ export default function IntimationToolTab({ office }: Props) {
     setPdfStatus(null)
     setCircleOverride('')
     try {
-      const lines = await pdfToTextLines(file)
+      const lines = await pdfToTextLinesOrOcr(file)
       const ev = parseTenderEvaluation(lines)
       if (!ev.nameOfWork && !ev.tenderId) {
         throw new Error("Couldn't read tender details from that PDF — is it the Commercial Evaluation / Stage Selected page?")
@@ -283,8 +286,12 @@ export default function IntimationToolTab({ office }: Props) {
           >
             <IconFolder /> {busy === 'pdf' ? 'Reading PDF…' : pdfEval ? 'Change L1 selection form' : 'Upload L1 selection form'}
           </button>
-          <button className="primary upload-btn" onClick={() => noticeInputRef.current?.click()} disabled={!templateB64}>
-            <IconFolder /> {notice ? 'Change Online Intimation' : 'Upload Online Intimation (address)'}
+          <button
+            className="primary upload-btn"
+            onClick={() => noticeInputRef.current?.click()}
+            disabled={!templateB64 || busy === 'notice'}
+          >
+            <IconFolder /> {busy === 'notice' ? 'Reading…' : notice ? 'Change Online Intimation' : 'Upload Online Intimation (address)'}
           </button>
           <input
             ref={pdfInputRef}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../ipc'
 import type { TenderScanProgress } from '../../electron/ipc-contract'
-import { pdfToTextLines } from '../pdfToText'
+import { pdfToTextLinesOrOcr } from '../pdfToText'
 import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import {
   parseIntimationNotice,
@@ -89,7 +89,7 @@ export default function WorksListL1Update({ table, onChange, onUpdated }: Props)
         try {
           const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
           const notice: IntimationNotice = isPdf
-            ? parseIntimationNoticeText(await pdfToTextLines(file))
+            ? parseIntimationNoticeText(await pdfToTextLinesOrOcr(file))
             : parseIntimationNotice(await file.text())
           const agency = (notice.agencyName ?? '').trim()
           const address = (notice.address ?? '').trim()
@@ -158,7 +158,7 @@ export default function WorksListL1Update({ table, onChange, onUpdated }: Props)
           }
           continue
         }
-        const lines = await pdfToTextLines(file)
+        const lines = await pdfToTextLinesOrOcr(file)
         const ev = parseTenderEvaluation(lines)
         if (ev.nameOfWork || ev.tenderId) {
           evaluations.push(ev)

@@ -30,13 +30,19 @@ function firstVisibleSheetName(workbook: XLSX.WorkBook): string | undefined {
 
 // Read cells directly from the decoded range so every row (including blank
 // ones) keeps its real position — the picker can then show Excel's own row
-// numbers instead of a compacted sequence.
+// numbers instead of a compacted sequence. Rows hidden in the sheet (manually
+// hidden, or collapsed by a filter/outline group) are dropped entirely rather
+// than kept blank: whoever prepared the estimate hid them on purpose (e.g. a
+// superseded/duplicate item row), so an estimate or BOQ built from this grid
+// must not count them either.
 function gridFromSheet(sheet: XLSX.WorkSheet): { grid: string[][]; startRow: number } {
   const ref = sheet['!ref']
   if (!ref) return { grid: [], startRow: 0 }
   const range = XLSX.utils.decode_range(ref)
+  const rowInfo = sheet['!rows']
   const grid: string[][] = []
   for (let r = range.s.r; r <= range.e.r; r++) {
+    if (rowInfo?.[r]?.hidden) continue
     const row: string[] = []
     for (let c = range.s.c; c <= range.e.c; c++) {
       const cell = sheet[XLSX.utils.encode_cell({ r, c })]
@@ -54,7 +60,9 @@ function gridFromSheet(sheet: XLSX.WorkSheet): { grid: string[][]; startRow: num
  */
 export function readExcelGrid(filePath: string): SheetGrid {
   const buffer = fs.readFileSync(filePath)
-  const workbook = XLSX.read(buffer, { type: 'buffer' })
+  // cellStyles: true — otherwise the parser skips row metadata entirely and
+  // gridFromSheet's hidden-row check below silently never fires.
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellStyles: true })
   const sheetName = firstVisibleSheetName(workbook)
   const base = {
     id: nextId('xls'),
@@ -72,7 +80,8 @@ export function readExcelGrid(filePath: string): SheetGrid {
  * core/googleImport.ts's importAllSheetsFromGoogleLink).
  */
 export function allSheetGridsFromBuffer(buffer: Buffer, name: string, filePath: string): SheetGrid[] {
-  const workbook = XLSX.read(buffer, { type: 'buffer' })
+  // cellStyles: true — see readExcelGrid; needed for gridFromSheet's hidden-row check.
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellStyles: true })
   // Per-sheet visibility metadata (Hidden: 0 = visible, 1 = hidden, 2 = very
   // hidden), indexed by sheet position — so callers can flag hidden sheets.
   const meta = workbook.Workbook?.Sheets

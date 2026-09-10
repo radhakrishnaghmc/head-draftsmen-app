@@ -16,6 +16,15 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.32.0',
+    changes: [
+      'Excel-based estimates/BOQs now skip rows that are hidden in the sheet, instead of counting them as blank rows.',
+      'Fixed the NIT No. sometimes picking up a trailing comma for offices whose NIT code has neither "/DB/" nor "Circle-"/"C-" in it.',
+      'Fixed a Telugu letterhead caption rendering garbled in PDF exports made through LibreOffice.',
+      'Further letterhead/font-rendering fixes to the document previews.'
+    ]
+  },
+  {
     version: '1.31.0',
     changes: [
       'Fixed the Tender Document showing "Rs." twice before the Contract/Estimate Amount, ECV and EMD.',

@@ -1,5 +1,5 @@
 diff --git a/node_modules/docx-preview/dist/docx-preview.js b/node_modules/docx-preview/dist/docx-preview.js
-index 9abd132..4b83f5d 100644
+index 9abd132..2c300f1 100644
 --- a/node_modules/docx-preview/dist/docx-preview.js
 +++ b/node_modules/docx-preview/dist/docx-preview.js
 @@ -1294,6 +1294,13 @@
@@ -26,7 +26,45 @@ index 9abd132..4b83f5d 100644
                  case "from":
                      const [x1, y1] = parsePoint(at.value);
                      Object.assign(result.attrs, { x1, y1 });
-@@ -3742,6 +3752,23 @@ section.${c}>footer { z-index: 1; }
+@@ -2552,12 +2562,20 @@
+             var start = globalXmlParser.lengthAttr(node, "start");
+             var right = globalXmlParser.lengthAttr(node, "right");
+             var end = globalXmlParser.lengthAttr(node, "end");
++            // <w:tblInd> is a different OOXML type (CT_TblWidth) sharing this
++            // parser: it has no left/start/right/end, only "w" — without this
++            // fallback a table's own indent (often a small NEGATIVE value, used
++            // to bleed a letterhead table slightly into the page margin) was
++            // silently dropped, leaving the table flush against the margin
++            // instead of shifted, which reads as the whole letterhead leaning
++            // right (patched in; see patches/docx-preview+0.4.0.patch).
++            var tblInd = globalXmlParser.lengthAttr(node, "w");
+             if (firstLine)
+                 style["text-indent"] = firstLine;
+             if (hanging)
+                 style["text-indent"] = `-${hanging}`;
+-            if (left || start)
+-                style["margin-inline-start"] = left || start;
++            if (left || start || tblInd)
++                style["margin-inline-start"] = left || start || tblInd;
+             if (right || end)
+                 style["margin-inline-end"] = right || end;
+         }
+@@ -2711,7 +2729,13 @@
+             return 'solid';
+         }
+         static valueOfTblLayout(c) {
+-            var type = globalXmlParser.attr(c, "val");
++            // OOXML names this element's attribute "type" (<w:tblLayout
++            // w:type="fixed"/>), not "val" — the original lookup always
++            // returned undefined, so every "fixed" table layout silently
++            // rendered as CSS "auto", letting the browser's own column-sizing
++            // shrink a column below Word's authored width (patched in; see
++            // patches/docx-preview+0.4.0.patch).
++            var type = globalXmlParser.attr(c, "type") || globalXmlParser.attr(c, "val");
+             return type == "fixed" ? "fixed" : "auto";
+         }
+         static classNameOfCnfStyle(c) {
+@@ -3742,6 +3766,23 @@ section.${c}>footer { z-index: 1; }
                      .then(x => result.setAttribute("href", x)));
              }
              container.appendChild(result);
@@ -50,7 +88,7 @@ index 9abd132..4b83f5d 100644
              requestAnimationFrame(() => {
                  const bb = container.firstElementChild.getBBox();
                  container.setAttribute("width", `${Math.ceil(bb.x + bb.width)}`);
-@@ -3752,6 +3779,10 @@ section.${c}>footer { z-index: 1; }
+@@ -3752,6 +3793,10 @@ section.${c}>footer { z-index: 1; }
          renderVmlChildElement(elem) {
              const result = this.createSvgElement(elem.tagName);
              Object.entries(elem.attrs).forEach(([k, v]) => result.setAttribute(k, v));
@@ -62,7 +100,7 @@ index 9abd132..4b83f5d 100644
                  if (child.type == DomType.VmlElement) {
                      result.appendChild(this.renderVmlChildElement(child));
 diff --git a/node_modules/docx-preview/dist/docx-preview.mjs b/node_modules/docx-preview/dist/docx-preview.mjs
-index 68d59f2..00adfea 100644
+index 68d59f2..6874426 100644
 --- a/node_modules/docx-preview/dist/docx-preview.mjs
 +++ b/node_modules/docx-preview/dist/docx-preview.mjs
 @@ -1290,6 +1290,13 @@ function parseVmlElement(elem, parser) {
@@ -89,7 +127,45 @@ index 68d59f2..00adfea 100644
              case "from":
                  const [x1, y1] = parsePoint(at.value);
                  Object.assign(result.attrs, { x1, y1 });
-@@ -3738,6 +3748,23 @@ section.${c}>footer { z-index: 1; }
+@@ -2548,12 +2558,20 @@ class DocumentParser {
+         var start = globalXmlParser.lengthAttr(node, "start");
+         var right = globalXmlParser.lengthAttr(node, "right");
+         var end = globalXmlParser.lengthAttr(node, "end");
++        // <w:tblInd> is a different OOXML type (CT_TblWidth) sharing this
++        // parser: it has no left/start/right/end, only "w" — without this
++        // fallback a table's own indent (often a small NEGATIVE value, used
++        // to bleed a letterhead table slightly into the page margin) was
++        // silently dropped, leaving the table flush against the margin
++        // instead of shifted, which reads as the whole letterhead leaning
++        // right (patched in; see patches/docx-preview+0.4.0.patch).
++        var tblInd = globalXmlParser.lengthAttr(node, "w");
+         if (firstLine)
+             style["text-indent"] = firstLine;
+         if (hanging)
+             style["text-indent"] = `-${hanging}`;
+-        if (left || start)
+-            style["margin-inline-start"] = left || start;
++        if (left || start || tblInd)
++            style["margin-inline-start"] = left || start || tblInd;
+         if (right || end)
+             style["margin-inline-end"] = right || end;
+     }
+@@ -2707,7 +2725,13 @@ class values {
+         return 'solid';
+     }
+     static valueOfTblLayout(c) {
+-        var type = globalXmlParser.attr(c, "val");
++        // OOXML names this element's attribute "type" (<w:tblLayout
++        // w:type="fixed"/>), not "val" — the original lookup always
++        // returned undefined, so every "fixed" table layout silently
++        // rendered as CSS "auto", letting the browser's own column-sizing
++        // shrink a column below Word's authored width (patched in; see
++        // patches/docx-preview+0.4.0.patch).
++        var type = globalXmlParser.attr(c, "type") || globalXmlParser.attr(c, "val");
+         return type == "fixed" ? "fixed" : "auto";
+     }
+     static classNameOfCnfStyle(c) {
+@@ -3738,6 +3762,23 @@ section.${c}>footer { z-index: 1; }
                  .then(x => result.setAttribute("href", x)));
          }
          container.appendChild(result);
@@ -113,7 +189,7 @@ index 68d59f2..00adfea 100644
          requestAnimationFrame(() => {
              const bb = container.firstElementChild.getBBox();
              container.setAttribute("width", `${Math.ceil(bb.x + bb.width)}`);
-@@ -3748,6 +3775,10 @@ section.${c}>footer { z-index: 1; }
+@@ -3748,6 +3789,10 @@ section.${c}>footer { z-index: 1; }
      renderVmlChildElement(elem) {
          const result = this.createSvgElement(elem.tagName);
          Object.entries(elem.attrs).forEach(([k, v]) => result.setAttribute(k, v));

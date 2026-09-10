@@ -186,6 +186,40 @@ describe('parseTenderEvaluation', () => {
     expect(r.noticeNo).toBe('13/DB/EE/Gajularamaram Circle-57/CMC/2026-27')
   })
 
+  // Real Quthbullapur Zone / Dundigal Circle-59 "Stage Selected Form": this
+  // office's code is "21/EE-59/QBZ/CMC/2026-27" — no "/DB/" and no
+  // "Circle-"/"C-" wording at all (just "EE-59" folding the circle number
+  // straight into the office code), so neither of cleanNit's two reassembly
+  // branches matches and the raw NIT No value regex capture is used as-is.
+  // That capture's lazy `.+?` has to swallow the comma right before " Dt."
+  // (a bare `\s*` can't skip a non-space character), which used to leave a
+  // stray trailing comma on the notice number.
+  it('reads a NIT No with neither "/DB/" nor "Circle-" in its code, without a stray trailing comma', () => {
+    const r = parseTenderEvaluation([
+      'Stage Selected Form',
+      'Current Tender Details',
+      'Tender ID 729504',
+      'Enquiry/IFB/Tender NIT No.21/EE-59/QBZ/CMC/2026-27, Dt. 29-08-2026 (Item 1)',
+      'Notice Number',
+      'Name of Work Providing necessary arrangements for Ganesh Nimajjanam at Pedda Cheruvu,Bowrampet, Ward No.295,Dundigal Circle-59,Quthbullapur Zone,CMC',
+      'Tender Category Works Tender Evaluation Type Percentage',
+      'Tender Type OPEN - NCB Estimated Contract Value 540465.00',
+      'Price Bid Details',
+      'Company Name Estimated Contract Value Excess/Less Percentage(%) Amount Rank Select',
+      'G GANESH 540465.00 Less 22.99 416212.10 L- 1 Selected',
+      'MD RAHEEMUDDIN 540465.00 Less 18.99 437830.70 L- 2 ---'
+    ])
+    expect(r.tenderId).toBe('729504')
+    expect(r.noticeNo).toBe('21/EE-59/QBZ/CMC/2026-27')
+    expect(r.nameOfWork).toBe(
+      'Providing necessary arrangements for Ganesh Nimajjanam at Pedda Cheruvu,Bowrampet, Ward No.295,Dundigal Circle-59,Quthbullapur Zone,CMC'
+    )
+    expect(r.ecvRupees).toBe(540465)
+    expect(r.l1AgencyName).toBe('G GANESH')
+    expect(r.tenderPercentage).toBeCloseTo(22.99, 2)
+    expect(r.contractRupees).toBeCloseTo(416212.1, 2)
+  })
+
   it('reads a Name of Work whose value wraps around its label, not just the tail fragment', () => {
     const r = parseTenderEvaluation(WRAPPED_WORKNAME_LINES)
     expect(r.nameOfWork).toBe(

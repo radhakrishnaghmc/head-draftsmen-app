@@ -75,6 +75,10 @@ extraResources:
     to: intimation-template.docx
   - from: resources/intimation-template-2.docx
     to: intimation-template-2.docx
+  - from: resources/fonts/Carlito-Regular.ttf
+    to: fonts/Carlito-Regular.ttf
+  - from: resources/fonts/Carlito-Bold.ttf
+    to: fonts/Carlito-Bold.ttf
   - from: resources/work-order-template.docx
     to: work-order-template.docx
   - from: resources/work-order-template-kompally.docx

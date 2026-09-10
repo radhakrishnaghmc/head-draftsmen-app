@@ -4,10 +4,10 @@
 // stays a plain localStorage value (same "survives updates, not a reinstall"
 // tier as LAST_SEEN_VERSION_KEY in App.tsx) rather than office-scoped or
 // synced state.
-export type ThemeId = 'default' | 'aurora' | 'midnight' | 'paper'
+export type ThemeId = 'default' | 'aurora' | 'paper'
 
 const THEME_KEY = 'issueDocsTheme'
-const VALID: ThemeId[] = ['default', 'aurora', 'midnight', 'paper']
+const VALID: ThemeId[] = ['default', 'aurora', 'paper']
 
 export function getStoredTheme(): ThemeId {
   const stored = localStorage.getItem(THEME_KEY)
@@ -21,6 +21,5 @@ export function setStoredTheme(theme: ThemeId): void {
 export const THEME_OPTIONS: { id: ThemeId; label: string; description: string }[] = [
   { id: 'default', label: 'Default', description: 'Document thumbnail tiles with a frosted-glass look.' },
   { id: 'aurora', label: 'Aurora', description: 'Whole app restyled with a light background, a vivid cyan accent, and soft pastel tones — a modern SaaS dashboard look.' },
-  { id: 'midnight', label: 'Midnight', description: 'Dark ops-console theme with a deep slate background, an emerald-green status accent, and glassy cards — tuned for the Overview Dashboard.' },
   { id: 'paper', label: 'Paper', description: 'Flat white theme — no glass or blur, thin borders instead of shadows, a single soft blue accent, and a two-column Overview Dashboard layout.' }
 ]

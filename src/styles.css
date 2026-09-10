@@ -154,62 +154,11 @@ body.theme-aurora {
   --shadow-glow: 0 8px 24px -6px rgba(16, 156, 222, 0.45);
 }
 
-/* Midnight theme (Settings → Themes) — the app's first dark theme, a deep
-   slate "ops console" look tuned for the Overview Dashboard: a near-black
-   slate background, glassy translucent cards, an emerald-green status accent
-   (mapped onto the indigo/violet accent token names), and light foreground
-   text. Everything is token-driven, so overriding the same variable names the
-   Default/Aurora palettes set restyles the whole app without per-component
-   rules. Shapes/blur/radii inherit Default's values. */
-body.theme-midnight {
-  --indigo-50: rgba(34, 197, 94, 0.16); /* accent-tinted chip/pill background */
-  --indigo-100: rgba(34, 197, 94, 0.22);
-  --indigo-200: rgba(34, 197, 94, 0.3);
-  --indigo-500: #22c55e; /* emerald — interactive accent (focus, active borders) */
-  --indigo-600: #16a34a; /* deeper emerald — solid accent fills / accent text */
-  --indigo-700: #4ade80; /* light emerald — accent text on dark surfaces */
-  --violet-500: #34d399; /* teal-green — gradient partner for two-tone CTAs */
-  --chakra: #38bdf8;
-  --sky-100: rgba(56, 189, 248, 0.16);
-  --sky-500: #38bdf8; /* sky blue */
-  --teal-500: #2dd4bf;
-  --teal-100: rgba(45, 212, 191, 0.16);
-  --rose-500: #fb7185; /* coral */
-  --rose-100: rgba(251, 113, 133, 0.16);
-  --amber-500: #fbbf24; /* amber */
-  --amber-100: rgba(251, 191, 36, 0.16);
-  --green-bg: rgba(52, 211, 153, 0.16);
-  --orange-bg: rgba(251, 191, 36, 0.16);
-
-  --bg-grad-a: #0f172a;
-  --bg-grad-b: #0b1120;
-  --surface: rgba(27, 35, 54, 0.72);
-  --surface-2: rgba(30, 41, 59, 0.6);
-  --border: rgba(148, 163, 184, 0.16);
-  --border-strong: rgba(148, 163, 184, 0.3);
-
-  --text: #f1f5f9;
-  --text-2: #cbd5e1;
-  --muted: #94a3b8;
-
-  --ok: #34d399;
-  --ok-bg: rgba(52, 211, 153, 0.16);
-  --warn: #fbbf24;
-  --warn-bg: rgba(251, 191, 36, 0.16);
-  --danger: #f87171;
-  --danger-bg: rgba(248, 113, 113, 0.16);
-
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 18px -6px rgba(0, 0, 0, 0.55), 0 2px 6px -3px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 28px 56px -18px rgba(0, 0, 0, 0.7);
-  --shadow-glow: 0 8px 26px -6px rgba(34, 197, 94, 0.4);
-}
-
-/* Paper theme (Settings → Themes) — the opposite of Midnight: plain opaque
-   white surfaces, zero blur/translucency (no "glass" anywhere — --glass-blur
-   itself is switched off so every backdrop-filter: var(--glass-blur) call
-   app-wide goes inert in one place), and shadows flattened to hairline
-   borders instead of the Default/Aurora soft-glow look. Still uses real
+/* Paper theme (Settings → Themes) — plain opaque white surfaces, zero
+   blur/translucency (no "glass" anywhere — --glass-blur itself is switched
+   off so every backdrop-filter: var(--glass-blur) call app-wide goes inert
+   in one place), and shadows flattened to hairline borders instead of the
+   Default/Aurora soft-glow look. Still uses real
    color, just sparingly: one soft blue accent (mapped onto indigo/violet)
    plus the same categorical hues (teal/sky/rose/amber) at full saturation
    for chips, donut segments and status dots, so the UI doesn't go
@@ -324,23 +273,6 @@ body.theme-aurora::before {
 }
 body.theme-aurora .skyline-bg,
 body.theme-aurora .sidebar-art-bg {
-  display: none;
-}
-
-/* Midnight theme: deep slate background with faint emerald/sky glow blobs;
-   drop the grain texture and the Telangana skyline art (dark ops-console
-   look, not tricolour-branded — same call as Aurora/Windows). */
-body.theme-midnight {
-  background: radial-gradient(1100px 640px at 8% -12%, rgba(34, 197, 94, 0.14), transparent 58%),
-    radial-gradient(900px 520px at 95% 6%, rgba(56, 189, 248, 0.12), transparent 55%),
-    radial-gradient(1000px 520px at 50% 112%, rgba(15, 23, 42, 0.6), transparent 60%),
-    linear-gradient(180deg, var(--bg-grad-a), var(--bg-grad-b));
-}
-body.theme-midnight::before {
-  display: none;
-}
-body.theme-midnight .skyline-bg,
-body.theme-midnight .sidebar-art-bg {
   display: none;
 }
 
@@ -639,12 +571,6 @@ code {
    of Default's full-height tricolour band. */
 body.theme-aurora .sidebar {
   background: linear-gradient(180deg, rgba(16, 156, 222, 0.12) 0%, rgba(16, 156, 222, 0.04) 30%, rgba(255, 255, 255, 0.94) 55%, rgba(255, 255, 255, 0.94) 100%);
-}
-/* Midnight theme: a dark slate sidebar with a faint emerald wash at the top,
-   so light token text (--text / --muted) reads against it instead of the
-   Default tricolour band. */
-body.theme-midnight .sidebar {
-  background: linear-gradient(180deg, rgba(34, 197, 94, 0.12) 0%, rgba(15, 23, 42, 0.86) 30%, rgba(11, 17, 32, 0.92) 100%);
 }
 /* Paper theme: flat white sidebar, separated from the workspace by a
    hairline border instead of a shadow or tint wash. */
