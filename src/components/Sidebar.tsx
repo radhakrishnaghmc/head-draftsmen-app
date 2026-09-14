@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import appLogo from '../assets/app-logo.png'
@@ -71,6 +71,8 @@ interface Item {
   ok?: boolean
   blink?: boolean
   tone?: 'green' | 'sky' | 'rose' | 'amber' | 'teal'
+  /** Paper theme only: an uppercase group label rendered above this item. */
+  section?: string
 }
 
 const UPDATE_STATUS_TEXT: Record<string, string> = {
@@ -113,7 +115,8 @@ export default function Sidebar(props: Props) {
     {
       key: 'overview',
       label: 'Dashboard',
-      icon: <IconGrid />
+      icon: <IconGrid />,
+      section: 'Overview'
     },
     {
       key: 'data',
@@ -132,7 +135,8 @@ export default function Sidebar(props: Props) {
       key: 'intimation',
       label: 'Intimation',
       icon: <IconBell />,
-      tone: 'rose'
+      tone: 'rose',
+      section: 'Workflow'
     },
     {
       key: 'workOrder',
@@ -182,7 +186,8 @@ export default function Sidebar(props: Props) {
       key: 'tools',
       label: 'Tools',
       icon: <IconTools />,
-      tone: 'teal'
+      tone: 'teal',
+      section: 'Utilities'
     },
     {
       key: 'cementSteel',
@@ -193,7 +198,8 @@ export default function Sidebar(props: Props) {
     {
       key: 'settings',
       label: 'Settings',
-      icon: <IconSettings />
+      icon: <IconSettings />,
+      section: 'System'
     }
   ]
 
@@ -220,15 +226,15 @@ export default function Sidebar(props: Props) {
       </div>
 
       <nav className="side-nav">
-        {items.map((it, i) => (
+        {items.map((it) => (
+          <Fragment key={it.key}>
+          {it.section ? <div className="nav-section-label">{it.section}</div> : null}
           <button
-            key={it.key}
             className={`nav-item ${props.active === it.key ? 'on' : ''} ${it.tone ? `tone-${it.tone}` : ''} ${it.blink ? 'nav-item-blink' : ''}`}
             onClick={() => props.onSelect(it.key)}
             onDoubleClick={() => props.onReset(it.key)}
             title="Click to switch (work continues in the background); double-click to close all workspaces and start fresh"
           >
-            <span className="nav-step">{i + 1}</span>
             <span className="nav-ic">{it.icon}</span>
             <span className="nav-text">
               <span className="nav-label">{it.label}</span>
@@ -247,6 +253,7 @@ export default function Sidebar(props: Props) {
               <span className="nav-badge">{it.badge}</span>
             ) : null}
           </button>
+          </Fragment>
         ))}
       </nav>
 

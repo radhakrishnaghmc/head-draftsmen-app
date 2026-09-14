@@ -53,6 +53,7 @@ const api: DocuGenApi = {
   mergeDocx: (docxBytesList) => ipcRenderer.invoke(IPC.mergeDocx, docxBytesList),
   splitDocxSections: (docxBytes) => ipcRenderer.invoke(IPC.splitDocxSections, docxBytes),
   saveDocxsToFolder: (files) => ipcRenderer.invoke(IPC.saveDocxsToFolder, files),
+  fetchWeather: (apiKey, city) => ipcRenderer.invoke(IPC.fetchWeather, apiKey, city),
   fetchCementSteelRates: () => ipcRenderer.invoke(IPC.fetchCementSteelRates),
   downloadCementSteelRate: (token, suggestedFileName) =>
     ipcRenderer.invoke(IPC.downloadCementSteelRate, token, suggestedFileName),
@@ -134,7 +135,7 @@ const api: DocuGenApi = {
   verifyDocuments: (items) => ipcRenderer.invoke(IPC.verifyDocuments, items),
   tsNoteTemplate: () => ipcRenderer.invoke(IPC.tsNoteTemplate),
   eligibilityCriteriaTemplate: () => ipcRenderer.invoke(IPC.eligibilityCriteriaTemplate),
-  issueNoticeTemplate: (ee) => ipcRenderer.invoke(IPC.issueNoticeTemplate, ee),
+  issueNoticeTemplate: (ee, version) => ipcRenderer.invoke(IPC.issueNoticeTemplate, ee, version),
   loadState: () => ipcRenderer.invoke(IPC.loadState),
   saveState: (state, skipCloud) => ipcRenderer.invoke(IPC.saveState, state, skipCloud),
   onRemoteStateUpdate: (callback) => {

@@ -106,7 +106,7 @@ export default function CementSteelRatesPage({ onLoaded }: Props) {
             {filtered.map((r) => (
               <button
                 key={r.token}
-                className="doc-tile-card tone-sky tool-card"
+                className="doc-tile-card tone-green tool-card"
                 onClick={() => downloadOne(r)}
                 disabled={downloadingToken !== null}
                 title={r.description}

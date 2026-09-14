@@ -137,6 +137,10 @@ extraResources:
     to: issue-notice-template.docx
   - from: resources/issue-notice-ee-template.docx
     to: issue-notice-ee-template.docx
+  - from: resources/issue-notice-template-2.docx
+    to: issue-notice-template-2.docx
+  - from: resources/issue-notice-ee-template-2.docx
+    to: issue-notice-ee-template-2.docx
   - from: resources/public-participation-book-template.docx
     to: public-participation-book-template.docx
   - from: resources/action-taken-report-template.docx

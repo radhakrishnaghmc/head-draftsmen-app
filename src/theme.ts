@@ -11,7 +11,7 @@ const VALID: ThemeId[] = ['default', 'aurora', 'paper']
 
 export function getStoredTheme(): ThemeId {
   const stored = localStorage.getItem(THEME_KEY)
-  return (VALID as string[]).includes(stored || '') ? (stored as ThemeId) : 'default'
+  return (VALID as string[]).includes(stored || '') ? (stored as ThemeId) : 'paper'
 }
 
 export function setStoredTheme(theme: ThemeId): void {
@@ -19,7 +19,7 @@ export function setStoredTheme(theme: ThemeId): void {
 }
 
 export const THEME_OPTIONS: { id: ThemeId; label: string; description: string }[] = [
-  { id: 'default', label: 'Default', description: 'Document thumbnail tiles with a frosted-glass look.' },
+  { id: 'default', label: 'Beginning', description: 'Document thumbnail tiles with a frosted-glass look.' },
   { id: 'aurora', label: 'Aurora', description: 'Whole app restyled with a light background, a vivid cyan accent, and soft pastel tones — a modern SaaS dashboard look.' },
   { id: 'paper', label: 'Paper', description: 'Flat white theme — no glass or blur, thin borders instead of shadows, a single soft blue accent, and a two-column Overview Dashboard layout.' }
 ]

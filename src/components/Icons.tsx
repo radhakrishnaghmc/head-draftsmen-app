@@ -246,3 +246,51 @@ export const IconBell = (p: P) => (
     <path d="M13.73 21a2 2 0 0 1-3.46 0" />
   </svg>
 )
+
+export const IconSun = (p: P) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+  </svg>
+)
+
+export const IconCloud = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M17.5 19H7a4 4 0 1 1 1.28-7.79 5.5 5.5 0 0 1 10.62 2A3.5 3.5 0 0 1 17.5 19Z" />
+  </svg>
+)
+
+export const IconCloudSun = (p: P) => (
+  <svg {...base(p)}>
+    <circle cx="7.5" cy="7.5" r="2.5" />
+    <path d="M7.5 2.5v1.2M3.29 4.79l.85.85M2 9h1.2" />
+    <path d="M20.5 17.5a3 3 0 0 0-1.34-5.69 4.8 4.8 0 0 0-9.16.99A3.5 3.5 0 0 0 10.5 20h7a3 3 0 0 0 3-2.5Z" />
+  </svg>
+)
+
+export const IconCloudRain = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M17.5 15H7a4 4 0 1 1 1.28-7.79 5.5 5.5 0 0 1 10.62 2A3.5 3.5 0 0 1 17.5 15Z" />
+    <path d="M8 19l-1 2M12 19l-1 2M16 19l-1 2" />
+  </svg>
+)
+
+export const IconCloudLightning = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M17.5 13H7a4 4 0 1 1 1.28-7.79 5.5 5.5 0 0 1 10.62 2A3.5 3.5 0 0 1 17.5 13Z" />
+    <path d="M13 12l-3 5h3l-2 4" />
+  </svg>
+)
+
+export const IconSnowflake = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M12 2v20M4.93 5.64l14.14 12.72M19.07 5.64L4.93 18.36" />
+    <path d="M9 5l3-2 3 2M9 19l3 2 3-2M4.3 9.8l1-3.4 3.4-1M15.3 4.4l3.4 1 1 3.4M4.3 14.2l1 3.4 3.4 1M15.3 19.6l3.4-1 1-3.4" />
+  </svg>
+)
+
+export const IconMist = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M3 7h13M3 11h18M6 15h13M3 19h13" />
+  </svg>
+)

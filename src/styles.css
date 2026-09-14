@@ -154,28 +154,26 @@ body.theme-aurora {
   --shadow-glow: 0 8px 24px -6px rgba(16, 156, 222, 0.45);
 }
 
-/* Paper theme (Settings → Themes) — plain opaque white surfaces, zero
-   blur/translucency (no "glass" anywhere — --glass-blur itself is switched
-   off so every backdrop-filter: var(--glass-blur) call app-wide goes inert
-   in one place), and shadows flattened to hairline borders instead of the
-   Default/Aurora soft-glow look. Still uses real
-   color, just sparingly: one soft blue accent (mapped onto indigo/violet)
-   plus the same categorical hues (teal/sky/rose/amber) at full saturation
-   for chips, donut segments and status dots, so the UI doesn't go
-   monochrome — only the surfaces/shadows go flat. */
+/* Paper theme (Settings → Themes) — modelled on a reference "floating
+   card" SaaS dashboard: a deep forest-teal sidebar and a soft mint outer
+   canvas, with the whole app shell as one big rounded card floating on
+   that canvas (see .shell below), and white content cards with a soft
+   shadow instead of Default/Aurora's glassy blur. Still uses real color
+   for the same categorical hues (sky/rose/amber) at full saturation for
+   chips, donut segments and status dots, so the UI doesn't go
+   monochrome — only the accent is the single deep teal-green. */
 body.theme-paper {
-  /* Accent: light parrot-green (Settings → Themes reference dashboard) —
-     pale tints for badges/pills, a bright parrot green for solid fills
-     (hero KPI tile, Reminders tile, donut/progress fill), a slightly
-     deeper parrot green for hover states and the promo tile. */
-  --indigo-50: #f1fae3;
-  --indigo-100: #dcf2c0;
-  --indigo-200: #c3e89a;
-  --indigo-500: #8bc34a; /* parrot green — interactive accent (focus, active borders) */
-  --indigo-600: #6cb64a; /* solid parrot green — accent fills (hero KPI tile, Reminders tile) */
-  --indigo-700: #4c9a2a; /* deeper parrot green — hover state / promo tile */
-  --violet-500: #9bd66b; /* lighter parrot green — gradient partner, kept subtle since gradients are off */
-  --chakra: #6cb64a;
+  /* Accent: deep forest teal-green (Settings → Themes reference dashboard) —
+     pale mint tints for badges/pills, the solid teal-green for the sidebar
+     and fills (hero KPI tile, buttons), a deeper shade for hover states. */
+  --indigo-50: #eaf6f0;
+  --indigo-100: #d3ecdf;
+  --indigo-200: #aedec4;
+  --indigo-500: #3f8a68; /* teal-green — interactive accent (focus, active borders) */
+  --indigo-600: #2f6b52; /* solid teal-green — sidebar background, accent fills */
+  --indigo-700: #234f3d; /* deepest teal-green — hover state / promo tile */
+  --violet-500: #56a17d; /* lighter teal-green — gradient partner, kept subtle since gradients are off */
+  --chakra: #2f6b52;
   --sky-100: #e0f2fe;
   --sky-500: #0284c7;
   --teal-500: #0d9488;
@@ -187,10 +185,13 @@ body.theme-paper {
   --green-bg: #ecfdf5;
   --orange-bg: #fff7ed;
 
+  /* Soft mint canvas that the rounded app shell floats on — see .shell. */
+  --paper-canvas: #dbeee2;
+
   --bg-grad-a: #ffffff;
   --bg-grad-b: #ffffff;
   --surface: #ffffff; /* opaque, not translucent — no glass */
-  --surface-2: #f8fafc;
+  --surface-2: #f6f8f7;
   --border: #e2e8f0;
   --border-strong: #cbd5e1;
 
@@ -205,13 +206,12 @@ body.theme-paper {
   --danger: #e11d48;
   --danger-bg: #fff1f2;
 
-  /* Flat = hairline borders carry the separation, not shadow. Shadows kept
-     near-zero rather than removed outright so focus rings / popovers that
-     rely on --shadow-lg for legibility over other content still lift. */
+  /* Soft floating-card shadows (no blur/glass) instead of Default/Aurora's
+     glassy glow — matches the reference dashboard's card elevation. */
   --glass-blur: none;
-  --shadow-sm: none;
-  --shadow-md: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-lg: 0 4px 16px -4px rgba(15, 23, 42, 0.12);
+  --shadow-sm: 0 1px 2px rgba(15, 60, 40, 0.06);
+  --shadow-md: 0 10px 28px -12px rgba(15, 60, 40, 0.18);
+  --shadow-lg: 0 24px 56px -18px rgba(15, 60, 40, 0.3);
   --shadow-glow: none;
 }
 
@@ -387,6 +387,13 @@ body.theme-paper .sidebar-art-bg {
   right: 24px;
   z-index: 15;
 }
+/* Paper theme: offset by the floating shell's 18px canvas inset (see
+   #root/.shell above) so the badge still sits just inside the shell's
+   rounded top-right corner instead of drifting into the mint canvas. */
+body.theme-paper .profile-menu {
+  top: 46px;
+  right: 42px;
+}
 
 .update-banner {
   position: fixed;
@@ -541,6 +548,24 @@ code {
   position: relative;
   z-index: 1;
 }
+/* Paper theme: the whole shell floats as one big rounded card on a soft
+   mint canvas (the reference dashboard's signature look), instead of
+   running edge-to-edge. #root supplies the canvas colour and the inset;
+   .shell just needs to fill that inset and clip its own rounded corners. */
+body.theme-paper #root {
+  padding: 18px;
+  box-sizing: border-box;
+  background: var(--paper-canvas);
+  overflow: visible;
+}
+body.theme-paper .shell {
+  height: 100%;
+  /* Sidebar and workspace float as two separate rounded cards (each rounds
+     and shadows itself below) with a gap between, instead of one big
+     rounded rectangle — reads as two uniform panels on the mint canvas. */
+  gap: 10px;
+  overflow: visible;
+}
 
 /* ---------- sidebar ---------- */
 .sidebar {
@@ -572,11 +597,16 @@ code {
 body.theme-aurora .sidebar {
   background: linear-gradient(180deg, rgba(16, 156, 222, 0.12) 0%, rgba(16, 156, 222, 0.04) 30%, rgba(255, 255, 255, 0.94) 55%, rgba(255, 255, 255, 0.94) 100%);
 }
-/* Paper theme: flat white sidebar, separated from the workspace by a
-   hairline border instead of a shadow or tint wash. */
+/* Paper theme: a solid deep teal-green sidebar (the reference dashboard's
+   signature panel), no border needed since the colour itself separates it
+   from the workspace. */
 body.theme-paper .sidebar {
-  background: #ffffff;
-  border-right: 1px solid var(--border);
+  height: 100%;
+  background: var(--indigo-600);
+  border-right: none;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 30px 70px -20px rgba(15, 60, 40, 0.35);
 }
 
 .side-brand {
@@ -584,6 +614,10 @@ body.theme-paper .sidebar {
   align-items: center;
   gap: 12px;
   padding: 6px 10px 18px;
+}
+body.theme-paper .side-brand {
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
 }
 .side-brand .logo {
   width: 78px;
@@ -594,12 +628,28 @@ body.theme-paper .sidebar {
 body.theme-aurora .side-brand .logo {
   filter: drop-shadow(0 4px 10px rgba(16, 156, 222, 0.35));
 }
+body.theme-paper .side-brand .logo {
+  filter: none;
+  /* The mark's dark linework is illegible on the sidebar's solid green —
+     give it a white chip to sit on, like the reference's logo mark. */
+  background: #fff;
+  border-radius: 14px;
+  padding: 8px;
+  box-sizing: border-box;
+}
 .side-brand h1 {
   margin: 0;
   font-size: 18px;
   font-weight: 750;
   letter-spacing: -0.02em;
   white-space: nowrap;
+}
+body.theme-paper .side-brand h1 {
+  font-size: 15px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
 }
 .side-brand p {
   margin: 2px 0 0;
@@ -608,8 +658,14 @@ body.theme-aurora .side-brand .logo {
   color: var(--muted);
   line-height: 1.3;
 }
+body.theme-paper .side-brand p {
+  color: rgba(255, 255, 255, 0.68);
+}
 .side-brand p.warn {
   color: var(--amber-600, #b45309);
+}
+body.theme-paper .side-brand p.warn {
+  color: #fde68a;
 }
 /* "Change office" — a quiet link under the office line, revealed on hover so it
    doesn't clutter the clean brand header; always visible when no office is set. */
@@ -631,6 +687,10 @@ body.theme-aurora .side-brand .logo {
 .side-office-change:focus-visible,
 .side-brand p.warn ~ .side-office-change {
   opacity: 1;
+}
+body.theme-paper .side-office-change {
+  color: #fff;
+  text-decoration: underline;
 }
 .office-modal {
   width: min(460px, 94vw);
@@ -765,6 +825,30 @@ body.theme-aurora .side-brand .logo {
   overflow-y: auto;
   overflow-x: hidden;
 }
+/* A faint, thin thumb instead of the OS default — the default scrollbar's
+   opaque gray reads as a heavy bar against the sidebar's own background
+   (tricolour tint in Default/Aurora, solid teal-green in Paper). */
+.side-nav::-webkit-scrollbar {
+  width: 6px;
+}
+.side-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+.side-nav::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-pill);
+}
+.side-nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+body.theme-aurora .side-nav::-webkit-scrollbar-thumb,
+body:not(.theme-paper):not(.theme-aurora) .side-nav::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.06);
+}
+body.theme-aurora .side-nav::-webkit-scrollbar-thumb:hover,
+body:not(.theme-paper):not(.theme-aurora) .side-nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.13);
+}
 
 .nav-item {
   display: flex;
@@ -793,23 +877,52 @@ body.theme-aurora .side-brand .logo {
 body.theme-aurora .nav-item:hover {
   background: rgba(16, 156, 222, 0.1);
 }
-
-.nav-step {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-sm);
-  display: grid;
-  place-items: center;
-  font-size: 11.5px;
-  font-weight: 700;
-  color: var(--muted);
-  background: rgba(134, 139, 161, 0.12);
+/* Paper theme: nav rows sit on the sidebar's own solid teal-green, so the
+   active/hover states are a translucent white wash rather than a tint of
+   the surface colour, and the icon/label switch to white text. */
+body.theme-paper .nav-item {
+  border-left: none;
+  padding-left: 16px;
 }
-.nav-item.on .nav-step {
+body.theme-paper .nav-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: none;
+}
+body.theme-paper .nav-item.on {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: transparent;
+  box-shadow: none;
+}
+body.theme-paper .nav-ic {
+  color: rgba(255, 255, 255, 0.7);
+}
+body.theme-paper .nav-item.on .nav-ic {
   color: #fff;
-  background: linear-gradient(135deg, var(--tone-a, var(--indigo-500)), var(--tone-b, var(--violet-500)));
 }
+body.theme-paper .nav-label {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* Section group labels (Overview / Workflow / Utilities / System) above
+   the sidebar nav — a Paper-theme-only touch, matching the grouped-menu
+   look of the reference dashboard. Hidden in Default/Aurora, which keep
+   a single flat nav list. */
+.nav-section-label {
+  display: none;
+}
+body.theme-paper .nav-section-label {
+  display: block;
+  margin: 14px 10px 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+body.theme-paper .nav-section-label:first-child {
+  margin-top: 4px;
+}
+
 .nav-item.tone-green {
   --tone-a: var(--ok);
   --tone-b: #55dda9;
@@ -1069,6 +1182,16 @@ body.theme-aurora .workspace {
     radial-gradient(760px 460px at 95% 75%, rgba(251, 111, 146, 0.12), transparent 55%),
     radial-gradient(1000px 620px at 30% 100%, rgba(245, 169, 78, 0.12), transparent 60%);
 }
+/* Paper theme: a flat light-gray canvas (no gradient blobs) so the flat
+   white, hairline-bordered cards above it read as floating panels — the
+   reference dashboard's light-canvas-plus-white-cards look. */
+body.theme-paper .workspace {
+  height: 100%;
+  background: var(--surface-2);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 30px 70px -20px rgba(15, 60, 40, 0.35);
+}
 
 /* KeepAlive's wrapper (App.tsx) — fills the workspace's content box so the
    .page inside it has a definite height to size its own height:100% against. */
@@ -1102,6 +1225,19 @@ body.theme-aurora .workspace {
      table's own .sheet-wrap scrolling internally. Hard-disabling it here
      forces any horizontal overflow to be caught below, at .sheet-wrap. */
   overflow-x: hidden;
+}
+.page::-webkit-scrollbar {
+  width: 10px;
+}
+.page::-webkit-scrollbar-track {
+  background: transparent;
+}
+.page::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: var(--radius-pill);
+}
+.page::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.13);
 }
 @keyframes page-in {
   from {
@@ -1531,6 +1667,21 @@ body.theme-aurora button.primary:hover:not(:disabled) {
 body.theme-aurora button.primary:active:not(:disabled) {
   background: #9de0f3;
 }
+/* Paper theme: solid fill in the sidebar's own teal-green (not a pale tint)
+   so every primary button reads as the same accent colour as the sidebar —
+   dark fill needs white text for contrast. */
+body.theme-paper button.primary {
+  background: var(--indigo-600);
+  color: #fff;
+  border-color: transparent;
+}
+body.theme-paper button.primary:hover:not(:disabled) {
+  background: var(--indigo-700);
+  border-color: transparent;
+}
+body.theme-paper button.primary:active:not(:disabled) {
+  background: var(--indigo-700);
+}
 
 button.ghost {
   border-color: transparent;
@@ -1540,6 +1691,18 @@ button.ghost {
 }
 button.ghost:hover:not(:disabled) {
   background: var(--surface-2);
+  color: var(--text);
+}
+/* Paper theme: give secondary actions a visible outline instead of a
+   borderless ghost, matching the reference dashboard's outline-pill
+   secondary buttons (Import Data, etc). */
+body.theme-paper button.ghost {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+body.theme-paper button.ghost:hover:not(:disabled) {
+  background: var(--indigo-50);
+  border-color: var(--indigo-500);
   color: var(--text);
 }
 
@@ -1884,6 +2047,10 @@ button.upload-btn {
 .todo-dates {
   font-size: 12px;
   color: var(--muted);
+}
+.todo-dates .badge {
+  margin-left: 8px;
+  vertical-align: middle;
 }
 .reminder-works {
   list-style: none;
@@ -2854,6 +3021,26 @@ button.upload-btn {
   gap: 16px;
   margin: 18px 0 4px;
 }
+/* EE offices show only the one Intimation tile — auto-fill still reserves
+   empty grid tracks beside it, pinning it to the left. Center it instead. */
+.wo-tiles-single {
+  display: flex;
+  justify-content: center;
+}
+
+/* Issue Notices: tiles grouped by NIT No. */
+.notice-nit-group {
+  margin-top: 22px;
+}
+.notice-nit-group:first-of-type {
+  margin-top: 8px;
+}
+.notice-nit-group .wo-tiles {
+  margin-top: 8px;
+}
+.wo-tiles-single .wo-tile {
+  flex: 0 1 260px;
+}
 .wo-tile {
   display: flex;
   flex-direction: column;
@@ -2930,6 +3117,16 @@ body.theme-aurora .wo-tile-open {
   font-weight: 650;
   color: var(--text);
   text-align: center;
+}
+.wo-tile-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+.wo-tile-actions .ghost.small {
+  padding: 4px 10px;
+  font-size: 12.5px;
 }
 
 /* ---------- work order & agreement: expanded modal ---------- */
@@ -3757,7 +3954,8 @@ textarea:placeholder-shown {
 .gps-table-wrap::-webkit-scrollbar,
 .ns-preview-scroll::-webkit-scrollbar,
 .tender-preview-scroll::-webkit-scrollbar,
-.tender-wincode-list::-webkit-scrollbar {
+.tender-wincode-list::-webkit-scrollbar,
+.ov-mf-tiles::-webkit-scrollbar {
   width: 8px;
 }
 .docx-editor-canvas::-webkit-scrollbar-track,
@@ -3767,7 +3965,8 @@ textarea:placeholder-shown {
 .gps-table-wrap::-webkit-scrollbar-track,
 .ns-preview-scroll::-webkit-scrollbar-track,
 .tender-preview-scroll::-webkit-scrollbar-track,
-.tender-wincode-list::-webkit-scrollbar-track {
+.tender-wincode-list::-webkit-scrollbar-track,
+.ov-mf-tiles::-webkit-scrollbar-track {
   background: transparent;
   margin: 12px 0;
 }
@@ -3778,7 +3977,8 @@ textarea:placeholder-shown {
 .gps-table-wrap::-webkit-scrollbar-thumb,
 .ns-preview-scroll::-webkit-scrollbar-thumb,
 .tender-preview-scroll::-webkit-scrollbar-thumb,
-.tender-wincode-list::-webkit-scrollbar-thumb {
+.tender-wincode-list::-webkit-scrollbar-thumb,
+.ov-mf-tiles::-webkit-scrollbar-thumb {
   background: var(--border-strong);
   border-radius: var(--radius-pill);
 }
@@ -3789,7 +3989,8 @@ textarea:placeholder-shown {
 .gps-table-wrap::-webkit-scrollbar-thumb:hover,
 .ns-preview-scroll::-webkit-scrollbar-thumb:hover,
 .tender-preview-scroll::-webkit-scrollbar-thumb:hover,
-.tender-wincode-list::-webkit-scrollbar-thumb:hover {
+.tender-wincode-list::-webkit-scrollbar-thumb:hover,
+.ov-mf-tiles::-webkit-scrollbar-thumb:hover {
   background: var(--muted);
 }
 .tender-modal h3 {
@@ -4505,6 +4706,14 @@ body.theme-aurora .gen-output-modes .seg.active {
   background: linear-gradient(180deg, #ddf4fb, #c3ecf9);
   color: #063f5c;
 }
+body.theme-paper .gen-output-modes .seg:hover {
+  border-color: var(--indigo-500);
+}
+body.theme-paper .gen-output-modes .seg.active {
+  border-color: transparent;
+  background: var(--indigo-600);
+  color: #fff;
+}
 /* Typed-in party-agency details for the 3rd/4th-party QC letters. */
 .gen-party-fields {
   display: flex;
@@ -4553,7 +4762,7 @@ body.theme-aurora .gen-output-modes .seg.active {
 }
 .qcp > summary {
   cursor: pointer;
-  padding: 12px 16px;
+  padding: 14px 16px;
   font-weight: 600;
   font-size: 14px;
   color: var(--text);
@@ -4798,14 +5007,24 @@ body.theme-aurora .gen-output-modes .seg.active {
   --tone-a: var(--sky-500);
   --tone-b: #5fcbfa;
 }
-/* Cement & Steel Rates workspace: drop the blurred corner-glare blobs
-   entirely and fill the tile with one flat sky tint instead — a solid color
-   reads calmer here than a hue gradient across plain rate-circular tiles. */
-.cement-steel-workspace .doc-tile-card.tone-sky {
-  background: color-mix(in srgb, var(--sky-500) 10%, var(--surface));
+/* Cement & Steel Rates workspace, and the Tools tab tile grid (same flat
+   look, applied to every tone there — see below): drop the blurred
+   corner-glare blobs entirely and fill the tile with one flat tint instead
+   — a solid color reads calmer here than a hue gradient across plain
+   rate-circular/tool tiles. Green (--ok), not sky/cyan, to match the
+   sidebar's tricolour green band. */
+.cement-steel-workspace .doc-tile-card.tone-green {
+  background: color-mix(in srgb, var(--ok) 10%, var(--surface));
 }
-.cement-steel-workspace .doc-tile-card.tone-sky::before,
-.cement-steel-workspace .doc-tile-card.tone-sky::after {
+.cement-steel-workspace .doc-tile-card.tone-green::before,
+.cement-steel-workspace .doc-tile-card.tone-green::after {
+  display: none;
+}
+.tools-grid .doc-tile-card {
+  background: color-mix(in srgb, var(--tone-a) 10%, var(--surface));
+}
+.tools-grid .doc-tile-card::before,
+.tools-grid .doc-tile-card::after {
   display: none;
 }
 .doc-tile-card.tone-rose {
@@ -4847,6 +5066,21 @@ body.theme-aurora .gen-output-modes .seg.active {
 body.theme-aurora .doc-tile-card::before,
 body.theme-aurora .doc-tile-card::after {
   display: none;
+}
+
+/* Paper — same corner-blob + inset-shine glare read as glossy against this
+   theme's flat/matte SaaS-dashboard look (Tools tiles and Issue Documents
+   tiles both use .doc-tile-card), so drop both here too. */
+body.theme-paper .doc-tile-card::before,
+body.theme-paper .doc-tile-card::after {
+  display: none;
+}
+body.theme-paper .doc-tile-card {
+  box-shadow: var(--shadow-md);
+}
+body.theme-paper .doc-tile-card:hover {
+  box-shadow: var(--shadow-lg);
+  border-color: var(--border);
 }
 
 /* ---------- Upload Photos: numbered, draggable photo tiles ---------- */
@@ -6352,6 +6586,14 @@ tr.on .rp-box span {
   flex-direction: column;
   flex: 0 1 auto;
   min-height: 860px;
+}
+/* The min-height above is sized for the search bar + table + footer — but
+   it's on this outer card, which stays mounted (just its content
+   conditionally rendered) when collapsed, so without this override
+   collapsing left the card's full-height blank box behind instead of
+   shrinking to just the header. */
+.sheet-inline.is-collapsed {
+  min-height: 0;
 }
 .sheet-inline .sheet-wrap {
   max-width: 100%;
@@ -10016,20 +10258,14 @@ body.theme-aurora .pdf-ws-page.on {
   transform: rotate(45deg);
 }
 .ov-stat-hero {
-  background: linear-gradient(150deg, var(--indigo-600), var(--indigo-700));
-  border-color: transparent;
-  color: #fff;
+  background: var(--green-bg);
 }
 .ov-stat-hero .ov-stat-top {
-  color: rgba(255, 255, 255, 0.85);
   font-size: 15px;
 }
 .ov-stat-hero b {
   font-size: 38px;
-}
-.ov-stat-hero .ov-stat-sub {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 14px;
+  color: var(--indigo-700);
 }
 .ov-stat-warn b {
   color: var(--danger);
@@ -10173,6 +10409,24 @@ body.theme-aurora .pdf-ws-page.on {
 }
 
 /* Monitoring Format status — donut + icon tiles */
+/* Works Status and Type of Work side by side in one row — each card shrinks
+   (min-width:0, same as .ov-card) to fit its half instead of the two
+   stacking full-width one above the other; wraps to stacked only once a
+   half genuinely can't fit (narrow window). */
+.ov-mf-row {
+  display: flex;
+  /* stretch (not flex-start): Works Status and Type of Work must match
+     height as pair even when their content (header badge, tile count)
+     differs, instead of each card only as tall as its own content. */
+  align-items: stretch;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.ov-mf-row > .ov-card {
+  flex: 1 1 420px;
+  margin-bottom: 0;
+}
 .ov-mf-status {
   margin-bottom: 20px;
 }
@@ -10180,6 +10434,19 @@ body.theme-aurora .pdf-ws-page.on {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.ov-ward-status-select {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--indigo-700);
+  background: var(--indigo-50);
+  border: 1px solid var(--indigo-100);
+  border-radius: var(--radius-pill);
+  padding: 6px 10px;
+  cursor: pointer;
 }
 .ov-mf-titles h3 {
   margin: 0;
@@ -10189,8 +10456,14 @@ body.theme-aurora .pdf-ws-page.on {
 }
 .ov-mf-body {
   display: flex;
-  align-items: center;
-  gap: 32px;
+  flex: 1;
+  /* stretch (not flex-start): the tiles column must fill the card's full
+     stretched height (matched to its row partner) so it uses the empty
+     space below instead of leaving a gap — the donut column's own content
+     still sits at its natural top position regardless, since column-axis
+     justify-content stays flex-start. */
+  align-items: stretch;
+  gap: 20px;
   flex-wrap: wrap;
 }
 .ov-mf-donut-col {
@@ -10201,8 +10474,8 @@ body.theme-aurora .pdf-ws-page.on {
 }
 .ov-mf-donut-wrap {
   position: relative;
-  width: 150px;
-  height: 150px;
+  width: 120px;
+  height: 120px;
   flex: none;
   margin: 4px auto;
 }
@@ -10213,18 +10486,65 @@ body.theme-aurora .pdf-ws-page.on {
   transition: stroke-dasharray 0.5s var(--ease), stroke-dashoffset 0.5s var(--ease);
 }
 .ov-mf-tiles {
-  flex: 1 1 420px;
+  flex: 1 1 220px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(150px, 1fr));
-  gap: 12px;
+  /* auto-fill (not a fixed repeat(2, …)) so short labels like "CC Roads"
+     pack several narrower tiles per row instead of each one stretching to
+     half the card's width regardless of how little text it holds. 170px
+     floor (not 100px) — below that the 21px bucket count + % pill + "Rs.
+     …" amount line don't fit the icon tile's text column and wrap onto
+     each other, cramped/scrambled instead of compact. */
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  /* min-content, not the "auto" default: each tile has overflow:hidden,
+     which per the grid spec gives it an automatic minimum size of 0 — so
+     when this grid is height-capped (.ov-mf-row .ov-mf-tiles below), rows
+     get crushed to fit instead of scrolling, clipping every tile down to
+     its label line with the rest of the text cut off. min-content floors
+     each row at its tile's natural height so the cap scrolls instead. */
+  grid-auto-rows: min-content;
+  gap: 10px;
+}
+/* Works Status (fixed 6 buckets, ~2 rows) and Type of Work (however many
+   work types the office has, often many more rows) sit side by side in
+   .ov-mf-row — without a shared cap, Type of Work grows far taller and the
+   row of two cards looks lopsided instead of like one uniform pair. Capping
+   both at the same ~2-row height and scrolling the overflow keeps them a
+   matched pair regardless of how many work types there are. */
+.ov-mf-row .ov-mf-tiles {
+  max-height: 172px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+/* Works Status only: fixed-width tiles, centered as a row — with the grid's
+   auto-fill 1fr columns above, a partial last row (e.g. 5 tiles over 3
+   columns) left the 2 leftover tiles flush left with a ragged gap on the
+   right instead of sitting centered like a complete row, uneven next to
+   the fully-packed rows above it. */
+.ov-mf-status .ov-mf-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  /* align-content flex-start (not the flex-wrap default stretch): fixed 6
+     buckets rarely fill the row's stretched height (matched to Type of
+     Work's taller card), so the lines must sit at the top with the
+     leftover space below instead of stretching to fill it. Overriding the
+     shared max-height/overflow cap the same way: Works Status never has
+     enough buckets to need a scrollbar, so let it grow with the card. */
+  align-content: flex-start;
+  max-height: none;
+  overflow-y: visible;
+  flex: 1;
+}
+.ov-mf-status .ov-mf-tile {
+  flex: 0 1 170px;
 }
 .ov-mf-tile {
   --tile-color: var(--indigo-500);
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 8px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--tile-color) 7%, var(--surface-2));
@@ -10277,11 +10597,16 @@ body.theme-aurora .pdf-ws-page.on {
   color: var(--text-2);
   text-transform: uppercase;
   letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 .ov-mf-tile-nums {
   display: flex;
   align-items: baseline;
   gap: 7px;
+  flex-wrap: nowrap;
 }
 .ov-mf-tile-no {
   font-size: 21px;
@@ -10299,6 +10624,10 @@ body.theme-aurora .pdf-ws-page.on {
 .ov-mf-tile-amt {
   font-size: 11.5px;
   color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 .ov-mf-tile-busy {
   cursor: default;
@@ -10321,24 +10650,18 @@ body.theme-aurora .pdf-ws-page.on {
   color: var(--ok);
 }
 
-/* Type of Work — same donut+tiles layout as Monitoring Format Works Status */
-.ov-wt-status {
-  margin-bottom: 20px;
-}
-.ov-wt-tile {
-  cursor: default;
-}
-.ov-wt-tile:hover {
-  transform: none;
-  box-shadow: none;
-}
-.ov-wt-tile-dot {
-  flex: none;
-  width: 12px;
-  height: 12px;
-  margin-top: 3px;
-  border-radius: 50%;
-  background: var(--tile-color);
+/* Ward/Circle Wise — paired with Works Status in the same .ov-mf-row, same
+   donut+tiles anatomy so the two read as one matched set instead of two
+   different visual languages side by side. The shared .ov-mf-row/.ov-mf-tiles
+   rules above give it the same capped height automatically. */
+/* Works Status overrides the shared 172px cap to none so it grows with the
+   card (see .ov-mf-status .ov-mf-tiles above) — Ward Wise never got the same
+   override, so with only 4 wards it kept clipping the 2nd row even though
+   the card is already stretched taller to match Works Status, leaving that
+   extra height unused below the cut-off tile. overflow-y stays auto (from
+   the shared rule) as a fallback for offices with many more wards. */
+.ov-ward-status .ov-mf-tiles {
+  max-height: none;
 }
 
 /* Task Progress donut */
@@ -10414,12 +10737,22 @@ body.theme-aurora .pdf-ws-page.on {
 /* Monitoring Format card (Works List page) */
 .mf-card {
   margin-top: 16px;
+  /* Matches .sheet-inline: padding lives on .card-head (collapsed height)
+     and .mf-body (open content) instead of the outer .card's flat 20px,
+     which otherwise stayed on the box even collapsed size (with
+     .card-head's own content hidden) taller than the other two cards
+     on this page. */
+  padding: 0;
 }
 .mf-card .card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  padding: 14px 14px 14px;
+  margin-bottom: 0;
+}
+.mf-body {
+  padding: 0 14px 14px;
 }
 .mf-card .card-head h3 {
   margin: 0;
@@ -10451,37 +10784,103 @@ body.theme-aurora .pdf-ws-page.on {
   font-size: 12.5px;
   color: var(--muted);
 }
-.mf-table {
+/* Work-status buckets (Total/Completed/In Progress/…) as compact cards in a
+   single row — flex:1 on each shrinks them together to fit the row instead
+   of wrapping or scrolling, since there's always exactly 7 of them. */
+.mf-stats {
+  display: flex;
+  gap: 6px;
+}
+.mf-stat {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  text-align: center;
 }
-.mf-row {
-  display: grid;
-  grid-template-columns: 1.4fr 0.8fr 1fr;
-  gap: 8px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
-}
-.mf-row:last-child {
-  border-bottom: none;
-}
-.mf-head {
+.mf-stat-label {
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--muted);
-  font-size: 11.5px;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding-top: 0;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.mf-stat-no {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.mf-stat-amt {
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* Weather card */
+.ov-weather-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 4px;
+  text-align: center;
+}
+.ov-weather-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+}
+.ov-weather-temp {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.ov-weather-desc {
+  font-size: 13px;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.ov-weather-meta {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+  width: 100%;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.ov-weather-meta li:first-child {
+  grid-column: 1 / -1;
+  font-weight: 650;
+  color: var(--text);
 }
 
 /* Cement & Steel promo card */
 .ov-promo {
   width: 100%;
   font: inherit;
-  background: linear-gradient(150deg, var(--indigo-700), #0c2a14);
+  background: var(--green-bg);
   border-radius: var(--radius);
   padding: 20px;
-  color: #fff;
+  color: var(--text);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -10494,14 +10893,15 @@ body.theme-aurora .pdf-ws-page.on {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: #fff;
+  color: var(--text);
 }
 .ov-promo-badge {
   font-size: 10.5px;
   font-weight: 700;
   padding: 3px 8px;
   border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--indigo-100);
+  color: var(--indigo-700);
 }
 .ov-promo-title {
   margin: 8px 0 0;
@@ -10511,13 +10911,13 @@ body.theme-aurora .pdf-ws-page.on {
 .ov-promo-sub {
   margin: 0;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--muted);
 }
 .ov-promo-btn {
   margin-top: 10px;
   align-self: center;
-  background: #fff;
-  color: var(--indigo-700);
+  background: var(--indigo-600);
+  color: #fff;
   border: none;
   border-radius: var(--radius-pill);
   padding: 7px 16px;
@@ -10526,7 +10926,7 @@ body.theme-aurora .pdf-ws-page.on {
   cursor: pointer;
 }
 button.ov-promo:hover:not(:disabled) {
-  background: linear-gradient(150deg, var(--indigo-700), #0c2a14);
+  background: var(--surface-2);
   border-color: transparent;
 }
 
@@ -10541,26 +10941,27 @@ button.ov-promo:hover:not(:disabled) {
   }
 }
 
-/* Paper theme — Overview Dashboard: keeps the app's normal stacked layout
-   (KPI row, then the full-width Monitoring Format / Type of Work cards, then
-   the 3-column .ov-grid) rather than remixing cards into a custom grid — an
-   earlier attempt to mimic a reference SaaS dashboard's mixed grid put the
-   tall donut+tiles cards in the same row as short list cards, which left
-   huge uneven gaps. Only the flat/solid visual treatment below is
-   theme-specific. */
-body.theme-paper .overview-dashboard {
-  max-width: 1180px;
-  margin: 0 auto;
-}
+/* Paper theme — Overview Dashboard: keeps the app's normal stacked, full-width
+   layout (KPI row, then the full-width Monitoring Format / Type of Work
+   cards, then the 3-column .ov-grid) rather than remixing cards into a
+   custom grid — an earlier attempt to mimic a reference SaaS dashboard's
+   mixed grid put the tall donut+tiles cards in the same row as short list
+   cards, which left huge uneven gaps. A max-width cap here previously left
+   large blank margins on both sides of the workspace; removed so Paper
+   matches Default's full-width dashboard. Only the flat/solid visual
+   treatment below is theme-specific. */
 
-/* Flat cards everywhere in the dashboard: hairline border, no shadow, a
-   bigger radius than the rest of the app to match the reference's rounder
-   tiles. */
+/* Floating cards everywhere in the dashboard: soft shadow, a faint border,
+   a bigger radius than the rest of the app to match the reference's
+   rounder, elevated tiles. */
 body.theme-paper .card,
 body.theme-paper .ov-card {
-  box-shadow: none;
-  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  border: 1px solid rgba(15, 23, 42, 0.05);
   border-radius: 20px;
+}
+body.theme-paper .card:hover {
+  box-shadow: var(--shadow-lg);
 }
 
 /* KPI row: hero tile gets a solid accent fill (the reference's "Total
@@ -10601,61 +11002,20 @@ body.theme-paper .ov-stat-sub {
   font-weight: 650;
   white-space: normal;
 }
-/* Light parrot-green fill needs dark text, not white — white on a light
-   background like this fails contrast, unlike the reference's dark-green
-   tile. */
-body.theme-paper .ov-stat-hero {
-  background: var(--indigo-600);
-  border-color: transparent;
-  color: var(--text);
-}
-body.theme-paper .ov-stat-hero .ov-stat-top {
-  color: rgba(20, 38, 30, 0.65);
-}
 body.theme-paper .ov-stat-hero b {
-  color: var(--text);
   font-size: 34px;
-}
-body.theme-paper .ov-stat-hero::after {
-  background: rgba(255, 255, 255, 0.45);
-  border-color: rgba(20, 38, 30, 0.2);
-  color: var(--text);
-}
-body.theme-paper .ov-stat-hero .ov-stat-sub {
-  background: rgba(255, 255, 255, 0.45);
-  color: var(--indigo-700);
 }
 body.theme-paper .ov-stat-warn .ov-stat-sub {
   background: var(--danger-bg);
   color: var(--danger);
 }
-
-/* Reminders becomes the reference's solid accent tile (its "Meeting with
-   Arc Company" panel) instead of a plain white card. */
-body.theme-paper .ov-reminder {
-  background: var(--indigo-600);
-  border: none;
-}
-body.theme-paper .ov-reminder h3 {
-  color: var(--text);
-}
-body.theme-paper .ov-reminder-title {
-  color: var(--text);
-}
-body.theme-paper .ov-reminder-date {
-  color: rgba(20, 38, 30, 0.65);
-}
-body.theme-paper .ov-reminder .empty p {
-  color: rgba(20, 38, 30, 0.65);
-}
-body.theme-paper .ov-reminder-btn {
-  background: rgba(255, 255, 255, 0.5);
-  color: var(--indigo-700);
-  border-radius: 999px;
-  border: none;
-}
-body.theme-paper .ov-reminder-btn:hover {
-  background: rgba(255, 255, 255, 0.7);
+/* The "Next deadline" card's sub-label is free-text (a date or a long
+   "Bid closing…" phrase), so a rounded-oval pill clips awkwardly — give it
+   a plain box instead, unlike the other three KPI cards' short pill chips. */
+body.theme-paper .ov-stat-nextdeadline .ov-stat-sub {
+  display: block;
+  border-radius: 8px;
+  width: 100%;
 }
 
 /* Task icon bubbles pick up a soft accent tint instead of the plain
@@ -10724,16 +11084,16 @@ body.theme-paper .ov-progress-bar::after {
   transition: width 0.4s var(--ease);
 }
 
-/* Monitoring Format / Type of Work tile rows get a real bar-chart under each
-   row (track + fill sized to the tile's own share of the total, via the
-   --tile-pct variable set inline per tile) instead of just a number — turns
-   the plain list into an actual infographic in this flat theme. */
-body.theme-paper .ov-mf-tile,
-body.theme-paper .ov-wt-tile {
+/* Monitoring Format tile rows get a real bar-chart under each row (track +
+   fill sized to the tile's own share of the total, via the --tile-pct
+   variable set inline per tile) instead of just a number — turns the plain
+   list into an actual infographic in this flat theme. Ward Wise cards
+   deliberately don't get this — they match the KPI "Total works" stat card's
+   plain label/number/sub layout instead. */
+body.theme-paper .ov-mf-tile {
   padding-bottom: 20px;
 }
-body.theme-paper .ov-mf-tile::after,
-body.theme-paper .ov-wt-tile::after {
+body.theme-paper .ov-mf-tile::after {
   content: '';
   position: absolute;
   left: 14px;
@@ -10748,28 +11108,3 @@ body.theme-paper .ov-wt-tile::after {
   );
 }
 
-/* Cement & Steel promo becomes the reference's dark "Time Tracker" tile —
-   near-black instead of an accent color, so it reads as the deck's one
-   deliberately different, attention-grabbing tile. */
-body.theme-paper .ov-promo {
-  background: var(--indigo-700);
-  border: none;
-}
-body.theme-paper .ov-promo-title,
-body.theme-paper .ov-promo-head {
-  color: #fff;
-}
-body.theme-paper .ov-promo-sub {
-  color: rgba(255, 255, 255, 0.7);
-}
-body.theme-paper .ov-promo-btn {
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
-}
-body.theme-paper button.ov-promo:hover:not(:disabled) {
-  background: #0b1a14;
-}
-body.theme-paper .ov-promo-badge {
-  background: var(--indigo-500);
-  color: #fff;
-}

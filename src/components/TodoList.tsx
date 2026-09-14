@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { IconPlus, IconTrash, IconCheck, IconEdit, IconRestore } from './Icons'
+import { IconPlus, IconTrash, IconCheck, IconEdit, IconRestore, IconRefresh, IconChevronRight, IconWarn } from './Icons'
 import type { TodoItem } from '@core/types'
 
 interface Props {
@@ -35,10 +35,17 @@ export default function TodoList({ todos, onChange }: Props) {
   // The task currently being edited inline, and its working text. null = none.
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
-  const [showBin, setShowBin] = useState(false)
+  // Behaves like a tab group: at most one section is shown at a time, mirroring
+  // the MB Scrutiny register's Pending/Done/Bin layout.
+  const [activeTab, setActiveTab] = useState<'pending' | 'done' | 'bin' | null>('pending')
 
-  const visible = useMemo(
-    () => todos.filter((t) => !t.deletedAt && (!t.done || t.completedDate === today)),
+  function toggleTab(tab: 'pending' | 'done' | 'bin') {
+    setActiveTab((cur) => (cur === tab ? null : tab))
+  }
+
+  const pendingItems = useMemo(() => todos.filter((t) => !t.deletedAt && !t.done), [todos])
+  const doneTodayItems = useMemo(
+    () => todos.filter((t) => !t.deletedAt && t.done && t.completedDate === today),
     [todos, today]
   )
   const binned = useMemo(
@@ -102,117 +109,179 @@ export default function TodoList({ todos, onChange }: Props) {
     onChange(todos.map((t) => (t.id === id ? { ...t, deletedAt: undefined } : t)))
   }
 
+  function renderRow(t: TodoItem) {
+    const overdue = !t.done && !!t.targetDate && t.targetDate < today
+    return (
+      <li key={t.id} className={`todo-item mb-item ${t.done ? 'done' : ''}`}>
+        <input
+          type="checkbox"
+          className="todo-checkbox"
+          checked={t.done}
+          title={t.done ? 'Reopen' : 'Mark done'}
+          onChange={() => toggleDone(t.id)}
+        />
+        <div className="todo-body">
+          {editingId === t.id ? (
+            <input
+              className="todo-edit-input"
+              value={editText}
+              autoFocus
+              onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitEdit()
+                else if (e.key === 'Escape') cancelEdit()
+              }}
+              onBlur={commitEdit}
+            />
+          ) : (
+            <span className="todo-text">{t.text}</span>
+          )}
+          <span className="todo-dates">
+            Added {formatDDMMYYYY(t.createdDate)}
+            {t.targetDate && ` · Target ${formatDDMMYYYY(t.targetDate)}`}
+            {t.done && t.completedDate && ` · Completed ${formatDDMMYYYY(t.completedDate)}`}
+            {overdue && (
+              <span className="badge err">
+                <IconWarn /> Overdue
+              </span>
+            )}
+          </span>
+        </div>
+        {!t.done && (
+          <label className="mb-row-date">
+            <span>Target</span>
+            <input
+              type="date"
+              className="todo-target-input"
+              value={t.targetDate}
+              onChange={(e) => setItemTarget(t.id, e.target.value)}
+              title="Target completion date"
+            />
+          </label>
+        )}
+        {editingId === t.id ? (
+          <button className="ghost" title="Save" onClick={commitEdit}>
+            <IconCheck />
+          </button>
+        ) : (
+          <button className="ghost" title="Edit task" onClick={() => startEdit(t)}>
+            <IconEdit />
+          </button>
+        )}
+        <button className="danger-ghost" title="Move to Bin" onClick={() => moveToBin(t.id)}>
+          <IconTrash />
+          Bin
+        </button>
+      </li>
+    )
+  }
+
   return (
-    <div className="card">
-      <div className="todo-add">
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && addItem()}
-          placeholder="Add a task…"
-        />
-        <input
-          type="date"
-          value={targetDate}
-          onChange={(e) => setTargetDate(e.target.value)}
-          title="Target completion date"
-        />
+    <div className="card mb-card">
+      <div className="mb-add">
+        <label className="mb-field mb-field-grow">
+          <span>Task</span>
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addItem()}
+            placeholder="Add a task…"
+          />
+        </label>
+        <label className="mb-field">
+          <span>Target date</span>
+          <input
+            type="date"
+            value={targetDate}
+            onChange={(e) => setTargetDate(e.target.value)}
+            title="Target completion date"
+          />
+        </label>
         <button className="primary" onClick={addItem}>
           <IconPlus /> Add
         </button>
       </div>
 
-      <div className="mb-tabs">
-        <button className={`mb-tab tone-bin ${showBin ? 'open' : ''}`} onClick={() => setShowBin((v) => !v)}>
-          <span className="mb-section-ic">
-            <IconTrash />
-          </span>
-          <span className="mb-tab-label">Bin</span>
-          <span className="mb-section-count">{binned.length}</span>
-        </button>
-      </div>
-
-      {showBin ? (
-        binned.length === 0 ? (
-          <p className="mb-section-empty">The Bin is empty.</p>
-        ) : (
-          <ul className="todo-list">
-            {binned.map((t) => (
-              <li key={t.id} className="todo-item mb-item-binned">
-                <div className="todo-body">
-                  <span className="todo-text">{t.text}</span>
-                  <span className="todo-dates">
-                    Added {formatDDMMYYYY(t.createdDate)}
-                    {t.deletedAt && ` · Moved to Bin ${formatDDMMYYYY(t.deletedAt.slice(0, 10))}`}
-                  </span>
-                </div>
-                <button className="ghost" title="Restore" onClick={() => restoreItem(t.id)}>
-                  <IconRestore />
-                  Restore
-                </button>
-              </li>
-            ))}
-          </ul>
-        )
-      ) : visible.length === 0 ? (
+      {todos.length === 0 ? (
         <div className="empty">
           <IconCheck />
           <p>Nothing to do — add a task above.</p>
         </div>
       ) : (
-        <ul className="todo-list">
-          {visible.map((t) => (
-            <li key={t.id} className={`todo-item ${t.done ? 'done' : ''}`}>
-              <input
-                type="checkbox"
-                className="todo-checkbox"
-                checked={t.done}
-                onChange={() => toggleDone(t.id)}
-              />
-              <div className="todo-body">
-                {editingId === t.id ? (
-                  <input
-                    className="todo-edit-input"
-                    value={editText}
-                    autoFocus
-                    onChange={(e) => setEditText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitEdit()
-                      else if (e.key === 'Escape') cancelEdit()
-                    }}
-                    onBlur={commitEdit}
-                  />
-                ) : (
-                  <span className="todo-text">{t.text}</span>
-                )}
-                <span className="todo-dates">
-                  Added {formatDDMMYYYY(t.createdDate)}
-                  {t.targetDate && ` · Target ${formatDDMMYYYY(t.targetDate)}`}
-                </span>
-              </div>
-              <input
-                type="date"
-                className="todo-target-input"
-                value={t.targetDate}
-                onChange={(e) => setItemTarget(t.id, e.target.value)}
-                title="Target completion date"
-              />
-              {editingId === t.id ? (
-                <button className="ghost" title="Save" onClick={commitEdit}>
-                  <IconCheck />
-                </button>
-              ) : (
-                <button className="ghost" title="Edit task" onClick={() => startEdit(t)}>
-                  <IconEdit />
-                </button>
-              )}
-              <button className="danger-ghost" title="Move to Bin" onClick={() => moveToBin(t.id)}>
+        <>
+          <div className="mb-tabs">
+            <button
+              className={`mb-tab tone-pending ${activeTab === 'pending' ? 'open' : ''}`}
+              onClick={() => toggleTab('pending')}
+            >
+              <span className="mb-section-ic">
+                <IconRefresh />
+              </span>
+              <span className="mb-tab-label">Pending</span>
+              <span className="mb-section-count">{pendingItems.length}</span>
+              <IconChevronRight className="mb-tab-chevron" />
+            </button>
+            <button
+              className={`mb-tab tone-done ${activeTab === 'done' ? 'open' : ''}`}
+              onClick={() => toggleTab('done')}
+            >
+              <span className="mb-section-ic">
+                <IconCheck />
+              </span>
+              <span className="mb-tab-label">Done today</span>
+              <span className="mb-section-count">{doneTodayItems.length}</span>
+              <IconChevronRight className="mb-tab-chevron" />
+            </button>
+            <button
+              className={`mb-tab tone-bin ${activeTab === 'bin' ? 'open' : ''}`}
+              onClick={() => toggleTab('bin')}
+            >
+              <span className="mb-section-ic">
                 <IconTrash />
-                Bin
-              </button>
-            </li>
-          ))}
-        </ul>
+              </span>
+              <span className="mb-tab-label">Bin</span>
+              <span className="mb-section-count">{binned.length}</span>
+              <IconChevronRight className="mb-tab-chevron" />
+            </button>
+          </div>
+
+          {activeTab === 'pending' &&
+            (pendingItems.length === 0 ? (
+              <p className="mb-section-empty">Nothing pending — every task is done.</p>
+            ) : (
+              <ul className="todo-list mb-section">{pendingItems.map(renderRow)}</ul>
+            ))}
+
+          {activeTab === 'done' &&
+            (doneTodayItems.length === 0 ? (
+              <p className="mb-section-empty">Nothing marked done today yet.</p>
+            ) : (
+              <ul className="todo-list mb-section">{doneTodayItems.map(renderRow)}</ul>
+            ))}
+
+          {activeTab === 'bin' &&
+            (binned.length === 0 ? (
+              <p className="mb-section-empty">The Bin is empty.</p>
+            ) : (
+              <ul className="todo-list mb-section">
+                {binned.map((t) => (
+                  <li key={t.id} className="todo-item mb-item mb-item-binned">
+                    <div className="todo-body">
+                      <span className="todo-text">{t.text}</span>
+                      <span className="todo-dates">
+                        Added {formatDDMMYYYY(t.createdDate)}
+                        {t.deletedAt && ` · Moved to Bin ${formatDDMMYYYY(t.deletedAt.slice(0, 10))}`}
+                      </span>
+                    </div>
+                    <button className="ghost" title="Restore" onClick={() => restoreItem(t.id)}>
+                      <IconRestore />
+                      Restore
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ))}
+        </>
       )}
     </div>
   )

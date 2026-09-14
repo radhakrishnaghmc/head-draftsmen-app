@@ -57,6 +57,36 @@ interface Props {
    * Settings and switch back. Toggling true re-triggers that read.
    */
   active?: boolean
+  /**
+   * Fired right after the Intimation/LOA is actually issued (downloaded or
+   * printed, main doc or the "Download all" bundle) — App.tsx turns this into
+   * a pre-filled Issue Notices tile, so the office never has to re-upload the
+   * same Online Intimation/L1 sheet to prepare the Non-conclusion Notice.
+   * Omits id/officeKey/done/deletedAt/manual (App.tsx owns those — it also
+   * dedupes against an existing tile for the same work instead of adding a
+   * second one).
+   */
+  onIntimationIssued?: (snapshot: IntimationIssuedSnapshot) => void
+}
+
+/** See `onIntimationIssued` above. */
+export interface IntimationIssuedSnapshot {
+  seMode: boolean
+  zone?: string
+  circle?: string
+  cno?: string
+  corporation?: string
+  agencyName?: string
+  address?: string
+  workName?: string
+  nitNo?: string
+  nitDate?: string
+  itemNo?: string
+  ecvRupees?: number
+  contractRupees?: number
+  tenderPercentage?: number
+  /** Seeds the Notice's "LOA Date" field — the same value already shown as this Intimation/LOA's own date (pdf.serverDate, falling back to the hand-typed one). */
+  loaDateSeed?: string
 }
 
 /** The Intimation letter (or SE LOA) plus its 4 SE companion notes — each shown as a tile that expands into the preview modal, same layout as the Agreement page's document tiles. */
@@ -430,7 +460,7 @@ function notice_nitNo(pdf: TenderEvaluation, row: Record<string, string>): strin
  * docx-preview of the filled letter with Word / PDF / Print. (Note Submitted
  * lives on the Agreement & Work Order tab.)
  */
-export default function GiveIntimationTab({ tables, onChange, office, headerActionRef, active }: Props) {
+export default function GiveIntimationTab({ tables, onChange, office, headerActionRef, active, onIntimationIssued }: Props) {
   const table = tables[0] ?? null
 
   // Whether headerActionRef's DOM node is actually mounted yet — reading
@@ -711,6 +741,52 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     if (!templateB64) throw new Error('Intimation format not loaded yet.')
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
     return api.fillPlaceholdersInDocument(templateB64, resolved, values)
+  }
+
+  /**
+   * Snapshots everything the Non-conclusion Notice needs, straight off the
+   * same sources (and the same fallback order) resolveLoaValue/
+   * resolveIntimationValue just used to fill the Intimation/LOA itself — so
+   * the two documents always agree. Called right after the Intimation is
+   * actually issued (see the 3 call sites below). Returns null when there's
+   * nothing meaningful to notice yet (no agency, no work).
+   */
+  function buildNoticeSnapshot(): IntimationIssuedSnapshot | null {
+    const n = effectiveNotice ?? {}
+    const p = pdfEval ?? {}
+    const row = detailsRow
+    const agencyName = n.agencyName ?? p.l1AgencyName ?? row['Name of the Agency'] ?? ''
+    const workName = stripItemNoTag(p.nameOfWork || row['Name of the work'] || '')
+    if (!agencyName || !workName) return null
+    const ecv = n.ecvRupees ?? p.ecvRupees ?? computeWorkAmounts(row).ecv ?? undefined
+    const tenderPercentage = p.tenderPercentage ?? parsePct(tenderPercentFromRow(row)) ?? undefined
+    const contractRupees =
+      n.contractRupees ??
+      p.contractRupees ??
+      (ecv != null && tenderPercentage != null ? ecv * (1 - tenderPercentage / 100) : undefined)
+    return {
+      seMode,
+      zone: office.zone || row['Zone'] || undefined,
+      circle: office.circle || row['Circle'] || undefined,
+      cno: office.circleNumber || row['CNO'] || undefined,
+      corporation: office.corporation || row['Corporation'] || undefined,
+      agencyName,
+      address: n.address ?? row['Address of the agency'] ?? undefined,
+      workName,
+      nitNo: n.nitNo ?? p.noticeNo ?? row['Tender Notice No'] ?? undefined,
+      nitDate: n.nitDate ?? p.noticeDate ?? undefined,
+      itemNo: seMode ? manual.itemNo || undefined : undefined,
+      ecvRupees: ecv ?? undefined,
+      contractRupees: contractRupees ?? undefined,
+      tenderPercentage: tenderPercentage ?? undefined,
+      loaDateSeed: p.serverDate || manual.loaDate || undefined
+    }
+  }
+
+  function notifyIntimationIssued() {
+    if (!onIntimationIssued) return
+    const snapshot = buildNoticeSnapshot()
+    if (snapshot) onIntimationIssued(snapshot)
   }
 
   // The uploaded L1 form's work matched no Works List row. The letter takes its
@@ -1027,6 +1103,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       } else {
         setActionSaved(`Saved ${res.written.length} document(s) to the chosen folder.`)
       }
+      if (res) notifyIntimationIssued()
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -1134,6 +1211,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       const name = `${seMode ? 'Letter of Acceptance' : 'Intimation'}${agencyName ? ` - ${agencyName}` : ''}`
       const res = await api.exportCreatedDocument(filled, name, formats)
       setActionSaved(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
+      if (res && res.length > 0) notifyIntimationIssued()
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -1150,6 +1228,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       if (!container) throw new Error('Print failed to initialize.')
       await renderDocPreview(base64ToUint8(filled), container)
       await api.printCreatedDocument(container.innerHTML)
+      notifyIntimationIssued()
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -1542,7 +1621,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
 
           {!headerMounted && downloadAllButton}
 
-          <div className="wo-tiles">
+          <div className={`wo-tiles${seMode && seDocsReady ? '' : ' wo-tiles-single'}`}>
             <button className="wo-tile" onClick={() => openDoc('intimation')}>
               <div className="wo-tile-preview">
                 <div ref={previewRef} className="wo-tile-doc" />

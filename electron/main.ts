@@ -68,6 +68,8 @@ import { splitDocxByPageBreaks } from '../core/splitDocx'
 import { ocrGpsOverlay } from './gpsOcr'
 import { fetchCementSteelRates, downloadCementSteelRateBuffer } from './cementSteelRates'
 import type { CementSteelRate } from '../core/cementSteelRates'
+import { fetchWeather } from './weather'
+import type { WeatherSnapshot } from '../core/weather'
 import { sanitizeDocxForWord2007 } from '../core/word2007Compat'
 import {
   listParagraphs,
@@ -852,6 +854,17 @@ function registerHandlers(): void {
     return ocrGpsOverlay(Buffer.from(imageBytes))
   })
 
+  // Dashboard Weather card — cached in memory per city for a few minutes so
+  // repeated dashboard visits don't re-hit OpenWeatherMap every time.
+  const weatherCache = new Map<string, { snapshot: WeatherSnapshot; expiresAt: number }>()
+  ipcMain.handle(IPC.fetchWeather, async (_e, apiKey: string, city: string): Promise<WeatherSnapshot> => {
+    const cached = weatherCache.get(city)
+    if (cached && cached.expiresAt > Date.now()) return cached.snapshot
+    const snapshot = await fetchWeather(apiKey, city)
+    weatherCache.set(city, { snapshot, expiresAt: Date.now() + 10 * 60 * 1000 })
+    return snapshot
+  })
+
   // Cement & Steel Rates tool — list circulars from the Public Health
   // department's Downloads page, and save one via its short-lived token.
   ipcMain.handle(IPC.fetchCementSteelRates, async (): Promise<CementSteelRate[]> => {
@@ -1432,8 +1445,9 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  ipcMain.handle(IPC.issueNoticeTemplate, async (_e, ee: boolean): Promise<string> => {
-    const file = ee ? 'issue-notice-ee-template.docx' : 'issue-notice-template.docx'
+  ipcMain.handle(IPC.issueNoticeTemplate, async (_e, ee: boolean, version?: 1 | 2): Promise<string> => {
+    const suffix = version === 2 ? '-2' : ''
+    const file = ee ? `issue-notice-ee-template${suffix}.docx` : `issue-notice-template${suffix}.docx`
     const templatePath = bundledResourceFile(file)
     if (!templatePath) throw new Error('Notice format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')

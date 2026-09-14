@@ -283,7 +283,7 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
   const onDelete = useCallback((ri: number) => handlersRef.current.deleteRow(ri), [])
 
   return (
-    <section className="card sheet-inline">
+    <section className={`card sheet-inline ${open ? '' : 'is-collapsed'}`}>
       <div className="card-head">
         <button
           type="button"

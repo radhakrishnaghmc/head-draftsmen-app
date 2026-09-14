@@ -144,3 +144,43 @@ export function parseCalendarHtml(htmlText: string, year = '2026'): CalendarData
 
   return { year, months, fetchedAt: new Date().toISOString() }
 }
+
+function isSunday(year: number, mi: number, day: number): boolean {
+  return new Date(year, mi, day).getDay() === 0
+}
+
+function isSecondSaturday(year: number, mi: number, day: number): boolean {
+  return new Date(year, mi, day).getDay() === 6 && day >= 8 && day <= 14
+}
+
+/**
+ * The date `n` working days after `anchorISO` (anchor itself = day 0). Same
+ * counting rule as the Dashboard's tender-day calendar: every day is counted,
+ * including Sundays/2nd-Saturdays/public holidays, except that day `n` itself
+ * (the answer) may not land on one of those non-working days — if it would,
+ * it rolls forward to the next working day. `calendarByYear` supplies public
+ * holidays for whichever year(s) the window touches; a year with no entry
+ * just has no public holidays subtracted (a safe degrade — this is only ever
+ * shown as an editable suggestion).
+ */
+export function nthWorkingDay(anchorISO: string, n: number, calendarByYear: Map<number, CalendarData>): string {
+  const anchor = new Date(`${anchorISO}T00:00:00`)
+  let d = new Date(anchor)
+  let count = 0
+  while (count < n) {
+    d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)
+    const data = calendarByYear.get(d.getFullYear())
+    const hol = data ? holidaysByDay(data, d.getMonth()) : undefined
+    const isNonWorking =
+      hol?.get(d.getDate())?.type === 'public' ||
+      isSunday(d.getFullYear(), d.getMonth(), d.getDate()) ||
+      isSecondSaturday(d.getFullYear(), d.getMonth(), d.getDate())
+    // Earlier days count regardless of type; only the final day rolls forward.
+    if (count === n - 1 && isNonWorking) continue
+    count++
+  }
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}

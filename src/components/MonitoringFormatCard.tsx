@@ -133,7 +133,7 @@ export default function MonitoringFormatCard({
         )}
       </div>
       {open && (
-        <>
+        <div className="mf-body">
           <div className="link-import-row mf-link-row">
             <IconLink />
             <input
@@ -161,12 +161,7 @@ export default function MonitoringFormatCard({
                 {monitoringFormat.officeLabel}
                 {monitoringFormat.asOfDate ? ` · As of ${monitoringFormat.asOfDate}` : ''}
               </p>
-              <div className="mf-table">
-                <div className="mf-row mf-head">
-                  <span>Status</span>
-                  <span>No.</span>
-                  <span>Amount</span>
-                </div>
+              <div className="mf-stats">
                 {(
                   [
                     ['Total Works', monitoringFormat.totals.totalWorks],
@@ -178,16 +173,16 @@ export default function MonitoringFormatCard({
                     ['Cancelled', monitoringFormat.totals.cancelled]
                   ] as const
                 ).map(([label, bucket]) => (
-                  <div key={label} className="mf-row">
-                    <span>{label}</span>
-                    <span>{bucket.no}</span>
-                    <span>{indianDigitGroups(bucket.amt)}</span>
+                  <div key={label} className="mf-stat">
+                    <span className="mf-stat-label">{label}</span>
+                    <span className="mf-stat-no">{bucket.no}</span>
+                    <span className="mf-stat-amt">{indianDigitGroups(bucket.amt)}</span>
                   </div>
                 ))}
               </div>
             </>
           )}
-        </>
+        </div>
       )}
     </div>
   )

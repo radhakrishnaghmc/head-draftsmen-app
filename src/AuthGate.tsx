@@ -85,15 +85,11 @@ export default function AuthGate() {
       onLogout={() => {
         void api.logout()
         sessionStorage.removeItem(SESSION_KEY)
-        // Office is scoped per login, not per machine: a shared machine can see
-        // different people log in, each with their own office, so the outgoing
-        // user's office must not leak into the next login. Clear it locally and
-        // drop back to "not ready" so the fallback effect re-fires on the next
-        // login and resolves THAT user's own saved office (or asks fresh if
-        // they don't have one yet) instead of reusing what's still in memory.
-        saveOffice({})
-        setOfficeState({})
-        setOfficeReady(false)
+        // Office is a property of this machine's Head Draughtsman, not of the
+        // login session (see office.ts) — keep it in localStorage across
+        // logout so it, and everything scoped to it (Document Templates,
+        // Themes, per-office Works List/To Do), is still there on the next
+        // login instead of resetting to defaults.
         setAuthed(false)
       }}
     />

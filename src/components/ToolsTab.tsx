@@ -21,7 +21,6 @@ import { closeOnBackdropMouseDown } from '../overlayClose'
 
 // Tones cycled across the document tiles so the row of blank-form tiles reads
 // like the rest of the frosted-glass grid.
-const DOC_TILE_TONES = ['tone-teal', 'tone-amber', 'tone-sky', 'tone-rose', 'tone-green']
 
 // What a document tile can do with its blank form: send to the printer, or save
 // as Word / PDF ('docx' | 'pdf' match exportCreatedDocument's format union).
@@ -240,7 +239,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
   return (
     <div className="card">
       <div className="doc-tile-grid tools-grid">
-        <button className="doc-tile-card tone-teal tool-card" onClick={() => openFullPage('excel')}>
+        <button className="doc-tile-card tone-green tool-card" onClick={() => openFullPage('excel')}>
           <span className="tool-card-ic">
             <IconTable />
           </span>
@@ -251,7 +250,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
           </span>
         </button>
 
-        <button className="doc-tile-card tone-sky tool-card" onClick={() => openFullPage('pdf')}>
+        <button className="doc-tile-card tone-green tool-card" onClick={() => openFullPage('pdf')}>
           <span className="tool-card-ic">
             <IconDoc />
           </span>
@@ -262,7 +261,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
           </span>
         </button>
 
-        <button className="doc-tile-card tone-rose tool-card" onClick={() => openFullPage('word')}>
+        <button className="doc-tile-card tone-green tool-card" onClick={() => openFullPage('word')}>
           <span className="tool-card-ic">
             <IconDoc />
           </span>
@@ -273,7 +272,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
           </span>
         </button>
 
-        <button className="doc-tile-card tone-amber tool-card" onClick={() => openFullPage('photosToPdf')}>
+        <button className="doc-tile-card tone-green tool-card" onClick={() => openFullPage('photosToPdf')}>
           <span className="tool-card-ic">
             <IconDoc />
           </span>
@@ -284,7 +283,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
           </span>
         </button>
 
-        <button className="doc-tile-card tone-sky tool-card" onClick={() => openFullPage('photosToDoc')}>
+        <button className="doc-tile-card tone-green tool-card" onClick={() => openFullPage('photosToDoc')}>
           <span className="tool-card-ic">
             <IconDoc />
           </span>
@@ -306,7 +305,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
           </span>
         </button>
 
-        <button className="doc-tile-card tone-amber tool-card" onClick={() => openFullPage('photos')}>
+        <button className="doc-tile-card tone-green tool-card" onClick={() => openFullPage('photos')}>
           <span className="tool-card-ic">
             <IconImage />
           </span>
@@ -317,7 +316,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
           </span>
         </button>
 
-        <button className="doc-tile-card tone-sky tool-card" onClick={() => openFullPage('workOrder')}>
+        <button className="doc-tile-card tone-green tool-card" onClick={() => openFullPage('workOrder')}>
           <span className="tool-card-ic">
             <IconClipboard />
           </span>
@@ -328,7 +327,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
           </span>
         </button>
 
-        <button className="doc-tile-card tone-sky tool-card" onClick={() => openFullPage('agreement')}>
+        <button className="doc-tile-card tone-green tool-card" onClick={() => openFullPage('agreement')}>
           <span className="tool-card-ic">
             <IconClipboard />
           </span>
@@ -339,7 +338,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
           </span>
         </button>
 
-        <button className="doc-tile-card tone-rose tool-card" onClick={() => openFullPage('intimation')}>
+        <button className="doc-tile-card tone-green tool-card" onClick={() => openFullPage('intimation')}>
           <span className="tool-card-ic">
             <IconBell />
           </span>
@@ -350,7 +349,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
           </span>
         </button>
 
-        <button className="doc-tile-card tone-sky tool-card" onClick={() => openFullPage('scheduleA')}>
+        <button className="doc-tile-card tone-green tool-card" onClick={() => openFullPage('scheduleA')}>
           <span className="tool-card-ic">
             <IconTable />
           </span>
@@ -379,7 +378,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
         {documents.map((doc, i) => (
           <div
             key={doc.id}
-            className={`doc-tile-card ${DOC_TILE_TONES[i % DOC_TILE_TONES.length]} tool-card doc-blank-card${
+            className={`doc-tile-card tone-green tool-card doc-blank-card${
               printingId === doc.id ? ' busy' : ''
             }`}
             title={doc.name}

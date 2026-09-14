@@ -63,14 +63,17 @@ export interface MonitoringFormatSummary {
   /** The sheet's own bottom "Total" row — every tile on the Dashboard is built from this. */
   totals: MonitoringFormatRow
   /**
-   * The same Abstract sheet's second pivot, one row per ward instead of per
-   * item type (each row's `itemType` field holds the ward's name/label) —
-   * undefined when the sheet doesn't have one, so callers can tell "no ward
-   * block on this sheet" apart from "block present but happens to be empty".
+   * The same Abstract sheet's second pivot, one row per ward (a circle-level
+   * sheet) or per circle (a zone-level sheet) instead of per item type (each
+   * row's `itemType` field holds the group's name/label) — undefined when
+   * the sheet doesn't have one, so callers can tell "no second block on this
+   * sheet" apart from "block present but happens to be empty".
    */
   wardRows?: MonitoringFormatRow[]
-  /** The ward-wise block's own bottom "Total" row, mirroring `totals` for item type. */
+  /** The second block's own bottom "Total" row, mirroring `totals` for item type. */
   wardTotals?: MonitoringFormatRow
+  /** Which grouping `wardRows`/`wardTotals` actually holds, read off the block's own header cell. Undefined when there's no second block. */
+  wardPivotKind?: 'ward' | 'circle'
 }
 
 const ZERO_BUCKET: MonitoringFormatBucket = { no: 0, amt: 0 }
@@ -173,9 +176,12 @@ function parseAbstractBlock(
   searchFrom: number,
   headerLabel: string
 ): { rows: MonitoringFormatRow[]; totals: MonitoringFormatRow; endIdx: number } | null {
+  // startsWith, not ===: real workbooks label the ward block "Ward Name and
+  // number" rather than a bare "Ward", so an exact match silently missed it
+  // and the ward-wise pivot never got parsed.
   let headerRowIdx = -1
   for (let i = searchFrom; i < grid.length; i++) {
-    if ((grid[i][COLS.itemType] || '').trim().toLowerCase() === headerLabel) {
+    if ((grid[i][COLS.itemType] || '').trim().toLowerCase().startsWith(headerLabel)) {
       headerRowIdx = i
       break
     }
@@ -227,7 +233,12 @@ export function parseMonitoringFormatSheet(sheet: SheetGrid): MonitoringFormatSu
   if (!itemBlock) {
     throw new Error(`"${sheet.sheetName}" doesn't look like a Monitoring Format sheet (no "Item type" header row found).`)
   }
+  // A zone-level sheet's second pivot breaks down by circle, not ward (a
+  // zone has no wards of its own) — try both header labels rather than
+  // assuming which one the sheet has.
   const wardBlock = parseAbstractBlock(grid, itemBlock.endIdx, 'ward')
+  const circleBlock = wardBlock ? undefined : parseAbstractBlock(grid, itemBlock.endIdx, 'circle')
+  const secondBlock = wardBlock || circleBlock
 
   const { office, date } = readLabelledValues(grid)
 
@@ -237,8 +248,9 @@ export function parseMonitoringFormatSheet(sheet: SheetGrid): MonitoringFormatSu
     asOfDate: date,
     rows: itemBlock.rows,
     totals: itemBlock.totals,
-    wardRows: wardBlock?.rows,
-    wardTotals: wardBlock?.totals
+    wardRows: secondBlock?.rows,
+    wardTotals: secondBlock?.totals,
+    wardPivotKind: wardBlock ? 'ward' : circleBlock ? 'circle' : undefined
   }
 }
 
@@ -423,4 +435,25 @@ export function filterMonitoringFormatWorksByStatus(
   key: MfStatusKey
 ): MonitoringFormatWorkRow[] {
   return works.filter((w) => w.statusKey === key)
+}
+
+/** Strips a ward/circle pivot row's leading number (e.g. "276-Pragathi Nagar") so it can be matched against the work-list sheet's own ward/circle cell, which often carries just the name. */
+function normalizeWardLabel(s: string): string {
+  return s.trim().toLowerCase().replace(/^\d+\s*[-.]?\s*/, '')
+}
+
+/** Works matching one Ward Wise / Circle Wise tile — matched by name, not exact equality, since the pivot's row label and the work-list sheet's own ward/circle cell don't always carry the same number prefix. An optional status key further narrows to that ward's works in one status (Dashboard's Ward Wise "Status" filter). */
+export function filterMonitoringFormatWorksByWard(
+  works: MonitoringFormatWorkRow[],
+  wardLabel: string,
+  pivotKind: 'ward' | 'circle',
+  statusKey?: MfStatusKey | null
+): MonitoringFormatWorkRow[] {
+  const target = normalizeWardLabel(wardLabel)
+  if (!target) return []
+  return works.filter((w) => {
+    const value = normalizeWardLabel(pivotKind === 'circle' ? w.circle : w.ward)
+    if (value === '' || !(value === target || target.includes(value) || value.includes(target))) return false
+    return !statusKey || w.statusKey === statusKey
+  })
 }

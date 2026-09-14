@@ -499,4 +499,14 @@ describe('Contract Amount / Tender Percentage from an OCR-read (rasterized, no t
     expect(r.contractRupees).toBe(246858.75)
     expect(r.l1AgencyName).toBe('gmastanreddy')
   })
+
+  it('also reads the Tender ID when OCR glues it straight onto its label with no space ("Tender ID722274")', () => {
+    const r = parseTenderEvaluation(OCR_LINES)
+    expect(r.tenderId).toBe('722274')
+  })
+
+  it('also reads the NIT date when OCR wraps it mid-date, with the Tender ID/Notice Number labels landing in the gap ("Dt.27- Tender ID722274 Notice Number 07-2026")', () => {
+    const r = parseTenderEvaluation(OCR_LINES)
+    expect(r.noticeDate).toBe('27-07-2026')
+  })
 })

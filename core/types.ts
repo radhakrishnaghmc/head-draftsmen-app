@@ -2,6 +2,7 @@
 // No Electron/DOM imports here so this module can be reused in a future web app.
 
 import type { MonitoringFormatSummary, MonitoringFormatWorkRow } from './monitoringFormat'
+import type { IssueNoticeManualFields } from './issueNotice'
 
 /** A query against the Telangana e-procurement tender listing. */
 export interface TenderQuery {
@@ -137,6 +138,47 @@ export interface TenderReminder {
   createdDate: string
   /** The office (key: "Corporation|Zone|Circle") this reminder was added under — like the Works List/To Do, so switching offices doesn't show another office's reminders. Absent on reminders created before per-office scoping. */
   officeKey?: string
+}
+
+/**
+ * A "Notice for Non-conclusion of Agreement" waiting to be issued — captured
+ * automatically the moment an Intimation/LOA is issued (Give Intimation tab),
+ * so the office never has to re-upload the same Online Intimation/L1 sheet a
+ * second time. Also created manually (the Issue Notices tab's own upload
+ * flow) for a Notice that didn't originate from an Intimation issued here.
+ * Fills whichever bundled template (`issue-notice-template.docx` for a
+ * Zone-level SE office, `issue-notice-ee-template.docx` for a Circle-level EE
+ * office) matches `seMode`, via `issueNoticePlaceholders` in core/issueNotice.ts.
+ */
+export interface PendingNoticeItem {
+  id: string
+  /** The office (key: "Corporation|Zone|Circle") this Notice was captured under — like Works List/To Do. */
+  officeKey?: string
+  /** Zone-level (SE) office vs Circle-level (EE) office — picks the bundled template. */
+  seMode: boolean
+  zone?: string
+  circle?: string
+  cno?: string
+  corporation?: string
+  agencyName?: string
+  address?: string
+  workName?: string
+  nitNo?: string
+  nitDate?: string
+  itemNo?: string
+  ecvRupees?: number
+  contractRupees?: number
+  tenderPercentage?: number
+  /** ISO date (YYYY-MM-DD) the Intimation/LOA this Notice follows up on was issued. */
+  intimationDate: string
+  /** Which bundled format to fill — 2 also prints the Intimation/LOA's own Lr.No/Date near the "To" block (same {{LOA No}}/{{LOA Date}} as Ref 2) plus a "Gentleman," salutation. Defaults to 1 when absent. */
+  templateVersion?: 1 | 2
+  /** Hand-typed/suggested fields the tile still shows for edit — LOA No is never derivable (hand-written on the physical register after printing), LOA Date and Notice Date start pre-filled but stay editable. */
+  manual: IssueNoticeManualFields
+  /** Agreement concluded / Notice handled — hides it from the active tile grid. */
+  done: boolean
+  /** Bin pattern, same as TodoItem/MBScrutinyItem — soft-deleted rather than dropped outright. */
+  deletedAt?: string
 }
 
 /**
@@ -298,6 +340,7 @@ export interface PersistedState {
   seededDocVersion?: number
   bidDocumentBatches?: BidDocumentBatch[]
   mbScrutiny?: MBScrutinyItem[]
+  pendingNotices?: PendingNoticeItem[]
   /**
    * The Monitoring Format summary (Works List progress table) remembered per
    * office (key: "Corporation|Zone|Circle"), imported once from the office's

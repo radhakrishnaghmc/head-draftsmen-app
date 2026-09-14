@@ -115,7 +115,8 @@ export const TEMPLATE_KEYS = {
   agreement: 'hda-template-agreement',
   intimation: 'hda-template-intimation',
   fileBacker: 'hda-template-file-backer',
-  civilTender: 'hda-template-civil-tender'
+  civilTender: 'hda-template-civil-tender',
+  notice: 'hda-template-notice'
 } as const
 
 /**

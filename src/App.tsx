@@ -38,7 +38,7 @@ import GoogleLinkImport from './components/GoogleLinkImport'
 import WorksListL1Update from './components/WorksListL1Update'
 import EstimateWorkspaceTab from './components/EstimateWorkspaceTab'
 import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
-import GiveIntimationTab from './components/GiveIntimationTab'
+import GiveIntimationTab, { type IntimationIssuedSnapshot } from './components/GiveIntimationTab'
 import EvaluationSheetTab from './components/EvaluationSheetTab'
 import WorkOrderAgreementTab from './components/WorkOrderAgreementTab'
 import IssueNoticesTab from './components/IssueNoticesTab'
@@ -84,12 +84,15 @@ import type {
   CreatedDocument,
   BidDocumentBatch,
   BidDocumentWork,
-  QcOfficeParties
+  QcOfficeParties,
+  PendingNoticeItem
 } from '@core/types'
 import type { CalendarData } from '@core/calendar'
+import { nthWorkingDay } from '@core/calendar'
 import type { MonitoringFormatSummary, MonitoringFormatWorkRow, MfStatusKey } from '@core/monitoringFormat'
 import {
   filterMonitoringFormatWorksByStatus,
+  filterMonitoringFormatWorksByWard,
   extractMonitoringFormatForOffice,
   extractMonitoringFormatWorksForOffice
 } from '@core/monitoringFormat'
@@ -355,6 +358,10 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   const [refreshSummary, setRefreshSummary] = useState<string | null>(null)
   const [tenderReminders, setTenderReminders] = useState<TenderReminder[]>([])
   const [refreshingReminderId, setRefreshingReminderId] = useState<string | null>(null)
+  // Auto-prepared "Notice for Non-conclusion of Agreement" tiles — one is
+  // created/updated the moment an Intimation/LOA is issued (see
+  // handleIntimationIssued below), so Issue Notices never needs a re-upload.
+  const [pendingNotices, setPendingNotices] = useState<PendingNoticeItem[]>([])
   // The raw, unbaked templates (office placeholders like {{circle}} still intact)
   // — the source of truth that persists. `bakedDocuments` derives from these with
   // the *current* office stamped in, recomputed whenever the office changes so a
@@ -582,6 +589,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
           setMonitoringFormatWorksByOffice(s.monitoringFormatWorksByOffice ?? {})
           setMonitoringFormatLinks(s.monitoringFormatLinks ?? {})
           setTenderReminders((s.tenderReminders ?? []).map(migrateTenderReminder))
+          setPendingNotices(s.pendingNotices ?? [])
           setCreatedDocuments(s.createdDocuments ?? [])
           setSeededDocVersion(s.seededDocVersion ?? 0)
           setBidDocumentBatches(s.bidDocumentBatches ?? [])
@@ -640,6 +648,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
         setMonitoringFormatWorksByOffice((prev) => ({ ...prev, ...partial.monitoringFormatWorksByOffice }))
       if (partial.monitoringFormatLinks) setMonitoringFormatLinks(partial.monitoringFormatLinks)
       if (partial.tenderReminders) setTenderReminders(partial.tenderReminders.map(migrateTenderReminder))
+      if (partial.pendingNotices) setPendingNotices(partial.pendingNotices)
       if (partial.createdDocuments) setCreatedDocuments(partial.createdDocuments)
       if (partial.seededDocVersion !== undefined) setSeededDocVersion(partial.seededDocVersion)
       if (partial.bidDocumentBatches) setBidDocumentBatches(partial.bidDocumentBatches)
@@ -696,6 +705,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
           monitoringFormatWorksByOffice,
           monitoringFormatLinks,
           tenderReminders,
+          pendingNotices,
           createdDocuments,
           seededDocVersion,
           bidDocumentBatches,
@@ -726,6 +736,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     monitoringFormatWorksByOffice,
     monitoringFormatLinks,
     tenderReminders,
+    pendingNotices,
     createdDocuments,
     seededDocVersion,
     bidDocumentBatches,
@@ -744,8 +755,16 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // Tender reminders, same per-office scoping — otherwise a reminder added
   // under one office keeps showing under every other office switched to.
   const officeTenderReminders = tenderReminders.filter((r) => (r.officeKey ?? '') === currentOfficeKey)
+  // Pending Non-conclusion Notices, same per-office scoping.
+  const officePendingNotices = pendingNotices.filter((n) => (n.officeKey ?? '') === currentOfficeKey)
   // Short label of the office these per-office lists are scoped to, for the page header.
   const officeLabel = office.circle || office.zone || ''
+  function setOfficePendingNotices(next: PendingNoticeItem[]) {
+    const stamped = currentOfficeKey
+      ? next.map((n) => (n.officeKey ? n : { ...n, officeKey: currentOfficeKey }))
+      : next
+    setPendingNotices([...pendingNotices.filter((n) => (n.officeKey ?? '') !== currentOfficeKey), ...stamped])
+  }
   function setOfficeTodos(next: TodoItem[]) {
     const stamped = currentOfficeKey
       ? next.map((t) => (t.officeKey ? t : { ...t, officeKey: currentOfficeKey }))
@@ -834,6 +853,54 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       .replace(/\s+/g, ' ')
       .trim()
     const savedPath = await api.exportTable({ id: 'mf-status-works', name: label, path: '', headers, rows }, fileName)
+    return savedPath != null
+  }
+  async function exportMonitoringFormatWardWorks(
+    wardLabel: string,
+    pivotKind: 'ward' | 'circle',
+    statusKey?: MfStatusKey | null,
+    statusLabel?: string | null
+  ): Promise<boolean> {
+    let works = currentOfficeKey ? monitoringFormatWorksByOffice[currentOfficeKey] : undefined
+    if (!works && currentOfficeKey) {
+      const link = monitoringFormatLinks[currentOfficeKey]
+      if (!link) return false
+      try {
+        const sheets = await api.importAllSheetsFromLink(link)
+        works = extractMonitoringFormatWorksForOffice(sheets, office)
+        setOfficeMonitoringFormat(extractMonitoringFormatForOffice(sheets, office), works)
+      } catch {
+        return false
+      }
+    }
+    if (!works) return false
+    const matches = filterMonitoringFormatWorksByWard(works, wardLabel, pivotKind, statusKey)
+    const headers = [
+      'Sl.No',
+      'Circle',
+      'Ward',
+      'Name of Work',
+      'Type of Work',
+      'Estimate (Rs. Lakhs)',
+      'Agency Details',
+      'Target Date',
+      'Status'
+    ]
+    const rows = matches.map((w) => ({
+      'Sl.No': w.slNo,
+      Circle: w.circle,
+      Ward: w.ward,
+      'Name of Work': w.workName,
+      'Type of Work': w.typeOfWork,
+      'Estimate (Rs. Lakhs)': String(w.estimateAmt),
+      'Agency Details': w.agencyDetails,
+      'Target Date': w.targetDate,
+      Status: w.status
+    }))
+    const fileName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} ${wardLabel} ${statusLabel || ''} works list`
+      .replace(/\s+/g, ' ')
+      .trim()
+    const savedPath = await api.exportTable({ id: 'mf-ward-works', name: wardLabel, path: '', headers, rows }, fileName)
     return savedPath != null
   }
   function saveMonitoringFormatLink(url: string) {
@@ -1112,6 +1179,64 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     setTenderReminders((prev) => prev.filter((r) => r.id !== id))
   }
 
+  // Called the moment an Intimation/LOA is actually issued (download/print/
+  // bundle) — prepares (or refreshes) this work's Non-conclusion Notice tile
+  // in Issue Notices, so the office never has to re-upload the same files.
+  // Matches an existing *active* item for the same work first (so repeated
+  // downloads of the same Intimation update it in place instead of piling up
+  // duplicate tiles); only creates a new one when nothing matches.
+  function handleIntimationIssued(snapshot: IntimationIssuedSnapshot) {
+    const d = new Date()
+    const intimationDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const calendarByYear = new Map(calendar ? [[Number(calendar.year), calendar]] : [])
+    const noticeDateIso = nthWorkingDay(intimationDate, 8, calendarByYear)
+    const [ny, nm, nday] = noticeDateIso.split('-')
+    const noticeDate = `${nday}.${nm}.${ny}`
+
+    setPendingNotices((prev) => {
+      const idx = prev.findIndex(
+        (n) =>
+          !n.deletedAt &&
+          (n.officeKey ?? '') === currentOfficeKey &&
+          (snapshot.nitNo && n.nitNo
+            ? n.nitNo === snapshot.nitNo && n.agencyName === snapshot.agencyName
+            : n.workName === snapshot.workName && n.agencyName === snapshot.agencyName)
+      )
+      if (idx !== -1) {
+        const existing = prev[idx]
+        const next = [...prev]
+        next[idx] = {
+          ...existing,
+          ...snapshot,
+          manual: { ...existing.manual, loaDate: snapshot.loaDateSeed || existing.manual.loaDate }
+        }
+        return next
+      }
+      const item: PendingNoticeItem = {
+        id: `notice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        officeKey: currentOfficeKey || undefined,
+        seMode: snapshot.seMode,
+        zone: snapshot.zone,
+        circle: snapshot.circle,
+        cno: snapshot.cno,
+        corporation: snapshot.corporation,
+        agencyName: snapshot.agencyName,
+        address: snapshot.address,
+        workName: snapshot.workName,
+        nitNo: snapshot.nitNo,
+        nitDate: snapshot.nitDate,
+        itemNo: snapshot.itemNo,
+        ecvRupees: snapshot.ecvRupees,
+        contractRupees: snapshot.contractRupees,
+        tenderPercentage: snapshot.tenderPercentage,
+        intimationDate,
+        manual: { loaNo: '', loaDate: snapshot.loaDateSeed || '', noticeDate, agencyPhone: '' },
+        done: false
+      }
+      return [...prev, item]
+    })
+  }
+
   function addBidBatch(batch: BidDocumentBatch) {
     setBidDocumentBatches((prev) => [...prev, currentOfficeKey ? { ...batch, officeKey: currentOfficeKey } : batch])
   }
@@ -1300,7 +1425,6 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
               </div>
               <div className="page-head-text">
                 <h1>Dashboard</h1>
-                <p>Plan, prioritize, and accomplish your tasks with ease.</p>
               </div>
               <div className="page-head-action">
                 <button className="primary" onClick={() => setTab('todo')}>
@@ -1320,6 +1444,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
               cementSteelHasNew={cementSteelHasNew}
               onNavigate={setTab}
               onExportStatusWorks={exportMonitoringFormatStatusWorks}
+              onExportWardWorks={exportMonitoringFormatWardWorks}
             />
           </section>
         </KeepAlive>
@@ -1618,6 +1743,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                 onChange={updateTable}
                 office={office}
                 headerActionRef={intimationHeaderActionRef}
+                onIntimationIssued={handleIntimationIssued}
               />
             ) : (
               <EvaluationSheetTab key={evaluationInstanceKey} office={office} />
@@ -1677,7 +1803,12 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                 </button>
               </div>
             </div>
-            <IssueNoticesTab key={issueNoticesInstanceKey} office={office} />
+            <IssueNoticesTab
+              key={issueNoticesInstanceKey}
+              office={office}
+              items={officePendingNotices}
+              onChange={setOfficePendingNotices}
+            />
           </section>
         </KeepAlive>
 

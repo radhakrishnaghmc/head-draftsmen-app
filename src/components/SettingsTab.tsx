@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
-import { type Office, officeScopedKey, TEMPLATE_KEYS } from '../office'
+import { type Office, officeScopedKey, TEMPLATE_KEYS, isZoneOnlyOffice } from '../office'
 import { corporationByName } from '../zoneCircleDirectory'
 import {
   WORK_ORDER_TEMPLATE_VARIANTS,
@@ -24,6 +24,9 @@ import {
   type WorkOrderAgreementFields
 } from '@core/workOrderAgreement'
 import { intimationPlaceholders } from '@core/intimationFill'
+import { issueNoticePlaceholders, type IssueNoticeManualFields, type IssueNoticeOffice } from '@core/issueNotice'
+import type { IntimationNotice } from '@core/intimationNotice'
+import type { TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { MAX_CONCURRENT_SESSIONS } from '@core/sessionSlots'
 import { THEME_OPTIONS, type ThemeId } from '../theme'
 import type { ActiveSessionInfo } from '../../electron/ipc-contract'
@@ -89,6 +92,45 @@ function sampleFields(office: Office): WorkOrderAgreementFields {
 // stay blank the same way an unfilled document would show them.
 function civilTenderSettingsPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
   return civilTenderPlaceholders(f, {}, {})
+}
+
+// The Notice for Non-conclusion of Agreement (core/issueNotice.ts) takes a
+// notice/pdf/manual/office 4-way split — none of which is
+// WorkOrderAgreementFields — so this adapts the same sample fields every
+// other preview tile already uses into that shape.
+const NOTICE_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
+  { id: 'default', label: 'Notice template 1' },
+  { id: '2', label: 'Notice template 2' }
+]
+const DEFAULT_NOTICE_TEMPLATE_VARIANT = 'default'
+
+function noticeSettingsPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
+  const notice: IntimationNotice = {
+    agencyName: f.agencyName,
+    address: f.address,
+    ecvRupees: f.ecvRupees ? Number(f.ecvRupees) : undefined,
+    contractRupees: f.contractRupees ? Number(f.contractRupees) : undefined
+  }
+  const pdf: TenderEvaluation = {
+    nameOfWork: f.nameOfWork,
+    noticeNo: f.noticeNo,
+    noticeDate: f.noticeDate,
+    tenderPercentage: f.tenderPercent ? Number(f.tenderPercent) : undefined
+  }
+  const manual: IssueNoticeManualFields = {
+    loaNo: f.tenderId || '',
+    loaDate: f.intimationDate || '',
+    noticeDate: f.noticeDate || '',
+    agencyPhone: f.phone || ''
+  }
+  const office: IssueNoticeOffice = {
+    zone: f.zone,
+    circle: f.circle,
+    cno: f.cno,
+    corporation: f.corporation,
+    corporationFullName: f.corporationFullName
+  }
+  return issueNoticePlaceholders(notice, pdf, manual, office)
 }
 
 interface TemplateSectionProps {
@@ -507,14 +549,14 @@ export default function SettingsTab({ office, theme, onThemeChange }: Props) {
         </div>
 
         <TemplateSection
-          title="Work Order"
-          subtitle="Some circles word and lay out their own Work Order differently."
-          storageKey={officeScopedKey(TEMPLATE_KEYS.workOrder, office)}
-          variants={WORK_ORDER_TEMPLATE_VARIANTS}
-          defaultVariant={DEFAULT_WORK_ORDER_TEMPLATE_VARIANT}
+          title="File Backer"
+          subtitle="Some circles word and lay out their own File Backer cover page differently."
+          storageKey={officeScopedKey(TEMPLATE_KEYS.fileBacker, office)}
+          variants={FILE_BACKER_TEMPLATE_VARIANTS}
+          defaultVariant={DEFAULT_FILE_BACKER_TEMPLATE_VARIANT}
           fields={fields}
-          fetchTemplate={api.workOrderTemplate}
-          placeholders={workOrderPlaceholders}
+          fetchTemplate={api.fileBackerTemplate}
+          placeholders={fileBackerPlaceholders}
         />
 
         <TemplateSection
@@ -529,25 +571,14 @@ export default function SettingsTab({ office, theme, onThemeChange }: Props) {
         />
 
         <TemplateSection
-          title="Intimation"
-          subtitle="Some circles word and lay out their own Intimation letter differently."
-          storageKey={officeScopedKey(TEMPLATE_KEYS.intimation, office)}
-          variants={INTIMATION_TEMPLATE_VARIANTS}
-          defaultVariant={DEFAULT_INTIMATION_TEMPLATE_VARIANT}
+          title="Work Order"
+          subtitle="Some circles word and lay out their own Work Order differently."
+          storageKey={officeScopedKey(TEMPLATE_KEYS.workOrder, office)}
+          variants={WORK_ORDER_TEMPLATE_VARIANTS}
+          defaultVariant={DEFAULT_WORK_ORDER_TEMPLATE_VARIANT}
           fields={fields}
-          fetchTemplate={api.intimationTemplate}
-          placeholders={intimationPlaceholders}
-        />
-
-        <TemplateSection
-          title="File Backer"
-          subtitle="Some circles word and lay out their own File Backer cover page differently."
-          storageKey={officeScopedKey(TEMPLATE_KEYS.fileBacker, office)}
-          variants={FILE_BACKER_TEMPLATE_VARIANTS}
-          defaultVariant={DEFAULT_FILE_BACKER_TEMPLATE_VARIANT}
-          fields={fields}
-          fetchTemplate={api.fileBackerTemplate}
-          placeholders={fileBackerPlaceholders}
+          fetchTemplate={api.workOrderTemplate}
+          placeholders={workOrderPlaceholders}
         />
 
         <TemplateSection
@@ -559,6 +590,28 @@ export default function SettingsTab({ office, theme, onThemeChange }: Props) {
           fields={fields}
           fetchTemplate={api.civilTenderTemplate}
           placeholders={civilTenderSettingsPlaceholders}
+        />
+
+        <TemplateSection
+          title="Intimation"
+          subtitle="Some circles word and lay out their own Intimation letter differently."
+          storageKey={officeScopedKey(TEMPLATE_KEYS.intimation, office)}
+          variants={INTIMATION_TEMPLATE_VARIANTS}
+          defaultVariant={DEFAULT_INTIMATION_TEMPLATE_VARIANT}
+          fields={fields}
+          fetchTemplate={api.intimationTemplate}
+          placeholders={intimationPlaceholders}
+        />
+
+        <TemplateSection
+          title="Notice"
+          subtitle="Some circles word and lay out their own Notice for Non-conclusion of Agreement differently."
+          storageKey={officeScopedKey(TEMPLATE_KEYS.notice, office)}
+          variants={NOTICE_TEMPLATE_VARIANTS}
+          defaultVariant={DEFAULT_NOTICE_TEMPLATE_VARIANT}
+          fields={fields}
+          fetchTemplate={(variantId) => api.issueNoticeTemplate(!isZoneOnlyOffice(office), variantId === '2' ? 2 : 1)}
+          placeholders={noticeSettingsPlaceholders}
         />
       </div>
     </>

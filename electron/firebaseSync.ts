@@ -332,6 +332,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       monitoringFormatByOffice: m.monitoringFormatByOffice ?? undefined,
       monitoringFormatLinks: m.monitoringFormatLinks ?? {},
       tenderReminders: m.tenderReminders ?? [],
+      pendingNotices: m.pendingNotices ?? [],
       createdDocuments,
       bidDocumentBatches: m.bidDocumentBatches ?? [],
       mbScrutiny
@@ -396,6 +397,7 @@ function subscribeRemote(
         monitoringFormatByOffice: data.monitoringFormatByOffice ?? undefined,
         monitoringFormatLinks: data.monitoringFormatLinks ?? {},
         tenderReminders: data.tenderReminders ?? [],
+        pendingNotices: data.pendingNotices ?? [],
         bidDocumentBatches: data.bidDocumentBatches ?? []
       })
     })
@@ -514,6 +516,7 @@ export async function pushState(state: PersistedState): Promise<void> {
         monitoringFormatByOffice: state.monitoringFormatByOffice ?? {},
         monitoringFormatLinks: state.monitoringFormatLinks ?? {},
         tenderReminders: state.tenderReminders ?? [],
+        pendingNotices: state.pendingNotices ?? [],
         bidDocumentBatches: state.bidDocumentBatches ?? [],
         mbScrutiny: state.mbScrutiny ?? [],
         // Deliberately omitted (not written as null) when not yet chosen —

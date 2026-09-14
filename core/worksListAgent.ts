@@ -251,7 +251,8 @@ function findAbstractTallyMismatches(
 
 /**
  * Every Abstract-vs-list-of-works tally check: the per-item-type pivot
- * (always present), plus the per-ward pivot when the sheet has one.
+ * (always present), plus the per-ward or per-circle pivot when the sheet has
+ * one (a zone-level sheet's second pivot is per-circle, not per-ward).
  */
 export function findMonitoringFormatMismatches(
   summary: MonitoringFormatSummary,
@@ -259,7 +260,8 @@ export function findMonitoringFormatMismatches(
 ): WorksListViolation[] {
   const violations = findAbstractTallyMismatches(summary.rows, works, (w) => w.typeOfWork)
   if (summary.wardRows) {
-    violations.push(...findAbstractTallyMismatches(summary.wardRows, works, (w) => w.ward))
+    const groupOf = summary.wardPivotKind === 'circle' ? (w: MonitoringFormatWorkRow) => w.circle : (w: MonitoringFormatWorkRow) => w.ward
+    violations.push(...findAbstractTallyMismatches(summary.wardRows, works, groupOf))
   }
   return violations
 }

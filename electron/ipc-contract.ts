@@ -25,6 +25,7 @@ import type { EstimateWorkItem } from '../core/estimateExtract'
 import type { DetailedEstimateMeta } from '../core/estimateTemplate'
 import type { MaterialTotals } from '../core/materialEstimate'
 import type { MaterialEstimateMeta } from '../core/materialTemplate'
+import type { WeatherSnapshot } from '../core/weather'
 
 export type ManualCheckResult = 'update-available' | 'up-to-date' | 'error' | 'dev-mode'
 
@@ -135,6 +136,7 @@ export const IPC = {
   mergeDocx: 'tools:mergeDocx',
   splitDocxSections: 'tools:splitDocxSections',
   saveDocxsToFolder: 'tools:saveDocxsToFolder',
+  fetchWeather: 'tools:fetchWeather',
   fetchCementSteelRates: 'tools:fetchCementSteelRates',
   downloadCementSteelRate: 'tools:downloadCementSteelRate',
   fetchCementSteelRateBytes: 'tools:fetchCementSteelRateBytes',
@@ -305,6 +307,8 @@ export interface DocuGenApi {
   splitDocxSections(docxBytes: Uint8Array): Promise<Uint8Array[]>
   /** Tool (Word workspace): save several .docx files (name + bytes) into ONE folder the user picks. Returns the folder and written paths, or null if cancelled. */
   saveDocxsToFolder(files: { name: string; bytes: Uint8Array }[]): Promise<{ dir: string; files: string[] } | null>
+  /** Dashboard Weather card: current conditions for the given city (e.g. "Hyderabad,IN") from OpenWeatherMap. Cached for a few minutes per city in the main process to avoid hammering the API on every dashboard visit. */
+  fetchWeather(apiKey: string, city: string): Promise<WeatherSnapshot>
   /** Tool (Cement & Steel Rates): fetch the current list of rate circulars from the Telangana Public Health department's Downloads page. */
   fetchCementSteelRates(): Promise<CementSteelRate[]>
   /** Tool (Cement & Steel Rates): download one circular by its (short-lived) token, via a save dialog. `suggestedFileName` should already carry the right extension. Returns the saved path, or null if cancelled. */
@@ -428,8 +432,8 @@ export interface DocuGenApi {
   tsNoteTemplate(): Promise<string>
   /** Reads the bundled Zone-level (SE office) Eligibility Criteria note (.docx) — issued alongside the LOA. Base64-encoded, for filling its {{placeholders}}. */
   eligibilityCriteriaTemplate(): Promise<string>
-  /** Reads the bundled Notice format (.docx) — issued to an L-1 bidder who hasn't concluded the agreement within the stipulated time after the LOA. `ee` picks the Circle-level (EE office) variant over the default Zone-level (SE office) one. Base64-encoded, for filling its {{placeholders}}. */
-  issueNoticeTemplate(ee: boolean): Promise<string>
+  /** Reads the bundled Notice format (.docx) — issued to an L-1 bidder who hasn't concluded the agreement within the stipulated time after the LOA. `ee` picks the Circle-level (EE office) variant over the default Zone-level (SE office) one. `version` 2 picks the alternate format that also prints the Intimation/LOA's own Lr.No/Date near the "To" block (same {{LOA No}}/{{LOA Date}} values as Ref 2) plus a "Gentleman," salutation; defaults to 1, the original format. Base64-encoded, for filling its {{placeholders}}. */
+  issueNoticeTemplate(ee: boolean, version?: 1 | 2): Promise<string>
   loadState(): Promise<PersistedState | null>
   /** Persist the workspace. `skipCloud` writes only to local disk and does NOT push to the cloud — used when the change being saved *came from* a remote sync, so it isn't echoed straight back and made to ping-pong between concurrent sessions. */
   saveState(state: PersistedState, skipCloud?: boolean): Promise<void>

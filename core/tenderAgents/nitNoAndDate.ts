@@ -81,8 +81,14 @@ export function detectNitNoAndDate(lines: string[]): NitNoAndDate {
   // "\d+ Tender ID" ate the trailing "27" off a wrapped "…CMC/2026-27 Tender
   // ID…" (a bare "Tender ID" label with no value of its own on that row),
   // truncating the NIT No to "…CMC/2026-".
+  // "Tender ID\s+" is `\s*` (not `\s+`): an OCR-read (rasterized) sheet
+  // doesn't reliably keep the space between the label and its value — a real
+  // sample read "Tender ID722274" with no gap — so the old `\s+` left that
+  // whole label+value sitting unstripped, wedged in whatever it landed next
+  // to (see the noticeDate fix below, which this same stripped `cleaned` text
+  // feeds into). Same failure class as PRICE_ROW's old `\s+…\b` in shared.ts.
   const cleaned = joined
-    .replace(/Tender ID\s+\d{5,8}\b|\b\d{5,8}\s+Tender ID/gi, ' ')
+    .replace(/Tender ID\s*\d{5,8}\b|\b\d{5,8}\s+Tender ID/gi, ' ')
     .replace(/Notice Number/gi, ' ')
   // Capture through to the tail (or the line's end), then cleanNit drops any
   // Tender ID / "Enquiry/IFB/Tender" / date fragment wedged into the value.
@@ -133,8 +139,24 @@ export function detectNitNoAndDate(lines: string[]): NitNoAndDate {
   // no space ("ITEM 7Dated:24.07.2026"), which a word boundary would reject
   // since digit-into-letter isn't a boundary — the lookbehind instead just
   // rules out landing inside another word ("Updated"/"Mandated").
-  const date = /(?<![A-Za-z])(?:Dated|Dt)\b\.?\s*:?\s*(\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4})/i.exec(joined)
-  if (date) result.noticeDate = date[1]
+  //
+  // Matched against `cleaned` (not `joined`), and with `\s*` tolerated around
+  // each day/month/year separator: on an OCR-read sheet the header's
+  // two-column layout can wrap the NIT line mid-date, with the "Tender ID"/
+  // "Notice Number" labels landing right in the gap — a real sample read
+  // "…Dt.27- Tender ID722274 Notice Number 07-2026…", i.e. the date's own
+  // day and month/year halves end up split by that wedged label text, same
+  // as the NIT No's own two halves above. Stripping those labels first
+  // (`cleaned`) closes most of the gap; allowing `\s*` around the separators
+  // absorbs whatever whitespace is left over, without the day/month/year
+  // digits themselves ever losing their glue. Rebuilt from the captured
+  // digit/separator groups (not one contiguous capture) so the result never
+  // carries that leftover whitespace either.
+  const date =
+    /(?<![A-Za-z])(?:Dated|Dt)\b\.?\s*:?\s*(\d{1,2})\s*([.\-/])\s*(\d{1,2})\s*([.\-/])\s*(\d{2,4})/i.exec(
+      cleaned
+    )
+  if (date) result.noticeDate = `${date[1]}${date[2]}${date[3]}${date[4]}${date[5]}`
 
   return result
 }
