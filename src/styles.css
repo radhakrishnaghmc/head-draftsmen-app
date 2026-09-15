@@ -215,6 +215,61 @@ body.theme-paper {
   --shadow-glow: none;
 }
 
+body.theme-cyan {
+  /* Accent: CMC (cmc.telangana.gov.in)'s own blue — same recipe as Paper
+     (pale tints for badges/pills, solid fill for sidebar/buttons, a
+     deeper shade for hover) with only the accent hue swapped; sky/teal/
+     rose/amber and the ok/warn/danger status colors stay exactly as
+     Paper's since they're categorical, not tied to the brand accent. */
+  --indigo-50: #eaf6fc;
+  --indigo-100: #cdeafa;
+  --indigo-200: #85cdef;
+  --indigo-500: #0092d3; /* CMC primary accent blue — interactive accent (focus, active borders) */
+  --indigo-600: #006f9c; /* solid CMC blue — sidebar background, accent fills */
+  --indigo-700: #013464; /* darkest CMC navy — hover state / promo tile */
+  --violet-500: #4fb8e6; /* lighter CMC blue — gradient partner, kept subtle since gradients are off */
+  --chakra: #006f9c;
+  --sky-100: #e0f2fe;
+  --sky-500: #0284c7;
+  --teal-500: #0d9488;
+  --teal-100: #ccfbf1;
+  --rose-500: #e11d48;
+  --rose-100: #ffe4e6;
+  --amber-500: #d97706;
+  --amber-100: #fef3c7;
+  --green-bg: #ecfdf5;
+  --orange-bg: #fff7ed;
+
+  /* Soft sky-blue canvas that the rounded app shell floats on — see .shell. */
+  --paper-canvas: #d9edf5;
+
+  --bg-grad-a: #ffffff;
+  --bg-grad-b: #ffffff;
+  --surface: #ffffff; /* opaque, not translucent — no glass */
+  --surface-2: #f6f8f7;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  --text: #1e293b;
+  --text-2: #475569;
+  --muted: #94a3b8;
+
+  --ok: #0d9488;
+  --ok-bg: #ecfdf5;
+  --warn: #d97706;
+  --warn-bg: #fff7ed;
+  --danger: #e11d48;
+  --danger-bg: #fff1f2;
+
+  /* Soft floating-card shadows (no blur/glass) instead of Default/Aurora's
+     glassy glow — matches the reference dashboard's card elevation. */
+  --glass-blur: none;
+  --shadow-sm: 0 1px 2px rgba(1, 52, 100, 0.06);
+  --shadow-md: 0 10px 28px -12px rgba(1, 52, 100, 0.18);
+  --shadow-lg: 0 24px 56px -18px rgba(1, 52, 100, 0.3);
+  --shadow-glow: none;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -281,11 +336,23 @@ body.theme-aurora .sidebar-art-bg {
 body.theme-paper {
   background: #ffffff;
 }
+
+body.theme-cyan {
+  background: #ffffff;
+}
 body.theme-paper::before {
+  display: none;
+}
+
+body.theme-cyan::before {
   display: none;
 }
 body.theme-paper .skyline-bg,
 body.theme-paper .sidebar-art-bg {
+  display: none;
+}
+
+body.theme-cyan .sidebar-art-bg {
   display: none;
 }
 
@@ -391,6 +458,11 @@ body.theme-paper .sidebar-art-bg {
    #root/.shell above) so the badge still sits just inside the shell's
    rounded top-right corner instead of drifting into the mint canvas. */
 body.theme-paper .profile-menu {
+  top: 46px;
+  right: 42px;
+}
+
+body.theme-cyan .profile-menu {
   top: 46px;
   right: 42px;
 }
@@ -558,11 +630,25 @@ body.theme-paper #root {
   background: var(--paper-canvas);
   overflow: visible;
 }
+
+body.theme-cyan #root {
+  padding: 18px;
+  box-sizing: border-box;
+  background: var(--paper-canvas);
+  overflow: visible;
+}
 body.theme-paper .shell {
   height: 100%;
   /* Sidebar and workspace float as two separate rounded cards (each rounds
      and shadows itself below) with a gap between, instead of one big
      rounded rectangle — reads as two uniform panels on the mint canvas. */
+  gap: 10px;
+  overflow: visible;
+}
+
+body.theme-cyan .shell {
+  height: 100%;
+  
   gap: 10px;
   overflow: visible;
 }
@@ -609,6 +695,15 @@ body.theme-paper .sidebar {
   box-shadow: 0 30px 70px -20px rgba(15, 60, 40, 0.35);
 }
 
+body.theme-cyan .sidebar {
+  height: 100%;
+  background: var(--indigo-600);
+  border-right: none;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 30px 70px -20px rgba(15, 46, 60, 0.35);
+}
+
 .side-brand {
   display: flex;
   align-items: center;
@@ -616,6 +711,11 @@ body.theme-paper .sidebar {
   padding: 6px 10px 18px;
 }
 body.theme-paper .side-brand {
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+body.theme-cyan .side-brand {
   padding-bottom: 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.14);
 }
@@ -637,6 +737,15 @@ body.theme-paper .side-brand .logo {
   padding: 8px;
   box-sizing: border-box;
 }
+
+body.theme-cyan .side-brand .logo {
+  filter: none;
+  
+  background: #fff;
+  border-radius: 14px;
+  padding: 8px;
+  box-sizing: border-box;
+}
 .side-brand h1 {
   margin: 0;
   font-size: 18px;
@@ -645,7 +754,15 @@ body.theme-paper .side-brand .logo {
   white-space: nowrap;
 }
 body.theme-paper .side-brand h1 {
-  font-size: 15px;
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
+}
+
+body.theme-cyan .side-brand h1 {
+  font-size: 16px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -661,11 +778,19 @@ body.theme-paper .side-brand h1 {
 body.theme-paper .side-brand p {
   color: rgba(255, 255, 255, 0.68);
 }
+
+body.theme-cyan .side-brand p {
+  color: rgba(255, 255, 255, 0.68);
+}
 .side-brand p.warn {
   color: var(--amber-600, #b45309);
 }
 body.theme-paper .side-brand p.warn {
   color: #fde68a;
+}
+
+body.theme-cyan .side-brand p.warn {
+  color: #8adafd;
 }
 /* "Change office" — a quiet link under the office line, revealed on hover so it
    doesn't clutter the clean brand header; always visible when no office is set. */
@@ -689,6 +814,11 @@ body.theme-paper .side-brand p.warn {
   opacity: 1;
 }
 body.theme-paper .side-office-change {
+  color: #fff;
+  text-decoration: underline;
+}
+
+body.theme-cyan .side-office-change {
   color: #fff;
   text-decoration: underline;
 }
@@ -842,11 +972,11 @@ body.theme-paper .side-office-change {
   background: rgba(255, 255, 255, 0.18);
 }
 body.theme-aurora .side-nav::-webkit-scrollbar-thumb,
-body:not(.theme-paper):not(.theme-aurora) .side-nav::-webkit-scrollbar-thumb {
+body:not(.theme-paper):not(.theme-cyan):not(.theme-aurora) .side-nav::-webkit-scrollbar-thumb {
   background: rgba(15, 23, 42, 0.06);
 }
 body.theme-aurora .side-nav::-webkit-scrollbar-thumb:hover,
-body:not(.theme-paper):not(.theme-aurora) .side-nav::-webkit-scrollbar-thumb:hover {
+body:not(.theme-paper):not(.theme-cyan):not(.theme-aurora) .side-nav::-webkit-scrollbar-thumb:hover {
   background: rgba(15, 23, 42, 0.13);
 }
 
@@ -884,7 +1014,17 @@ body.theme-paper .nav-item {
   border-left: none;
   padding-left: 16px;
 }
+
+body.theme-cyan .nav-item {
+  border-left: none;
+  padding-left: 16px;
+}
 body.theme-paper .nav-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: none;
+}
+
+body.theme-cyan .nav-item:hover {
   background: rgba(255, 255, 255, 0.1);
   transform: none;
 }
@@ -893,13 +1033,31 @@ body.theme-paper .nav-item.on {
   border-color: transparent;
   box-shadow: none;
 }
+
+body.theme-cyan .nav-item.on {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: transparent;
+  box-shadow: none;
+}
 body.theme-paper .nav-ic {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+body.theme-cyan .nav-ic {
   color: rgba(255, 255, 255, 0.7);
 }
 body.theme-paper .nav-item.on .nav-ic {
   color: #fff;
 }
+
+body.theme-cyan .nav-item.on .nav-ic {
+  color: #fff;
+}
 body.theme-paper .nav-label {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+body.theme-cyan .nav-label {
   color: rgba(255, 255, 255, 0.92);
 }
 
@@ -913,6 +1071,16 @@ body.theme-paper .nav-label {
 body.theme-paper .nav-section-label {
   display: block;
   margin: 14px 10px 2px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+body.theme-cyan .nav-section-label {
+  display: block;
+  margin: 14px 10px 2px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -920,6 +1088,10 @@ body.theme-paper .nav-section-label {
   color: rgba(255, 255, 255, 0.45);
 }
 body.theme-paper .nav-section-label:first-child {
+  margin-top: 4px;
+}
+
+body.theme-cyan .nav-section-label:first-child {
   margin-top: 4px;
 }
 
@@ -966,13 +1138,13 @@ body.theme-paper .nav-section-label:first-child {
   line-height: 1.25;
 }
 .nav-label {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 650;
   color: var(--text);
   overflow-wrap: anywhere;
 }
 .nav-sub {
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--muted);
 }
 
@@ -1191,6 +1363,14 @@ body.theme-paper .workspace {
   border-radius: 24px;
   overflow: hidden;
   box-shadow: 0 30px 70px -20px rgba(15, 60, 40, 0.35);
+}
+
+body.theme-cyan .workspace {
+  height: 100%;
+  background: var(--surface-2);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 30px 70px -20px rgba(15, 46, 60, 0.35);
 }
 
 /* KeepAlive's wrapper (App.tsx) — fills the workspace's content box so the
@@ -1675,11 +1855,26 @@ body.theme-paper button.primary {
   color: #fff;
   border-color: transparent;
 }
+
+body.theme-cyan button.primary {
+  background: var(--indigo-600);
+  color: #fff;
+  border-color: transparent;
+}
 body.theme-paper button.primary:hover:not(:disabled) {
   background: var(--indigo-700);
   border-color: transparent;
 }
+
+body.theme-cyan button.primary:hover:not(:disabled) {
+  background: var(--indigo-700);
+  border-color: transparent;
+}
 body.theme-paper button.primary:active:not(:disabled) {
+  background: var(--indigo-700);
+}
+
+body.theme-cyan button.primary:active:not(:disabled) {
   background: var(--indigo-700);
 }
 
@@ -1700,7 +1895,18 @@ body.theme-paper button.ghost {
   border-color: var(--border-strong);
   background: var(--surface);
 }
+
+body.theme-cyan button.ghost {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
 body.theme-paper button.ghost:hover:not(:disabled) {
+  background: var(--indigo-50);
+  border-color: var(--indigo-500);
+  color: var(--text);
+}
+
+body.theme-cyan button.ghost:hover:not(:disabled) {
   background: var(--indigo-50);
   border-color: var(--indigo-500);
   color: var(--text);
@@ -3843,6 +4049,30 @@ textarea:placeholder-shown {
     radial-gradient(900px 500px at -10% 110%, #e6f4e2, transparent 55%),
     linear-gradient(180deg, var(--bg-grad-a), var(--bg-grad-b));
 }
+/* Wraps the decorative LoginBackdrop (a static, blurred copy of the real
+   app shell) plus the real LoginPage — gives the login screen "this app"
+   context instead of a blank page behind the card. `revealing` plays for
+   REVEAL_MS (see AuthGate.tsx) between login success and the real App
+   actually mounting: unblurs the shell and fades the login screen out,
+   instead of a hard instant cut. */
+.login-backdrop .shell {
+  filter: blur(7px) saturate(1.05);
+  pointer-events: none;
+  transition: filter 0.45s var(--ease);
+}
+.login-backdrop.revealing .shell {
+  filter: blur(0) saturate(1);
+}
+.login-backdrop .login-screen {
+  /* Transparent here (instead of the solid gradient above) so the blurred
+     shell behind actually shows through. */
+  background: transparent;
+  transition: opacity 0.45s var(--ease);
+}
+.login-backdrop.revealing .login-screen {
+  opacity: 0;
+  pointer-events: none;
+}
 .login-card {
   width: min(360px, 92vw);
   background: var(--surface);
@@ -4709,7 +4939,17 @@ body.theme-aurora .gen-output-modes .seg.active {
 body.theme-paper .gen-output-modes .seg:hover {
   border-color: var(--indigo-500);
 }
+
+body.theme-cyan .gen-output-modes .seg:hover {
+  border-color: var(--indigo-500);
+}
 body.theme-paper .gen-output-modes .seg.active {
+  border-color: transparent;
+  background: var(--indigo-600);
+  color: #fff;
+}
+
+body.theme-cyan .gen-output-modes .seg.active {
   border-color: transparent;
   background: var(--indigo-600);
   color: #fff;
@@ -5027,6 +5267,17 @@ body.theme-paper .gen-output-modes .seg.active {
 .tools-grid .doc-tile-card::after {
   display: none;
 }
+/* Cyan theme: the sidebar has no green band (solid CMC blue instead), so
+   the Tools grid and Cement & Steel Rates workspace tiles should pick up
+   the CMC blue accent instead of staying the Default/Paper green. */
+body.theme-cyan .tools-grid .doc-tile-card.tone-green,
+body.theme-cyan .cement-steel-workspace .doc-tile-card.tone-green {
+  --tone-a: var(--indigo-500);
+  --tone-b: var(--violet-500);
+}
+body.theme-cyan .cement-steel-workspace .doc-tile-card.tone-green {
+  background: color-mix(in srgb, var(--indigo-500) 10%, var(--surface));
+}
 .doc-tile-card.tone-rose {
   --tone-a: var(--rose-500);
   --tone-b: #fc8b9b;
@@ -5075,10 +5326,23 @@ body.theme-paper .doc-tile-card::before,
 body.theme-paper .doc-tile-card::after {
   display: none;
 }
+
+body.theme-cyan .doc-tile-card::after {
+  display: none;
+}
 body.theme-paper .doc-tile-card {
   box-shadow: var(--shadow-md);
 }
+
+body.theme-cyan .doc-tile-card {
+  box-shadow: var(--shadow-md);
+}
 body.theme-paper .doc-tile-card:hover {
+  box-shadow: var(--shadow-lg);
+  border-color: var(--border);
+}
+
+body.theme-cyan .doc-tile-card:hover {
   box-shadow: var(--shadow-lg);
   border-color: var(--border);
 }
@@ -9401,6 +9665,26 @@ body.theme-aurora .pdf-ws-clearbtn:hover:not(:disabled) {
   border-color: rgba(16, 156, 222, 0.4);
   box-shadow: 0 8px 18px -7px rgba(10, 95, 135, 0.32);
 }
+/* Cyan theme: same pale-fill pill as Aurora above, recolored to the CMC
+   blue accent instead of the hardcoded green — these buttons appear
+   throughout the Tools workspaces (Excel/PDF/Word/GPS/Photos pages). */
+body.theme-cyan .pdf-ws-railbtn,
+body.theme-cyan .pdf-ws-selbtn,
+body.theme-cyan .pdf-ws-clearall,
+body.theme-cyan .pdf-ws-clearbtn {
+  background: linear-gradient(180deg, var(--indigo-50), var(--indigo-100));
+  color: var(--indigo-700);
+  border-color: color-mix(in srgb, var(--indigo-500) 28%, transparent);
+  box-shadow: 0 4px 12px -6px color-mix(in srgb, var(--indigo-700) 28%, transparent);
+}
+body.theme-cyan .pdf-ws-railbtn:hover:not(:disabled),
+body.theme-cyan .pdf-ws-selbtn:hover:not(:disabled),
+body.theme-cyan .pdf-ws-clearall:hover:not(:disabled),
+body.theme-cyan .pdf-ws-clearbtn:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--indigo-100), var(--indigo-200));
+  border-color: color-mix(in srgb, var(--indigo-500) 40%, transparent);
+  box-shadow: 0 8px 18px -7px color-mix(in srgb, var(--indigo-700) 32%, transparent);
+}
 .pdf-ws-clearall {
   width: 100%;
   justify-content: center;
@@ -9561,6 +9845,9 @@ body.theme-aurora .pdf-ws-clearbtn:hover:not(:disabled) {
 }
 body.theme-aurora .pdf-ws-dropzone:hover:not(:disabled) {
   border-color: rgba(16, 156, 222, 0.5);
+}
+body.theme-cyan .pdf-ws-dropzone:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--indigo-500) 50%, transparent);
 }
 .pdf-ws-dropzone:disabled {
   opacity: 0.6;
@@ -10960,7 +11247,17 @@ body.theme-paper .ov-card {
   border: 1px solid rgba(15, 23, 42, 0.05);
   border-radius: 20px;
 }
+
+body.theme-cyan .ov-card {
+  box-shadow: var(--shadow-md);
+  border: 1px solid rgba(15, 34, 42, 0.05);
+  border-radius: 20px;
+}
 body.theme-paper .card:hover {
+  box-shadow: var(--shadow-lg);
+}
+
+body.theme-cyan .card:hover {
   box-shadow: var(--shadow-lg);
 }
 
@@ -10974,7 +11271,30 @@ body.theme-paper .ov-stat {
   border-radius: 20px;
   padding: 20px 20px 18px;
 }
+
+body.theme-cyan .ov-stat {
+  position: relative;
+  border-radius: 20px;
+  padding: 20px 20px 18px;
+}
 body.theme-paper .ov-stat::after {
+  content: '\2197';
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+
+body.theme-cyan .ov-stat::after {
   content: '\2197';
   position: absolute;
   top: 16px;
@@ -11002,10 +11322,38 @@ body.theme-paper .ov-stat-sub {
   font-weight: 650;
   white-space: normal;
 }
+
+body.theme-cyan .ov-stat-sub {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 10px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--indigo-50);
+  color: var(--indigo-700);
+  font-size: 11.5px;
+  font-weight: 650;
+  white-space: normal;
+}
 body.theme-paper .ov-stat-hero b {
   font-size: 34px;
 }
+
+body.theme-cyan .ov-stat-hero b {
+  font-size: 34px;
+}
+/* Cyan theme: the hero "Total works" tile is hardcoded to --green-bg, which
+   matches Paper's own teal-green accent but clashes with Cyan's blue — tint
+   it with the CMC blue instead. */
+body.theme-cyan .ov-stat-hero {
+  background: var(--indigo-50);
+}
 body.theme-paper .ov-stat-warn .ov-stat-sub {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+body.theme-cyan .ov-stat-warn .ov-stat-sub {
   background: var(--danger-bg);
   color: var(--danger);
 }
@@ -11018,9 +11366,20 @@ body.theme-paper .ov-stat-nextdeadline .ov-stat-sub {
   width: 100%;
 }
 
+body.theme-cyan .ov-stat-nextdeadline .ov-stat-sub {
+  display: block;
+  border-radius: 8px;
+  width: 100%;
+}
+
 /* Task icon bubbles pick up a soft accent tint instead of the plain
    default background, matching the reference's colored list-row icons. */
 body.theme-paper .ov-task-ic {
+  background: var(--indigo-50);
+  color: var(--indigo-600);
+}
+
+body.theme-cyan .ov-task-ic {
   background: var(--indigo-50);
   color: var(--indigo-600);
 }
@@ -11039,7 +11398,27 @@ body.theme-paper .ov-donut-legend-list {
   max-height: 130px;
   overflow-y: auto;
 }
+
+body.theme-cyan .ov-donut-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 150px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 130px;
+  overflow-y: auto;
+}
 body.theme-paper .ov-donut-legend-list li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+body.theme-cyan .ov-donut-legend-list li {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -11053,11 +11432,31 @@ body.theme-paper .ov-donut-legend-list li span {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+body.theme-cyan .ov-donut-legend-list li span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 body.theme-paper .ov-donut-legend-list b {
   font-weight: 700;
   color: var(--text);
 }
+
+body.theme-cyan .ov-donut-legend-list b {
+  font-weight: 700;
+  color: var(--text);
+}
 body.theme-paper .ov-donut-legend-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+body.theme-cyan .ov-donut-legend-dot {
   flex: none;
   width: 9px;
   height: 9px;
@@ -11074,7 +11473,26 @@ body.theme-paper .ov-progress-bar {
   background: var(--indigo-50);
   overflow: hidden;
 }
+
+body.theme-cyan .ov-progress-bar {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  margin-top: 14px;
+  background: var(--indigo-50);
+  overflow: hidden;
+}
 body.theme-paper .ov-progress-bar::after {
+  content: '';
+  display: block;
+  height: 100%;
+  width: var(--done-pct, 0%);
+  border-radius: 999px;
+  background: var(--indigo-600);
+  transition: width 0.4s var(--ease);
+}
+
+body.theme-cyan .ov-progress-bar::after {
   content: '';
   display: block;
   height: 100%;
@@ -11093,7 +11511,26 @@ body.theme-paper .ov-progress-bar::after {
 body.theme-paper .ov-mf-tile {
   padding-bottom: 20px;
 }
+
+body.theme-cyan .ov-mf-tile {
+  padding-bottom: 20px;
+}
 body.theme-paper .ov-mf-tile::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 10px;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--tile-color) 0 var(--tile-pct, 0%),
+    var(--border) var(--tile-pct, 0%) 100%
+  );
+}
+
+body.theme-cyan .ov-mf-tile::after {
   content: '';
   position: absolute;
   left: 14px;

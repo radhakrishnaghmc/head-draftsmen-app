@@ -1208,7 +1208,9 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     try {
       const filled = await fillTemplate()
       const agencyName = notice?.agencyName ?? selectedRow?.['Name of the Agency']
-      const name = `${seMode ? 'Letter of Acceptance' : 'Intimation'}${agencyName ? ` - ${agencyName}` : ''}`
+      const tenderId = pdfEval?.tenderId?.replace(/[/\\]/g, '-')
+      const label = seMode ? 'Letter of Acceptance' : 'Intimation'
+      const name = [label, agencyName, tenderId].filter(Boolean).join(' ')
       const res = await api.exportCreatedDocument(filled, name, formats)
       setActionSaved(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
       if (res && res.length > 0) notifyIntimationIssued()

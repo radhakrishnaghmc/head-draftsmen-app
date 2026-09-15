@@ -171,8 +171,6 @@ export interface PendingNoticeItem {
   tenderPercentage?: number
   /** ISO date (YYYY-MM-DD) the Intimation/LOA this Notice follows up on was issued. */
   intimationDate: string
-  /** Which bundled format to fill — 2 also prints the Intimation/LOA's own Lr.No/Date near the "To" block (same {{LOA No}}/{{LOA Date}} as Ref 2) plus a "Gentleman," salutation. Defaults to 1 when absent. */
-  templateVersion?: 1 | 2
   /** Hand-typed/suggested fields the tile still shows for edit — LOA No is never derivable (hand-written on the physical register after printing), LOA Date and Notice Date start pre-filled but stay editable. */
   manual: IssueNoticeManualFields
   /** Agreement concluded / Notice handled — hides it from the active tile grid. */

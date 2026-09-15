@@ -56,22 +56,30 @@ export async function pdfPagesToDataUrlsFromData(
 ): Promise<string[]> {
   // Loaded on demand — see pdfToText.ts.
   const { pdfjsLib } = await import('./pdfjsSetup')
-  const pdf = await withTimeout(pdfjsLib.getDocument({ data }).promise, RENDER_TIMEOUT_MS, 'Opening the PDF')
-  const dataUrls: string[] = []
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum)
-    const viewport = page.getViewport({ scale })
-    const canvas = document.createElement('canvas')
-    canvas.width = viewport.width
-    canvas.height = viewport.height
-    const context = canvas.getContext('2d')
-    if (!context) throw new Error('Could not get a 2D canvas context to render the PDF.')
-    await withTimeout(
-      page.render({ canvas, canvasContext: context, viewport }).promise,
-      RENDER_TIMEOUT_MS,
-      `Rendering page ${pageNum} of the PDF`
-    )
-    dataUrls.push(canvas.toDataURL('image/png'))
+  const loadingTask = pdfjsLib.getDocument({ data })
+  const pdf = await withTimeout(loadingTask.promise, RENDER_TIMEOUT_MS, 'Opening the PDF')
+  try {
+    const dataUrls: string[] = []
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum)
+      const viewport = page.getViewport({ scale })
+      const canvas = document.createElement('canvas')
+      canvas.width = viewport.width
+      canvas.height = viewport.height
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('Could not get a 2D canvas context to render the PDF.')
+      await withTimeout(
+        page.render({ canvas, canvasContext: context, viewport }).promise,
+        RENDER_TIMEOUT_MS,
+        `Rendering page ${pageNum} of the PDF`
+      )
+      dataUrls.push(canvas.toDataURL('image/png'))
+    }
+    return dataUrls
+  } finally {
+    // Same leak class as pdfToText.ts: an undestroyed document keeps pdf.js's
+    // worker-side caches alive, and a folder scan opens many of these in a
+    // row. destroy() lives on the loading task, not the resolved proxy.
+    await loadingTask.destroy()
   }
-  return dataUrls
 }

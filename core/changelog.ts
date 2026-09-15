@@ -16,6 +16,16 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.34.0',
+    changes: [
+      'Works List "Update from L1" now shows a filling progress bar while working through a large Tender Evaluations folder, instead of appearing frozen.',
+      'Notices for Non-conclusion of Agreement now use one shared Format 1/2 choice from Settings → Document Templates, matching every other document, and the saved file is named after the NIT No.',
+      'Give Intimation exports are now named with the Tender ID as well as the agency name.',
+      'Fixed the Works List highlighting the wrong row after an "Update from L1" when more than one sheet was uploaded at once.',
+      'Login screen now shows the chosen theme immediately, and Document Templates changes in Settings apply right away without switching tabs.'
+    ]
+  },
+  {
     version: '1.33.0',
     changes: [
       'Fixed Contract Amount and Tender Percentage sometimes not filling in on the Agreement tab after uploading an L-1 selection sheet saved as an image-only PDF.'

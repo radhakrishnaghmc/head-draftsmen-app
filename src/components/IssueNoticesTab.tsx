@@ -13,7 +13,7 @@ import {
 } from '@core/issueNotice'
 import type { PendingNoticeItem } from '@core/types'
 import { CMC_ZONE_CIRCLES, resolveFromDirectory, corporationByName } from '../zoneCircleDirectory'
-import { isZoneOnlyOffice, type Office } from '../office'
+import { isZoneOnlyOffice, officeScopedKey, TEMPLATE_KEYS, TEMPLATE_VARIANT_CHANGED_EVENT, type Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLinesOrOcr } from '../pdfToText'
 import { base64ToUint8, PAGE_WIDTH, renderDocPreview } from './docPage'
@@ -165,7 +165,11 @@ function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore }: 
     setActionSaved(null)
     try {
       const filled = await fillTemplate()
-      const name = `Notice${item.agencyName ? ` - ${item.agencyName}` : ''}`
+      const nitNo = item.nitNo?.replace(/[/\\]/g, '-')
+      const name =
+        nitNo && item.agencyName
+          ? `${nitNo} - ${item.agencyName}`
+          : `Notice${item.agencyName ? ` - ${item.agencyName}` : nitNo ? ` - ${nitNo}` : ''}`
       const res = await api.exportCreatedDocument(filled, name, formats)
       setActionSaved(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
     } catch (e) {
@@ -254,16 +258,6 @@ function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore }: 
                   <div ref={expandedRef} className="intimation-docx-preview" />
                 </div>
                 <div className="wo-modal-sidebar">
-                  <label className="wo-date-field">
-                    <span>Format</span>
-                    <select
-                      value={item.templateVersion === 2 ? '2' : '1'}
-                      onChange={(e) => onSave({ templateVersion: e.target.value === '2' ? 2 : 1 })}
-                    >
-                      <option value="1">Template 1</option>
-                      <option value="2">Template 2 (shows LOA Lr.No/Date near "To")</option>
-                    </select>
-                  </label>
                   <span className="estimate-preview-title">LOA details (hand-recorded — type in)</span>
                   <label className="wo-date-field">
                     <span>LOA No</span>
@@ -347,50 +341,60 @@ export default function IssueNoticesTab({ office, items, onChange }: Props) {
   const corporationName = corporationByName(office?.corporation)?.entries?.length ? office!.corporation! : 'CMC'
   const ee = !isZoneOnlyOffice(office)
 
-  // All 4 bundled formats (SE/EE × format 1/2) are fetched once, up front —
-  // tiles can be a mix of seMode and templateVersion (works from different
-  // offices, or added before/after Template 2 existed, can be mid-flight
-  // at once).
+  // Both bundled formats (SE/EE) are fetched once, up front — tiles can be a
+  // mix of seMode (works from different offices can be mid-flight at once).
   type TemplateSlot = { b64: string | null; labels: string[] }
   const EMPTY_SLOT: TemplateSlot = { b64: null, labels: [] }
   const [templates, setTemplates] = useState<Record<string, TemplateSlot>>({
-    'se-1': EMPTY_SLOT,
-    'se-2': EMPTY_SLOT,
-    'ee-1': EMPTY_SLOT,
-    'ee-2': EMPTY_SLOT
+    se: EMPTY_SLOT,
+    ee: EMPTY_SLOT
   })
   const [loadError, setLoadError] = useState<string | null>(null)
 
+  const noticeVariantKey = officeScopedKey(TEMPLATE_KEYS.notice, office)
+
   useEffect(() => {
     let cancelled = false
-    void (async () => {
-      try {
-        const keys: [string, boolean, 1 | 2][] = [
-          ['se-1', false, 1],
-          ['se-2', false, 2],
-          ['ee-1', true, 1],
-          ['ee-2', true, 2]
-        ]
-        const slots = await Promise.all(
-          keys.map(async ([, isEe, version]) => {
-            const b64 = await api.issueNoticeTemplate(isEe, version)
-            const labels = await api.findPlaceholdersInDocument(b64)
-            return { b64, labels }
-          })
-        )
-        if (cancelled) return
-        setTemplates(Object.fromEntries(keys.map(([key], i) => [key, slots[i]])))
-      } catch (e) {
-        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
-      }
-    })()
+
+    function load() {
+      void (async () => {
+        try {
+          const keys: [string, boolean][] = [
+            ['se', false],
+            ['ee', true]
+          ]
+          const version = localStorage.getItem(noticeVariantKey) === '2' ? 2 : 1
+          const slots = await Promise.all(
+            keys.map(async ([, isEe]) => {
+              const b64 = await api.issueNoticeTemplate(isEe, version)
+              const labels = await api.findPlaceholdersInDocument(b64)
+              return { b64, labels }
+            })
+          )
+          if (cancelled) return
+          setTemplates(Object.fromEntries(keys.map(([key], i) => [key, slots[i]])))
+        } catch (e) {
+          if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
+        }
+      })()
+    }
+
+    load()
+    // Issue Notices stays mounted (KeepAlive) across tab switches, so without
+    // this listener a variant picked in Settings after this tab was first
+    // opened would never be reflected — see TEMPLATE_VARIANT_CHANGED_EVENT.
+    function onVariantChanged(e: Event) {
+      if ((e as CustomEvent).detail?.storageKey === noticeVariantKey) load()
+    }
+    window.addEventListener(TEMPLATE_VARIANT_CHANGED_EVENT, onVariantChanged)
     return () => {
       cancelled = true
+      window.removeEventListener(TEMPLATE_VARIANT_CHANGED_EVENT, onVariantChanged)
     }
-  }, [])
+  }, [noticeVariantKey])
 
   function templateFor(item: PendingNoticeItem): TemplateSlot {
-    return templates[`${item.seMode ? 'se' : 'ee'}-${item.templateVersion === 2 ? 2 : 1}`] ?? EMPTY_SLOT
+    return templates[item.seMode ? 'se' : 'ee'] ?? EMPTY_SLOT
   }
 
   // ── Manual upload path (fallback) ──────────────────────────────────────
@@ -530,9 +534,9 @@ export default function IssueNoticesTab({ office, items, onChange }: Props) {
   return (
     <div className="intimation-tool">
       <div className="intimation-tool-uploads">
-        <div className="boq-actions boq-actions--start">
+        <div className="boq-actions">
           <button
-            className="upload-btn"
+            className="primary upload-btn"
             onClick={() => pdfInputRef.current?.click()}
             disabled={uploadBusy === 'pdf'}
           >

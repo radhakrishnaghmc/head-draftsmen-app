@@ -3,11 +3,6 @@ import { api } from '../ipc'
 import type { TenderScanProgress } from '../../electron/ipc-contract'
 import { pdfToTextLinesOrOcr } from '../pdfToText'
 import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
-import {
-  parseIntimationNotice,
-  parseIntimationNoticeText,
-  type IntimationNotice
-} from '@core/intimationNotice'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
 import type { ExcelTable } from '@core/types'
 import { IconFolder, IconWarn } from './Icons'
@@ -20,39 +15,27 @@ interface Props {
 }
 
 /**
- * Two Works List update actions:
- *  - "Update from L1": pick one or more L-1 selection sheets (and, optionally, the
- *    Online Intimation) and fold their tender details into the Works List by
- *    matching each sheet's Name of Work to a row — Tender ID, Notice No/Date, ECV
- *    (with EMD 1%/1.5% and ASD auto-computed), Name of the Agency, Address (when
- *    the Intimation is included), Tender %, Contract Amount and the Reservation
- *    flag. Scoped to the one Name-of-Work row. Unmatched sheets are reported.
- *  - "Address from Intimation": upload the Online Intimation (HTML or PDF) alone
- *    to update the agency's Address of the agency on EVERY Works List row that
- *    carries that agency (matched by Name of the Agency).
- * Both flash the affected row(s) via onUpdated so the user can verify them.
+ * "Update from L1": pick one or more L-1 selection sheets and fold their
+ * tender details into the Works List by matching each sheet's Name of Work
+ * to a row — Tender ID, Notice No/Date, ECV (with EMD 1%/1.5% and ASD
+ * auto-computed), Name of the Agency, Tender %, Contract Amount and the
+ * Reservation flag. Scoped to the one Name-of-Work row. Unmatched sheets
+ * are reported. Flashes the affected row(s) via onUpdated so the user can
+ * verify them.
  */
-/** Agency-name normaliser for matching the Intimation's agency to Works List rows (case / punctuation / spacing insensitive). */
-function normAgency(s: string): string {
-  return (s ?? '')
-    .toLowerCase()
-    .replace(/[^\w\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
 export default function WorksListL1Update({ table, onChange, onUpdated }: Props) {
-  const [busy, setBusy] = useState<null | 'l1' | 'intimation'>(null)
+  const [busy, setBusy] = useState<null | 'l1'>(null)
   // Only errors / no-match feedback shows beside the button; a successful update
   // is surfaced under the flashed row(s) in the table instead (see onUpdated).
   const [result, setResult] = useState<{ message: string; unmatched: string[] } | null>(null)
-  // Live progress from the main process while a picked folder is being
-  // scanned/read (electron/tenderDocumentScan.ts) — this is what used to
-  // freeze the whole app with no feedback at all; now it's reported as it
-  // happens so the button itself can show a filling percentage. null once
-  // the scan is done and the (renderer-side) PDF parsing/matching starts —
-  // that part has no progress signal of its own, so the button falls back
-  // to a plain "Updating…" label for it, same as before this change.
+  // Progress shown in the button while a picked folder is processed: 'scanning'
+  // and 'reading' come from the main process's disk walk/read-back
+  // (electron/tenderDocumentScan.ts); 'parsing' is set locally, one tick per
+  // file, while this component's own loop below text-extracts/OCRs and
+  // matches each file — a real office's Tender Evaluations folder can have
+  // 500+ relevant PDFs, and that phase used to run with zero feedback at all
+  // (the button just said "Updating…" for minutes), which read as the whole
+  // app having frozen even though it hadn't.
   const [scanProgress, setScanProgress] = useState<TenderScanProgress | null>(null)
   const busyRef = useRef(busy)
   busyRef.current = busy
@@ -65,148 +48,87 @@ export default function WorksListL1Update({ table, onChange, onUpdated }: Props)
     })
   }, [])
 
-  // One or more Online Intimations (HTML or PDF) → update the agency's
-  // ADDRESS on every Works List row carrying that agency (matched by Name of
-  // the Agency). Distinct from "Update from L1", which scopes to the one
-  // Name-of-Work row. Each file's own agency is matched and applied
-  // independently — a folder full of different agencies' Intimations updates
-  // each of their rows in the same pass, not just the first/last one read.
-  async function handleIntimations(files: File[]) {
-    setBusy('intimation')
-    setResult(null)
-    try {
-      const agencyHeader = table.headers.find((h) => h.trim().toLowerCase() === 'name of the agency')
-      const addrHeader = table.headers.find((h) => h.trim().toLowerCase() === 'address of the agency')
-      if (!agencyHeader || !addrHeader) {
-        setResult({ message: 'The Works List has no “Name of the Agency” / “Address of the agency” column.', unmatched: [] })
-        return
-      }
-      let current = table
-      const allMatchedRows = new Set<number>()
-      const updatedAgencies: string[] = []
-      const failed: string[] = []
-      for (const file of files) {
-        try {
-          const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
-          const notice: IntimationNotice = isPdf
-            ? parseIntimationNoticeText(await pdfToTextLinesOrOcr(file))
-            : parseIntimationNotice(await file.text())
-          const agency = (notice.agencyName ?? '').trim()
-          const address = (notice.address ?? '').trim()
-          if (!agency || !address) {
-            failed.push(file.name)
-            continue
-          }
-          const target = normAgency(agency)
-          // Match every row for this agency: exact normalised name first; if none,
-          // fall back to a contains match (handles an "M/s" prefix on one side).
-          let matched = current.rows
-            .map((r, i) => ({ i, n: normAgency(r[agencyHeader] ?? '') }))
-            .filter(({ n }) => n && n === target)
-          if (matched.length === 0 && target.length >= 4) {
-            matched = current.rows
-              .map((r, i) => ({ i, n: normAgency(r[agencyHeader] ?? '') }))
-              .filter(({ n }) => n && (n.includes(target) || target.includes(n)))
-          }
-          if (matched.length === 0) {
-            failed.push(file.name)
-            continue
-          }
-          const matchedSet = new Set(matched.map((m) => m.i))
-          current = { ...current, rows: current.rows.map((r, i) => (matchedSet.has(i) ? { ...r, [addrHeader]: address } : r)) }
-          matched.forEach((m) => allMatchedRows.add(m.i))
-          updatedAgencies.push(agency)
-        } catch {
-          failed.push(file.name)
-        }
-      }
-      if (updatedAgencies.length > 0) {
-        onChange(current)
-        onUpdated(
-          [...allMatchedRows],
-          `Updated the address for ${updatedAgencies.length} agenc${updatedAgencies.length === 1 ? 'y' : 'ies'} (${updatedAgencies.join(', ')}) on ${allMatchedRows.size} row${allMatchedRows.size === 1 ? '' : 's'}.`
-        )
-      }
-      if (failed.length > 0) {
-        setResult({
-          message:
-            updatedAgencies.length > 0
-              ? `Updated ${updatedAgencies.length}; couldn't match/read ${failed.length} file${failed.length === 1 ? '' : 's'}.`
-              : "Couldn't read an agency + address, or match a Works List row, from those file(s).",
-          unmatched: failed
-        })
-      }
-    } finally {
-      setBusy(null)
-    }
-  }
-
   async function handleFiles(files: File[]) {
     setBusy('l1')
     setResult(null)
     try {
-      const evaluations: TenderEvaluation[] = []
-      const notices: IntimationNotice[] = []
-      for (const file of files) {
-        const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
-        if (!isPdf) {
-          // HTML "View Intimation Notice" page → an Online Intimation.
-          try {
-            notices.push(parseIntimationNotice(await file.text()))
-          } catch {
-            /* ignore unreadable file */
-          }
-          continue
-        }
-        const lines = await pdfToTextLinesOrOcr(file)
-        const ev = parseTenderEvaluation(lines)
-        if (ev.nameOfWork || ev.tenderId) {
-          evaluations.push(ev)
-        } else {
-          // A printed Intimation / LOA PDF rather than an L-1 evaluation.
-          const notice = parseIntimationNoticeText(lines)
-          if (notice.agencyName || notice.address || notice.nitNo) notices.push(notice)
+      // Row name vectors only depend on the Works List's own "Name of the Work"
+      // column, which this update never touches — computed once up front so
+      // each file below only has to embed its own (single) title, and can be
+      // matched and applied to the table the moment it's parsed instead of
+      // waiting for the whole folder to finish.
+      const nameHeader = table.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
+      let rowNameVectors: number[][] | undefined
+      if (nameHeader) {
+        try {
+          rowNameVectors = await api.embedTexts(table.rows.map((r) => r[nameHeader] ?? ''))
+        } catch {
+          rowNameVectors = undefined
         }
       }
 
-      if (evaluations.length === 0) {
+      let current = table
+      let matchedCount = 0
+      let evaluationCount = 0
+      const unmatched: string[] = []
+      // Row(s) actually changed, in the order they were matched — flashed/
+      // scrolled to ONCE after the whole batch, not per file: remounting the
+      // sheet (and re-running scrollIntoView) on every single match froze the
+      // app partway through a large folder scan, and flashed rows the user
+      // had no time to read before the next match replaced them.
+      const allMatchedIndices: number[] = []
+
+      for (const file of files) {
+        const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
+        let ev: TenderEvaluation | null = null
+        if (!isPdf) {
+          continue // HTML Online Intimation alone carries no L-1 fields to fold in here.
+        }
+        const lines = await pdfToTextLinesOrOcr(file)
+        const parsed = parseTenderEvaluation(lines)
+        if (parsed.nameOfWork || parsed.tenderId) ev = parsed
+        if (!ev) continue // a printed Intimation / LOA PDF, not an L-1 evaluation.
+
+        evaluationCount++
+        let evalNameVectors: number[][] | undefined
+        if (rowNameVectors) {
+          try {
+            evalNameVectors = await api.embedTexts([ev.nameOfWork ?? ''])
+          } catch {
+            evalNameVectors = undefined
+          }
+        }
+        const embeddings = rowNameVectors && evalNameVectors ? { rowNameVectors, evalNameVectors } : undefined
+        const result = updateWorksListFromEvaluations(current, [ev], embeddings)
+        if (result.matchedCount > 0) {
+          current = result.table
+          matchedCount++
+          allMatchedIndices.push(...result.matchedRowIndices)
+          // Progress only advances on an actual Works List row update, not on
+          // every PDF read — a big unmatched batch would otherwise look like
+          // it's racing through updates that never happen.
+          setScanProgress({ phase: 'parsing', done: matchedCount, total: files.length })
+          onChange(current) // live table data — applied immediately; the flash/scroll below waits for the batch to finish.
+        } else {
+          unmatched.push(...result.unmatched)
+        }
+      }
+
+      if (allMatchedIndices.length > 0) {
+        onUpdated(
+          allMatchedIndices,
+          `Updated from L1 — Tender ID, Notice No/Date, ECV, EMD 1%/1.5%, ASD, Agency, Tender %, Contract Amount, Reservation.`
+        )
+      }
+
+      if (evaluationCount === 0) {
         setResult({
           message: "Couldn't read any L-1 selection sheet from the files. Add the Commercial Evaluation / Stage Selected PDF(s).",
           unmatched: []
         })
         return
       }
-
-      // Embedding vectors let the matcher bridge wording drift between a tender's
-      // title and the Works List's own entry (abbreviations, punctuation).
-      let embeddings: { rowNameVectors: number[][]; evalNameVectors: number[][] } | undefined
-      const nameHeader = table.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
-      if (nameHeader) {
-        try {
-          const [rowNameVectors, evalNameVectors] = await Promise.all([
-            api.embedTexts(table.rows.map((r) => r[nameHeader] ?? '')),
-            api.embedTexts(evaluations.map((e) => e.nameOfWork ?? ''))
-          ])
-          embeddings = { rowNameVectors, evalNameVectors }
-        } catch {
-          embeddings = undefined
-        }
-      }
-
-      const { table: updated, matchedCount, unmatched, matchedRowIndices } = updateWorksListFromEvaluations(
-        table,
-        evaluations,
-        embeddings,
-        notices.length === 1 ? notices[0] : undefined
-      )
-      if (matchedCount > 0) {
-        onChange(updated)
-        onUpdated(
-          matchedRowIndices,
-          `Updated from L1 — Tender ID, Notice No/Date, ECV, EMD 1%/1.5%, ASD, Agency, Tender %, Contract Amount, Reservation.`
-        )
-      }
-      // Only report problems here; the success is shown under the flashed row(s).
+      // Only report problems here; each success was already flashed live above.
       if (matchedCount === 0 || unmatched.length > 0) {
         setResult({
           message:
@@ -233,19 +155,19 @@ export default function WorksListL1Update({ table, onChange, onUpdated }: Props)
   // name are never filtered out, so a single sheet still works exactly as
   // before — this replaces the old file-only <input>, it doesn't add a
   // second, separate "folder mode". busy is set BEFORE the dialog/scan even
-  // starts (not just once handleFiles/handleIntimations begin) — that scan
-  // used to be the part with zero visual feedback while it silently froze
-  // the whole app; now it's both non-blocking and visible.
-  async function pickAndRun(kind: 'l1' | 'intimation', run: (files: File[]) => Promise<void>) {
+  // starts (not just once handleFiles begins) — that scan used to be the
+  // part with zero visual feedback while it silently froze the whole app;
+  // now it's both non-blocking and visible.
+  async function pickAndRun(kind: 'l1', run: (files: File[]) => Promise<void>) {
     setBusy(kind)
     setScanProgress(null)
     setResult(null)
     try {
       const picked = await api.pickTenderDocuments()
       if (picked.length === 0) return
-      // Scan/read is done — handleFiles/handleIntimations' own PDF parsing
-      // and row-matching has no progress signal of its own, fall back to a
-      // plain busy label for that part (same as before this change).
+      // Scan/read is done — handleFiles' own PDF parsing and row-matching
+      // has no progress signal of its own, fall back to a plain busy label
+      // for that part (same as before this change).
       setScanProgress(null)
       await run(picked.map((f) => new File([new Uint8Array(f.bytes)], f.name)))
     } finally {
@@ -258,14 +180,15 @@ export default function WorksListL1Update({ table, onChange, onUpdated }: Props)
   // phase with a real, known total) — 'scanning' has no fixed total yet, so
   // it gets a plain running count instead of a fill.
   const readPct =
-    scanProgress?.phase === 'reading' && scanProgress.total > 0
+    (scanProgress?.phase === 'reading' || scanProgress?.phase === 'parsing') && scanProgress.total > 0
       ? Math.round((scanProgress.done / scanProgress.total) * 100)
       : null
 
-  function buttonLabel(kind: 'l1' | 'intimation', idleLabel: string): React.ReactNode {
+  function buttonLabel(kind: 'l1', idleLabel: string): React.ReactNode {
     if (busy !== kind) return idleLabel
     if (!scanProgress) return 'Opening…'
     if (scanProgress.phase === 'scanning') return `Scanning… (${scanProgress.done} found)`
+    if (scanProgress.phase === 'parsing') return `Updated ${scanProgress.done}/${scanProgress.total} (${readPct}%)`
     if (readPct !== null) return `Reading ${scanProgress.done}/${scanProgress.total} (${readPct}%)`
     return 'Updating…'
   }
@@ -283,19 +206,6 @@ export default function WorksListL1Update({ table, onChange, onUpdated }: Props)
         )}
         <span className="scan-progress-label">
           <IconFolder /> {buttonLabel('l1', 'Update from L1/LOA')}
-        </span>
-      </button>
-      <button
-        className="ghost scan-progress-btn"
-        onClick={() => void pickAndRun('intimation', handleIntimations)}
-        disabled={busy !== null}
-        title="Pick Online Intimation(s) — files, a whole folder, or both — to update each agency's address on every Works List row that carries it"
-      >
-        {busy === 'intimation' && readPct !== null && (
-          <span className="scan-progress-fill" style={{ width: `${readPct}%` }} />
-        )}
-        <span className="scan-progress-label">
-          <IconFolder /> {buttonLabel('intimation', 'Address from Intimation')}
         </span>
       </button>
       {result && (

@@ -116,7 +116,10 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
   // Blink the just-updated rows, then settle: the "Updated from L1" message and
   // highlight clear after a few seconds so they don't linger over later edits.
   const flashSet = useMemo(() => new Set(flashRows ?? []), [flashRows])
-  const firstFlashIndex = flashSet.size > 0 ? Math.min(...flashSet) : -1
+  // Scroll to the LAST updated row, not the topmost one — flashRows is in the
+  // order rows were actually matched/updated, so its last element is the most
+  // recently updated row regardless of its position in the sheet.
+  const firstFlashIndex = flashRows && flashRows.length > 0 ? flashRows[flashRows.length - 1] : -1
   const firstFlashRef = useRef<HTMLTableRowElement | null>(null)
   const [flashing, setFlashing] = useState(flashSet.size > 0)
   useEffect(() => {

@@ -79,8 +79,8 @@ export interface AgreementBundleProgress {
 }
 
 export interface TenderScanProgress {
-  /** 'scanning' while recursively walking the picked folder(s) (total isn't known yet); 'reading' once the file list is final and each match is being read back into memory (a real percentage). */
-  phase: 'scanning' | 'reading'
+  /** 'scanning' while recursively walking the picked folder(s) (total isn't known yet); 'reading' once the file list is final and each match is being read back into memory (a real percentage); 'parsing' is renderer-only — set locally (not sent over IPC) while each read-back file is being text-extracted/OCR'd and matched, which for a few hundred files otherwise looks like the app has frozen with no feedback at all. */
+  phase: 'scanning' | 'reading' | 'parsing'
   done: number
   /** 0 during 'scanning' — there's no fixed total until the walk finishes. */
   total: number

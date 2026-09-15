@@ -30,7 +30,6 @@ import OverviewDashboard from './components/OverviewDashboard'
 import MonitoringFormatCard from './components/MonitoringFormatCard'
 import Skyline from './components/Skyline'
 import ProfileMenu from './components/ProfileMenu'
-import UpdateBanner from './components/UpdateBanner'
 import TenderNoticeButton from './components/TenderNoticeButton'
 import BidDocumentsPanel from './components/BidDocumentsPanel'
 import SeBidDocumentTile from './components/SeBidDocumentTile'
@@ -194,6 +193,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   useEffect(() => {
     document.body.classList.toggle('theme-aurora', theme === 'aurora')
     document.body.classList.toggle('theme-paper', theme === 'paper')
+    document.body.classList.toggle('theme-cyan', theme === 'cyan')
   }, [theme])
 
   // Portal targets for the Agreement/Work Order and Intimation pages' own
@@ -1389,7 +1389,6 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   return (
     <>
       <Skyline />
-      <UpdateBanner />
       <ProfileMenu
         username={loginId}
         onLogout={() => {
@@ -1506,14 +1505,18 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                     <IconRefresh /> {refreshingWorks ? 'Refreshing…' : 'Refresh'}
                   </button>
                 )}
-                {worksListErrors.length > 0 && (
+                {currentTable && (
                   <button
                     type="button"
-                    className="works-errors-btn blink"
-                    title={`${worksListErrors.length} issue${worksListErrors.length === 1 ? '' : 's'} found in the Works List`}
+                    className={`works-errors-btn${worksListErrors.length > 0 ? ' blink' : ''}`}
+                    title={
+                      worksListErrors.length > 0
+                        ? `${worksListErrors.length} issue${worksListErrors.length === 1 ? '' : 's'} found in the Works List`
+                        : 'Check the Works List for data problems'
+                    }
                     onClick={() => setShowWincodeViolations(true)}
                   >
-                    <IconWarn /> Errors ({worksListErrors.length})
+                    <IconWarn /> Verify Workslist{worksListErrors.length > 0 ? ` (${worksListErrors.length})` : ''}
                   </button>
                 )}
               </div>
@@ -1580,21 +1583,29 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                 <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setShowWincodeViolations(false))}>
                   <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
                     <div className="confirm-ic">
-                      <IconWarn />
+                      {worksListErrors.length > 0 ? <IconWarn /> : <IconCheck />}
                     </div>
                     <h3>
-                      {worksListErrors.length} issue{worksListErrors.length === 1 ? '' : 's'} found in the Works List
+                      {worksListErrors.length > 0
+                        ? `${worksListErrors.length} issue${worksListErrors.length === 1 ? '' : 's'} found in the Works List`
+                        : 'No issues found in the Works List'}
                     </h3>
-                    <p className="confirm-hint">Data problems found while scanning the Works List — see each row below.</p>
-                    <ul className="works-list-violation-list">
-                      {worksListErrors.map((v) => (
-                        <li key={`${v.type}:${v.key}`}>
-                          {v.message}
-                          {v.rowIndices.length > 0 &&
-                            ` (row${v.rowIndices.length > 1 ? 's' : ''} ${v.rowIndices.map((i) => i + 1).join(', ')})`}
-                        </li>
-                      ))}
-                    </ul>
+                    {worksListErrors.length > 0 ? (
+                      <>
+                        <p className="confirm-hint">Data problems found while scanning the Works List — see each row below.</p>
+                        <ul className="works-list-violation-list">
+                          {worksListErrors.map((v) => (
+                            <li key={`${v.type}:${v.key}`}>
+                              {v.message}
+                              {v.rowIndices.length > 0 &&
+                                ` (row${v.rowIndices.length > 1 ? 's' : ''} ${v.rowIndices.map((i) => i + 1).join(', ')})`}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <p className="confirm-hint">Every row checked out — Wincode/Tender ID identity, ECV vs. estimate, EMD 1%/1.5% consistency.</p>
+                    )}
                     <div className="confirm-actions">
                       <button className="primary" onClick={() => setShowWincodeViolations(false)}>
                         Close

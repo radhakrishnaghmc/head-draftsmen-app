@@ -17,6 +17,7 @@
  * Online Intimation — no Works List row and no matching office login needed.
  */
 import { formatIndianAmount, amountInWords, zoneAbbr, financialYearFromDate } from './loaSe'
+import { wrapAgencyAddress } from './workOrderAgreement'
 import { extractItemNo, stripItemNoTag } from './bidDocument'
 import type { IntimationNotice } from './intimationNotice'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
@@ -84,7 +85,7 @@ export function issueNoticePlaceholders(
     Corporation: office.corporation ?? '',
     'Corp Full Caps': (office.corporationFullName ?? '').toUpperCase(),
     'Agency Name': notice.agencyName ?? pdf.l1AgencyName ?? '',
-    'Address of the agency': notice.address ?? '',
+    'Address of the agency': wrapAgencyAddress(notice.address ?? ''),
     'agency phone number': manual.agencyPhone,
     'Financial year': financialYearFromDate(manual.noticeDate),
     'Notice Date': manual.noticeDate,

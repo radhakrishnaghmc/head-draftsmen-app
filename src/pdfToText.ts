@@ -50,32 +50,42 @@ export async function pdfPagesToTextLinesFromData(data: ArrayBuffer | Uint8Array
   // Loaded on demand — pdfjs (and its worker) is heavy and only needed when the
   // user actually reads a PDF, so it stays out of the initial startup bundle.
   const { pdfjsLib } = await import('./pdfjsSetup')
-  const pdf = await pdfjsLib.getDocument({ data }).promise
-  const pages: string[][] = []
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum)
-    const content = await page.getTextContent()
-    const byRow = new Map<number, { x: number; s: string }[]>()
-    for (const item of content.items as TextItem[]) {
-      if (!item.str) continue
-      const y = Math.round(item.transform[5])
-      if (!byRow.has(y)) byRow.set(y, [])
-      byRow.get(y)!.push({ x: item.transform[4], s: item.str })
+  const loadingTask = pdfjsLib.getDocument({ data })
+  const pdf = await loadingTask.promise
+  try {
+    const pages: string[][] = []
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum)
+      const content = await page.getTextContent()
+      const byRow = new Map<number, { x: number; s: string }[]>()
+      for (const item of content.items as TextItem[]) {
+        if (!item.str) continue
+        const y = Math.round(item.transform[5])
+        if (!byRow.has(y)) byRow.set(y, [])
+        byRow.get(y)!.push({ x: item.transform[4], s: item.str })
+      }
+      const lines: string[] = []
+      for (const y of [...byRow.keys()].sort((a, b) => b - a)) {
+        const line = byRow
+          .get(y)!
+          .sort((a, b) => a.x - b.x)
+          .map((c) => c.s)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+        if (line) lines.push(line)
+      }
+      pages.push(lines)
     }
-    const lines: string[] = []
-    for (const y of [...byRow.keys()].sort((a, b) => b - a)) {
-      const line = byRow
-        .get(y)!
-        .sort((a, b) => a.x - b.x)
-        .map((c) => c.s)
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-      if (line) lines.push(line)
-    }
-    pages.push(lines)
+    return pages
+  } finally {
+    // A folder scan opens dozens/hundreds of these in a tight loop — without
+    // destroying each document, pdf.js keeps its worker-side font/image
+    // caches alive per document and the renderer eventually OOMs partway
+    // through a large batch. destroy() lives on the loading task, not the
+    // resolved PDFDocumentProxy.
+    await loadingTask.destroy()
   }
-  return pages
 }
 
 /** A reconstructed line plus its position: `x` is the line's leftmost item, `y`
@@ -92,28 +102,33 @@ export interface PositionedLine {
  * page so cross-page ys stay in reading order and never collide). */
 export async function pdfToPositionedLines(file: File): Promise<PositionedLine[]> {
   const { pdfjsLib } = await import('./pdfjsSetup')
-  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise
-  const out: PositionedLine[] = []
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum)
-    const content = await page.getTextContent()
-    const pageOffset = (pageNum - 1) * 100000 // keep later pages strictly below earlier ones
-    const byRow = new Map<number, { x: number; s: string }[]>()
-    for (const item of content.items as TextItem[]) {
-      if (!item.str) continue
-      const y = Math.round(item.transform[5])
-      if (!byRow.has(y)) byRow.set(y, [])
-      byRow.get(y)!.push({ x: item.transform[4], s: item.str })
+  const loadingTask = pdfjsLib.getDocument({ data: await file.arrayBuffer() })
+  const pdf = await loadingTask.promise
+  try {
+    const out: PositionedLine[] = []
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum)
+      const content = await page.getTextContent()
+      const pageOffset = (pageNum - 1) * 100000 // keep later pages strictly below earlier ones
+      const byRow = new Map<number, { x: number; s: string }[]>()
+      for (const item of content.items as TextItem[]) {
+        if (!item.str) continue
+        const y = Math.round(item.transform[5])
+        if (!byRow.has(y)) byRow.set(y, [])
+        byRow.get(y)!.push({ x: item.transform[4], s: item.str })
+      }
+      for (const y of [...byRow.keys()].sort((a, b) => b - a)) {
+        const cells = byRow.get(y)!.sort((a, b) => a.x - b.x)
+        const text = cells
+          .map((c) => c.s)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+        if (text) out.push({ text, x: cells[0].x, y: pageOffset + (100000 - y) })
+      }
     }
-    for (const y of [...byRow.keys()].sort((a, b) => b - a)) {
-      const cells = byRow.get(y)!.sort((a, b) => a.x - b.x)
-      const text = cells
-        .map((c) => c.s)
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-      if (text) out.push({ text, x: cells[0].x, y: pageOffset + (100000 - y) })
-    }
+    return out
+  } finally {
+    await loadingTask.destroy()
   }
-  return out
 }

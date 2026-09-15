@@ -119,6 +119,15 @@ export const TEMPLATE_KEYS = {
   notice: 'hda-template-notice'
 } as const
 
+// Fired on the window whenever a Document Templates variant choice above is
+// changed in Settings — components that read one of these keys once (on
+// mount, cached in state) and can stay mounted across a tab switch via
+// KeepAlive — Issue Notices is one — otherwise never see the new pick
+// without this: the "storage" event only fires for OTHER windows/tabs, not
+// this one. detail.storageKey is the exact key (already officeScopedKey'd)
+// that changed, so a listener can ignore events for other document types/offices.
+export const TEMPLATE_VARIANT_CHANGED_EVENT = 'hda-template-variant-changed'
+
 /**
  * Whether an office has been chosen. A Corporation + Zone is enough — that's a
  * zonal office (a zone-level Head Draughtsman, spanning every circle in the zone);

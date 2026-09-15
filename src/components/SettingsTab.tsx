@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
-import { type Office, officeScopedKey, TEMPLATE_KEYS, isZoneOnlyOffice } from '../office'
+import { type Office, officeScopedKey, TEMPLATE_KEYS, TEMPLATE_VARIANT_CHANGED_EVENT, isZoneOnlyOffice } from '../office'
 import { corporationByName } from '../zoneCircleDirectory'
 import {
   WORK_ORDER_TEMPLATE_VARIANTS,
@@ -168,6 +168,7 @@ function TemplateSection({ title, subtitle, storageKey, variants, defaultVariant
   function choose(id: string) {
     setSelected(id)
     localStorage.setItem(storageKey, id)
+    window.dispatchEvent(new CustomEvent(TEMPLATE_VARIANT_CHANGED_EVENT, { detail: { storageKey } }))
   }
 
   async function fillVariant(id: string): Promise<string> {
