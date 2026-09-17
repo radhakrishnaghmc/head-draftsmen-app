@@ -87,7 +87,8 @@ import type {
   PendingNoticeItem
 } from '@core/types'
 import type { CalendarData } from '@core/calendar'
-import { nthWorkingDay } from '@core/calendar'
+import { nthWorkingDay, dmyToIso } from '@core/calendar'
+import { isNoticeOverdue, defaultLoaNo } from '@core/issueNotice'
 import type { MonitoringFormatSummary, MonitoringFormatWorkRow, MfStatusKey } from '@core/monitoringFormat'
 import {
   filterMonitoringFormatWorksByStatus,
@@ -757,6 +758,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   const officeTenderReminders = tenderReminders.filter((r) => (r.officeKey ?? '') === currentOfficeKey)
   // Pending Non-conclusion Notices, same per-office scoping.
   const officePendingNotices = pendingNotices.filter((n) => (n.officeKey ?? '') === currentOfficeKey)
+  // True while any active Notice's due date has passed unhandled — blinks the "Issue Notices" nav tile red.
+  const noticesOverdue = officePendingNotices.some((n) => !n.deletedAt && isNoticeOverdue(n.manual.noticeDate, n.done))
   // Short label of the office these per-office lists are scoped to, for the page header.
   const officeLabel = office.circle || office.zone || ''
   function setOfficePendingNotices(next: PendingNoticeItem[]) {
@@ -1187,7 +1190,11 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // duplicate tiles); only creates a new one when nothing matches.
   function handleIntimationIssued(snapshot: IntimationIssuedSnapshot) {
     const d = new Date()
-    const intimationDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    // Notice Date counts 8 working days from the Intimation/LOA's own date
+    // (loaDateSeed — pdf.serverDate or the hand-typed LOA date), not from
+    // whatever day the office happens to click "download" in the app.
+    const intimationDate = dmyToIso(snapshot.loaDateSeed ?? '') ?? today
     const calendarByYear = new Map(calendar ? [[Number(calendar.year), calendar]] : [])
     const noticeDateIso = nthWorkingDay(intimationDate, 8, calendarByYear)
     const [ny, nm, nday] = noticeDateIso.split('-')
@@ -1202,13 +1209,22 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
             ? n.nitNo === snapshot.nitNo && n.agencyName === snapshot.agencyName
             : n.workName === snapshot.workName && n.agencyName === snapshot.agencyName)
       )
+      const loaDate = snapshot.loaDateSeed || ''
+      const loaNo = defaultLoaNo(
+        { zone: snapshot.zone, circle: snapshot.circle, cno: snapshot.cno, corporation: snapshot.corporation },
+        loaDate
+      )
       if (idx !== -1) {
         const existing = prev[idx]
         const next = [...prev]
         next[idx] = {
           ...existing,
           ...snapshot,
-          manual: { ...existing.manual, loaDate: snapshot.loaDateSeed || existing.manual.loaDate }
+          manual: {
+            ...existing.manual,
+            loaDate: loaDate || existing.manual.loaDate,
+            loaNo: existing.manual.loaNo || loaNo
+          }
         }
         return next
       }
@@ -1230,7 +1246,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
         contractRupees: snapshot.contractRupees,
         tenderPercentage: snapshot.tenderPercentage,
         intimationDate,
-        manual: { loaNo: '', loaDate: snapshot.loaDateSeed || '', noticeDate, agencyPhone: '' },
+        manual: { loaNo, loaDate, noticeDate, agencyPhone: '' },
         done: false
       }
       return [...prev, item]
@@ -1412,6 +1428,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
         onOfficeChange={changeOffice}
         onShowWhatsNew={() => setWhatsNew(CHANGELOG)}
         cementSteelHasNew={cementSteelHasNew}
+        noticesOverdue={noticesOverdue}
       />
 
       <main className="workspace">

@@ -329,7 +329,7 @@ export default function OverviewDashboard({
                 {MF_TILES.filter(({ key }) => mfTotals[key].no > 0).map(({ label, key, color }) => (
                   <li key={key}>
                     <i className="ov-donut-legend-dot" style={{ background: color }} />
-                    {label}
+                    <span>{label}</span>
                     <b>{mfTotals[key].no}</b>
                   </li>
                 ))}
@@ -448,7 +448,7 @@ export default function OverviewDashboard({
                   {wardTypes.map(({ row, color }) => (
                     <li key={row.itemType}>
                       <i className="ov-donut-legend-dot" style={{ background: color }} />
-                      {row.itemType}
+                      <span>{row.itemType}</span>
                       <b>{row.totalWorks.no}</b>
                     </li>
                   ))}

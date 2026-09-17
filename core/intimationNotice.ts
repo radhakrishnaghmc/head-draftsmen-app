@@ -1,4 +1,5 @@
 import { detectAgencyAddress } from './tenderAgents/agencyAddress'
+import { detectSupplierAddressPhone } from './tenderAgents/supplierAddressPhone'
 
 export interface IntimationNotice {
   /** Contractor/company name, from the "To" address block. */
@@ -13,6 +14,8 @@ export interface IntimationNotice {
   ecvRupees?: number
   /** Accepted contract value, in rupees. */
   contractRupees?: number
+  /** Agency's mobile/phone — only the eGP "Supplier Details" page carries this; the Online Intimation letter never does. */
+  phone?: string
 }
 
 function decodeEntities(s: string): string {
@@ -205,4 +208,23 @@ export function parseIntimationNoticeText(lines: string[]): IntimationNotice {
   if (contract) result.contractRupees = toNumber(contract[1])
 
   return result
+}
+
+/**
+ * Parses the Telangana eGP portal's "Supplier Details" page (the bidder's
+ * own profile, saved/printed as .pdf) — a cleaner source for the agency's
+ * name/address than the Online Intimation letter, and the only one of the
+ * two that carries a phone number at all. Each field is "Label value" on
+ * its own line; anything not found is left undefined (caller falls back
+ * to the Online Intimation notice / Works List row).
+ */
+export function parseSupplierDetailsText(lines: string[]): IntimationNotice {
+  const companyName = lines
+    .map((l) => /^Company Name\s*[:\-]?\s*(.+)$/i.exec(l.trim()))
+    .find((m) => m && m[1].trim())?.[1]
+
+  return {
+    ...(companyName ? { agencyName: clean(companyName) } : {}),
+    ...detectSupplierAddressPhone(lines)
+  }
 }

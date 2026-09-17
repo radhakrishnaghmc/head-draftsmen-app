@@ -1,9 +1,9 @@
 /**
- * Eleven independent detectors, each responsible for exactly one field of a
- * tender's L1 (Commercial Evaluation) sheet or Intimation letter — Tender ID,
- * NIT No + Date, Name of Work, ECV, Tender Percentage, Contract Value, Bid
- * Submission Start/End Date, Name of the Agencies, L1 Agency, and Address of
- * the Agency.
+ * Twelve independent detectors, each responsible for exactly one field of a
+ * tender's L1 (Commercial Evaluation) sheet, Intimation letter, or Supplier
+ * Details page — Tender ID, NIT No + Date, Name of Work, ECV, Tender
+ * Percentage, Contract Value, Bid Submission Start/End Date, Name of the
+ * Agencies, L1 Agency, Address of the Agency, and Address & Phone Number.
  *
  * Why split them up: every one of these fields has, at some point, needed a
  * fix for a government office's PDF export punctuating or wrapping its own
@@ -20,10 +20,10 @@
  * comment for why four agents share one scan instead of each re-implementing
  * it.
  *
- * All 11 read the same `lines: string[]` shape, whatever document it came
- * from — see inputAdapters.ts for turning an OCR'd photo or a spreadsheet's
- * rows into that same shape (a digital PDF's text already reduces to it via
- * pdf.js's own reconstruction, no adapter needed).
+ * All twelve read the same `lines: string[]` shape, whatever document it
+ * came from — see inputAdapters.ts for turning an OCR'd photo or a
+ * spreadsheet's rows into that same shape (a digital PDF's text already
+ * reduces to it via pdf.js's own reconstruction, no adapter needed).
  */
 export { detectTenderId } from './tenderId'
 export { detectNitNoAndDate, type NitNoAndDate } from './nitNoAndDate'
@@ -42,6 +42,7 @@ export { detectBidSubmissionStartDate, detectBidSubmissionEndDate } from './bidS
 export { detectAgencyNames, detectAllBidders } from './agencyNames'
 export { detectL1Agency } from './l1Agency'
 export { detectAgencyAddress, type AgencyAddressBlock } from './agencyAddress'
+export { detectSupplierAddressPhone, type SupplierAddressPhone } from './supplierAddressPhone'
 export { linesFromOcr, linesFromExcelRows, type OcrLikeLine } from './inputAdapters'
 export { extractEstimateFromTitle } from './estimateInTitle'
 export { runTenderAgents, sameTender, type TenderFields } from './crossCheck'

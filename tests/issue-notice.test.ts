@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { issueNoticePlaceholders, EMPTY_ISSUE_NOTICE_MANUAL_FIELDS } from '../core/issueNotice'
+import { issueNoticePlaceholders, EMPTY_ISSUE_NOTICE_MANUAL_FIELDS, isNoticeOverdue, defaultLoaNo } from '../core/issueNotice'
 import type { IntimationNotice } from '../core/intimationNotice'
 import type { TenderEvaluation } from '../core/tenderEvaluationPdf'
 
@@ -79,5 +79,47 @@ describe('issueNoticePlaceholders', () => {
     expect(se['Zone Abbr']).toBe('QBZ')
     expect(se['Circle']).toBe('')
     expect(se['CNO']).toBe('')
+  })
+})
+
+describe('defaultLoaNo', () => {
+  it('builds the same Lr.No reference as the intimation-template.docx letterhead, for an EE (circle) office', () => {
+    expect(defaultLoaNo({ zone: 'Quthbullapur', circle: 'Nizampet', cno: '58', corporation: 'CMC' }, '24.07.2026')).toBe(
+      '/EE/Nizampet/CIR-58/QBZ/CMC/2026-27'
+    )
+  })
+
+  it('omits the Zone Abbr segment when the EE office has no zone', () => {
+    expect(defaultLoaNo({ circle: 'Gajularamaram', cno: '57', corporation: 'CMC' }, '24.07.2026')).toBe(
+      '/EE/Gajularamaram/CIR-57/CMC/2026-27'
+    )
+  })
+
+  it('is blank for an SE (zone-only) office — the LOA letter carries no Lr.No line there', () => {
+    expect(defaultLoaNo({ zone: 'Quthbullapur', corporation: 'CMC' }, '24.07.2026')).toBe('')
+  })
+})
+
+describe('isNoticeOverdue', () => {
+  const today = new Date(2026, 8, 17) // 2026-09-17
+
+  it('overdue once today is after the notice date and the Notice is not done', () => {
+    expect(isNoticeOverdue('16.09.2026', false, today)).toBe(true)
+    expect(isNoticeOverdue('01.09.2026', false, today)).toBe(true)
+  })
+
+  it('not overdue on the notice date itself or before it', () => {
+    expect(isNoticeOverdue('17.09.2026', false, today)).toBe(false)
+    expect(isNoticeOverdue('18.09.2026', false, today)).toBe(false)
+  })
+
+  it('never overdue once the Notice is marked done, regardless of date', () => {
+    expect(isNoticeOverdue('01.09.2026', true, today)).toBe(false)
+  })
+
+  it('never overdue when the notice date is blank or unparsable', () => {
+    expect(isNoticeOverdue('', false, today)).toBe(false)
+    expect(isNoticeOverdue(undefined, false, today)).toBe(false)
+    expect(isNoticeOverdue('not a date', false, today)).toBe(false)
   })
 })

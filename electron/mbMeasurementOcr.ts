@@ -1,5 +1,12 @@
 import { recognizeImages } from './ocr'
-import { estimateRowPitch, findGridStart, generateRowBounds, buildMbMeasurementRows } from '../core/mbMeasurementExtract'
+import {
+  estimateRowPitchConfidence,
+  findGridStart,
+  generateRowBounds,
+  generateRowBoundsSnapped,
+  selectColumnBoundsByEqualWidth,
+  buildMbMeasurementRows
+} from '../core/mbMeasurementExtract'
 import type { MbMeasurementRow } from '../core/mbMeasurementExtract'
 
 // Calibrated once from a clean sample page of the "L.F. No. 83" MB form (see
@@ -14,7 +21,6 @@ const REF_COLUMN_BOUNDS = [78, 231, 697, 796, 895, 994, 1095, 1234] // 8 boundar
 const REF_ROW_TOP = 258
 const REF_ROW_PITCH = 48.71
 
-const DARK_THRESHOLD = 150
 const CELL_UPSCALE = 3
 // A crop with less than this fraction of dark pixels is treated as blank —
 // skips OCR entirely (faster, and avoids the model hallucinating text on
@@ -35,28 +41,62 @@ async function toGrayscale(imageBuffer: Buffer): Promise<GrayImage> {
   return { data, width: info.width, height: info.height }
 }
 
-function darkColProfile(img: GrayImage, yFrom: number, yTo: number): Float64Array {
+/**
+ * Otsu's method: the grayscale cutoff that best splits a photo's own pixels
+ * into two classes (ink vs. paper). A fixed cutoff tuned on a clean scan
+ * (paper near-white) misreads a real phone photo, where paper background
+ * commonly sits at 130-160 from lighting/shadow/paper tone — collapsing
+ * ruled-line detection into one giant "dark" blob instead of the real lines.
+ */
+function otsuThreshold(img: GrayImage): number {
+  const hist = new Array(256).fill(0)
+  for (let i = 0; i < img.data.length; i++) hist[img.data[i]]++
+  const total = img.data.length
+  let sum = 0
+  for (let v = 0; v < 256; v++) sum += v * hist[v]
+  let sumB = 0
+  let weightB = 0
+  let maxVariance = 0
+  let threshold = 128
+  for (let t = 0; t < 256; t++) {
+    weightB += hist[t]
+    if (weightB === 0) continue
+    const weightF = total - weightB
+    if (weightF === 0) break
+    sumB += t * hist[t]
+    const meanB = sumB / weightB
+    const meanF = (sum - sumB) / weightF
+    const variance = weightB * weightF * (meanB - meanF) * (meanB - meanF)
+    if (variance > maxVariance) {
+      maxVariance = variance
+      threshold = t
+    }
+  }
+  return threshold
+}
+
+function darkColProfile(img: GrayImage, yFrom: number, yTo: number, darkThreshold: number): Float64Array {
   const { data, width } = img
   const profile = new Float64Array(width)
   const rows = yTo - yFrom
   for (let x = 0; x < width; x++) {
     let dark = 0
     for (let y = yFrom; y < yTo; y++) {
-      if (data[y * width + x] < DARK_THRESHOLD) dark++
+      if (data[y * width + x] < darkThreshold) dark++
     }
     profile[x] = dark / rows
   }
   return profile
 }
 
-function darkRowProfile(img: GrayImage, xFrom: number, xTo: number): Float64Array {
+function darkRowProfile(img: GrayImage, xFrom: number, xTo: number, darkThreshold: number): Float64Array {
   const { data, width, height } = img
   const profile = new Float64Array(height)
   const cols = xTo - xFrom
   for (let y = 0; y < height; y++) {
     let dark = 0
     for (let x = xFrom; x < xTo; x++) {
-      if (data[y * width + x] < DARK_THRESHOLD) dark++
+      if (data[y * width + x] < darkThreshold) dark++
     }
     profile[y] = dark / cols
   }
@@ -88,6 +128,7 @@ function clusterPeaks(profile: Float64Array, threshold: number, minGap: number):
 interface PageGrid {
   colBounds: number[]
   rowBounds: number[]
+  darkThreshold: number
 }
 
 /** True when `candidate` boundaries are each within `tolerance`px of `ref`, scaled by `scale`. */
@@ -99,24 +140,49 @@ function closeToReference(candidate: number[], ref: number[], scale: number, tol
 function detectGrid(img: GrayImage): PageGrid {
   const scale = img.width / REF_WIDTH
   const refCols = REF_COLUMN_BOUNDS.map((x) => x * scale)
+  const darkThreshold = otsuThreshold(img)
 
   let colBounds = refCols
-  const colProfile = darkColProfile(img, Math.round(img.height * 0.15), Math.round(img.height * 0.95))
+  const colProfile = darkColProfile(img, Math.round(img.height * 0.15), Math.round(img.height * 0.95), darkThreshold)
   const detectedCols = clusterPeaks(colProfile, 0.25, Math.round(5 * scale))
   if (closeToReference(detectedCols, REF_COLUMN_BOUNDS, scale, 20 * scale)) {
     colBounds = detectedCols
+  } else {
+    // A real photo's true column positions rarely land within tolerance of
+    // the reference scaled linearly (perspective/crop differences distort
+    // proportions unevenly across the table). No/L/B/D are printed as 4
+    // equal-width columns on this form, so the correct 8-of-N boundaries
+    // among the detected peaks (which can include extra noise peaks from
+    // handwriting strokes lining up across rows) are the ones whose
+    // No/L/B/D widths agree with each other.
+    const structural = selectColumnBoundsByEqualWidth(detectedCols)
+    if (structural !== undefined) colBounds = structural
   }
 
-  const left = colBounds[0]
-  const right = colBounds[colBounds.length - 1]
-  const rowProfile = darkRowProfile(img, Math.round(left + 5), Math.round(right - 5))
-  const detectedRows = clusterPeaks(rowProfile, 0.28, 4)
+  // Row lines are detected from the Date column specifically, not the full
+  // table width: that column is normally blank/lightly filled, so its dark
+  // profile reflects the ruled lines themselves rather than handwriting ink
+  // density (which swamps a full-width profile on busy real photos).
+  const dateColFrom = colBounds[0]
+  const dateColTo = colBounds[1]
+  const rowProfile = darkRowProfile(img, Math.round(dateColFrom + 5), Math.round(dateColTo - 5), darkThreshold)
+  const detectedRows = clusterPeaks(rowProfile, 0.3, Math.round(15 * scale))
 
   let rowTop = REF_ROW_TOP * scale
   let pitch = REF_ROW_PITCH * scale
-  const detectedPitch = estimateRowPitch(detectedRows, { minGap: 30 * scale, maxGap: 70 * scale })
-  if (detectedPitch !== undefined && Math.abs(detectedPitch - pitch) <= 6 * scale) {
-    pitch = detectedPitch
+  let pitchConfirmed = false
+  const pitchEstimate = estimateRowPitchConfidence(detectedRows, { minGap: 30 * scale, maxGap: 90 * scale })
+  // Trust the detected pitch either when it matches the fixed-form reference
+  // (typical case) or when it's internally self-consistent across several
+  // gaps (a photo framed/cropped differently than the calibration reference
+  // has its own valid, but different, pitch — reference match alone would
+  // wrongly reject a clean detection just because it disagrees with a
+  // constant derived from a different photo's proportions).
+  const matchesReference = pitchEstimate !== undefined && Math.abs(pitchEstimate.pitch - pitch) <= 6 * scale
+  const selfConsistent = pitchEstimate !== undefined && pitchEstimate.sampleCount >= 3 && pitchEstimate.maxDeviation <= 5 * scale
+  if (pitchEstimate !== undefined && (matchesReference || selfConsistent)) {
+    pitch = pitchEstimate.pitch
+    pitchConfirmed = true
     const detectedTop = findGridStart(detectedRows, pitch, 6 * scale)
     if (detectedTop !== undefined) rowTop = detectedTop
   }
@@ -124,12 +190,16 @@ function detectGrid(img: GrayImage): PageGrid {
   // Bottom limit: prefer a detected line that's clearly beyond the last
   // regular-pitch row (the table's closing border), else fall back to the
   // image height so the reference pitch alone still produces a full page of
-  // rows.
-  const bottomCandidate = detectedRows.length > 0 ? detectedRows[detectedRows.length - 1] : undefined
+  // rows. Only trust a detected line here once pitch itself was confirmed —
+  // otherwise detectedRows is noise (handwriting ink density, not ruled
+  // lines) and its last entry truncates the grid to a few rows.
+  const bottomCandidate = pitchConfirmed && detectedRows.length > 0 ? detectedRows[detectedRows.length - 1] : undefined
   const bottomLimit = bottomCandidate !== undefined && bottomCandidate > rowTop + pitch ? bottomCandidate : img.height - 10 * scale
 
-  const rowBounds = generateRowBounds(rowTop, pitch, bottomLimit)
-  return { colBounds, rowBounds }
+  const rowBounds = pitchConfirmed
+    ? generateRowBoundsSnapped(detectedRows, rowTop, pitch, bottomLimit)
+    : generateRowBounds(rowTop, pitch, bottomLimit)
+  return { colBounds, rowBounds, darkThreshold }
 }
 
 async function cropCell(
@@ -139,7 +209,8 @@ async function cropCell(
   y0: number,
   y1: number,
   imgWidth: number,
-  imgHeight: number
+  imgHeight: number,
+  darkThreshold: number
 ): Promise<{ buffer: Buffer; darkFraction: number } | undefined> {
   const left = Math.max(0, Math.round(x0) + 2)
   const top = Math.max(0, Math.round(y0) + 2)
@@ -162,7 +233,7 @@ async function cropCell(
     .toBuffer({ resolveWithObject: true })
 
   let dark = 0
-  for (let i = 0; i < data.length; i++) if (data[i] < DARK_THRESHOLD) dark++
+  for (let i = 0; i < data.length; i++) if (data[i] < darkThreshold) dark++
   const darkFraction = dark / data.length
   if (darkFraction < BLANK_CELL_DARK_FRACTION) return { buffer: Buffer.alloc(0), darkFraction }
 
@@ -177,7 +248,7 @@ async function cropCell(
 async function extractPageGrid(imageBuffer: Buffer, onProgress?: (done: number, total: number) => void): Promise<string[][]> {
   const sharp = (await import('sharp')).default
   const gray = await toGrayscale(imageBuffer)
-  const { colBounds, rowBounds } = detectGrid(gray)
+  const { colBounds, rowBounds, darkThreshold } = detectGrid(gray)
   const sharpInstance = sharp(imageBuffer)
 
   interface CellSlot {
@@ -197,7 +268,8 @@ async function extractPageGrid(imageBuffer: Buffer, onProgress?: (done: number, 
         rowBounds[row],
         rowBounds[row + 1],
         gray.width,
-        gray.height
+        gray.height,
+        darkThreshold
       )
       if (!cropped || cropped.buffer.length === 0) continue
       cellBuffers.push(cropped.buffer)

@@ -145,6 +145,14 @@ export function parseCalendarHtml(htmlText: string, year = '2026'): CalendarData
   return { year, months, fetchedAt: new Date().toISOString() }
 }
 
+/** "20.03.2026" -> "2026-03-20". Returns undefined for blank/unparsable input. */
+export function dmyToIso(dmy: string): string | undefined {
+  const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(dmy.trim())
+  if (!m) return undefined
+  const [, dd, mm, yyyy] = m
+  return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`
+}
+
 function isSunday(year: number, mi: number, day: number): boolean {
   return new Date(year, mi, day).getDay() === 0
 }

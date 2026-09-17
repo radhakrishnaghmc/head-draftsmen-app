@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { api } from '../ipc'
 import { guessHeaderRow } from '@core/sheet'
 import { extractEstimateItemsWithAi } from '../aiEstimateColumns'
 import { mismatchHint } from '../docClassify'
 import { buildRateIndex } from '@core/rateDatabase'
 import type { RateEntry } from '@core/rateDatabase'
+import { buildSorRateIndex } from '@core/sorPdfExtract'
+import { pdfPagesToTextLinesFromData } from '../pdfToText'
 import { matchEstimateItems, buildCellEdits, buildRateAnalysisSheet, isAutoResolved, needsReview } from '@core/technicalSanction'
 import type { ItemMatch, ResolvedItem } from '@core/technicalSanction'
 import { IconFolder, IconDownload, IconWarn, IconCheck, IconTable } from './Icons'
@@ -27,22 +29,34 @@ function formatRate(rate: string): string {
 
 /**
  * Give Technical Sanction: upload the Data Sheet (rates database — uploaded
- * fresh each time since its rates change monthly) and an Estimate. Every
- * estimate line's description is matched against the Data Sheet; a clean
- * single match auto-fills the rate and replaces the description text
- * (green), a description with several different rates attached to it (a
- * common pattern — e.g. manual vs. mechanical means × depth range, all
- * sharing one paragraph) is left for the user to pick from, and anything
- * below the match threshold is left red for manual entry. "Generate" writes
- * these edits into a copy of the original estimate file.
+ * fresh each time since its rates change monthly) and, optionally, the SoR
+ * (Schedule of Rates) PDF as a fallback rate source, then an Estimate. Every
+ * estimate line's description is retrieved against the combined Data
+ * Sheet + SoR rate index (hybrid TF-IDF/embedding search, core/technicalSanction.ts)
+ * — the Data Sheet is the locally lead-adjusted, authoritative source, the
+ * SoR fills in items the Data Sheet doesn't carry. A clean single match
+ * auto-fills the rate and replaces the description text (green), a
+ * description with several different rates attached to it (a common
+ * pattern — e.g. manual vs. mechanical means × depth range, all sharing one
+ * paragraph) is left for the user to pick from, and anything below the
+ * match threshold is left red for manual entry. "Generate" writes these
+ * edits into a copy of the original estimate file.
  */
 export default function GiveTechnicalSanctionTab() {
   const [dataSheetName, setDataSheetName] = useState<string | null>(null)
-  const [rateIndex, setRateIndex] = useState<RateEntry[] | null>(null)
-  const [rateEmbeddings, setRateEmbeddings] = useState<number[][] | null>(null)
+  const [dataRateIndex, setDataRateIndex] = useState<RateEntry[] | null>(null)
   const [rateSheetCount, setRateSheetCount] = useState(0)
   const [dataError, setDataError] = useState<string | null>(null)
   const [dataBusy, setDataBusy] = useState(false)
+
+  const [sorFileName, setSorFileName] = useState<string | null>(null)
+  const [sorRateIndex, setSorRateIndex] = useState<RateEntry[] | null>(null)
+  const [sorError, setSorError] = useState<string | null>(null)
+  const [sorBusy, setSorBusy] = useState(false)
+  const [sorProgress, setSorProgress] = useState<{ page: number; total: number } | null>(null)
+  const sorFileInputRef = useRef<HTMLInputElement>(null)
+
+  const [combinedEmbeddings, setCombinedEmbeddings] = useState<number[][] | null>(null)
 
   const [estimate, setEstimate] = useState<SheetGrid | null>(null)
   const [matches, setMatches] = useState<ItemMatch[] | null>(null)
@@ -91,6 +105,17 @@ export default function GiveTechnicalSanctionTab() {
     setSelections(m.map((x) => (isAutoResolved(x) ? 0 : null)))
   }
 
+  // Re-embeds the combined Data Sheet + SoR rate index and re-runs matching
+  // against the currently loaded estimate (if any) — called after either
+  // source changes, since a new source shifts the whole retrieval corpus.
+  async function refreshCombined(dataIdx: RateEntry[] | null, sorIdx: RateEntry[] | null) {
+    const combined = [...(dataIdx ?? []), ...(sorIdx ?? [])]
+    setSaved(null)
+    const entryVectors = combined.length > 0 ? await embedSafely(combined.map((e) => e.description)) : null
+    setCombinedEmbeddings(entryVectors)
+    if (estimate) await runMatching(estimate, combined, entryVectors)
+  }
+
   async function uploadDataSheet() {
     setDataError(null)
     setEmbedNotice(null)
@@ -99,17 +124,37 @@ export default function GiveTechnicalSanctionTab() {
       const sheets = await api.pickDataSheet()
       if (!sheets) return
       const index = buildRateIndex(sheets.map((s) => ({ name: s.sheetName, grid: s.grid })))
-      setRateIndex(index)
+      setDataRateIndex(index)
       setRateSheetCount(sheets.length)
       setDataSheetName(sheets[0]?.name ?? null)
-      setSaved(null)
-      const entryVectors = await embedSafely(index.map((e) => e.description))
-      setRateEmbeddings(entryVectors)
-      if (estimate) await runMatching(estimate, index, entryVectors)
+      await refreshCombined(index, sorRateIndex)
     } catch (e) {
       setDataError(e instanceof Error ? e.message : String(e))
     } finally {
       setDataBusy(false)
+    }
+  }
+
+  async function uploadSor(file: File) {
+    setSorError(null)
+    setEmbedNotice(null)
+    setSorBusy(true)
+    setSorProgress({ page: 0, total: 0 })
+    try {
+      const pages = await pdfPagesToTextLinesFromData(await file.arrayBuffer(), (page, total) => setSorProgress({ page, total }))
+      setSorProgress(null) // page extraction done — the rest (parsing/embedding) has no per-step progress to show
+      const index = buildSorRateIndex(pages, file.name)
+      if (index.length === 0) {
+        throw new Error(`No rate items recognized in ${file.name} — is this the SoR item-table PDF?`)
+      }
+      setSorRateIndex(index)
+      setSorFileName(file.name)
+      await refreshCombined(dataRateIndex, index)
+    } catch (e) {
+      setSorError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSorBusy(false)
+      setSorProgress(null)
     }
   }
 
@@ -124,7 +169,8 @@ export default function GiveTechnicalSanctionTab() {
       if (!grid) return
       setEstimate(grid)
       setMatches(null)
-      if (rateIndex) await runMatching(grid, rateIndex, rateEmbeddings)
+      const combined = [...(dataRateIndex ?? []), ...(sorRateIndex ?? [])]
+      if (combined.length > 0) await runMatching(grid, combined, combinedEmbeddings)
     } catch (e) {
       const hint = grid ? mismatchHint(grid.grid[guessHeaderRow(grid.grid)] ?? [], 'estimate') : null
       setEstimateError((e instanceof Error ? e.message : String(e)) + (hint ? ` ${hint}` : ''))
@@ -168,6 +214,8 @@ export default function GiveTechnicalSanctionTab() {
     }
   }
 
+  const combinedCount = (dataRateIndex?.length ?? 0) + (sorRateIndex?.length ?? 0)
+
   // Resolved = anything now carrying a chosen rate, auto-filled or user-picked.
   // Needs-pick = reviewable matches still awaiting a choice. Not-found = red.
   const foundCount = matches ? selections.filter((s) => s != null).length : 0
@@ -179,13 +227,13 @@ export default function GiveTechnicalSanctionTab() {
       <div className="empty">
         <IconTable />
         <p>
-          {rateIndex
-            ? `Data Sheet loaded — ${rateIndex.length} rate entries across ${rateSheetCount} sheets (“${dataSheetName}”)${rateEmbeddings ? ', with semantic matching enabled' : ''}.`
+          {dataRateIndex
+            ? `Data Sheet loaded — ${dataRateIndex.length} rate entries across ${rateSheetCount} sheets (“${dataSheetName}”).`
             : 'Upload the Data Sheet (rates database) — since rates update monthly, upload the latest copy each time.'}
         </p>
         <div className="boq-actions">
           <button className="primary upload-btn" onClick={uploadDataSheet} disabled={dataBusy}>
-            <IconFolder /> {dataBusy ? 'Loading & computing matches…' : rateIndex ? 'Replace Data Sheet' : 'Upload Data Sheet'}
+            <IconFolder /> {dataBusy ? 'Loading & computing matches…' : dataRateIndex ? 'Replace Data Sheet' : 'Upload Data Sheet'}
           </button>
         </div>
         {dataError && (
@@ -193,6 +241,46 @@ export default function GiveTechnicalSanctionTab() {
             <IconWarn />
             {dataError}
           </div>
+        )}
+
+        <p style={{ marginTop: 18 }}>
+          {sorRateIndex
+            ? `SoR PDF loaded — ${sorRateIndex.length} rate entries (“${sorFileName}”).`
+            : 'Optionally also upload the SoR (Schedule of Rates) PDF, as a fallback source for items the Data Sheet doesn’t carry.'}
+        </p>
+        <div className="boq-actions">
+          <button className="primary upload-btn" onClick={() => sorFileInputRef.current?.click()} disabled={sorBusy}>
+            <IconFolder />{' '}
+            {sorBusy
+              ? sorProgress && sorProgress.total > 0
+                ? `Reading page ${sorProgress.page}/${sorProgress.total} (${Math.round((sorProgress.page / sorProgress.total) * 100)}%)…`
+                : 'Computing matches…'
+              : sorRateIndex
+                ? 'Replace SoR PDF'
+                : 'Upload SoR PDF'}
+          </button>
+          <input
+            ref={sorFileInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void uploadSor(file)
+              e.target.value = ''
+            }}
+          />
+        </div>
+        {sorError && (
+          <div className="notice error">
+            <IconWarn />
+            {sorError}
+          </div>
+        )}
+        {combinedEmbeddings && (
+          <p className="hint" style={{ marginTop: 6 }}>
+            {combinedCount} combined rate entries, with semantic matching enabled.
+          </p>
         )}
         {embedNotice && (
           <div className="notice error">

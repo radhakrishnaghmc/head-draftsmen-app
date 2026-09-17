@@ -111,7 +111,7 @@ export function resolveIntimationValue(
       return wrapAgencyAddress(notice.address ?? row['Address of the agency'] ?? '')
     case 'agency phone number':
     case 'phone number of the agency':
-      return row['Phone number of the agency'] ?? ''
+      return notice.phone ?? row['Phone number of the agency'] ?? ''
     case 'circle':
       return row['Circle'] || office?.circle || ''
     case 'cno':

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'fs'
-import { parseIntimationNotice, parseIntimationNoticeText } from '../core/intimationNotice'
+import { parseIntimationNotice, parseIntimationNoticeText, parseSupplierDetailsText } from '../core/intimationNotice'
+import { detectTenderId } from '../core/tenderAgents/tenderId'
 
 // A trimmed copy of the real Telangana portal "viewIntimationNotice" page.
 const SAMPLE = `
@@ -134,5 +135,45 @@ describe('parseIntimationNotice', () => {
     expect(r.nitNo).toContain('Nizampet Circle-58')
     expect(r.contractRupees).toBeGreaterThan(0)
     expect(r.ecvRupees).toBe(1593493)
+  })
+})
+
+describe('parseSupplierDetailsText', () => {
+  // Lines as pdf.js-style extraction yields them off the eGP portal's
+  // "Supplier Details" page (label and value share one line).
+  const LINES = [
+    'Tender ID 728662',
+    'Company Name LAKSHMI CONSTRUCTIONS',
+    'Contact Person Konamoni Devendram',
+    'Email kdrkonamoni5@gmail.com',
+    'Mobile Number 9666054562',
+    'Title/Designation PROPRIETOR',
+    'Street Address 2-1-373, Janmabhoomi Colony, Yellammabanda.',
+    'City RANGAREDDY',
+    'Region/Province/State Telangana',
+    'Country India',
+    'Zip/Postal Code 500072',
+    'Telephone Number 9666054562',
+    'Alternative Number 9666054562',
+    'GSTIN No 36FJUPK5186H1ZF',
+    'PAN Number FJUPK5186H'
+  ]
+
+  it('extracts agency name, address and phone', () => {
+    const r = parseSupplierDetailsText(LINES)
+    expect(r.agencyName).toBe('LAKSHMI CONSTRUCTIONS')
+    expect(r.address).toBe('2-1-373, Janmabhoomi Colony, Yellammabanda., RANGAREDDY, Telangana - 500072')
+    expect(r.phone).toBe('9666054562')
+  })
+
+  it('leaves fields undefined when the page has none of them', () => {
+    const r = parseSupplierDetailsText(['Some unrelated line'])
+    expect(r.agencyName).toBeUndefined()
+    expect(r.address).toBeUndefined()
+    expect(r.phone).toBeUndefined()
+  })
+
+  it('carries the portal Tender ID too, so the caller can cross-check it against the L1 sheet', () => {
+    expect(detectTenderId(LINES)).toBe('728662')
   })
 })

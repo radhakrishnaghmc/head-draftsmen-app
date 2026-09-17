@@ -101,3 +101,33 @@ export function issueNoticePlaceholders(
     'Estimate Contract Value': formatIndianAmount(ecv, 2)
   }
 }
+
+/**
+ * The Notice's default "LOA No" — the Intimation/LOA letter's own Lr.No
+ * reference ("/EE/Nizampet/CIR-58/QBZ/CMC/2026-27"), built the same way the
+ * intimation-template.docx letterhead builds it, so the Notice's "Ref: 2) LOA
+ * No." line points back at the actual letter instead of sitting blank. Only
+ * EE (circle) offices carry this reference — SE (zone-only) LOA letters have
+ * no Lr.No line, so there's nothing to default there.
+ */
+export function defaultLoaNo(office: IssueNoticeOffice, loaDateDMY: string | undefined): string {
+  if (!office.circle || !office.cno) return ''
+  const parts = ['EE', office.circle, `CIR-${office.cno}`, zoneAbbr(office.zone), office.corporation, financialYearFromDate(loaDateDMY)].filter(
+    (p) => p && p.trim()
+  )
+  return `/${parts.join('/')}`
+}
+
+/**
+ * True once a pending Notice's due date (dd.mm.yyyy, editable in the tile)
+ * has passed without the Notice being marked done — used to blink the
+ * Issue Notices nav tile red as a "this needs attention" signal.
+ */
+export function isNoticeOverdue(noticeDateDMY: string | undefined, done: boolean, today = new Date()): boolean {
+  if (done || !noticeDateDMY) return false
+  const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(noticeDateDMY.trim())
+  if (!m) return false
+  const noticeDate = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]))
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  return todayMidnight.getTime() > noticeDate.getTime()
+}

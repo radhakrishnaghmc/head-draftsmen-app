@@ -46,7 +46,10 @@ export async function pdfToTextLinesOrOcr(file: File): Promise<string[]> {
  * text layer (e.g. to decide OCR vs. direct extraction per page of a mixed
  * scanned/digital PDF) rather than only the document as a whole.
  */
-export async function pdfPagesToTextLinesFromData(data: ArrayBuffer | Uint8Array): Promise<string[][]> {
+export async function pdfPagesToTextLinesFromData(
+  data: ArrayBuffer | Uint8Array,
+  onProgress?: (page: number, totalPages: number) => void
+): Promise<string[][]> {
   // Loaded on demand — pdfjs (and its worker) is heavy and only needed when the
   // user actually reads a PDF, so it stays out of the initial startup bundle.
   const { pdfjsLib } = await import('./pdfjsSetup')
@@ -76,6 +79,7 @@ export async function pdfPagesToTextLinesFromData(data: ArrayBuffer | Uint8Array
         if (line) lines.push(line)
       }
       pages.push(lines)
+      onProgress?.(pageNum, pdf.numPages)
     }
     return pages
   } finally {

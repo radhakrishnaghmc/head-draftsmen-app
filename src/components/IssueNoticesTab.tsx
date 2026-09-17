@@ -7,6 +7,7 @@ import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { circleFromNit } from '@core/workOrderAgreement'
 import {
   issueNoticePlaceholders,
+  isNoticeOverdue,
   EMPTY_ISSUE_NOTICE_MANUAL_FIELDS,
   type IssueNoticeManualFields,
   type IssueNoticeOffice
@@ -202,7 +203,11 @@ function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore }: 
         style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }}
         aria-hidden
       />
-      <div className="wo-tile" role="button" tabIndex={0} onClick={() => setExpanded(true)}
+      <div
+        className={`wo-tile ${isNoticeOverdue(item.manual.noticeDate, item.done) ? 'wo-tile-overdue' : ''}`}
+        role="button"
+        tabIndex={0}
+        onClick={() => setExpanded(true)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()

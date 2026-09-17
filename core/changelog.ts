@@ -16,6 +16,17 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.35.0',
+    changes: [
+      'Fixed Measurement Book photo scanning misreading the No./L/B/D columns on some real photographed pages.',
+      'Notice for Non-conclusion of Agreement: Notice Date is now the 8th working day after the actual Intimation/LOA date (not the day the Intimation was generated), using the app\'s own working-day calendar.',
+      'The Issue Notices sidebar item and each overdue Notice tile now blink red once the Notice Date has passed.',
+      'Notice\'s LOA No. now defaults to the Intimation letter\'s own reference number instead of sitting blank.',
+      'Give Technical Sanction now also looks up rates from the Schedule of Rates PDF, not the Data Sheet alone.',
+      'Give Intimation can now fill the agency phone number from an uploaded eGP Supplier Details page.'
+    ]
+  },
+  {
     version: '1.34.0',
     changes: [
       'Works List "Update from L1" now shows a filling progress bar while working through a large Tender Evaluations folder, instead of appearing frozen.',

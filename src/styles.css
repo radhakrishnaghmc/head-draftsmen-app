@@ -1202,6 +1202,21 @@ body.theme-cyan .nav-section-label:first-child {
     opacity: 0.45;
   }
 }
+.nav-badge-dot-red {
+  background: var(--danger);
+}
+.nav-item-blink-red .nav-ic {
+  animation: nav-item-blink-ic-red 1s ease-in-out infinite;
+  color: var(--danger);
+}
+@keyframes nav-item-blink-ic-red {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
 
 .side-foot {
   margin-top: auto;
@@ -1342,7 +1357,11 @@ body.theme-cyan .nav-section-label:first-child {
      under it now that the row sits this high. 10px of that 70px moved into
      .page's own padding-right (its content-to-scrollbar gap) — total stays
      70px so page-head's available width, and its wrap point, don't change. */
-  padding: 28px 60px 80px 44px;
+  /* Bottom kept small (not matching top's 28px generosity) — .page scrolls
+     inside this box, so every extra bottom px here is height stolen from
+     that scroll area before it even starts, which felt cramped on shorter
+     (e.g. Windows laptop, non-Retina) windows. */
+  padding: 28px 60px 32px 44px;
   background: radial-gradient(900px 520px at 12% 0%, rgba(255, 153, 51, 0.22), transparent 60%),
     radial-gradient(820px 480px at 88% 15%, rgba(255, 255, 255, 0.5), transparent 55%),
     radial-gradient(760px 460px at 95% 75%, rgba(19, 136, 8, 0.14), transparent 55%),
@@ -1433,6 +1452,8 @@ body.theme-cyan .workspace {
 .page-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  row-gap: 10px;
   gap: 16px;
   /* A plain positive margin (no padding/negative-margin cancellation trick,
      see .page-head::before) so this participates in .page's flex gap like
@@ -1514,6 +1535,9 @@ body.theme-cyan .workspace {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+.page-head-text {
+  min-width: 0;
 }
 .page-head-text h1 {
   margin: 0;
@@ -3262,6 +3286,18 @@ button.upload-btn {
 .wo-tile:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
+}
+.wo-tile-overdue {
+  border-color: var(--danger);
+  animation: wo-tile-overdue-blink 1.4s ease-in-out infinite;
+}
+@keyframes wo-tile-overdue-blink {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 50%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger) 0%, transparent);
+  }
 }
 .wo-tile-preview {
   position: relative;
@@ -10823,7 +10859,7 @@ body.theme-aurora .pdf-ws-page.on {
   flex: 1;
 }
 .ov-mf-status .ov-mf-tile {
-  flex: 0 1 170px;
+  flex: 0 1 140px;
 }
 .ov-mf-tile {
   --tile-color: var(--indigo-500);

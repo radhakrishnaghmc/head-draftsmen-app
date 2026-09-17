@@ -60,6 +60,8 @@ interface Props {
   onShowWhatsNew: () => void
   /** True while a newly-found Cement & Steel Rate circular hasn't been seen yet — blinks that nav item until it's opened. */
   cementSteelHasNew?: boolean
+  /** True while any active Notice's due date has passed unhandled — blinks the "Issue Notices" nav item red. */
+  noticesOverdue?: boolean
 }
 
 interface Item {
@@ -70,6 +72,8 @@ interface Item {
   warn?: boolean
   ok?: boolean
   blink?: boolean
+  /** Same blink animation as `blink`, but red — for "overdue, needs attention" rather than "new". */
+  blinkRed?: boolean
   tone?: 'green' | 'sky' | 'rose' | 'amber' | 'teal'
   /** Paper theme only: an uppercase group label rendered above this item. */
   section?: string
@@ -146,7 +150,8 @@ export default function Sidebar(props: Props) {
     {
       key: 'issueNotices',
       label: 'Issue Notices',
-      icon: <IconWarn />
+      icon: <IconWarn />,
+      blinkRed: props.noticesOverdue
     },
     {
       key: 'printDoc',
@@ -230,7 +235,7 @@ export default function Sidebar(props: Props) {
           <Fragment key={it.key}>
           {it.section ? <div className="nav-section-label">{it.section}</div> : null}
           <button
-            className={`nav-item ${props.active === it.key ? 'on' : ''} ${it.tone ? `tone-${it.tone}` : ''} ${it.blink ? 'nav-item-blink' : ''}`}
+            className={`nav-item ${props.active === it.key ? 'on' : ''} ${it.tone ? `tone-${it.tone}` : ''} ${it.blink ? 'nav-item-blink' : ''} ${it.blinkRed ? 'nav-item-blink-red' : ''}`}
             onClick={() => props.onSelect(it.key)}
             onDoubleClick={() => props.onReset(it.key)}
             title="Click to switch (work continues in the background); double-click to close all workspaces and start fresh"
@@ -241,6 +246,8 @@ export default function Sidebar(props: Props) {
             </span>
             {it.blink ? (
               <span className="nav-badge-dot" aria-label="New" />
+            ) : it.blinkRed ? (
+              <span className="nav-badge-dot nav-badge-dot-red" aria-label="Overdue" />
             ) : it.warn ? (
               <span className="nav-badge warn">
                 <IconWarn />

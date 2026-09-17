@@ -2,9 +2,15 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, 
 import { createPortal } from 'react-dom'
 import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
-import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice } from '@core/intimationNotice'
+import {
+  parseIntimationNotice,
+  parseIntimationNoticeText,
+  parseSupplierDetailsText,
+  type IntimationNotice
+} from '@core/intimationNotice'
 import { parseTenderEvaluation, parseAllBidders, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
+import { detectTenderId } from '@core/tenderAgents'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
 import { computeWorkAmounts, tenderPercentFromRow, corpusFundFromEcv } from '@core/worksAmounts'
 import { wrapAgencyAddress } from '@core/workOrderAgreement'
@@ -268,7 +274,7 @@ function resolveLoaValue(
     case 'address of the agency':
       return wrapAgencyAddress(notice.address ?? row['Address of the agency'] ?? '')
     case 'agency phone number':
-      return row['Phone number of the agency'] ?? ''
+      return notice.phone ?? row['Phone number of the agency'] ?? ''
     case 'item no':
       return manual.itemNo
     case 'name of the work':
@@ -496,6 +502,9 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   const [rowIndex, setRowIndex] = useState(0)
   const [notice, setNotice] = useState<IntimationNotice | null>(null)
   const [noticeName, setNoticeName] = useState('')
+  // eGP "Supplier Details" page — supplies the agency's phone number (which
+  // the Online Intimation letter never carries) plus a cleaner name/address.
+  const [supplierDetailsName, setSupplierDetailsName] = useState('')
   const [pdfEval, setPdfEval] = useState<TenderEvaluation | null>(null)
   const [pdfName, setPdfName] = useState('')
   const [pdfStatus, setPdfStatus] = useState<string | null>(null)
@@ -506,7 +515,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   const [worksRowMatched, setWorksRowMatched] = useState<boolean | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
 
-  const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf' | 'bundle' | 'notice' | 'nonresp'>(null)
+  const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf' | 'bundle' | 'notice' | 'supplier' | 'nonresp'>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
   // Which format "Download all documents" saves every document as. Defaults
@@ -546,6 +555,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   const [nonRespFileName, setNonRespFileName] = useState('')
 
   const noticeInputRef = useRef<HTMLInputElement>(null)
+  const supplierDetailsInputRef = useRef<HTMLInputElement>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const cementSteelInputRef = useRef<HTMLInputElement>(null)
   const nonRespInputRef = useRef<HTMLInputElement>(null)
@@ -660,6 +670,45 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
         : parseIntimationNotice(await file.text())
       setNotice(parsed)
       setNoticeName(file.name)
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // eGP "Supplier Details" page (bidder's own profile PDF) — the only source
+  // with a phone number, so phone always comes from here. Address only comes
+  // from here when no Online Intimation was uploaded to supply it already;
+  // once an LOA is uploaded its address wins and this just tops up the phone.
+  async function handleSupplierDetailsFile(file: File) {
+    setActionError(null)
+    setBusy('supplier')
+    try {
+      const lines = await pdfToTextLinesOrOcr(file)
+
+      // Supplier Details must belong to the same tender as the uploaded L1
+      // sheet — both carry the portal's own numeric Tender ID, so compare
+      // that directly rather than the free-text NIT No / agency name.
+      const supplierTenderId = detectTenderId(lines)
+      if (pdfEval?.tenderId && supplierTenderId && pdfEval.tenderId !== supplierTenderId) {
+        setActionError(
+          `Supplier Details is for Tender ID ${supplierTenderId} but the L1 selection form is for Tender ID ${pdfEval.tenderId}. Upload the Supplier Details for the same tender.`
+        )
+        return
+      }
+
+      const parsed = parseSupplierDetailsText(lines)
+      setNotice((prev) => {
+        const base = prev ?? {}
+        return {
+          ...base,
+          ...(parsed.agencyName && !base.agencyName ? { agencyName: parsed.agencyName } : {}),
+          ...(parsed.address && !base.address ? { address: parsed.address } : {}),
+          ...(parsed.phone ? { phone: parsed.phone } : {})
+        }
+      })
+      setSupplierDetailsName(file.name)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -1491,6 +1540,15 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
           </button>
           <button
             className="primary upload-btn"
+            onClick={() => supplierDetailsInputRef.current?.click()}
+            disabled={!templateB64 || busy === 'supplier'}
+            title="eGP portal's 'Supplier Details' page — fills the agency's phone number, which the Online Intimation letter never carries"
+          >
+            <IconFolder />{' '}
+            {busy === 'supplier' ? 'Reading…' : supplierDetailsName ? 'Change Supplier Details' : 'Upload Supplier Details'}
+          </button>
+          <button
+            className="primary upload-btn"
             onClick={() => pdfInputRef.current?.click()}
             disabled={!templateB64 || busy === 'pdf'}
           >
@@ -1523,6 +1581,17 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
             onChange={(e) => {
               const file = e.target.files?.[0]
               if (file) void handleNoticeFile(file)
+              e.target.value = ''
+            }}
+          />
+          <input
+            ref={supplierDetailsInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void handleSupplierDetailsFile(file)
               e.target.value = ''
             }}
           />
@@ -1561,6 +1630,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
           />
         </div>
         {noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
+        {supplierDetailsName && <p className="estimate-hint">Phone number/address read from {supplierDetailsName}</p>}
         {pdfName && <p className="estimate-hint">Tender details read from {pdfName}</p>}
         {cementSteelFileName && (
           <p className="estimate-hint">

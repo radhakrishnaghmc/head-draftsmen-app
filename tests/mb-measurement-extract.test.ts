@@ -108,6 +108,15 @@ describe('resolveAverageFraction', () => {
     expect(resolveAverageFraction('0.70+1.10\n2')).toBe('0.9')
   })
 
+  it('averages a two-line "a+b+c" over "3" reading (three-point average, not just two)', () => {
+    expect(resolveAverageFraction('6.66+7.50+7.50\n3')).toBe('7.22')
+  })
+
+  it('averages a one-line "a+b/denominator" reading, OCR\'s rendering of the fraction bar as a literal slash', () => {
+    expect(resolveAverageFraction('6.70+6.70/2')).toBe('6.7')
+    expect(resolveAverageFraction('6.66+7.50+7.50/3')).toBe('7.22')
+  })
+
   it('returns undefined for anything that is not exactly that shape', () => {
     expect(resolveAverageFraction('0.20')).toBeUndefined()
     expect(resolveAverageFraction('0.40+0.40\n0.20\n2')).toBeUndefined()
@@ -121,6 +130,14 @@ describe('buildMbMeasurementRows', () => {
     const rows = buildMbMeasurementRows(grid)
     expect(rows[0].d1).toBe('0.4')
     expect(rows[0].d2).toBe('')
+  })
+
+  it('resolves a fraction-style B cell to the averaged breadth (real sheets carry the average in B, not D)', () => {
+    const grid = [['', 'ditto', '1x1', '15.00', '6.70+6.70\n2', '0.30', '37.05']]
+    const rows = buildMbMeasurementRows(grid)
+    expect(rows[0].b1).toBe('6.7')
+    expect(rows[0].b2).toBe('')
+    expect(rows[0].d1).toBe('0.30')
   })
 
   it('blanks out No./L/B/D/Contents cells that are OCR noise, not real data', () => {
