@@ -264,7 +264,7 @@ export default function IntimationToolTab({ office }: Props) {
       const filled = await fillTemplate()
       const container = printScratchRef.current
       if (!container) throw new Error('Print failed to initialize.')
-      await renderDocPreview(base64ToUint8(filled), container)
+      await renderDocPreview(base64ToUint8(filled), container, { forSnapshot: true })
       await api.printCreatedDocument(container.innerHTML)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))

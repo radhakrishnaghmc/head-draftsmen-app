@@ -1,7 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
-import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice } from '@core/intimationNotice'
+import {
+  parseIntimationNotice,
+  parseIntimationNoticeText,
+  parseSupplierDetailsText,
+  type IntimationNotice
+} from '@core/intimationNotice'
+import { detectTenderId } from '@core/tenderAgents'
 import { parseTenderEvaluation, parseAllBidders, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { parseBalanceEmdReceipt } from '@core/balanceEmdReceipt'
 import { parseBankGuarantees, extractBankName } from '@core/bankGuaranteePdf'
@@ -19,7 +25,8 @@ import {
   civilTenderPlaceholders,
   standaloneRowFromSources,
   circleFromNit,
-  indianFinancialYear
+  indianFinancialYear,
+  DEFAULT_PAGES_OF_AGREEMENT
 } from '@core/workOrderAgreement'
 import type { WorkOrderAgreementFields } from '@core/workOrderAgreement'
 import { extractItemNo, stripItemNoTag } from '@core/bidDocument'
@@ -390,6 +397,9 @@ export default function WorkOrderAgreementTab({
   const [rowIndex, setRowIndex] = useState(0)
   const [notice, setNotice] = useState<IntimationNotice | null>(null)
   const [noticeName, setNoticeName] = useState('')
+  // eGP "Supplier Details" page — supplies the agency's phone number (which
+  // the Online Intimation letter never carries) plus a cleaner name/address.
+  const [supplierDetailsName, setSupplierDetailsName] = useState('')
   const [pdfEval, setPdfEval] = useState<TenderEvaluation | null>(null)
   const [pdfName, setPdfName] = useState('')
   const [pdfStatus, setPdfStatus] = useState<string | null>(null)
@@ -409,7 +419,9 @@ export default function WorkOrderAgreementTab({
 
   // Which output's preview is expanded to the full-size modal, if any.
   const [expanded, setExpanded] = useState<Output | null>(null)
-  const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf' | 'bundle' | 'emdReceipt' | 'notice' | 'nonresp'>(null)
+  const [busy, setBusy] = useState<
+    null | 'download' | 'print' | 'pdf' | 'bundle' | 'emdReceipt' | 'notice' | 'supplier' | 'nonresp'
+  >(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
   // Which format "Download all documents" saves every document as (Schedule
@@ -473,6 +485,7 @@ export default function WorkOrderAgreementTab({
 
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const noticeInputRef = useRef<HTMLInputElement>(null)
+  const supplierDetailsInputRef = useRef<HTMLInputElement>(null)
   const nonRespInputRef = useRef<HTMLInputElement>(null)
   const emdReceiptInputRef = useRef<HTMLInputElement>(null)
   const woTileRef = useRef<HTMLDivElement>(null)
@@ -820,11 +833,54 @@ export default function WorkOrderAgreementTab({
       const parsed = isPdf
         ? parseIntimationNoticeText(await pdfToTextLinesOrOcr(file))
         : parseIntimationNotice(await file.text())
-      setNotice(parsed)
+      // The Intimation letter never carries a phone number, so a phone already
+      // read from a Supplier Details upload survives this replacement.
+      const merged = notice?.phone && !parsed.phone ? { ...parsed, phone: notice.phone } : parsed
+      setNotice(merged)
       setNoticeName(file.name)
       // The L-1 sheet is often uploaded first; now that the intimation is here,
       // fold its address (and any agency/contract fallback) into the Works List.
-      if (pdfEval) await syncWorksListRow(pdfEval, parsed)
+      if (pdfEval) await syncWorksListRow(pdfEval, merged)
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // eGP "Supplier Details" page (the bidder's own profile PDF) — the only
+  // source with a phone number, so phone always comes from here. Name/address
+  // only fill the gaps an uploaded Online Intimation left.
+  async function handleSupplierDetailsFile(file: File) {
+    setActionError(null)
+    setBusy('supplier')
+    try {
+      const lines = await pdfToTextLinesOrOcr(file)
+
+      // Supplier Details must belong to the same tender as the uploaded L1
+      // sheet — both carry the portal's own numeric Tender ID, so compare
+      // that directly rather than the free-text NIT No / agency name.
+      const supplierTenderId = detectTenderId(lines)
+      if (pdfEval?.tenderId && supplierTenderId && pdfEval.tenderId !== supplierTenderId) {
+        setActionError(
+          `Supplier Details is for Tender ID ${supplierTenderId} but the L1 selection form is for Tender ID ${pdfEval.tenderId}. Upload the Supplier Details for the same tender.`
+        )
+        return
+      }
+
+      const parsed = parseSupplierDetailsText(lines)
+      const base = notice ?? {}
+      const merged: IntimationNotice = {
+        ...base,
+        ...(parsed.agencyName && !base.agencyName ? { agencyName: parsed.agencyName } : {}),
+        ...(parsed.address && !base.address ? { address: parsed.address } : {}),
+        ...(parsed.phone ? { phone: parsed.phone } : {})
+      }
+      setNotice(merged)
+      setSupplierDetailsName(file.name)
+      // Push the phone (and any name/address it filled) into the Works List row
+      // when the L-1 sheet is already uploaded, same as the Intimation upload.
+      if (pdfEval) await syncWorksListRow(pdfEval, merged)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -1178,7 +1234,7 @@ export default function WorkOrderAgreementTab({
       const filled = await fillDoc(kind)
       const container = printScratchRef.current
       if (!container) throw new Error('Print failed to initialize.')
-      await renderDocPreview(base64ToUint8(filled), container)
+      await renderDocPreview(base64ToUint8(filled), container, { forSnapshot: true })
       await api.printCreatedDocument(container.innerHTML)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
@@ -1759,6 +1815,17 @@ export default function WorkOrderAgreementTab({
             </button>
           )}
           {!scheduleAOnly && !(only && manualMode) && (
+            <button
+              className="primary upload-btn"
+              onClick={() => supplierDetailsInputRef.current?.click()}
+              disabled={!templatesReady || busy === 'supplier'}
+              title="eGP portal's 'Supplier Details' page — fills the agency's phone number, which the Online Intimation letter never carries"
+            >
+              <IconFolder />{' '}
+              {busy === 'supplier' ? 'Reading…' : supplierDetailsName ? 'Change Supplier Details' : 'Upload Supplier Details'}
+            </button>
+          )}
+          {!scheduleAOnly && !(only && manualMode) && (
             <button className="primary upload-btn" onClick={() => pdfInputRef.current?.click()} disabled={!templatesReady || busy === 'pdf'}>
               <IconFolder /> {busy === 'pdf' ? 'Reading PDF…' : pdfEval ? 'Change L1 selection form' : 'Upload L1 selection form'}
             </button>
@@ -1794,6 +1861,17 @@ export default function WorkOrderAgreementTab({
             onChange={(e) => {
               const file = e.target.files?.[0]
               if (file) void handleNoticeFile(file)
+              e.target.value = ''
+            }}
+          />
+          <input
+            ref={supplierDetailsInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void handleSupplierDetailsFile(file)
               e.target.value = ''
             }}
           />
@@ -1966,7 +2044,7 @@ export default function WorkOrderAgreementTab({
               <span>No. of pages of Agreement</span>
               <input
                 type="text"
-                placeholder="12"
+                placeholder={DEFAULT_PAGES_OF_AGREEMENT}
                 value={pagesOfAgreement}
                 onChange={(e) => setPagesOfAgreement(e.target.value)}
               />
@@ -1984,6 +2062,9 @@ export default function WorkOrderAgreementTab({
           </div>
         )}
         {!only && noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
+        {!only && supplierDetailsName && (
+          <p className="estimate-hint">Phone number/address read from {supplierDetailsName}</p>
+        )}
         {!only && pdfName && <p className="estimate-hint">Tender details read from {pdfName}</p>}
         {/* The "Matched … its details fill the documents" success line is
             suppressed on a circle mismatch — there, the L-1 belongs to another

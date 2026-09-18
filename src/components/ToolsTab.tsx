@@ -143,7 +143,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
       if (action === 'print') {
         const container = printScratchRef.current
         if (!container) throw new Error('Print failed to initialize.')
-        await renderDocPreview(base64ToUint8(docx), container)
+        await renderDocPreview(base64ToUint8(docx), container, { forSnapshot: true })
         await api.printCreatedDocument(container.innerHTML)
       } else {
         await api.exportCreatedDocument(docx, doc.name, [action])

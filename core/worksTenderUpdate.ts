@@ -49,6 +49,7 @@ function valuesFor(ev: TenderEvaluation, notice?: IntimationNotice): Record<stri
   const agency = ev.l1AgencyName || notice?.agencyName
   if (agency) out['Name of the Agency'] = agency
   if (notice?.address) out['Address of the agency'] = notice.address
+  if (notice?.phone) out['Phone number of the agency'] = notice.phone
   if (ev.tenderPercentage != null) out['Tender Percentage'] = String(ev.tenderPercentage)
   const contract = ev.contractRupees ?? notice?.contractRupees
   if (contract != null) out['Contract Amount'] = rupeesToCell(contract)

@@ -90,13 +90,13 @@ describe('deriveFields + placeholders', () => {
     expect(fields.contractRupees).toBe('1445983.17')
   })
 
-  it('formats the Work Order the office way (plain 2-decimal Rs.)', () => {
+  it('formats the Work Order the office way (Indian-grouped Rs.)', () => {
     const wo = workOrderPlaceholders(fields)
     expect(wo['Estimate Amount']).toBe('Rs. 25.00 Lakhs')
-    expect(wo['ECV']).toBe('Rs. 1993085.00')
+    expect(wo['ECV']).toBe('Rs.19,93,085.00')
     expect(wo['Tender Percentage']).toBe('(-) 27.45%-Less')
     expect(wo['TP']).toBe('27.45')
-    expect(wo['Contract Amount']).toBe('Rs. 1445983.17')
+    expect(wo['Contract Amount']).toBe('Rs.14,45,983.17')
     expect(wo['Circle']).toBe('Nizampet')
     expect(wo['Financialyear']).toMatch(/^\d{4}-\d{2}$/)
   })
@@ -122,7 +122,7 @@ describe('deriveFields + placeholders', () => {
     const nomFields = deriveFields({}, {}, { ...row, ECV: '73658', 'Tender Percentage': '0' })
     const wo = workOrderPlaceholders(nomFields)
     expect(wo['Tender Percentage']).toBe('0%')
-    expect(wo['Contract Amount']).toBe('Rs. 73658.00')
+    expect(wo['Contract Amount']).toBe('Rs.73,658.00')
   })
 
   it('leaves amount fields blank when ECV is blank (never falls back to estimate)', () => {
@@ -191,8 +191,8 @@ describe('standalone (Tools) derivation — no Works List', () => {
     expect(wo['CNO']).toBe('57')
     expect(wo['Name of the work']).toBe('Laying of CC road in Rodamestri nagar')
     expect(wo['Name of the agency']).toBe('NARENDRA NAIK RAMAVATHU')
-    expect(wo['ECV']).toContain('3140122')
-    expect(wo['Contract Amount']).toContain('2512412')
+    expect(wo['ECV']).toContain('31,40,122')
+    expect(wo['Contract Amount']).toContain('25,12,412')
   })
 })
 

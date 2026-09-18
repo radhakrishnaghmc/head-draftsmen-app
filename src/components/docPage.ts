@@ -139,6 +139,27 @@ async function addFontFallbacks(container: HTMLElement): Promise<void> {
 }
 
 /**
+ * docx-preview doesn't position tab stops while it renders: each tab becomes
+ * an empty `.docx-tab-stop` span, and the `word-spacing` that actually pushes
+ * the following text to the stop is written later, from a `setTimeout(…, 500)`
+ * inside the library's own `refreshTabStops` — its way of waiting until the
+ * rendered nodes are in the DOM and measurable. `renderAsync` resolves well
+ * before that timer fires, so a caller that snapshots `container.innerHTML`
+ * straight after rendering (every print path does) captures tabs that haven't
+ * been positioned yet: a right-aligned stop — e.g. the "Dated:" date on the
+ * Work Order number line — then prints hard against the text to its left,
+ * even though the on-screen preview (which stays live, and so gets the late
+ * update) shows it right-aligned. Waiting the timer out before the snapshot is
+ * what keeps print matching preview.
+ */
+const TAB_STOP_SETTLE_MS = 600
+
+async function settleTabStops(container: HTMLElement): Promise<void> {
+  if (!container.querySelector('.docx-tab-stop')) return
+  await new Promise((resolve) => setTimeout(resolve, TAB_STOP_SETTLE_MS))
+}
+
+/**
  * Renders a filled .docx as an HTML preview via docx-preview's `renderAsync`
  * (see normalizeDocxTextboxes above for its text-box gap). `accurate` is
  * always false here — kept in the return type since callers branch on it —
@@ -149,12 +170,16 @@ async function addFontFallbacks(container: HTMLElement): Promise<void> {
  */
 export async function renderDocPreview(
   docxBytes: Uint8Array,
-  container: HTMLElement
+  container: HTMLElement,
+  // Set when the caller is about to read the rendered HTML back out (printing)
+  // rather than leave it on screen — see settleTabStops above.
+  options?: { forSnapshot?: boolean }
 ): Promise<{ pageCount: number; accurate: boolean }> {
   container.innerHTML = ''
   await renderAsync(docxBytes, container, undefined, DOCX_PREVIEW_OPTIONS)
   normalizeDocxTextboxes(container)
   await addFontFallbacks(container)
+  if (options?.forSnapshot) await settleTabStops(container)
   return { pageCount: container.querySelectorAll('section.docx').length, accurate: false }
 }
 

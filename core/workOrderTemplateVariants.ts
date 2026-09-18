@@ -4,7 +4,7 @@
  * (and lay out) their Work Order differently, beyond what filling the same
  * placeholders into one shared template can express (see e.g. Kompally
  * Circle-56's real Work Order: a numbered Ref block citing NIT No/Tender ID/
- * Intimation Letter Date, "EXECUTIVE ENGINEER-II" sign-off, a different Work
+ * Intimation Letter Date, its own "EXECUTIVE ENGINEER" sign-off block, a different Work
  * Order numbering order — the app's original template has none of that).
  *
  * No user uploads: each variant is a real circle's actual template, gathered

@@ -51,20 +51,20 @@ describe('generateRowBounds', () => {
 })
 
 describe('splitMultiValue', () => {
-  it('keeps a single value in the first slot only', () => {
-    expect(splitMultiValue('105')).toEqual(['105', '', ''])
+  it('keeps a single value in the first slot only, read as the 2-decimal figure it is', () => {
+    expect(splitMultiValue('105')).toEqual(['1.05', '', ''])
   })
 
   it('splits multiple stacked lengths into l1/l2/l3 style slots', () => {
     expect(splitMultiValue('1.2\n2.4\n3.6')).toEqual(['1.2', '2.4', '3.6'])
   })
 
-  it('splits on commas/semicolons too', () => {
-    expect(splitMultiValue('1.2, 2.4; 3.6')).toEqual(['1.2', '2.4', '3.6'])
+  it('does not split on commas or semicolons — those are misread decimal points, not separators', () => {
+    expect(splitMultiValue('1.2, 2.4; 3.6')).toEqual(['1.22', '', ''])
   })
 
   it('ignores blank lines and caps at 3 values', () => {
-    expect(splitMultiValue('1\n\n2\n3\n4')).toEqual(['1', '2', '3'])
+    expect(splitMultiValue('1\n\n2\n3\n4')).toEqual(['0.01', '0.02', '0.03'])
   })
 
   it('returns blanks for empty input', () => {
@@ -128,14 +128,14 @@ describe('buildMbMeasurementRows', () => {
   it('resolves a fraction-style D cell to the averaged depth', () => {
     const grid = [['', 'ditto', '1x1', '9.14', '1.20', '0.40+0.40\n2', '4.39']]
     const rows = buildMbMeasurementRows(grid)
-    expect(rows[0].d1).toBe('0.4')
+    expect(rows[0].d1).toBe('0.40')
     expect(rows[0].d2).toBe('')
   })
 
   it('resolves a fraction-style B cell to the averaged breadth (real sheets carry the average in B, not D)', () => {
-    const grid = [['', 'ditto', '1x1', '15.00', '6.70+6.70\n2', '0.30', '37.05']]
+    const grid = [['', 'ditto', '1x1', '15.00', '6.70+6.70\n2', '0.30', '30.15']]
     const rows = buildMbMeasurementRows(grid)
-    expect(rows[0].b1).toBe('6.7')
+    expect(rows[0].b1).toBe('6.70')
     expect(rows[0].b2).toBe('')
     expect(rows[0].d1).toBe('0.30')
   })
@@ -145,10 +145,9 @@ describe('buildMbMeasurementRows', () => {
     const rows = buildMbMeasurementRows(grid)
     expect(rows[0].no).toBe('')
     expect(rows[0].contents).toBe('')
-    // Description is free text and must NOT be run through the numeric filter.
+    // Description free text must NOT run through the numeric filter.
     expect(rows[0].description).toBe('i) Cutting open cc road surface')
   })
-
 
   it('maps a 7-column grid into typed rows with l/b/d split into sub-slots', () => {
     const grid = [
@@ -160,19 +159,90 @@ describe('buildMbMeasurementRows', () => {
       date: '16.03.2025',
       description: 'Road No 7',
       no: '1x1',
-      l1: '105',
+      l1: '105.00',
       l2: '',
       l3: '',
-      b1: '-',
+      b1: '',
       b2: '',
       b3: '',
-      d1: '-',
+      d1: '',
       d2: '',
       d3: '',
-      contents: '105.00'
+      contents: '105.00',
+      computed: '105.00',
+      check: 'Corrected'
     })
-    expect(rows[1].l1).toBe('1.2')
-    expect(rows[1].l2).toBe('2.4')
-    expect(rows[1].b1).toBe('0.5')
+    expect(rows[1].l1).toBe('1.20')
+    expect(rows[1].l2).toBe('2.40')
+    expect(rows[1].b1).toBe('0.50')
+  })
+
+  it("checks each row against its own arithmetic and reports the book's figure as read", () => {
+    const grid = [['', 'ditto', '1x1', '15.00', '6.30', '0.30', '28.35']]
+    const [row] = buildMbMeasurementRows(grid)
+    expect(row.computed).toBe('28.35')
+    expect(row.check).toBe('OK')
+  })
+
+  it('flags a row whose figures do not multiply out, and leaves the figures as read', () => {
+    // A genuine arithmetic mistake in the book must survive for scrutiny.
+    const grid = [['', 'ditto', '1x1', '15.00', '6.30', '0.30', '29.35']]
+    const [row] = buildMbMeasurementRows(grid)
+    expect(row.b1).toBe('6.30')
+    expect(row.contents).toBe('29.35')
+    expect(row.check).toBe('Recheck')
+  })
+
+  it("picks the reading of a misread figure that the row's own arithmetic confirms", () => {
+    // "0-30" is the depth; the Contents figure carries a ditto tick read as a digit.
+    const grid = [['', 'ditto', '1x1', 'IS.00', '6.30', '0-30', '28351']]
+    const [row] = buildMbMeasurementRows(grid)
+    expect(row.l1).toBe('15.00')
+    expect(row.d1).toBe('0.30')
+    expect(row.contents).toBe('28.35')
+    expect(row.check).toBe('Corrected')
+  })
+
+  it('solves a dimension the model returned nothing for from the rest of the row', () => {
+    const grid = [['', 'ditto', '1x1', '15.00', '', '0.30', '29.03']]
+    const [row] = buildMbMeasurementRows(grid)
+    expect(row.b1).toBe('6.45')
+    expect(row.check).toBe('Corrected')
+  })
+
+  it('does not invent a figure for a cell that was read, however badly the row adds up', () => {
+    const grid = [['', 'ditto', '1x1', '15.00', '2.06', '0.30', '31.05']]
+    const [row] = buildMbMeasurementRows(grid)
+    expect(row.b1).toBe('2.06')
+    expect(row.check).toBe('Recheck')
+  })
+
+  it('learns the page depth from verified rows and repairs a row whose depth was misread', () => {
+    // "630" is 0.30 with the leading zero read as a six; on its own the row
+    // cannot tell which, but the rest of the page is measured at 0.30.
+    const grid = [
+      ['', 'ditto', '1x1', '15.00', '6.30', '0.30', '28.35'],
+      ['', 'ditto', '1x1', '15.00', '6.20', '0.30', '27.90'],
+      ['', 'ditto', '1x1', '15.00', '', '630', '29.03']
+    ]
+    const rows = buildMbMeasurementRows(grid)
+    expect(rows[2].d1).toBe('0.30')
+    expect(rows[2].b1).toBe('6.45')
+  })
+
+  it('collapses a stacked cell when the arithmetic proves the extra line is a neighbouring row', () => {
+    const grid = [['', 'ditto', '1x1', '6.68\n12.60', '7.20', '0.30', '27.22']]
+    const [row] = buildMbMeasurementRows(grid)
+    expect(row.l1).toBe('12.60')
+    expect(row.l2).toBe('')
+    expect(row.check).toBe('Corrected')
+  })
+
+  it('leaves genuine stacked sub-measurements alone when the arithmetic cannot confirm them', () => {
+    const grid = [['', 'ditto', '1', '1.20\n2.40', '0.50', '', '90.00']]
+    const [row] = buildMbMeasurementRows(grid)
+    expect(row.l1).toBe('1.20')
+    expect(row.l2).toBe('2.40')
+    expect(row.check).toBe('')
   })
 })

@@ -1,37 +1,19 @@
 import { recognizeImages } from './ocr'
-import {
-  estimateRowPitchConfidence,
-  findGridStart,
-  generateRowBounds,
-  generateRowBoundsSnapped,
-  selectColumnBoundsByEqualWidth,
-  buildMbMeasurementRows
-} from '../core/mbMeasurementExtract'
+import { buildMbMeasurementRows } from '../core/mbMeasurementExtract'
 import type { MbMeasurementRow } from '../core/mbMeasurementExtract'
-
-// Calibrated once from a clean sample page of the "L.F. No. 83" MB form (see
-// scratchpad grid-prototype). This is a FIXED preprinted form — the same
-// stationery on every page of every MB — so these are used as the primary
-// source of truth for column bounds and row pitch, not just a fallback:
-// per-page pixel detection is noisy (handwriting overlapping ruled lines,
-// perspective/lighting differences between photos of different pages) and is
-// only trusted as a refinement when it lands close to this reference.
-const REF_WIDTH = 1275
-const REF_COLUMN_BOUNDS = [78, 231, 697, 796, 895, 994, 1095, 1234] // 8 boundaries -> 7 columns
-const REF_ROW_TOP = 258
-const REF_ROW_PITCH = 48.71
+import { detectGrid } from '../core/mbGridDetect'
+import type { GrayImage } from '../core/mbGridDetect'
 
 const CELL_UPSCALE = 3
+// Crop padding as a fraction of the cell's own width/height (see cropCell).
+const CELL_PAD_X = 0.12
+const CELL_PAD_Y = 0.18
+// White margin added around the upscaled crop before recognition (px).
+const CELL_MARGIN = 40
 // A crop with less than this fraction of dark pixels is treated as blank —
 // skips OCR entirely (faster, and avoids the model hallucinating text on
 // blank cells).
 const BLANK_CELL_DARK_FRACTION = 0.01
-
-interface GrayImage {
-  data: Buffer
-  width: number
-  height: number
-}
 
 async function toGrayscale(imageBuffer: Buffer): Promise<GrayImage> {
   // Loaded lazily so a missing/incompatible platform binary only breaks this
@@ -39,167 +21,6 @@ async function toGrayscale(imageBuffer: Buffer): Promise<GrayImage> {
   const sharp = (await import('sharp')).default
   const { data, info } = await sharp(imageBuffer).grayscale().raw().toBuffer({ resolveWithObject: true })
   return { data, width: info.width, height: info.height }
-}
-
-/**
- * Otsu's method: the grayscale cutoff that best splits a photo's own pixels
- * into two classes (ink vs. paper). A fixed cutoff tuned on a clean scan
- * (paper near-white) misreads a real phone photo, where paper background
- * commonly sits at 130-160 from lighting/shadow/paper tone — collapsing
- * ruled-line detection into one giant "dark" blob instead of the real lines.
- */
-function otsuThreshold(img: GrayImage): number {
-  const hist = new Array(256).fill(0)
-  for (let i = 0; i < img.data.length; i++) hist[img.data[i]]++
-  const total = img.data.length
-  let sum = 0
-  for (let v = 0; v < 256; v++) sum += v * hist[v]
-  let sumB = 0
-  let weightB = 0
-  let maxVariance = 0
-  let threshold = 128
-  for (let t = 0; t < 256; t++) {
-    weightB += hist[t]
-    if (weightB === 0) continue
-    const weightF = total - weightB
-    if (weightF === 0) break
-    sumB += t * hist[t]
-    const meanB = sumB / weightB
-    const meanF = (sum - sumB) / weightF
-    const variance = weightB * weightF * (meanB - meanF) * (meanB - meanF)
-    if (variance > maxVariance) {
-      maxVariance = variance
-      threshold = t
-    }
-  }
-  return threshold
-}
-
-function darkColProfile(img: GrayImage, yFrom: number, yTo: number, darkThreshold: number): Float64Array {
-  const { data, width } = img
-  const profile = new Float64Array(width)
-  const rows = yTo - yFrom
-  for (let x = 0; x < width; x++) {
-    let dark = 0
-    for (let y = yFrom; y < yTo; y++) {
-      if (data[y * width + x] < darkThreshold) dark++
-    }
-    profile[x] = dark / rows
-  }
-  return profile
-}
-
-function darkRowProfile(img: GrayImage, xFrom: number, xTo: number, darkThreshold: number): Float64Array {
-  const { data, width, height } = img
-  const profile = new Float64Array(height)
-  const cols = xTo - xFrom
-  for (let y = 0; y < height; y++) {
-    let dark = 0
-    for (let x = xFrom; x < xTo; x++) {
-      if (data[y * width + x] < darkThreshold) dark++
-    }
-    profile[y] = dark / cols
-  }
-  return profile
-}
-
-function clusterPeaks(profile: Float64Array, threshold: number, minGap: number): number[] {
-  const peaks: number[] = []
-  let i = 0
-  while (i < profile.length) {
-    if (profile[i] > threshold) {
-      let j = i
-      let wsum = 0
-      let sum = 0
-      while (j < profile.length && profile[j] > threshold * 0.6) {
-        wsum += profile[j] * j
-        sum += profile[j]
-        j++
-      }
-      peaks.push(Math.round(wsum / sum))
-      i = j + minGap
-    } else {
-      i++
-    }
-  }
-  return peaks
-}
-
-interface PageGrid {
-  colBounds: number[]
-  rowBounds: number[]
-  darkThreshold: number
-}
-
-/** True when `candidate` boundaries are each within `tolerance`px of `ref`, scaled by `scale`. */
-function closeToReference(candidate: number[], ref: number[], scale: number, tolerance: number): boolean {
-  if (candidate.length !== ref.length) return false
-  return candidate.every((v, i) => Math.abs(v - ref[i] * scale) <= tolerance)
-}
-
-function detectGrid(img: GrayImage): PageGrid {
-  const scale = img.width / REF_WIDTH
-  const refCols = REF_COLUMN_BOUNDS.map((x) => x * scale)
-  const darkThreshold = otsuThreshold(img)
-
-  let colBounds = refCols
-  const colProfile = darkColProfile(img, Math.round(img.height * 0.15), Math.round(img.height * 0.95), darkThreshold)
-  const detectedCols = clusterPeaks(colProfile, 0.25, Math.round(5 * scale))
-  if (closeToReference(detectedCols, REF_COLUMN_BOUNDS, scale, 20 * scale)) {
-    colBounds = detectedCols
-  } else {
-    // A real photo's true column positions rarely land within tolerance of
-    // the reference scaled linearly (perspective/crop differences distort
-    // proportions unevenly across the table). No/L/B/D are printed as 4
-    // equal-width columns on this form, so the correct 8-of-N boundaries
-    // among the detected peaks (which can include extra noise peaks from
-    // handwriting strokes lining up across rows) are the ones whose
-    // No/L/B/D widths agree with each other.
-    const structural = selectColumnBoundsByEqualWidth(detectedCols)
-    if (structural !== undefined) colBounds = structural
-  }
-
-  // Row lines are detected from the Date column specifically, not the full
-  // table width: that column is normally blank/lightly filled, so its dark
-  // profile reflects the ruled lines themselves rather than handwriting ink
-  // density (which swamps a full-width profile on busy real photos).
-  const dateColFrom = colBounds[0]
-  const dateColTo = colBounds[1]
-  const rowProfile = darkRowProfile(img, Math.round(dateColFrom + 5), Math.round(dateColTo - 5), darkThreshold)
-  const detectedRows = clusterPeaks(rowProfile, 0.3, Math.round(15 * scale))
-
-  let rowTop = REF_ROW_TOP * scale
-  let pitch = REF_ROW_PITCH * scale
-  let pitchConfirmed = false
-  const pitchEstimate = estimateRowPitchConfidence(detectedRows, { minGap: 30 * scale, maxGap: 90 * scale })
-  // Trust the detected pitch either when it matches the fixed-form reference
-  // (typical case) or when it's internally self-consistent across several
-  // gaps (a photo framed/cropped differently than the calibration reference
-  // has its own valid, but different, pitch — reference match alone would
-  // wrongly reject a clean detection just because it disagrees with a
-  // constant derived from a different photo's proportions).
-  const matchesReference = pitchEstimate !== undefined && Math.abs(pitchEstimate.pitch - pitch) <= 6 * scale
-  const selfConsistent = pitchEstimate !== undefined && pitchEstimate.sampleCount >= 3 && pitchEstimate.maxDeviation <= 5 * scale
-  if (pitchEstimate !== undefined && (matchesReference || selfConsistent)) {
-    pitch = pitchEstimate.pitch
-    pitchConfirmed = true
-    const detectedTop = findGridStart(detectedRows, pitch, 6 * scale)
-    if (detectedTop !== undefined) rowTop = detectedTop
-  }
-
-  // Bottom limit: prefer a detected line that's clearly beyond the last
-  // regular-pitch row (the table's closing border), else fall back to the
-  // image height so the reference pitch alone still produces a full page of
-  // rows. Only trust a detected line here once pitch itself was confirmed —
-  // otherwise detectedRows is noise (handwriting ink density, not ruled
-  // lines) and its last entry truncates the grid to a few rows.
-  const bottomCandidate = pitchConfirmed && detectedRows.length > 0 ? detectedRows[detectedRows.length - 1] : undefined
-  const bottomLimit = bottomCandidate !== undefined && bottomCandidate > rowTop + pitch ? bottomCandidate : img.height - 10 * scale
-
-  const rowBounds = pitchConfirmed
-    ? generateRowBoundsSnapped(detectedRows, rowTop, pitch, bottomLimit)
-    : generateRowBounds(rowTop, pitch, bottomLimit)
-  return { colBounds, rowBounds, darkThreshold }
 }
 
 async function cropCell(
@@ -212,8 +33,19 @@ async function cropCell(
   imgHeight: number,
   darkThreshold: number
 ): Promise<{ buffer: Buffer; darkFraction: number } | undefined> {
-  const left = Math.max(0, Math.round(x0) + 2)
-  const top = Math.max(0, Math.round(y0) + 2)
+  // Handwriting does not respect the ruled cell it belongs to: figures sit
+  // high against the line above, and an averaged entry's numerator
+  // ("6.70+6.50" over "2") regularly starts left of its column divider. A
+  // crop cut exactly on the rules therefore clips real ink, and the model
+  // then reads "6.10+6.20" as "1046-20". Padding the crop keeps the whole
+  // figure — the neighbouring columns' own figures stay clear of the pad
+  // because each is written well inside its (much wider) column.
+  const cellWidth = Math.round(x1) - Math.round(x0)
+  const cellHeight = Math.round(y1) - Math.round(y0)
+  const padX = Math.round(cellWidth * CELL_PAD_X)
+  const padY = Math.round(cellHeight * CELL_PAD_Y)
+  const left = Math.max(0, Math.round(x0) + 2 - padX)
+  const top = Math.max(0, Math.round(y0) + 2 - padY)
   // A page's real dimensions can differ slightly from the calibration
   // reference (different scanner crop/aspect ratio), so the generated grid
   // bounds — especially the last row/column, which is allowed to overshoot
@@ -221,24 +53,32 @@ async function cropCell(
   // rather than let sharp's extract() throw, and skip a cell that's
   // entirely off-page.
   if (left >= imgWidth || top >= imgHeight) return undefined
-  const width = Math.min(imgWidth - left, Math.max(1, Math.round(x1) - Math.round(x0) - 4))
-  const height = Math.min(imgHeight - top, Math.max(1, Math.round(y1) - Math.round(y0) - 4))
+  const width = Math.min(imgWidth - left, Math.max(1, cellWidth - 4 + padX * 2))
+  const height = Math.min(imgHeight - top, Math.max(1, cellHeight - 4 + padY * 2))
 
   const sharp = (await import('sharp')).default
-  const { data, info } = await sharpInstance
-    .clone()
-    .extract({ left, top, width, height })
-    .grayscale()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-
+  const crop = sharpInstance.clone().extract({ left, top, width, height }).grayscale()
+  // Blankness is judged on the untouched crop, against the whole page's ink
+  // threshold: contrast-stretching a blank cell first would amplify paper
+  // grain into "ink" and put the cell back in front of the model.
+  const { data, info } = await crop.clone().raw().toBuffer({ resolveWithObject: true })
   let dark = 0
   for (let i = 0; i < data.length; i++) if (data[i] < darkThreshold) dark++
   const darkFraction = dark / data.length
   if (darkFraction < BLANK_CELL_DARK_FRACTION) return { buffer: Buffer.alloc(0), darkFraction }
 
-  const buffer = await sharp(data, { raw: { width: info.width, height: info.height, channels: 1 } })
+  // Phone photos of a book page carry uneven lighting and yellowed paper;
+  // stretching the crop's own contrast lifts pale ink off the background
+  // before the model sees it.
+  // The white margin matters: the detector inside the model finds nothing in a
+  // crop whose text runs to the edge, and a cell cut on the ruled lines always
+  // does. Measured on real sample pages, adding it alone recovered figures
+  // that came back empty without it.
+  const buffer = await crop
+    .clone()
+    .normalise()
     .resize({ width: info.width * CELL_UPSCALE })
+    .extend({ top: CELL_MARGIN, bottom: CELL_MARGIN, left: CELL_MARGIN, right: CELL_MARGIN, background: '#ffffff' })
     .png()
     .toBuffer()
   return { buffer, darkFraction }

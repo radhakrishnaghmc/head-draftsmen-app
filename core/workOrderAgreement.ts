@@ -178,11 +178,6 @@ function num(v: string | number | null | undefined): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-/** Plain 2-decimal figure, no digit grouping — the Work Order's own "415646.00" style. */
-function money2(n: number): string {
-  return n.toFixed(2)
-}
-
 /** "Rs.19,93,085.00" — the Agreement's Indian-grouped style. */
 function groupedRupees(n: number): string {
   const [whole, frac] = n.toFixed(2).split('.')
@@ -254,7 +249,9 @@ export function deriveFields(
     itemNo,
     agencyName: notice.agencyName ?? pdf.l1AgencyName ?? row['Name of the Agency'] ?? '',
     address: notice.address ?? row['Address of the agency'] ?? '',
-    phone: row['Phone number of the agency'] ?? '',
+    // Phone comes from the eGP "Supplier Details" page when one was uploaded
+    // (the only source that carries it), else the Works List row.
+    phone: notice.phone ?? row['Phone number of the agency'] ?? '',
     wincode: row['Wincode'] ?? '',
     financialYear: indianFinancialYear(),
     estimateLakhs: (row['Amount of estimate'] ?? '').replace(/,/g, '').trim(),
@@ -283,6 +280,13 @@ export function deriveFields(
 // blank to fill in by hand (matching the templates' own "____" convention),
 // instead of silently defaulting to the tender-notice date.
 const DATE_BLANK = '____________'
+
+/**
+ * The Tender Document's own page count ("12. No. of pages of Agreement") — the
+ * bundled Civil Tender Document is 41 pages, so that's what prints unless the
+ * office types a different number into the Agreement page's field.
+ */
+export const DEFAULT_PAGES_OF_AGREEMENT = '41'
 const DATE_WORDS_BLANK = '______________________'
 
 /** The {{Label}} -> value map for the Work Order template. */
@@ -314,14 +318,16 @@ export function workOrderPlaceholders(f: WorkOrderAgreementFields): Record<strin
     'Administrative Sanction date': f.adminSanctionDate,
     Wincode: f.wincode,
     // Hand-entered elsewhere (see WorkOrderAgreementFields.completionMonths'
-    // own doc comment) — the app's own bundled template states this in the
-    // body sentence instead of a labelled amounts-block line, but some
-    // circles' templates do print it as its own line.
+    // own doc comment) — printed both as its own amounts-block line and in the
+    // body sentence ("within a period of 03 Months"), so every template variant
+    // states the period the same way.
     'Period of Completion': f.completionMonths.trim() ? `${f.completionMonths.trim()} Months` : '',
     'Estimate Amount': estLakhs != null ? `Rs. ${estLakhs.toFixed(2)} Lakhs` : '',
-    ECV: ecv != null ? `Rs. ${money2(ecv)}` : '',
+    // Indian digit grouping, matching how the offices write these by hand
+    // ("Rs.9,43,549.00") — the same style the Agreement documents use.
+    ECV: ecv != null ? groupedRupees(ecv) : '',
     'Tender Percentage': pct == null ? '' : pct === 0 ? '0%' : `(-) ${formatPercent(pct)}%-Less`,
-    'Contract Amount': contract != null ? `Rs. ${money2(contract)}` : '',
+    'Contract Amount': contract != null ? groupedRupees(contract) : '',
     TP: pct != null ? formatPercent(pct) : '',
     // The app's own bundled template doesn't cite these on its face, but some
     // circles' own templates do (a numbered Ref block: NIT No, Tender ID +
@@ -618,7 +624,7 @@ export function civilTenderPlaceholders(
     'Bid Receipt': pdf.bidClose ?? '',
     // Price bid opening = the sheet's Server Time (when the price bid was opened).
     'Price Bid Open': pdf.serverDate ?? '',
-    'Pages Of Agreement': extras.pagesOfAgreement ?? '',
+    'Pages Of Agreement': extras.pagesOfAgreement?.trim() || DEFAULT_PAGES_OF_AGREEMENT,
     'Schedule A Items': extras.scheduleAItems ?? '',
     // Office block for the page footer (repeats on every page).
     Circle: f.circle,

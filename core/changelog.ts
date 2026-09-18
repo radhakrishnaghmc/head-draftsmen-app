@@ -16,6 +16,17 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.36.0',
+    changes: [
+      'Work Order types 1 and 3 now carry the same references block and the same Amount of Estimate / ECV / Contract / Tender Percentage / Period of Completion block as type 2.',
+      'Work Order amounts now print in the usual Indian grouping, e.g. Rs.9,43,549.00, and the period of completion prints instead of a blank "(   ) months".',
+      'Work Order type 2: the date now sits at the right-hand end of the Work Order number line, both on screen and when printed, and the sign-off reads EXECUTIVE ENGINEER.',
+      '"No. of pages of Agreement" now defaults to 41 unless a different number is typed in.',
+      'The Work Order / Agreement page can now read the agency phone number from an uploaded eGP Supplier Details page, like Give Intimation.',
+      'Measurement Book photo scanning now reads the ruled columns and repairs misread figures using each row\'s own No. x L x B x D check.'
+    ]
+  },
+  {
     version: '1.35.0',
     changes: [
       'Fixed Measurement Book photo scanning misreading the No./L/B/D columns on some real photographed pages.',

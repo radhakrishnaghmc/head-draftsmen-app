@@ -7,6 +7,21 @@
  * these as its calibration reference).
  */
 
+import {
+  formatMbFigure,
+  mbDimensionCandidates,
+  mbAverageVariants,
+  mbDimensionVariants,
+  mbFigureCandidates,
+  mbMappedDigitCount,
+  parseMbCount,
+  readMbCount,
+  readMbFigure,
+  reconcileMbRow,
+  splitAverageNumerator
+} from './mbNumeric'
+import type { MbRowCheck } from './mbNumeric'
+
 export const MB_MEASUREMENT_COLUMNS = ['Date', 'Description', 'No', 'L', 'B', 'D', 'Contents'] as const
 export type MbColumn = (typeof MB_MEASUREMENT_COLUMNS)[number]
 
@@ -24,6 +39,10 @@ export interface MbMeasurementRow {
   d2: string
   d3: string
   contents: string
+  /** No. x L x B x D from this row's own figures — the book's arithmetic, recomputed. */
+  computed: string
+  /** '' when the row can't be checked, 'OK'/'Corrected' when the arithmetic agrees, 'Recheck' when it doesn't. */
+  check: MbRowCheck
 }
 
 export const MB_MEASUREMENT_HEADERS = [
@@ -39,7 +58,9 @@ export const MB_MEASUREMENT_HEADERS = [
   'D1',
   'D2',
   'D3',
-  'Contents'
+  'Contents',
+  'Computed',
+  'Check'
 ] as const
 
 /**
@@ -61,12 +82,18 @@ export function estimateRowPitch(lineYs: number[], opts: { minGap?: number; maxG
 }
 
 /**
- * Same gap estimate as estimateRowPitch, plus how many gaps it's built from
- * and how far the worst of them strays from the average. A page photographed
- * at a different distance/crop than the calibration reference has its own
- * valid pitch that doesn't match REF_ROW_PITCH's scaled value — so detected
- * spacing should be trusted when it's internally consistent (many gaps that
- * agree with each other), not just when it happens to match the reference.
+ * Row pitch from the dominant gap, plus how many gaps agree with it and how
+ * far the worst of those strays. A page photographed at a different
+ * distance/crop than the calibration reference has its own valid pitch that
+ * doesn't match REF_ROW_PITCH's scaled value — so detected spacing should be
+ * trusted when it's internally consistent (many gaps that agree with each
+ * other), not just when it happens to match the reference.
+ *
+ * The gaps are clustered rather than averaged: the header block above the
+ * measurement grid (the two-line column captions) rules at its own, smaller
+ * spacing, and those gaps can sit inside the plausible range too. Averaging
+ * them together with the real row gaps drags the pitch down by enough that
+ * generated row bounds slice through the handwriting a few rows down.
  */
 export function estimateRowPitchConfidence(
   lineYs: number[],
@@ -74,15 +101,38 @@ export function estimateRowPitchConfidence(
 ): { pitch: number; sampleCount: number; maxDeviation: number } | undefined {
   const minGap = opts.minGap ?? 30
   const maxGap = opts.maxGap ?? 70
-  const gaps: number[] = []
+  const all: number[] = []
   for (let i = 1; i < lineYs.length; i++) {
     const g = lineYs[i] - lineYs[i - 1]
-    if (g >= minGap && g <= maxGap) gaps.push(g)
+    if (g >= minGap && g <= maxGap) all.push(g)
   }
+  const gaps = dominantGapCluster(all)
   if (gaps.length === 0) return undefined
   const pitch = gaps.reduce((a, b) => a + b, 0) / gaps.length
   const maxDeviation = Math.max(...gaps.map((g) => Math.abs(g - pitch)))
   return { pitch, sampleCount: gaps.length, maxDeviation }
+}
+
+/**
+ * The largest group of gaps that agree with each other (within 10%, which
+ * comfortably covers photo perspective across one page while still separating
+ * header spacing from row spacing). Ties go to the wider spacing, since the
+ * measurement rows are the widest repeated rule on the form.
+ */
+function dominantGapCluster(gaps: number[]): number[] {
+  let best: number[] = []
+  for (const centre of gaps) {
+    const cluster = gaps.filter((g) => Math.abs(g - centre) <= centre * 0.1)
+    const better =
+      cluster.length > best.length ||
+      (cluster.length === best.length && best.length > 0 && mean(cluster) > mean(best))
+    if (better) best = cluster
+  }
+  return best
+}
+
+function mean(values: number[]): number {
+  return values.reduce((a, b) => a + b, 0) / values.length
 }
 
 /**
@@ -233,8 +283,8 @@ export function extractNumericToken(raw: string): string {
  */
 export function splitMultiValue(raw: string): [string, string, string] {
   const parts = raw
-    .split(/\r?\n|[,;]/)
-    .map((s) => extractNumericToken(normalizeNumericCell(s)))
+    .split(/\r?\n/)
+    .map((s) => readMbFigure(s))
     .filter((s) => s.length > 0)
   return [parts[0] ?? '', parts[1] ?? '', parts[2] ?? '']
 }
@@ -281,32 +331,199 @@ export function resolveAverageFraction(raw: string): string | undefined {
   return String(Math.round((total / denominator) * 100) / 100)
 }
 
-/** cells columns must follow MB_MEASUREMENT_COLUMNS order: [date, description, no, l, b, d, contents]. */
+/**
+ * An averaged cell resolved to both its value and the individual figures it
+ * averages, in either the clean or the mangled shape. The parts are what a
+ * digit repair has to work on (see mbAverageVariants).
+ */
+function resolveAverageParts(raw: string): { value: string; parts: string[]; denominator: number } | undefined {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+  const clean = resolveAverageFraction(raw)
+  if (clean !== undefined) {
+    const single = lines.length === 1 ? lines[0].match(/^(.+?)\/\s*(\d+(?:\.\d+)?)\s*$/) : undefined
+    const sumText = single ? single[1] : lines[0]
+    const denominator = Number(single ? single[2] : lines[1])
+    return { value: clean, parts: sumText.replace(/\s+/g, '').split('+'), denominator }
+  }
+  const mangled = resolveAverageCell(raw)
+  if (mangled === undefined) return undefined
+  const denominator = parseMbCount(lines[1] ?? '')
+  const parts = splitAverageNumerator(lines[0] ?? '', denominator)
+  if (parts === undefined) return undefined
+  return { value: mangled, parts, denominator }
+}
+
+/**
+ * cells columns must follow MB_MEASUREMENT_COLUMNS order: [date, description,
+ * no, l, b, d, contents].
+ *
+ * Read in two passes. The first reconciles each row on its own. The second
+ * re-reads the rows that failed, this time knowing the depth the page's
+ * verified rows agree on — an item is measured at one depth down the whole
+ * block, so that value is evidence from the page itself rather than a guess,
+ * and it commonly rescues a row where the depth cell was misread ("630" for
+ * 0.30) badly enough to break the arithmetic.
+ */
 export function buildMbMeasurementRows(grid: string[][]): MbMeasurementRow[] {
+  const firstPass = readRows(grid, undefined)
+  const depthPrior = verifiedDepth(firstPass)
+  return depthPrior === undefined ? firstPass : readRows(grid, depthPrior)
+}
+
+/**
+ * The depth that rows whose arithmetic checked out agree on, if they do. Only
+ * rows verified against their own Contents figure count as evidence — an
+ * unverified row's depth is exactly the reading in doubt.
+ */
+function verifiedDepth(rows: MbMeasurementRow[]): string | undefined {
+  const verified = rows.filter((r) => r.check === 'OK' && r.d1 !== '' && r.d2 === '').map((r) => r.d1)
+  if (verified.length < 2) return undefined
+  const counts = new Map<string, number>()
+  for (const v of verified) counts.set(v, (counts.get(v) ?? 0) + 1)
+  const [value, count] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]
+  return count >= verified.length / 2 ? value : undefined
+}
+
+/**
+ * Whether a dimension cell's OCR text can be a figure off this form at all.
+ * Every figure here is written to 2 decimals, so 3 digits: fewer means most of
+ * the ink was missed ("3" where 7.20 is written), and more means several
+ * figures ran together ("6046-40" over "2846") — unless the cell is a written
+ * average, which legitimately carries one group of 3 digits per part.
+ */
+function isReadableCell(raw: string): boolean {
+  const digits = mbMappedDigitCount(raw)
+  if (digits === 0) return false
+  if (digits >= 3 && digits <= 4) return true
+  if (resolveAverageParts(raw) !== undefined) return true
+  // An average whose fraction bar was lost still reads as a figure per part,
+  // but only when the "+" signs survived — without them, a long digit run is
+  // just as likely to be two rows' ink read as one cell.
+  const numerator = raw.split(/\r?\n/)[0] ?? ''
+  if (!numerator.includes('+')) return false
+  return [2, 3].some((n) => splitAverageNumerator(numerator, n) !== undefined)
+}
+
+/** One L/B/D cell resolved into what the row's arithmetic may choose between. */
+interface Dimension {
+  candidates: string[]
+  stacked: [string, string]
+  alternates: string[]
+  /** Set only for a stacked cell: every line read as a candidate for the single dimension. */
+  lineCandidates?: string[]
+  lineAlternates?: string[]
+}
+
+function readRows(grid: string[][], depthPrior: string | undefined): MbMeasurementRow[] {
   return grid.map((cells) => {
-    const resolveDimension = (raw: string): [string, string, string] => {
-      const averaged = resolveAverageFraction(raw)
-      return averaged !== undefined ? [averaged, '', ''] : splitMultiValue(raw)
+    /**
+     * A dimension cell yields either one value with candidate readings for
+     * the row's arithmetic to choose between, or — when the clerk stacked
+     * several sub-measurements in the cell — the stacked values as read.
+     */
+    const resolveDimension = (raw: string): Dimension => {
+      const averaged = resolveAverageParts(raw)
+      if (averaged !== undefined) {
+        return {
+          candidates: [averaged.value],
+          stacked: ['', ''],
+          alternates: mbAverageVariants(averaged.parts, averaged.denominator)
+        }
+      }
+      const [first, second, third] = splitMultiValue(raw)
+      if (second !== '') {
+        // Every line offered as a reading of this one dimension as well: the
+        // extra line is as often a neighbouring row's figure leaning into the
+        // cell as a genuine second sub-measurement, and only the row's
+        // arithmetic can tell those apart (see the collapse below).
+        const lines = [first, second, third].filter((v) => v !== '')
+        return {
+          candidates: first === '' ? [] : [first],
+          stacked: [second, third],
+          alternates: [],
+          lineCandidates: lines.flatMap((v) => mbDimensionCandidates(v)),
+          lineAlternates: lines.flatMap((v) => mbDimensionVariants(v))
+        }
+      }
+      return { candidates: mbDimensionCandidates(raw), stacked: ['', ''], alternates: mbDimensionVariants(raw) }
     }
-    const [l1, l2, l3] = resolveDimension(cells[3] ?? '')
-    const [b1, b2, b3] = resolveDimension(cells[4] ?? '')
-    const [d1, d2, d3] = resolveDimension(cells[5] ?? '')
+    const l = resolveDimension(cells[3] ?? '')
+    const b = resolveDimension(cells[4] ?? '')
+    const d = resolveDimension(cells[5] ?? '')
+    if (depthPrior !== undefined) {
+      if (d.candidates.length > 0 && !d.candidates.includes(depthPrior)) d.candidates = [...d.candidates, depthPrior]
+      if (d.lineCandidates !== undefined && !d.lineCandidates.includes(depthPrior)) {
+        d.lineCandidates = [...d.lineCandidates, depthPrior]
+      }
+    }
+    const no = readMbCount(cells[2] ?? '')
+    const contentsCandidates = mbFigureCandidates(cells[6] ?? '')
+    // A row measured as a single L/B/D triple is checked against its own
+    // arithmetic. A row with stacked sub-measurements is checked too, reading
+    // each stacked line as a candidate for the one dimension: when that makes
+    // the row multiply out to Contents, the "sub-measurements" were really one
+    // figure plus a neighbouring row's ink, and the cell collapses to the
+    // figure the arithmetic proves. When it doesn't, the stacked values stand
+    // as read — the clerk combines genuine sub-measurements in ways the sheet
+    // doesn't record, and this tool must not invent that working.
+    const stacked = [l, b, d].some((dim) => dim.stacked[0] !== '')
+    const pick = (dim: Dimension): string[] => (stacked ? dim.lineCandidates ?? dim.candidates : dim.candidates)
+    const pickAlt = (dim: Dimension): string[] => (stacked ? dim.lineAlternates ?? dim.alternates : dim.alternates)
+    const reconciled = reconcileMbRow({
+      count: parseMbCount(no),
+      l: pick(l),
+      b: pick(b),
+      d: pick(d),
+      contents: contentsCandidates,
+      alternates: { l: pickAlt(l), b: pickAlt(b), d: pickAlt(d) },
+      trusted: { l: isReadableCell(cells[3] ?? ''), b: isReadableCell(cells[4] ?? ''), d: isReadableCell(cells[5] ?? '') }
+    })
+    const collapsed = stacked && (reconciled.check === 'OK' || reconciled.check === 'Corrected')
+    const row = collapsed || !stacked ? reconciled : undefined
+    const sub = (dim: Dimension, i: number): string => (collapsed ? '' : formatMbFigure(dim.stacked[i]))
+    const figure = (value: string | undefined, fallback: string[]): string =>
+      formatMbFigure(value ?? fallback[0] ?? '')
     return {
       date: (cells[0] ?? '').trim(),
       description: (cells[1] ?? '').trim(),
-      no: extractNumericToken(normalizeNumericCell(cells[2] ?? '')),
-      l1,
-      l2,
-      l3,
-      b1,
-      b2,
-      b3,
-      d1,
-      d2,
-      d3,
-      contents: extractNumericToken(normalizeNumericCell(cells[6] ?? ''))
+      no,
+      l1: figure(row?.l, l.candidates),
+      l2: sub(l, 0),
+      l3: sub(l, 1),
+      b1: figure(row?.b, b.candidates),
+      b2: sub(b, 0),
+      b3: sub(b, 1),
+      d1: figure(row?.d, d.candidates),
+      d2: sub(d, 0),
+      d3: sub(d, 1),
+      contents: figure(row?.contents, contentsCandidates),
+      computed: formatMbFigure(row?.computed ?? ''),
+      check: row?.check ?? ''
     }
   })
+}
+
+/**
+ * An averaged L/B/D cell whose "+" signs or fraction bar were mangled by OCR
+ * ("6.3046-30" over "2" for 6.30+6.30 over 2). resolveAverageFraction handles
+ * the clean shapes; this recovers the mangled ones structurally, using the
+ * denominator to say how many 2-decimal figures the numerator must hold.
+ */
+function resolveAverageCell(raw: string): string | undefined {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+  if (lines.length !== 2) return undefined
+  const count = parseMbCount(lines[1])
+  if (!Number.isInteger(count) || count < 2 || count > 4) return undefined
+  const parts = splitAverageNumerator(lines[0], count)
+  if (parts === undefined) return undefined
+  const total = parts.reduce((a, b) => a + Number(b), 0)
+  return String(Math.round((total / count) * 100) / 100)
 }
 
 export function mbMeasurementRowsToGrid(rows: MbMeasurementRow[]): string[][] {
@@ -325,7 +542,9 @@ export function mbMeasurementRowsToGrid(rows: MbMeasurementRow[]): string[][] {
       r.d1,
       r.d2,
       r.d3,
-      r.contents
+      r.contents,
+      r.computed,
+      r.check
     ])
   ]
 }

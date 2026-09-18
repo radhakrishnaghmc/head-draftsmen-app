@@ -303,7 +303,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
       const parts: string[] = []
       for (const doc of docs) {
         const { docx } = await resolveForRow(doc, false)
-        await renderDocPreview(base64ToUint8(docx), scratch)
+        await renderDocPreview(base64ToUint8(docx), scratch, { forSnapshot: true })
         parts.push(scratch.innerHTML)
       }
       const combined = parts.join('<div style="page-break-after:always"></div>')
@@ -351,7 +351,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
         const parts: string[] = []
         for (const doc of docs) {
           const { docx } = await resolveForRow(doc)
-          await renderDocPreview(base64ToUint8(docx), container)
+          await renderDocPreview(base64ToUint8(docx), container, { forSnapshot: true })
           parts.push(container.innerHTML)
         }
         const combined = parts.join('<div style="page-break-after:always"></div>')
