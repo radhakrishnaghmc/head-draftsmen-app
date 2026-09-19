@@ -16,6 +16,17 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.37.0',
+    changes: [
+      'File Backer, Work Order, Agreement Bond and QCC Intimation now open as editors: every printed value is listed beside the live page, and typing over a line carries into Word, PDF, Print and Download all.',
+      'The Intimation letter on Give Intimation opens the same way, with its own fields beside the page.',
+      'An edited line is marked and can be put back on the uploaded value on its own, or all at once with Reset edits. Edits clear when you move to another work.',
+      'Note Submitted: the year the estimate was scrutinised against is now its own field, no longer tied to the administrative sanction year.',
+      'Agreement Bond: removed the gap the name of the work started with.',
+      'Tender Document: the GST on the last page is now the estimate\'s own GST amount instead of 18% of the ECV.'
+    ]
+  },
+  {
     version: '1.36.0',
     changes: [
       'Work Order types 1 and 3 now carry the same references block and the same Amount of Estimate / ECV / Contract / Tender Percentage / Period of Completion block as type 2.',

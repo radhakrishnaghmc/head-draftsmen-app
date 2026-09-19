@@ -1,5 +1,5 @@
 diff --git a/node_modules/docx-preview/dist/docx-preview.js b/node_modules/docx-preview/dist/docx-preview.js
-index 9abd132..2c300f1 100644
+index 9abd132..22a81e6 100644
 --- a/node_modules/docx-preview/dist/docx-preview.js
 +++ b/node_modules/docx-preview/dist/docx-preview.js
 @@ -1294,6 +1294,13 @@
@@ -64,7 +64,140 @@ index 9abd132..2c300f1 100644
              return type == "fixed" ? "fixed" : "auto";
          }
          static classNameOfCnfStyle(c) {
-@@ -3742,6 +3766,23 @@ section.${c}>footer { z-index: 1; }
+@@ -2799,16 +2823,52 @@
+     }
+     function updateTabStop(elem, tabs, defaultTabSize, pixelToPoint = 72 / 96) {
+         const p = elem.closest("p");
++        // updateTabStop runs more than once per tab span: once during the initial
++        // render, again from the 500ms refreshTabStops() pass, and again on resize.
++        // Everything below measures the span's OWN box, so a word-spacing (and the
++        // "&nbsp;" content) left behind by an earlier pass has already pushed
++        // ebb.left out to the tab stop — the recomputed width then collapses to ~1pt
++        // and every tab in the document loses its stop. Observed in the app as a
++        // preview that paints correctly and then visibly corrupts half a second
++        // later. Normalize the span back to its post-render baseline first so every
++        // pass measures identically and converges on the same width (patched in; see
++        // patches/docx-preview+0.4.0.patch).
++        // Every tab span in the paragraph, not just this one: renderTab() seeds each
++        // span with an em-space ("\u2003") placeholder that later passes replace with
++        // "&nbsp;", and the two are different widths. A pass that measures its
++        // neighbours as em-spaces therefore computes a different width from one that
++        // measures them as &nbsp;, so a right-aligned tab keeps drifting between
++        // passes until the line overflows and wraps. Their word-spacing is left
++        // alone — an earlier tab's stop legitimately shifts the ones after it.
++        // A span collapsed by an earlier pass (see tabCollapsed below) must stay
++        // collapsed: refilling it here would undo that pass's decision, and since
++        // each span only re-decides on its own pass the two would never converge.
++        for (const t of p.querySelectorAll(`.${elem.className}`))
++            t.innerHTML = t !== elem && t.dataset.tabCollapsed ? "" : "&nbsp;";
++        delete elem.dataset.tabCollapsed;
++        elem.style.wordSpacing = "normal";
+         const ebb = elem.getBoundingClientRect();
+         const pbb = p.getBoundingClientRect();
+         const pcs = getComputedStyle(p);
++        // An ancestor CSS `transform: scale(...)` — the app scales .docx previews
++        // down to fit document thumbnails and the narrow Intimation column — shrinks
++        // every getBoundingClientRect() reading, while w:tab positions stay in
++        // unscaled points. offsetWidth is a layout value and is NOT affected by
++        // transforms, so rect.width / offsetWidth recovers the effective scale; the
++        // pt conversion then divides it back out. Without this the 500ms
++        // refreshTabStops() pass re-measures the already-scaled preview and blows
++        // every tab width up by 1/scale — the preview renders correctly, then
++        // visibly corrupts half a second later (patched in; see
++        // patches/docx-preview+0.4.0.patch).
++        const scale = p.offsetWidth > 0 ? pbb.width / p.offsetWidth : 1;
++        const toPoint = scale > 0 ? pixelToPoint / scale : pixelToPoint;
+         const tabStops = tabs?.length > 0 ? tabs.map(t => ({
+             pos: lengthToPoint(t.position),
+             leader: t.leader,
+             style: t.style
+         })).sort((a, b) => a.pos - b.pos) : [defaultTab];
+         const lastTab = tabStops[tabStops.length - 1];
+-        const pWidthPt = pbb.width * pixelToPoint;
++        const pWidthPt = pbb.width * toPoint;
+         const size = lengthToPoint(defaultTabSize);
+         let pos = lastTab.pos + size;
+         if (pos < pWidthPt) {
+@@ -2817,11 +2877,30 @@
+             }
+         }
+         const marginLeft = parseFloat(pcs.marginLeft);
+-        const pOffset = pbb.left + marginLeft;
+-        const left = (ebb.left - pOffset) * pixelToPoint;
++        // w:tab positions are measured from the page's left text margin, same as
++        // w:ind — but pbb.left (the paragraph's own border-box edge) already has
++        // any paragraph indent baked in by the browser via CSS margin-left, so
++        // that indent must be SUBTRACTED back out here to land in the same
++        // reference frame as tab.pos. The original code ADDED it instead,
++        // silently shrinking "left" for every indented paragraph and making it
++        // pick a far-too-early tab stop — visible as a huge, wrong gap before
++        // any tab character in an indented block (patched in; see
++        // patches/docx-preview+0.4.0.patch).
++        const pOffset = pbb.left - marginLeft * scale;
++        const left = (ebb.left - pOffset) * toPoint;
+         const tab = tabStops.find(t => t.style != "clear" && t.pos > left);
+-        if (tab == null)
++        if (tab == null) {
++            // No tab stop at or after this point — the preceding text already
++            // reaches the right margin. Word draws nothing in that case, but the
++            // span still holds the "&nbsp;" placeholder, which adds ~3pt of real
++            // width. On a paragraph whose right tab stop sits exactly on the
++            // margin (the Work Order header) that stray space is enough to push
++            // the line over and wrap it. Collapse the span instead.
++            elem.innerHTML = "";
++            elem.style.wordSpacing = "normal";
++            elem.dataset.tabCollapsed = "1";
+             return;
++        }
+         let width = 1;
+         if (tab.style == "right" || tab.style == "center") {
+             const tabStops = Array.from(p.querySelectorAll(`.${elem.className}`));
+@@ -2836,15 +2915,41 @@
+             }
+             const mul = tab.style == "center" ? 0.5 : 1;
+             const nextBB = range.getBoundingClientRect();
+-            const offset = nextBB.left + mul * nextBB.width - (pbb.left - marginLeft);
+-            width = tab.pos - offset * pixelToPoint;
++            // A right/center tab stop with nothing after it (e.g. a stray
++            // trailing <w:tab/> at the end of a paragraph) has an empty range
++            // here — there's no content to right-align, so pushing it out to the
++            // tab stop anyway just inserts a huge, invisible run of
++            // non-collapsible &nbsp; word-spacing that overflows the line and
++            // wraps the whole paragraph (patched in; see
++            // patches/docx-preview+0.4.0.patch).
++            if (nextBB.width > 0 || range.toString().length > 0) {
++                const offset = nextBB.left + mul * nextBB.width - pOffset;
++                width = tab.pos - offset * toPoint;
++            }
++            else {
++                // Nothing follows this right/center tab — a stray trailing <w:tab/>,
++                // which Word renders as nothing at all. Emitting the usual "&nbsp;"
++                // plus a 1pt word-spacing instead leaves ~4pt hanging past the tab
++                // stop; with the stop already at the right text margin that overflows
++                // the line and wraps the whole paragraph. Collapse it to nothing.
++                elem.innerHTML = "";
++                elem.style.wordSpacing = "normal";
++                elem.dataset.tabCollapsed = "1";
++                return;
++            }
+         }
+         else {
+             width = tab.pos - left;
+         }
+         elem.innerHTML = "&nbsp;";
+         elem.style.textDecoration = "inherit";
+-        elem.style.wordSpacing = `${width.toFixed(0)}pt`;
++        // A right-aligned tab computes width to land the following text exactly
++        // flush with the tab stop (zero slack by design, e.g. right at the page
++        // margin) — toFixed(0) rounds to nearest and can round UP past that
++        // exact target, tipping a hairline over the line's available width and
++        // triggering a full wrap. Math.floor never overshoots (patched in; see
++        // patches/docx-preview+0.4.0.patch).
++        elem.style.wordSpacing = `${Math.floor(width)}pt`;
+         switch (tab.leader) {
+             case "dot":
+             case "middleDot":
+@@ -3742,6 +3847,23 @@ section.${c}>footer { z-index: 1; }
                      .then(x => result.setAttribute("href", x)));
              }
              container.appendChild(result);
@@ -88,7 +221,7 @@ index 9abd132..2c300f1 100644
              requestAnimationFrame(() => {
                  const bb = container.firstElementChild.getBBox();
                  container.setAttribute("width", `${Math.ceil(bb.x + bb.width)}`);
-@@ -3752,6 +3793,10 @@ section.${c}>footer { z-index: 1; }
+@@ -3752,6 +3874,10 @@ section.${c}>footer { z-index: 1; }
          renderVmlChildElement(elem) {
              const result = this.createSvgElement(elem.tagName);
              Object.entries(elem.attrs).forEach(([k, v]) => result.setAttribute(k, v));
@@ -100,7 +233,7 @@ index 9abd132..2c300f1 100644
                  if (child.type == DomType.VmlElement) {
                      result.appendChild(this.renderVmlChildElement(child));
 diff --git a/node_modules/docx-preview/dist/docx-preview.mjs b/node_modules/docx-preview/dist/docx-preview.mjs
-index 68d59f2..6874426 100644
+index 68d59f2..0b0dabc 100644
 --- a/node_modules/docx-preview/dist/docx-preview.mjs
 +++ b/node_modules/docx-preview/dist/docx-preview.mjs
 @@ -1290,6 +1290,13 @@ function parseVmlElement(elem, parser) {
@@ -165,7 +298,140 @@ index 68d59f2..6874426 100644
          return type == "fixed" ? "fixed" : "auto";
      }
      static classNameOfCnfStyle(c) {
-@@ -3738,6 +3762,23 @@ section.${c}>footer { z-index: 1; }
+@@ -2795,16 +2819,52 @@ function computePixelToPoint(container = document.body) {
+ }
+ function updateTabStop(elem, tabs, defaultTabSize, pixelToPoint = 72 / 96) {
+     const p = elem.closest("p");
++    // updateTabStop runs more than once per tab span: once during the initial
++    // render, again from the 500ms refreshTabStops() pass, and again on resize.
++    // Everything below measures the span's OWN box, so a word-spacing (and the
++    // "&nbsp;" content) left behind by an earlier pass has already pushed
++    // ebb.left out to the tab stop — the recomputed width then collapses to ~1pt
++    // and every tab in the document loses its stop. Observed in the app as a
++    // preview that paints correctly and then visibly corrupts half a second
++    // later. Normalize the span back to its post-render baseline first so every
++    // pass measures identically and converges on the same width (patched in; see
++    // patches/docx-preview+0.4.0.patch).
++    // Every tab span in the paragraph, not just this one: renderTab() seeds each
++    // span with an em-space ("\u2003") placeholder that later passes replace with
++    // "&nbsp;", and the two are different widths. A pass that measures its
++    // neighbours as em-spaces therefore computes a different width from one that
++    // measures them as &nbsp;, so a right-aligned tab keeps drifting between
++    // passes until the line overflows and wraps. Their word-spacing is left
++    // alone — an earlier tab's stop legitimately shifts the ones after it.
++    // A span collapsed by an earlier pass (see tabCollapsed below) must stay
++    // collapsed: refilling it here would undo that pass's decision, and since
++    // each span only re-decides on its own pass the two would never converge.
++    for (const t of p.querySelectorAll(`.${elem.className}`))
++        t.innerHTML = t !== elem && t.dataset.tabCollapsed ? "" : "&nbsp;";
++    delete elem.dataset.tabCollapsed;
++    elem.style.wordSpacing = "normal";
+     const ebb = elem.getBoundingClientRect();
+     const pbb = p.getBoundingClientRect();
+     const pcs = getComputedStyle(p);
++    // An ancestor CSS `transform: scale(...)` — the app scales .docx previews
++    // down to fit document thumbnails and the narrow Intimation column — shrinks
++    // every getBoundingClientRect() reading, while w:tab positions stay in
++    // unscaled points. offsetWidth is a layout value and is NOT affected by
++    // transforms, so rect.width / offsetWidth recovers the effective scale; the
++    // pt conversion then divides it back out. Without this the 500ms
++    // refreshTabStops() pass re-measures the already-scaled preview and blows
++    // every tab width up by 1/scale — the preview renders correctly, then
++    // visibly corrupts half a second later (patched in; see
++    // patches/docx-preview+0.4.0.patch).
++    const scale = p.offsetWidth > 0 ? pbb.width / p.offsetWidth : 1;
++    const toPoint = scale > 0 ? pixelToPoint / scale : pixelToPoint;
+     const tabStops = tabs?.length > 0 ? tabs.map(t => ({
+         pos: lengthToPoint(t.position),
+         leader: t.leader,
+         style: t.style
+     })).sort((a, b) => a.pos - b.pos) : [defaultTab];
+     const lastTab = tabStops[tabStops.length - 1];
+-    const pWidthPt = pbb.width * pixelToPoint;
++    const pWidthPt = pbb.width * toPoint;
+     const size = lengthToPoint(defaultTabSize);
+     let pos = lastTab.pos + size;
+     if (pos < pWidthPt) {
+@@ -2813,11 +2873,30 @@ function updateTabStop(elem, tabs, defaultTabSize, pixelToPoint = 72 / 96) {
+         }
+     }
+     const marginLeft = parseFloat(pcs.marginLeft);
+-    const pOffset = pbb.left + marginLeft;
+-    const left = (ebb.left - pOffset) * pixelToPoint;
++    // w:tab positions are measured from the page's left text margin, same as
++    // w:ind — but pbb.left (the paragraph's own border-box edge) already has
++    // any paragraph indent baked in by the browser via CSS margin-left, so
++    // that indent must be SUBTRACTED back out here to land in the same
++    // reference frame as tab.pos. The original code ADDED it instead,
++    // silently shrinking "left" for every indented paragraph and making it
++    // pick a far-too-early tab stop — visible as a huge, wrong gap before
++    // any tab character in an indented block (patched in; see
++    // patches/docx-preview+0.4.0.patch).
++    const pOffset = pbb.left - marginLeft * scale;
++    const left = (ebb.left - pOffset) * toPoint;
+     const tab = tabStops.find(t => t.style != "clear" && t.pos > left);
+-    if (tab == null)
++    if (tab == null) {
++        // No tab stop at or after this point — the preceding text already
++        // reaches the right margin. Word draws nothing in that case, but the
++        // span still holds the "&nbsp;" placeholder, which adds ~3pt of real
++        // width. On a paragraph whose right tab stop sits exactly on the
++        // margin (the Work Order header) that stray space is enough to push
++        // the line over and wrap it. Collapse the span instead.
++        elem.innerHTML = "";
++        elem.style.wordSpacing = "normal";
++        elem.dataset.tabCollapsed = "1";
+         return;
++    }
+     let width = 1;
+     if (tab.style == "right" || tab.style == "center") {
+         const tabStops = Array.from(p.querySelectorAll(`.${elem.className}`));
+@@ -2832,15 +2911,41 @@ function updateTabStop(elem, tabs, defaultTabSize, pixelToPoint = 72 / 96) {
+         }
+         const mul = tab.style == "center" ? 0.5 : 1;
+         const nextBB = range.getBoundingClientRect();
+-        const offset = nextBB.left + mul * nextBB.width - (pbb.left - marginLeft);
+-        width = tab.pos - offset * pixelToPoint;
++        // A right/center tab stop with nothing after it (e.g. a stray
++        // trailing <w:tab/> at the end of a paragraph) has an empty range
++        // here — there's no content to right-align, so pushing it out to the
++        // tab stop anyway just inserts a huge, invisible run of
++        // non-collapsible &nbsp; word-spacing that overflows the line and
++        // wraps the whole paragraph (patched in; see
++        // patches/docx-preview+0.4.0.patch).
++        if (nextBB.width > 0 || range.toString().length > 0) {
++            const offset = nextBB.left + mul * nextBB.width - pOffset;
++            width = tab.pos - offset * toPoint;
++        }
++        else {
++            // Nothing follows this right/center tab — a stray trailing <w:tab/>,
++            // which Word renders as nothing at all. Emitting the usual "&nbsp;"
++            // plus a 1pt word-spacing instead leaves ~4pt hanging past the tab
++            // stop; with the stop already at the right text margin that overflows
++            // the line and wraps the whole paragraph. Collapse it to nothing.
++            elem.innerHTML = "";
++            elem.style.wordSpacing = "normal";
++            elem.dataset.tabCollapsed = "1";
++            return;
++        }
+     }
+     else {
+         width = tab.pos - left;
+     }
+     elem.innerHTML = "&nbsp;";
+     elem.style.textDecoration = "inherit";
+-    elem.style.wordSpacing = `${width.toFixed(0)}pt`;
++    // A right-aligned tab computes width to land the following text exactly
++    // flush with the tab stop (zero slack by design, e.g. right at the page
++    // margin) — toFixed(0) rounds to nearest and can round UP past that
++    // exact target, tipping a hairline over the line's available width and
++    // triggering a full wrap. Math.floor never overshoots (patched in; see
++    // patches/docx-preview+0.4.0.patch).
++    elem.style.wordSpacing = `${Math.floor(width)}pt`;
+     switch (tab.leader) {
+         case "dot":
+         case "middleDot":
+@@ -3738,6 +3843,23 @@ section.${c}>footer { z-index: 1; }
                  .then(x => result.setAttribute("href", x)));
          }
          container.appendChild(result);
@@ -189,7 +455,7 @@ index 68d59f2..6874426 100644
          requestAnimationFrame(() => {
              const bb = container.firstElementChild.getBBox();
              container.setAttribute("width", `${Math.ceil(bb.x + bb.width)}`);
-@@ -3748,6 +3789,10 @@ section.${c}>footer { z-index: 1; }
+@@ -3748,6 +3870,10 @@ section.${c}>footer { z-index: 1; }
      renderVmlChildElement(elem) {
          const result = this.createSvgElement(elem.tagName);
          Object.entries(elem.attrs).forEach(([k, v]) => result.setAttribute(k, v));

@@ -3066,6 +3066,137 @@ button.upload-btn {
   transform: none;
   width: auto;
 }
+/* ---------- editable document preview (File Backer, Work Order, Agreement
+   Bond, QCC Intimation) ----------
+   The expanded preview of these documents is an editor: every {{placeholder}}
+   the page prints, grouped in print order on the left (reusing Note Submitted's
+   .ns-body/.ns-preview split), the live docx-preview page on the right. A field
+   carries a mark once it has been typed over, because the office needs to see
+   which lines it has overruled before the document goes out. */
+.doc-edit {
+  flex: 0 1 360px;
+  max-height: 76vh;
+  overflow-y: auto;
+  padding-right: 8px;
+  gap: 0;
+}
+.doc-edit-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.doc-edit-source {
+  flex: none;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+.doc-edit-reset {
+  flex: none;
+  white-space: nowrap;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--chakra);
+  border-radius: var(--radius-sm);
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.doc-edit-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+/* Two fields to a row: most of what a document prints is short (a circle, a
+   date, an amount), so a single column would push the agency and the dates
+   below the fold on every document. */
+.doc-edit-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 10px;
+  /* Bottom-aligned so the two inputs on a row line up even when one label
+     wraps to a second line. */
+  align-items: end;
+}
+.doc-edit-group .ns-group-title {
+  grid-column: 1 / -1;
+  margin: 12px 0 0;
+}
+.doc-edit-field {
+  min-width: 0;
+  gap: 3px;
+  font-size: 11.5px;
+}
+.doc-edit-field.wide {
+  grid-column: 1 / -1;
+}
+.doc-edit-field input,
+.doc-edit-field textarea {
+  padding: 6px 9px;
+  font-size: 12.5px;
+}
+.doc-edit-count {
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--chakra);
+}
+.doc-edit-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.doc-edit-revert {
+  border: none;
+  background: transparent;
+  color: var(--chakra);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* A typed-over field: the value no longer comes from the uploads. */
+.doc-edit-field.edited input,
+.doc-edit-field.edited textarea {
+  border-color: var(--chakra);
+  box-shadow: inset 2px 0 0 var(--chakra);
+}
+/* Field panel (360px) + the page at its native 794px width + padding — .wide's
+   1180px would clip the page's right edge. */
+.wo-modal.doc-edit-modal {
+  width: min(1280px, 100%);
+}
+.doc-edit textarea {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid #c9ccd3;
+  background: #fff;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+}
+.doc-edit textarea:focus,
+.doc-edit input:focus {
+  outline: none;
+  border-color: var(--indigo-500);
+}
+/* The page renders at native width inside the scroller — no extra scaling. */
+.ns-preview-scroll .intimation-docx-preview {
+  transform: none;
+  width: auto;
+  padding: 0;
+}
 .doc-sheet-title {
   position: sticky;
   top: 0;
@@ -3301,17 +3432,35 @@ button.upload-btn {
 }
 .wo-tile-preview {
   position: relative;
+  /* The tile is a <button>, and Chromium's UA sheet gives buttons
+     `align-items: center` — so this preview is NOT stretched to the tile's
+     width the way a normal column flex child would be, it's sized to its own
+     content and centred. With the A4-wide render inside it (see .wo-tile-doc)
+     that made the preview 794px wide, centred on a 260px tile, which pushed
+     the thumbnail clean outside the tile's overflow:hidden box — every tile
+     painted blank white. Pin it to the tile's width instead. */
+  align-self: stretch;
+  width: 100%;
   height: 300px;
   overflow: hidden;
   background: #fff;
   border-bottom: 1px solid var(--border-strong);
 }
 /* Shrink the full-width A4 render down to a thumbnail that fills the tile.
-   `zoom` reflows the page into the small box (unlike transform, which keeps
-   the original layout size), so the top of the letterhead sits flush at the
-   tile's top-left. */
+   Must be transform, not zoom: zoom scales font-size, and Blink clamps the
+   result at minimum_logical_font_size (6px), so at 0.29 the 10.5pt body text
+   stopped shrinking while the page box kept shrinking. The text then overran
+   its tab stops and the thumbnail rendered garbled. transform scales the
+   finished layout instead, leaving font metrics — and docx-preview's tab-stop
+   maths — untouched. Position it absolutely so the untransformed layout box
+   does not reserve a full A4 of space inside the 300px tile. */
 .wo-tile-doc {
-  zoom: 0.29;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 794px; /* A4 at 96dpi — the width docx-preview renders the page at */
+  transform: scale(0.29);
+  transform-origin: top left;
 }
 .wo-tile-doc .docx-wrapper {
   background: #fff !important;
@@ -8939,8 +9088,241 @@ tr.on .rp-box span {
   }
 }
 
+/* ============================================================
+   Note Submitted editor — the note sheet
+   ------------------------------------------------------------
+   The document is six notes appended in the order the file moves through the
+   office, and its own text refers back to them ("As per above note…"). So the
+   editor is that sequence: an index of the six notes on the left, one open at
+   a time showing only what that note prints, and the sheet on the right with
+   the note numbers in a ruled margin, the way the paper file carries them.
+   Numbers and index are app chrome — the exported .docx never sees them.
+   ============================================================ */
+.note-sheet {
+  --note-paper: #fcfcfa;
+  --note-ink: #16212e;
+  --note-rule: #cdd6de;
+  --note-active: var(--chakra);
+  --note-mark: #9b1b1b;
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  width: 100%;
+}
+.wo-modal.wide .note-sheet {
+  flex: 1;
+}
+
+/* ---------- left: the index ---------- */
+.note-index {
+  flex: 0 1 340px;
+  min-width: 0;
+  max-height: 78vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.note-index-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-strong);
+}
+.note-index-head h3 {
+  margin: 0;
+  font-family: 'Bookman Old Style', Georgia, serif;
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--note-ink);
+}
+.note-blank-total {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--note-mark);
+}
+.note-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.note-list > li {
+  border-bottom: 1px solid var(--border);
+}
+.note-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 6px 11px 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--note-ink);
+}
+.note-row-n {
+  flex: none;
+  width: 24px;
+  font-family: 'Bookman Old Style', Georgia, serif;
+  font-size: 17px;
+  color: var(--muted);
+  text-align: right;
+}
+.note-row-title {
+  flex: 1;
+  font-family: 'Bookman Old Style', Georgia, serif;
+  font-size: 15px;
+}
+.note-list > li.open .note-row-n,
+.note-list > li.open .note-row-title {
+  color: var(--note-active);
+  font-weight: 600;
+}
+.note-row:hover .note-row-title {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.note-row:focus-visible {
+  outline: 2px solid var(--note-active);
+  outline-offset: 2px;
+}
+.note-row-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+/* Count of ruled blanks this note still prints — the one alarm on the page. */
+.note-row-blank {
+  flex: none;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--note-mark);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+.note-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 2px 16px 36px;
+}
+.note-carried,
+.note-empty {
+  margin: 0;
+  padding: 4px 2px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.note-jump {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: var(--indigo-600);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.note-bidders-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ---------- right: the sheet ---------- */
+.note-paper {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 360px;
+  max-height: 78vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #e7e9ec;
+  padding: 22px;
+}
+.note-page {
+  width: 100%;
+  max-width: 684px;
+  margin: 0 auto;
+  background: var(--note-paper);
+  border-radius: 2px;
+  box-shadow: 0 2px 16px rgba(16, 24, 40, 0.16);
+  padding: 30px 34px 30px 0;
+  /* Same face the exported document sets on itself — the preview has to read
+     as the printed sheet, not as app UI. */
+  font-family: 'Bookman Old Style', Georgia, serif;
+  font-size: 11pt;
+  line-height: 1.5;
+  color: var(--note-ink);
+}
+/* Each note sits to the right of the sheet's margin rule, its number in the
+   margin — the ruling is the sheet's, not decoration added per note. */
+.note-block {
+  position: relative;
+  padding: 2px 0 2px 26px;
+  border-left: 1px solid var(--note-rule);
+  margin-left: 46px;
+  cursor: pointer;
+}
+.note-block-n {
+  position: absolute;
+  left: -24px;
+  top: 2px;
+  width: 18px;
+  font-size: 14px;
+  color: var(--muted);
+  text-align: right;
+}
+.note-block.active {
+  border-left-color: var(--note-active);
+  box-shadow: inset 2px 0 0 var(--note-active);
+  background: rgba(40, 53, 147, 0.035);
+}
+.note-block.active .note-block-n {
+  color: var(--note-active);
+  font-weight: 700;
+}
+.note-block-body table {
+  font-size: 11pt;
+}
+
+@media (max-width: 1100px) {
+  .note-sheet {
+    flex-direction: column;
+  }
+  .note-index,
+  .note-paper {
+    width: 100%;
+    max-height: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .note-row,
+  .note-block {
+    transition: none;
+  }
+}
+
 /* Note Submitted thumbnail (plain HTML, not a docx render) + its wide modal */
+/* Note Submitted's tile preview is plain HTML the app builds itself (not a
+   docx-preview render), so it has no A4-wide page box to scale down — it
+   opts out of .wo-tile-doc's absolute A4 box and keeps its own zoom. */
 .ns-tile-doc {
+  position: static;
+  width: auto;
+  transform: none;
   zoom: 0.34;
   padding: 10px 14px;
 }

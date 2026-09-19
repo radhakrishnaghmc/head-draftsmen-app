@@ -31,10 +31,10 @@ import {
 import type { WorkOrderAgreementFields } from '@core/workOrderAgreement'
 import { extractItemNo, stripItemNoTag } from '@core/bidDocument'
 import { corporationByName, resolveFromDirectory, entriesOf, CORPORATIONS } from '../zoneCircleDirectory'
-import { type Office, officeScopedKey, TEMPLATE_KEYS } from '../office'
+import { type Office, officeScopedKey, TEMPLATE_KEYS, TEMPLATE_VARIANT_CHANGED_EVENT } from '../office'
 import { boqToScheduleA, buildBoqFromEstimate, extractWorkNameFromBoq } from '../boqTransform'
 import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
-import { extractEstimateItems, extractWorkName } from '@core/estimateExtract'
+import { extractEstimateItems, extractEstimateCharges, extractWorkName, type EstimateCharges } from '@core/estimateExtract'
 import { buildScheduleARows, rowsToScheduleAItems, metaFromWorksRow, findWorksRowByName } from '@core/scheduleA'
 import { indianDigitGroups } from '@core/worksAmounts'
 import { compareWorkNames, workNameMismatchMessage, normWorkName } from '@core/workNameMatch'
@@ -47,6 +47,7 @@ import {
   type NoteBidder
 } from '@core/noteSubmitted'
 import NoteSubmittedEditor from './NoteSubmittedEditor'
+import DocFieldsEditor, { groupLabels, type DocFieldGroup } from './DocFieldsEditor'
 import { mismatchHint } from '../docClassify'
 import type { PlaceholderMatch } from '@core/createDocument'
 import type { ScheduleAMeta, AgreementBundleFile, VerifyDocItem } from '../../electron/ipc-contract'
@@ -214,6 +215,194 @@ const DOC_KINDS: DocKind[] = [
 /** Whether an Output is one of the docx documents (previewable/fillable), vs Schedule A / Note. */
 function isDocKind(o: Output | null): o is DocKind {
   return o != null && (DOC_KINDS as string[]).includes(o)
+}
+
+/**
+ * Documents whose expanded preview opens as an editor — editable fields on the
+ * left, the live document on the right — the way Note Submitted does. The typed
+ * values override the derived {{placeholder}} values, so Word / PDF / Print /
+ * "Download all" and the catalog tile all carry them.
+ */
+const EDITABLE_DOCS: DocKind[] = [
+  'fileBacker',
+  'workOrder',
+  'agreement',
+  'qccIntimation',
+  'zonalWorkOrder',
+  'seAgreementBond'
+]
+
+function isEditableDoc(kind: Output | null): kind is DocKind {
+  return isDocKind(kind) && EDITABLE_DOCS.includes(kind)
+}
+
+/**
+ * The editable fields of each document, grouped and ordered the way the page
+ * prints them. `label` is the template's {{Placeholder}} name (see the matching
+ * *Placeholders function in core/workOrderAgreement.ts); `title` is what the
+ * editor panel calls it. A document not listed here falls back to its template's
+ * own labels, grouped by groupLabels().
+ */
+const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
+  fileBacker: [
+    {
+      title: 'Header',
+      fields: [
+        { label: 'Corp Full Caps', title: 'Corporation' },
+        { label: 'Circle Header', title: 'Circle' }
+      ]
+    },
+    {
+      title: 'The work',
+      fields: [
+        { label: 'Name of the work', title: 'Name of the work', multiline: true },
+        { label: 'Tender ID', title: 'Tender ID' },
+        { label: 'NIT No', title: 'NIT No' },
+        { label: 'NIT Date', title: 'NIT date' }
+      ]
+    },
+    {
+      title: 'Amounts',
+      fields: [
+        { label: 'Estimate Amount', title: 'Estimate amount' },
+        { label: 'ECV', title: 'ECV' },
+        { label: 'Contract Amount', title: 'Contract amount' },
+        { label: 'Tender Percentage', title: 'Tender percentage' }
+      ]
+    },
+    {
+      title: 'The agency',
+      fields: [
+        { label: 'Name of the agency', title: 'Name of the agency' },
+        { label: 'Address of the agency', title: 'Address', multiline: true }
+      ]
+    }
+  ],
+  workOrder: [
+    {
+      title: 'Office',
+      fields: [
+        { label: 'Corp Full Caps', title: 'Corporation (letterhead)', wide: true },
+        { label: 'Corporation', title: 'Corporation (short)' },
+        { label: 'Zone', title: 'Zone' },
+        { label: 'ZoneAbbr', title: 'Zone code' },
+        { label: 'Circle', title: 'Circle' },
+        { label: 'CNO', title: 'Circle No' },
+        { label: 'Financialyear', title: 'Financial year' }
+      ]
+    },
+    {
+      title: 'The work',
+      fields: [
+        { label: 'Name of the work', title: 'Name of the work', multiline: true },
+        { label: 'Item No', title: 'Item No' },
+        { label: 'Wincode', title: 'Wincode' },
+        { label: 'Administrative Sanction date', title: 'Admin sanction date' },
+        { label: 'Period of Completion', title: 'Period of completion' }
+      ]
+    },
+    {
+      title: 'Amounts',
+      fields: [
+        { label: 'Estimate Amount', title: 'Estimate amount' },
+        { label: 'ECV', title: 'ECV' },
+        { label: 'Tender Percentage', title: 'Tender % (printed)' },
+        { label: 'TP', title: 'Tender % (number)' },
+        { label: 'Contract Amount', title: 'Contract amount' }
+      ]
+    },
+    {
+      title: 'The agency',
+      fields: [
+        { label: 'Name of the agency', title: 'Name of the agency' },
+        { label: 'Address of the agency', title: 'Address', multiline: true },
+        { label: 'Phone no.', title: 'Phone No' }
+      ]
+    },
+    {
+      title: 'References and dates',
+      fields: [
+        { label: 'NIT No', title: 'NIT No' },
+        { label: 'NIT Date', title: 'NIT date' },
+        { label: 'Tender ID', title: 'Tender ID' },
+        { label: 'Intimation Letter Date', title: 'Intimation date' },
+        { label: 'Agreement date', title: 'Work Order date' }
+      ]
+    }
+  ],
+  agreement: [
+    {
+      title: 'Office',
+      fields: [
+        { label: 'Corp Full', title: 'Corporation (full name)', wide: true },
+        { label: 'Corporation', title: 'Corporation (short)' },
+        { label: 'Zone', title: 'Zone' },
+        { label: 'ZoneAbbr', title: 'Zone code' },
+        { label: 'Circle', title: 'Circle' },
+        { label: 'CNO', title: 'Circle No' },
+        { label: 'Financialyear', title: 'Financial year' }
+      ]
+    },
+    {
+      title: 'The work',
+      fields: [
+        { label: 'Name of the work', title: 'Name of the work', multiline: true },
+        { label: 'Period of Completion', title: 'Period of completion' }
+      ]
+    },
+    {
+      title: 'Amounts',
+      fields: [
+        { label: 'Estimate Amount', title: 'Estimate amount (Lakhs)' },
+        { label: 'ECV', title: 'ECV' },
+        { label: 'Tender percentage', title: 'Tender percentage' },
+        { label: 'Contract value', title: 'Contract value' },
+        { label: 'Contract value in rupees', title: 'Contract value in words', multiline: true }
+      ]
+    },
+    {
+      title: 'The agency',
+      fields: [
+        { label: 'Agency Name', title: 'Name of the agency' },
+        { label: 'Address of the agency', title: 'Address', multiline: true }
+      ]
+    },
+    {
+      title: 'Dates',
+      fields: [
+        { label: 'Agreement Date', title: 'Agreement date' },
+        { label: 'Agreement date in words', title: 'Agreement date in words', wide: true }
+      ]
+    }
+  ],
+  qccIntimation: [
+    {
+      title: 'Office',
+      fields: [
+        { label: 'Corporation Full Name', title: 'Corporation (letterhead)', wide: true },
+        { label: 'Corporation', title: 'Corporation (short)' },
+        { label: 'Circle', title: 'Circle' },
+        { label: 'CNO', title: 'Circle No' }
+      ]
+    },
+    {
+      title: 'The work',
+      fields: [
+        { label: 'Name of the work', title: 'Name of the work', multiline: true },
+        { label: 'Wincode', title: 'Wincode' },
+        { label: 'Completion Period', title: 'Completion period' }
+      ]
+    },
+    {
+      title: 'Amounts',
+      fields: [
+        { label: 'Amount of estimate', title: 'Amount of estimate' },
+        { label: 'ECV', title: 'ECV' },
+        { label: 'Contract Amount', title: 'Contract amount' }
+      ]
+    },
+    { title: 'The agency', fields: [{ label: 'Name of the Agency', title: 'Name of the agency' }] }
+  ]
 }
 
 // Tools "Fill details manually" mode: every Work Order / Agreement field the
@@ -419,6 +608,11 @@ export default function WorkOrderAgreementTab({
 
   // Which output's preview is expanded to the full-size modal, if any.
   const [expanded, setExpanded] = useState<Output | null>(null)
+  // Hand-typed overrides for an editable document's {{placeholder}} values —
+  // document kind, then placeholder label (see DOC_FIELDS). A label absent here
+  // keeps the value derived from the uploads/Works List row; a label present
+  // here wins, including when it's been blanked on purpose.
+  const [docEdits, setDocEdits] = useState<Partial<Record<DocKind, Record<string, string>>>>({})
   const [busy, setBusy] = useState<
     null | 'download' | 'print' | 'pdf' | 'bundle' | 'emdReceipt' | 'notice' | 'supplier' | 'nonresp'
   >(null)
@@ -445,6 +639,10 @@ export default function WorkOrderAgreementTab({
   // (false). A BOQ's total is the ECV alone; an estimate fills both figures.
   const [uploadedIsEstimate, setUploadedIsEstimate] = useState(false)
   const [scheduleA, setScheduleA] = useState<ExcelTable | null>(null)
+  // GST / Labour Cess as the uploaded estimate charges them. The Tender
+  // Document's "amount reimbursable to the Contractor" page prints the
+  // estimate's own GST figure rather than 18% of the ECV.
+  const [estimateCharges, setEstimateCharges] = useState<EstimateCharges>({})
   const [scheduleAError, setScheduleAError] = useState<string | null>(null)
   const [scheduleABusy, setScheduleABusy] = useState(false)
 
@@ -561,58 +759,83 @@ export default function WorkOrderAgreementTab({
     [deriveFromUploads, notice, effectiveNotice, pdfEval, worksRowMatched, table, rowIndex]
   )
 
-  // Load both bundled formats once, and read their placeholders.
+  // Load both bundled formats, and read their placeholders.
+  const workOrderVariantKey = officeScopedKey(TEMPLATE_KEYS.workOrder, office)
+  const agreementVariantKey = officeScopedKey(TEMPLATE_KEYS.agreement, office)
+  const fileBackerVariantKey = officeScopedKey(TEMPLATE_KEYS.fileBacker, office)
+  const civilTenderVariantKey = officeScopedKey(TEMPLATE_KEYS.civilTender, office)
   useEffect(() => {
     let cancelled = false
-    void (async () => {
-      try {
-        // The office's chosen Work Order / Agreement Bond template variants
-        // (Settings' Document Templates section — see
-        // core/workOrderTemplateVariants.ts), read fresh on each mount the
-        // same way the office's other per-office settings (CONTACT_KEYS)
-        // already are — falls back to the default when this office hasn't
-        // picked one.
-        const workOrderVariant = localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.workOrder, office)) ?? undefined
-        const agreementVariant = localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.agreement, office)) ?? undefined
-        const fileBackerVariant = localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.fileBacker, office)) ?? undefined
-        const civilTenderVariant = localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.civilTender, office)) ?? undefined
-        const [woB64, fbB64, agB64, qiB64, fsB64, ctB64] = await Promise.all([
-          api.workOrderTemplate(workOrderVariant),
-          api.fileBackerTemplate(fileBackerVariant),
-          api.agreementTemplate(agreementVariant),
-          api.qccIntimationTemplate(),
-          api.forwardingSlipTemplate(),
-          api.civilTenderTemplate(civilTenderVariant)
-        ])
-        const [woLabels, fbLabels, agLabels, qiLabels, fsLabels, ctLabels] = await Promise.all([
-          api.findPlaceholdersInDocument(woB64),
-          api.findPlaceholdersInDocument(fbB64),
-          api.findPlaceholdersInDocument(agB64),
-          api.findPlaceholdersInDocument(qiB64),
-          api.findPlaceholdersInDocument(fsB64),
-          api.findPlaceholdersInDocument(ctB64)
-        ])
-        if (cancelled) return
-        setWorkOrderB64(woB64)
-        setFileBackerB64(fbB64)
-        setAgreementB64(agB64)
-        setQccIntimationB64(qiB64)
-        setForwardingSlipB64(fsB64)
-        setCivilTenderB64(ctB64)
-        setWorkOrderLabels(woLabels)
-        setFileBackerLabels(fbLabels)
-        setAgreementLabels(agLabels)
-        setQccIntimationLabels(qiLabels)
-        setForwardingSlipLabels(fsLabels)
-        setCivilTenderLabels(ctLabels)
-      } catch (e) {
-        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
+
+    function load() {
+      void (async () => {
+        try {
+          // The office's chosen Work Order / Agreement Bond template variants
+          // (Settings' Document Templates section — see
+          // core/workOrderTemplateVariants.ts), read fresh on each mount the
+          // same way the office's other per-office settings (CONTACT_KEYS)
+          // already are — falls back to the default when this office hasn't
+          // picked one.
+          const workOrderVariant = localStorage.getItem(workOrderVariantKey) ?? undefined
+          const agreementVariant = localStorage.getItem(agreementVariantKey) ?? undefined
+          const fileBackerVariant = localStorage.getItem(fileBackerVariantKey) ?? undefined
+          const civilTenderVariant = localStorage.getItem(civilTenderVariantKey) ?? undefined
+          const [woB64, fbB64, agB64, qiB64, fsB64, ctB64] = await Promise.all([
+            api.workOrderTemplate(workOrderVariant),
+            api.fileBackerTemplate(fileBackerVariant),
+            api.agreementTemplate(agreementVariant),
+            api.qccIntimationTemplate(),
+            api.forwardingSlipTemplate(),
+            api.civilTenderTemplate(civilTenderVariant)
+          ])
+          const [woLabels, fbLabels, agLabels, qiLabels, fsLabels, ctLabels] = await Promise.all([
+            api.findPlaceholdersInDocument(woB64),
+            api.findPlaceholdersInDocument(fbB64),
+            api.findPlaceholdersInDocument(agB64),
+            api.findPlaceholdersInDocument(qiB64),
+            api.findPlaceholdersInDocument(fsB64),
+            api.findPlaceholdersInDocument(ctB64)
+          ])
+          if (cancelled) return
+          setWorkOrderB64(woB64)
+          setFileBackerB64(fbB64)
+          setAgreementB64(agB64)
+          setQccIntimationB64(qiB64)
+          setForwardingSlipB64(fsB64)
+          setCivilTenderB64(ctB64)
+          setWorkOrderLabels(woLabels)
+          setFileBackerLabels(fbLabels)
+          setAgreementLabels(agLabels)
+          setQccIntimationLabels(qiLabels)
+          setForwardingSlipLabels(fsLabels)
+          setCivilTenderLabels(ctLabels)
+        } catch (e) {
+          if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
+        }
+      })()
+    }
+
+    load()
+    // This tab stays mounted (KeepAlive) across tab switches, so without this
+    // listener a variant picked in Settings after this tab was first opened
+    // would never be reflected — see TEMPLATE_VARIANT_CHANGED_EVENT.
+    function onVariantChanged(e: Event) {
+      const key = (e as CustomEvent).detail?.storageKey
+      if (
+        key === workOrderVariantKey ||
+        key === agreementVariantKey ||
+        key === fileBackerVariantKey ||
+        key === civilTenderVariantKey
+      ) {
+        load()
       }
-    })()
+    }
+    window.addEventListener(TEMPLATE_VARIANT_CHANGED_EVENT, onVariantChanged)
     return () => {
       cancelled = true
+      window.removeEventListener(TEMPLATE_VARIANT_CHANGED_EVENT, onVariantChanged)
     }
-  }, [])
+  }, [workOrderVariantKey, agreementVariantKey, fileBackerVariantKey, civilTenderVariantKey])
 
   // Zone-level (SE office) templates: loaded separately, only when relevant,
   // since a Circle office never needs them.
@@ -1056,6 +1279,36 @@ export default function WorkOrderAgreementTab({
     }
   }
 
+  /** The {{placeholder}} values a document derives from the uploads / Works List row, before any hand edits. */
+  function derivedPlaceholders(kind: DocKind, f: typeof fields): Record<string, string> {
+    switch (kind) {
+      case 'workOrder':
+        return workOrderPlaceholders(f)
+      case 'fileBacker':
+        return fileBackerPlaceholders(f)
+      case 'agreement':
+        return agreementPlaceholders(f)
+      case 'qccIntimation':
+        return qccIntimationPlaceholders(f)
+      case 'forwardingSlip':
+        return forwardingSlipPlaceholders(f)
+      case 'seAgreementBond':
+        return seAgreementBondPlaceholders(f)
+      case 'zonalWorkOrder':
+      case 'zonalConcludingAgreement':
+      case 'zonalMemoEe':
+      case 'seAgreementNote':
+      case 'contractDeed':
+        return zonalDocsPlaceholders(f, effectiveNotice ?? {}, pdfEval ?? {})
+      default:
+        return civilTenderPlaceholders(f, pdfEval ?? {}, {
+          pagesOfAgreement,
+          scheduleAItems,
+          gstRupees: estimateCharges.gst
+        })
+    }
+  }
+
   async function fillDoc(kind: DocKind, opts?: { blankDate?: boolean }): Promise<string> {
     const b64 =
       {
@@ -1073,26 +1326,11 @@ export default function WorkOrderAgreementTab({
     // preview — so force the date empty for those two docs here (the placeholder
     // functions then print the ruled "Dt:" fill-in line).
     const f = opts?.blankDate ? { ...fields, agreementDate: '', workOrderDate: '' } : fields
-    const values =
-      kind === 'workOrder'
-        ? workOrderPlaceholders(f)
-        : kind === 'fileBacker'
-          ? fileBackerPlaceholders(f)
-          : kind === 'agreement'
-          ? agreementPlaceholders(f)
-          : kind === 'qccIntimation'
-            ? qccIntimationPlaceholders(f)
-            : kind === 'forwardingSlip'
-              ? forwardingSlipPlaceholders(f)
-              : kind === 'seAgreementBond'
-                ? seAgreementBondPlaceholders(f)
-                : kind === 'zonalWorkOrder' ||
-                    kind === 'zonalConcludingAgreement' ||
-                    kind === 'zonalMemoEe' ||
-                    kind === 'seAgreementNote' ||
-                    kind === 'contractDeed'
-                  ? zonalDocsPlaceholders(f, effectiveNotice ?? {}, pdfEval ?? {})
-                  : civilTenderPlaceholders(f, pdfEval ?? {}, { pagesOfAgreement, scheduleAItems })
+    // Hand edits from the editor panel win over the derived values, so every
+    // output (tile, Word, PDF, Print, Download all) prints what the user last
+    // saw in that panel's preview — including a date they typed in themselves,
+    // which is why they survive blankDate.
+    const values = { ...derivedPlaceholders(kind, f), ...(docEdits[kind] ?? {}) }
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
     return api.fillPlaceholdersInDocument(b64, resolved, values)
   }
@@ -1105,6 +1343,35 @@ export default function WorkOrderAgreementTab({
     const { pageCount } = await renderDocPreview(base64ToUint8(filled), container)
     return pageCount
   }
+
+  /** Field groups the editor panel shows for a document — hand-written where there is a list, else the template's own labels. */
+  function docFieldGroups(kind: DocKind): DocFieldGroup[] {
+    const listed = DOC_FIELDS[kind]
+    if (listed) return listed
+    const labels =
+      { seAgreementBond: seAgreementBondLabels, zonalWorkOrder: zonalWorkOrderLabels }[
+        kind as 'seAgreementBond' | 'zonalWorkOrder'
+      ] ?? []
+    return groupLabels(labels)
+  }
+
+  function setDocEdit(kind: DocKind, label: string, value: string) {
+    setDocEdits((prev) => ({ ...prev, [kind]: { ...(prev[kind] ?? {}), [label]: value } }))
+  }
+  function revertDocEdit(kind: DocKind, label: string) {
+    setDocEdits((prev) => {
+      const next = { ...(prev[kind] ?? {}) }
+      delete next[label]
+      return { ...prev, [kind]: next }
+    })
+  }
+
+  // A different work (another L-1 upload / Works List row) invalidates those
+  // overrides — they were typed for the previous work's documents.
+  const docEditsWorkKey = `${fields.tenderId}|${fields.nameOfWork}`
+  useEffect(() => {
+    setDocEdits({})
+  }, [docEditsWorkKey])
 
   // The small, live thumbnail shown inside each tile on the catalog grid — up
   // to 6 of these render at once. Deliberately the FAST docx-preview.js
@@ -1192,7 +1459,7 @@ export default function WorkOrderAgreementTab({
     }, 600)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docsReady, seMode, fields, pagesOfAgreement, scheduleAItems])
+  }, [docsReady, seMode, fields, pagesOfAgreement, scheduleAItems, estimateCharges, docEdits])
 
   // The full-size preview inside the expanded modal (documents only — Schedule
   // A renders its table as JSX below).
@@ -1201,11 +1468,19 @@ export default function WorkOrderAgreementTab({
     const container = expandedRef.current
     if (!container) return
     setActionError(null)
-    void renderDocInto(expanded, container)
-      .then((pages) => setExpandedPages(pages))
-      .catch((e) => setActionError(e instanceof Error ? e.message : String(e)))
+    const kind = expanded
+    // The editable documents (File Backer) re-render on every keystroke in
+    // their editor panel — debounce so typing isn't one docx fill + render per
+    // character. Every other document renders straight away.
+    const delay = isEditableDoc(kind) ? 300 : 0
+    const timer = setTimeout(() => {
+      void renderDocInto(kind, container)
+        .then((pages) => setExpandedPages(pages))
+        .catch((e) => setActionError(e instanceof Error ? e.message : String(e)))
+    }, delay)
+    return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, fields, pagesOfAgreement, scheduleAItems])
+  }, [expanded, fields, pagesOfAgreement, scheduleAItems, estimateCharges, docEdits])
 
   function docName(kind: DocKind): string {
     const agency = fields.agencyName ? ` - ${fields.agencyName}` : ''
@@ -1401,10 +1676,9 @@ export default function WorkOrderAgreementTab({
   // Seed the note from the picked row and, once uploaded, the L-1 PDF's full
   // bidder table. Re-seeds on row / PDF change.
   useEffect(() => {
-    if (!selectedRow) {
-      setNoteData(null)
-      return
-    }
+    // No Works List row matched (or nothing uploaded yet): seed from the uploads
+    // alone — an empty row yields the note's blank framework, so its tile shows
+    // from the start like every other document's, and fills in as uploads land.
     // noteSubmittedFromRow now takes the uploads (pdf/notice) directly and
     // prefers them over the matched row's own columns for every identifying
     // fact (name, ECV, tender %, contract value, agency, NIT No/date) — a
@@ -1413,7 +1687,12 @@ export default function WorkOrderAgreementTab({
     // similar-sounding work, so the row is only trusted for what the uploads
     // don't carry (Circle, Financial Year, estimate). Same precedence as
     // every other document in this workspace (see deriveFields).
-    const seed = noteSubmittedFromRow(selectedRow, pdfEval ?? {}, effectiveNotice ?? {}, table?.rows[0]?.['Circle'] ?? '')
+    const seed = noteSubmittedFromRow(
+      selectedRow ?? {},
+      pdfEval ?? {},
+      effectiveNotice ?? {},
+      table?.rows[0]?.['Circle'] ?? ''
+    )
     if (allBidders.length > 0) {
       seed.bidders = allBidders
       const l1 = allBidders[0]
@@ -1439,6 +1718,11 @@ export default function WorkOrderAgreementTab({
   }, [rowIndex, table, allBidders, pdfEval, notice, effectiveNotice, deriveFromUploads, selectedRow, emdReceiptInfo])
 
   const notePreviewHtml = useMemo(() => (noteData ? buildNoteSubmittedHtml(noteData) : ''), [noteData])
+  // Tile/preview visibility, matching the docx tiles (docsReady): the note shows
+  // as soon as its data exists — blank framework included — and is editable and
+  // downloadable on its own. noteReady below is the stricter gate for the
+  // "Download all" bundle.
+  const noteVisible = !!noteData
   // Same gate as the Work Order / Agreement tiles: don't build the Note
   // Submitted while the Online Intimation and L1 selection form disagree on the
   // work/agency, the L1's work isn't in the Works List (the note is seeded
@@ -1538,6 +1822,7 @@ export default function WorkOrderAgreementTab({
       // extractor first, which resolves each item's real quantity/rate/unit,
       // and only fall back to the flat-BOQ column mapping when it finds no
       // items (i.e. the file really is a plain BOQ). Both yield a Schedule A.
+      setEstimateCharges(extractEstimateCharges(g.grid, headerRow))
       const items = extractEstimateItems(g.grid, headerRow)
       setUploadedIsEstimate(items.length > 0)
       setScheduleA(items.length > 0 ? boqToScheduleA(buildBoqFromEstimate(items)) : boqToScheduleA(t))
@@ -1553,6 +1838,7 @@ export default function WorkOrderAgreementTab({
       }
     } catch (e) {
       setScheduleA(null)
+      setEstimateCharges({})
       const hint = mismatchHint(t.headers, 'boq')
       setScheduleAError((e instanceof Error ? e.message : String(e)) + (hint ? ` ${hint}` : ''))
     }
@@ -1739,7 +2025,7 @@ export default function WorkOrderAgreementTab({
   // scheduleAPreview is now always non-null (it shows an empty framework
   // before any estimate is uploaded), so `scheduleA` — the actual uploaded
   // BOQ — is what signals real Schedule-A progress here.
-  const anyOutput = docsReady || !!scheduleA || noteReady
+  const anyOutput = docsReady || !!scheduleA || noteVisible
 
   // Schedule-A Tools tile (scheduleAOnly + autoOpen): show nothing until an
   // estimate/BOQ is actually picked (or reading it fails) — the mount effect
@@ -2162,7 +2448,7 @@ export default function WorkOrderAgreementTab({
               <div className="wo-tile-foot">{DOC_LABEL.fileBacker}</div>
             </button>
           )}
-          {noteReady && !only && !seMode && (
+          {noteVisible && !only && !seMode && (
             <button className="wo-tile" onClick={() => setExpanded('note')}>
               <div className="wo-tile-preview">
                 <div className="wo-tile-doc ns-tile-doc" dangerouslySetInnerHTML={{ __html: notePreviewHtml }} />
@@ -2401,7 +2687,10 @@ export default function WorkOrderAgreementTab({
       {expanded &&
         createPortal(
           <div className="wo-modal-overlay" onClick={() => setExpanded(null)}>
-          <div className={`wo-modal ${expanded === 'note' ? 'wide' : ''}`} onClick={(e) => e.stopPropagation()}>
+          <div
+            className={`wo-modal ${expanded === 'note' ? 'wide' : ''} ${isEditableDoc(expanded) ? 'wide doc-edit-modal' : ''}`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="wo-modal-head">
               <span className="wo-modal-title">
                 {DOC_LABEL[expanded]}
@@ -2437,6 +2726,24 @@ export default function WorkOrderAgreementTab({
                 </div>
               ) : expanded === 'note' ? (
                 noteData && <NoteSubmittedEditor data={noteData} onChange={setNoteData} />
+              ) : isEditableDoc(expanded) ? (
+                // Same split as Note Submitted's editor: the document's fields on
+                // the left, the live page on the right.
+                <div className="ns-body">
+                  <DocFieldsEditor
+                    groups={docFieldGroups(expanded)}
+                    derived={derivedPlaceholders(expanded, fields)}
+                    edits={docEdits[expanded] ?? {}}
+                    onChange={(label, value) => setDocEdit(expanded as DocKind, label, value)}
+                    onRevert={(label) => revertDocEdit(expanded as DocKind, label)}
+                    onResetAll={() => setDocEdits((prev) => ({ ...prev, [expanded as DocKind]: {} }))}
+                  />
+                  <div className="ns-preview">
+                    <div className="ns-preview-scroll">
+                      <div ref={expandedRef} className="intimation-docx-preview" />
+                    </div>
+                  </div>
+                </div>
               ) : (
                 <div ref={expandedRef} className="intimation-docx-preview" />
               )}

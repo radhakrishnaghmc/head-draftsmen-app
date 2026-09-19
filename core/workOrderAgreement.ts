@@ -591,7 +591,12 @@ export function forwardingSlipPlaceholders(f: WorkOrderAgreementFields): Record<
 export function civilTenderPlaceholders(
   f: WorkOrderAgreementFields,
   pdf: TenderEvaluation,
-  extras: { pagesOfAgreement?: string; scheduleAItems?: string }
+  extras: {
+    pagesOfAgreement?: string
+    scheduleAItems?: string
+    /** GST as the uploaded estimate charges it (rupees) — see extractEstimateCharges. */
+    gstRupees?: number
+  }
 ): Record<string, string> {
   const estLakhs = num(f.estimateLakhs)
   const ecv = num(f.ecvRupees)
@@ -636,9 +641,17 @@ export function civilTenderPlaceholders(
     'ECV Figures Words': ecv != null ? `${groupedRupees(ecv)} (${amountToWords(ecv)})` : '',
     'Tender Percentage Figures': pct == null ? '' : `${formatPercent(pct)} %`,
     'Tender Percentage Words': pct == null ? '' : percentToWords(pct),
-    // "Details of Maximum amount reimbursable to the Contractor" — GST @ 18% and
-    // Labour Cess @ 1%, both off the ECV.
-    GST: ecv != null ? groupedRupees(ecv * 0.18) : '',
+    // "Details of Maximum amount reimbursable to the Contractor" — GST as the
+    // sanctioned estimate itself charges it (the estimate levies GST on its own
+    // sub-total, after seigniorage and the other charges, so 18% of the ECV is
+    // not the same figure), falling back to 18% of the ECV only when no estimate
+    // has been uploaded to read it from. Labour Cess stays at 1% of the ECV.
+    GST:
+      extras.gstRupees != null
+        ? groupedRupees(extras.gstRupees)
+        : ecv != null
+          ? groupedRupees(ecv * 0.18)
+          : '',
     'Labour Cess': ecv != null ? groupedRupees(ecv * 0.01) : ''
   }
 }

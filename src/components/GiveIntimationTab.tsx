@@ -41,6 +41,7 @@ import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell, IconCheck } fr
 import type { ExcelTable } from '@core/types'
 import type { AgreementBundleFile, VerifyDocItem } from '../../electron/ipc-contract'
 import { VerifyButton } from './VerifyButton'
+import DocFieldsEditor, { groupLabels } from './DocFieldsEditor'
 
 interface Props {
   tables: ExcelTable[]
@@ -514,6 +515,11 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   // determined (no L1 uploaded, or no works to match against).
   const [worksRowMatched, setWorksRowMatched] = useState<boolean | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
+  // Hand-typed overrides for the letter's {{placeholder}} values, keyed by
+  // placeholder label — typed in the expanded preview's editor panel. A label
+  // present here wins over the value resolved from the uploads/Works List row,
+  // including when it's been blanked on purpose.
+  const [intimationEdits, setIntimationEdits] = useState<Record<string, string>>({})
 
   const [busy, setBusy] = useState<null | 'download' | 'print' | 'pdf' | 'bundle' | 'notice' | 'supplier' | 'nonresp'>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -789,8 +795,19 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   async function fillTemplate(): Promise<string> {
     if (!templateB64) throw new Error('Intimation format not loaded yet.')
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
-    return api.fillPlaceholdersInDocument(templateB64, resolved, values)
+    // Hand edits win over the resolved values, so the tile, the expanded page,
+    // Word, PDF, Print and the bundle all carry what the editor panel shows.
+    return api.fillPlaceholdersInDocument(templateB64, resolved, { ...values, ...intimationEdits })
   }
+
+  // A different work (another upload / Works List row) invalidates those
+  // overrides — they were typed for the previous work's letter.
+  const intimationWorkKey = `${values['Name of the work'] ?? ''}|${values['NIT No'] ?? ''}`
+  useEffect(() => {
+    setIntimationEdits({})
+  }, [intimationWorkKey])
+
+  const intimationGroups = useMemo(() => groupLabels(labels), [labels])
 
   /**
    * Snapshots everything the Non-conclusion Notice needs, straight off the
@@ -874,7 +891,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateB64, values, showBody])
+  }, [templateB64, values, intimationEdits, showBody])
 
   // ---- SE-only companion notes: TS Note, Eligibility Criteria (docx
   // templates), Bid Evaluation & Agency Approval (HTML-built, dynamic bidder
@@ -978,21 +995,28 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     const container = expandedRef.current
     if (!container) return
     setActionError(null)
-    void (async () => {
-      try {
-        if (expanded === 'intimation') {
-          const filled = await fillTemplate()
-          await renderDocPreview(base64ToUint8(filled), container)
-        } else {
-          await renderSeDocInto(expanded, container)
+    // The Intimation's preview is edited in place, so hold off a moment while
+    // the user is still typing — one fill + LibreOffice render per keystroke
+    // would make the panel feel sluggish.
+    const delay = expanded === 'intimation' ? 300 : 0
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          if (expanded === 'intimation') {
+            const filled = await fillTemplate()
+            await renderDocPreview(base64ToUint8(filled), container)
+          } else {
+            await renderSeDocInto(expanded, container)
+          }
+          setExpandedPages(container.querySelectorAll('section.docx').length)
+        } catch (e) {
+          setActionError(e instanceof Error ? e.message : String(e))
         }
-        setExpandedPages(container.querySelectorAll('section.docx').length)
-      } catch (e) {
-        setActionError(e instanceof Error ? e.message : String(e))
-      }
-    })()
+      })()
+    }, delay)
+    return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, values, seDocValues, bidEvalData, agencyApprovalData])
+  }, [expanded, values, intimationEdits, seDocValues, bidEvalData, agencyApprovalData])
 
   async function downloadSeDoc(kind: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval', formats: ('docx' | 'pdf')[]) {
     setBusy(formats[0] === 'pdf' ? 'pdf' : 'download')
@@ -1747,7 +1771,9 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
         createPortal(
           <div className="wo-modal-overlay" onClick={() => setExpanded(null)}>
           <div
-            className={`wo-modal ${seMode && modalFields[expanded] ? 'has-sidebar' : ''}`}
+            className={`wo-modal ${seMode && modalFields[expanded] ? 'has-sidebar' : ''} ${
+              expanded === 'intimation' ? 'wide doc-edit-modal' : ''
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="wo-modal-head">
@@ -1762,7 +1788,33 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
 
             <div className="wo-modal-main">
               <div className="wo-modal-body">
-                <div ref={expandedRef} className="intimation-docx-preview" />
+                {expanded === 'intimation' ? (
+                  // The letter's own fields on the left, the live page on the
+                  // right — same editor split the Agreement page's documents use.
+                  <div className="ns-body">
+                    <DocFieldsEditor
+                      groups={intimationGroups}
+                      derived={values}
+                      edits={intimationEdits}
+                      onChange={(label, value) => setIntimationEdits((prev) => ({ ...prev, [label]: value }))}
+                      onRevert={(label) =>
+                        setIntimationEdits((prev) => {
+                          const next = { ...prev }
+                          delete next[label]
+                          return next
+                        })
+                      }
+                      onResetAll={() => setIntimationEdits({})}
+                    />
+                    <div className="ns-preview">
+                      <div className="ns-preview-scroll">
+                        <div ref={expandedRef} className="intimation-docx-preview" />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div ref={expandedRef} className="intimation-docx-preview" />
+                )}
               </div>
 
               {seMode && modalFields[expanded] && (

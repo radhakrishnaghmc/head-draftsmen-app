@@ -115,6 +115,7 @@ function noteData(over: Partial<NoteSubmittedData>): NoteSubmittedData {
     estimateLakhs: '35.99',
     asDate: '',
     financialYear: '2026-27',
+    dataYear: '2026-27',
     tenderNoticeNo: 'NIT/1',
     tenderNoticeDate: '14.07.2026',
     nitNo: 'NIT/1',
@@ -329,5 +330,16 @@ describe('noteSubmittedFromRow prefers the uploaded L-1 / Online Intimation over
     const d = noteSubmittedFromRow({}, taggedPdf, {})
     expect(d.workName).toBe('Number Laying of CC roads in internal lanes of Bathukamma banda (Reserved for SC Only)')
     expect(d.workName).not.toContain('Item No')
+  })
+
+  it('seeds a blank framework with nothing uploaded and no matched row — the tile shows from the start', () => {
+    const d = noteSubmittedFromRow({}, {}, {})
+    expect(d.workName).toBe('')
+    expect(d.l1Name).toBe('')
+    expect(d.bidders).toEqual([])
+    // The framework still renders as a document, with its fill-in blanks.
+    const html = buildNoteSubmittedHtml(d)
+    expect(html).toContain('administrative sanction')
+    expect(html).toContain('Rs: __________ Lakhs')
   })
 })

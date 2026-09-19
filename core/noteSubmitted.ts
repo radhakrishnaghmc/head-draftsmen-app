@@ -30,7 +30,13 @@ export interface NoteSubmittedData {
   estimateLakhs: string
   /** Administrative-sanction date (optional; the note tolerates a blank). */
   asDate: string
+  /** Note 1's budget financial year (administrative sanction). */
   financialYear: string
+  /** Note 2's data year — the year of the approved data the estimate was
+   * scrutinised against. Seeded from `financialYear` but kept independent:
+   * an estimate is often checked against a different year's data than the
+   * budget it is sanctioned under. */
+  dataYear: string
   /** The tender Notice No printed in note 3. The Tender Notice No and the NIT No
    * are the same reference, so `nitNo` mirrors this (the editor keeps them in
    * sync); likewise `nitDate` mirrors `tenderNoticeDate`. */
@@ -272,13 +278,54 @@ const P = (html: string): string => `<p style="margin:0 0 6px;line-height:1.45;t
 const PL = (html: string): string => `<p style="margin:0 0 6px;line-height:1.45;text-align:left">${INDENT}${html}</p>`
 const SUB = '<p style="margin:14px 0 4px;font-weight:bold">Submitted: -</p>'
 
+/** One note of the sheet: the office's own numbering, a short title for the app's editor, and the note's HTML exactly as it prints. */
+export interface NoteSubmittedSection {
+  /** The note's number on the sheet — the same "note" the document's own text refers back to ("As per above note…"). */
+  n: number
+  /** Editor-side title. Never printed; the sheet itself carries no headings. */
+  title: string
+  html: string
+}
+
+/** Note titles as the office refers to them — the editor's index, not document text. */
+const NOTE_TITLES = [
+  'Administrative sanction',
+  'Technical sanction',
+  'Tender invited',
+  'Bids opened',
+  'Intimation letter',
+  'Agreement put up'
+]
+
+/**
+ * The sheet split into its six notes, in order. Joining every `html` back
+ * together (inside the wrapper buildNoteSubmittedHtml adds) reproduces the
+ * whole document character for character — the split exists so the editor can
+ * show one note at a time and number them in the preview's margin, and it must
+ * never change what gets exported.
+ */
+export function noteSubmittedSections(d: NoteSubmittedData): NoteSubmittedSection[] {
+  const parts = noteHtmlParts(d)
+  return parts.map((html, i) => ({ n: i + 1, title: NOTE_TITLES[i], html }))
+}
+
 /**
  * Builds the full Note Submitted body as HTML (no <html> wrapper) — safe to
  * inject into a preview element and to hand to convertHtmlToDocx for export.
  */
 export function buildNoteSubmittedHtml(d: NoteSubmittedData): string {
+  return (
+    `<div style="font-family:'Bookman Old Style',Georgia,serif;font-size:12pt;line-height:1.5;color:#000">` +
+    noteHtmlParts(d).join('') +
+    `</div>`
+  )
+}
+
+/** The six notes' HTML, each carrying its own "Submitted: -" opener (where the sheet has one) and its HD/EE sign-off block. */
+function noteHtmlParts(d: NoteSubmittedData): string[] {
   const b = esc(d.body) || 'CMC'
   const fy = esc(d.financialYear)
+  const dataYear = esc(d.dataYear)
   const estimate = d.estimateLakhs.trim() ? `Rs: ${esc(d.estimateLakhs)} Lakhs` : 'Rs: __________ Lakhs'
 
   // Note 1 — administrative sanction
@@ -289,7 +336,7 @@ export function buildNoteSubmittedHtml(d: NoteSubmittedData): string {
 
   // Note 2 — technical sanction (fixed text)
   const note2 = P(
-    `The items proposed in the estimate have been scrutinized with approved data current year ${fy}. ` +
+    `The items proposed in the estimate have been scrutinized with approved data current year ${dataYear}. ` +
       `As such the estimate is herewith put up for according technical sanction.`
   )
 
@@ -364,26 +411,14 @@ export function buildNoteSubmittedHtml(d: NoteSubmittedData): string {
         `${agreementClause(d)} and Rs.100/- Non-Judicial Stamp Paper for concluding agreement.`
     ) + P(`Hence, the draft agreement is herewith prepared and put up for approval.`)
 
-  return (
-    `<div style="font-family:'Bookman Old Style',Georgia,serif;font-size:12pt;line-height:1.5;color:#000">` +
-    SUB +
-    note1 +
-    HD_EE +
-    note2 +
-    HD_EE +
-    note3 +
-    HD_EE +
-    SUB +
-    note4 +
-    HD_EE +
-    SUB +
-    note5 +
-    HD_EE +
-    SUB +
-    note6 +
-    HD_EE +
-    `</div>`
-  )
+  return [
+    SUB + note1 + HD_EE,
+    note2 + HD_EE,
+    note3 + HD_EE,
+    SUB + note4 + HD_EE,
+    SUB + note5 + HD_EE,
+    SUB + note6 + HD_EE
+  ]
 }
 
 /**
@@ -446,6 +481,7 @@ export function noteSubmittedFromRow(
     estimateLakhs: (row['Amount of estimate'] ?? '').trim(),
     asDate: '',
     financialYear: (row['Financial Year'] ?? '').trim() || financialYearOf(),
+    dataYear: (row['Financial Year'] ?? '').trim() || financialYearOf(),
     tenderNoticeNo,
     tenderNoticeDate,
     nitNo: tenderNoticeNo,

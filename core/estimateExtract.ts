@@ -152,6 +152,57 @@ export function splitEstimateBlocks(grid: string[][]): string[][][] {
 
 const GRAND_TOTAL_LABEL_RE = /grand\s*total/i
 
+/** GST and Labour Cess as the estimate itself charges them, in rupees. */
+export interface EstimateCharges {
+  gst?: number
+  labourCess?: number
+}
+
+/**
+ * The GST and Labour Cess amounts the estimate charges, read off its own
+ * "Add 18.00% GST" / "Add 1% Labour Cess" rows rather than recomputed from a
+ * percentage — the sanctioned estimate is the authority for what those two
+ * figures are, and an estimate's GST is charged on its own sub-total (after
+ * seigniorage and the other charges), not on the ECV.
+ *
+ * Reads the amount from the Amount column when the header names one, otherwise
+ * the last positive number on the row (the charges rows carry only their own
+ * figure). The bottom-most matching row wins: a workbook whose sheet holds
+ * several sub-estimates ends with the abstract that totals them, and that
+ * abstract's GST is the one the tender document reimburses.
+ */
+export function extractEstimateCharges(grid: string[][], headerRowIndex: number): EstimateCharges {
+  const header = grid[headerRowIndex] ?? []
+  const amountIdx = header.findIndex((c) => /\bamount\b/i.test(norm(c)))
+  const asPositive = (v: unknown): number | undefined => {
+    const n = Number(norm(v).replace(/,/g, ''))
+    return Number.isFinite(n) && n > 0 ? n : undefined
+  }
+  const amountOn = (row: string[]): number | undefined => {
+    const inColumn = amountIdx >= 0 ? asPositive(row[amountIdx]) : undefined
+    if (inColumn != null) return inColumn
+    for (let i = row.length - 1; i >= 0; i--) {
+      const v = asPositive(row[i])
+      if (v != null) return v
+    }
+    return undefined
+  }
+  const out: EstimateCharges = {}
+  for (const row of grid) {
+    const text = row.map((c) => norm(c)).join(' ').toLowerCase()
+    // "GST No"/"GSTIN" in a title block names the agency's registration, not a charge.
+    if (/\bgst\b/.test(text) && !/gst\s*(no|in|registration)/.test(text)) {
+      const v = amountOn(row)
+      if (v != null) out.gst = v
+    }
+    if (/labou?r\s*cess/.test(text)) {
+      const v = amountOn(row)
+      if (v != null) out.labourCess = v
+    }
+  }
+  return out
+}
+
 /**
  * The estimate's sanctioned Grand Total expressed in lakhs — the figure at the
  * very bottom of the estimate (after LC/seigniorage/GST/unforeseen), not the
