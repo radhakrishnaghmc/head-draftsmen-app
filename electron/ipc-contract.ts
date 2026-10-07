@@ -27,6 +27,13 @@ import type { MaterialTotals } from '../core/materialEstimate'
 import type { MaterialEstimateMeta } from '../core/materialTemplate'
 import type { WeatherSnapshot } from '../core/weather'
 
+export interface PageMarginsMm {
+  top?: number
+  right?: number
+  bottom?: number
+  left?: number
+}
+
 export type ManualCheckResult = 'update-available' | 'up-to-date' | 'error' | 'dev-mode'
 
 export interface UpdateProgress {
@@ -97,6 +104,7 @@ export const IPC = {
   pickExcels: 'dialog:pickExcels',
   pickExcelGrids: 'dialog:pickExcelGrids',
   pickEstimateGrid: 'dialog:pickEstimateGrid',
+  pickEstimateGrids: 'dialog:pickEstimateGrids',
   pickDataSheet: 'dialog:pickDataSheet',
   pickTenderDocuments: 'dialog:pickTenderDocuments',
   ocrEstimatePhotos: 'data:ocrEstimatePhotos',
@@ -223,6 +231,8 @@ export interface DocuGenApi {
   pickExcels(): Promise<ExcelTable[]>
   pickExcelGrids(): Promise<SheetGrid[]>
   pickEstimateGrid(): Promise<SheetGrid | null>
+  /** Same picker, but reads every sheet of the chosen workbook — for Technical Sanction's estimate uploads, which may spread one estimate's items across several sheets. */
+  pickEstimateGrids(): Promise<SheetGrid[] | null>
   pickDataSheet(): Promise<SheetGrid[] | null>
   /**
    * Lets the user pick loose files AND/OR whole folders in one native dialog
@@ -392,12 +402,12 @@ export interface DocuGenApi {
     suggestedName: string,
     formats: ('docx' | 'pdf')[]
   ): Promise<{ file: string; format: 'docx' | 'pdf' }[] | null>
-  /** Open the OS print dialog directly against the already-rendered document HTML (docx-preview's own output, captured by the caller). */
-  printCreatedDocument(renderedHtml: string): Promise<void>
+  /** Open the OS print dialog directly against the already-rendered document HTML (docx-preview's own output, captured by the caller). For plain-HTML (non-docx) documents, `pageMarginsMm` overrides the default 14mm/16mm page padding (any side omitted keeps its default). */
+  printCreatedDocument(renderedHtml: string, pageMarginsMm?: PageMarginsMm): Promise<void>
   /** Reads the bundled Carlito (Regular + Bold) font files, base64-encoded — the metric-compatible open substitute for "Calibri", embedded as a fallback @font-face in the docx-preview HTML (see core/fontFallbacks.ts) so letterhead titles don't mis-wrap on machines without Calibri installed. Fetched once and cached by the caller. */
   fontFallbackFiles(): Promise<{ regular: string; bold: string }>
-  /** Converts built Note Submitted HTML into a base64 .docx, for export via exportCreatedDocument. */
-  noteSubmittedDocx(html: string): Promise<string>
+  /** Converts built Note Submitted HTML into a base64 .docx, for export via exportCreatedDocument. `marginsTwips`, if given, overrides the given page margins (sides not listed stay at html-to-docx's defaults). */
+  noteSubmittedDocx(html: string, marginsTwips?: { top?: number; bottom?: number }): Promise<string>
   /** Reads the bundled Intimation format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */
   intimationTemplate(variantId?: string): Promise<string>
   /** Reads the bundled Work Order format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */

@@ -30,6 +30,53 @@ export async function matchWorksRow(name: string, table: ExcelTable): Promise<Wo
   }
 }
 
+export interface WorksRowEmbeddingCache {
+  rowNameVectors: number[][]
+}
+
+/**
+ * Embeds every Works List row name ONCE, up front — for matchWorksRowCached
+ * below to reuse across a whole batch of uploaded estimates. matchWorksRow
+ * re-embeds all rows on every call; uploading N estimates that each miss an
+ * exact match turned one embedding pass over the list into N of them, which
+ * is what made bulk estimate uploads slow. Returns null when there's no
+ * Works List, no "Name of the work" column, or the embedding model itself is
+ * unavailable — callers should fall back to exact-match-only in that case.
+ */
+export async function buildWorksRowEmbeddingCache(table: ExcelTable): Promise<WorksRowEmbeddingCache | null> {
+  const nameHeader = table.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
+  if (!nameHeader) return null
+  try {
+    const rowNames = table.rows.map((r) => r[nameHeader] ?? '')
+    const rowNameVectors = await api.embedTexts(rowNames)
+    return { rowNameVectors }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Same as matchWorksRow, but reuses a WorksRowEmbeddingCache instead of
+ * re-embedding every Works List row — only the one work name being looked up
+ * still needs embedding, so a batch of uploads costs one row-embedding pass
+ * total plus one small per-name call each, instead of a full pass per file.
+ */
+export async function matchWorksRowCached(
+  name: string,
+  table: ExcelTable,
+  cache: WorksRowEmbeddingCache | null
+): Promise<WorksRowMatch | undefined> {
+  const exact = findWorksRowByName(table, name)
+  if (exact) return exact
+  if (!cache) return undefined
+  try {
+    const [workNameVector] = await api.embedTexts([name])
+    return findWorksRowByName(table, name, { workNameVector, rowNameVectors: cache.rowNameVectors })
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Writes an estimate's computed ECV back to its matching Works List row
  * (name match, with the same embedding fallback as matchWorksRow) — returns

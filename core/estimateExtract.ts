@@ -7,6 +7,8 @@ export interface EstimateWorkItem {
   quantity: string
   rate: string
   unit: string
+  /** Which sheet of a multi-sheet workbook this item came from — set by the caller when extracting across several sheets (e.g. Technical Sanction's per-sheet estimate upload); undefined for single-sheet extraction. */
+  sheetName?: string
   /** The estimate's own printed Amount for this item (its Amount-column cell on the summary row), when that column exists — used to catch items the estimate left un-costed (a quantity and rate, but a blank or zero Amount, so the estimate's own total silently omits them). Undefined when the estimate has no Amount column. */
   estimateAmount?: string
   /** Dimension breakdown (No's/L/B/D) that produced `quantity`, when the source estimate shows it — undefined when it doesn't (e.g. a hand-abstracted estimate with only the final Qty). */
@@ -71,7 +73,8 @@ function editDistanceAtMost(a: string, b: string, max: number): number {
 const HEADER_TYPO_WORDS: { canon: string; maxDist: number }[] = [
   { canon: 'quantity', maxDist: 2 },
   { canon: 'amount', maxDist: 2 },
-  { canon: 'unit', maxDist: 1 }
+  { canon: 'unit', maxDist: 1 },
+  { canon: 'description', maxDist: 2 }
 ]
 
 /**
@@ -95,6 +98,27 @@ export function correctHeaderTypos(cell: string): string {
 // Matches a "Name of Work" / "Name of the Work" label cell, capturing any
 // text already inline after it (e.g. "Name of Work: Road from A to B").
 const WORK_NAME_LABEL_RE = /^name\s+of\s+(?:the\s+)?work\b\s*:?\s*(.*)$/i
+
+// Explicit "Description"/"Particulars"/"Item of Work" header — used only to
+// override the snoCol+1 positional default (see findLabelledDescriptionColumn)
+// when a template places Rate/Unit/other columns between S.No and Description.
+const DESCRIPTION_HEADER_RE = /descri?pt|particulars?|item\s*of\s*work/i
+
+/**
+ * Locate an explicitly labelled Description column, skipping any index
+ * already claimed by S.No/Qty/Rate/Unit (so a stray "Description" match
+ * inside, say, a combined "Rate Description" header on the Rate column
+ * itself can't steal it). Returns undefined when no such label exists —
+ * most estimates leave Description unlabelled, so callers should fall back
+ * to the snoCol+1 positional guess in that case.
+ */
+function findLabelledDescriptionColumn(header: string[], claimed: Set<number>): number | undefined {
+  for (let i = 0; i < header.length; i++) {
+    if (claimed.has(i)) continue
+    if (DESCRIPTION_HEADER_RE.test(header[i])) return i
+  }
+  return undefined
+}
 
 /**
  * Best-effort extraction of a "Label: value" style field from an estimate's
@@ -807,13 +831,28 @@ export function extractEstimateItems(
     const claimed = new Set([snoCol, snoCol + 1, qtyCol, rateCol])
     unitCol = detectUnitColumnFromData(grid, headerRowIndex, rateCol, claimed)
     if (unitCol === -1) {
-      throw new Error('Could not find S.No / Qty / Rate / Unit columns in the estimate.')
+      // Some templates print no Unit column at all — not even an unlabelled
+      // one carrying "Cum"/"Sqm" on the summary line (only the description
+      // prose happens to contain those words, which isn't a real Unit
+      // column). Unit is already optional downstream (see resolveBlock),
+      // so point at a column past the grid's width: every row reads as
+      // blank unit instead of failing extraction for the whole sheet.
+      let width = 0
+      for (let r = headerRowIndex; r < grid.length; r++) width = Math.max(width, grid[r]?.length ?? 0)
+      unitCol = width
     }
   }
   unitCol = fixUnitColumnIfNumeric(grid, headerRowIndex, unitCol)
-  // Description isn't reliably labelled (and is often a merged cell with no
-  // header of its own) — it's always the cell right after the serial number.
-  const descCol = snoCol + 1
+  // Description usually isn't labelled (and is often a merged cell with no
+  // header of its own), so the default is the cell right after the serial
+  // number — the near-universal layout. But some departmental templates put
+  // Rate/Unit (or other columns) between S.No and Description instead, and
+  // *do* label the Description column itself ("Description"/"Particulars") —
+  // when that label is present, trust it over the positional guess so those
+  // reordered layouts don't silently read a Rate/Unit cell as the description.
+  const claimedForDesc = new Set([snoCol, qtyCol, rateCol, unitCol])
+  const labelledDescCol = findLabelledDescriptionColumn(header, claimedForDesc)
+  const descCol = labelledDescCol !== undefined ? labelledDescCol : snoCol + 1
   if (descCol >= header.length) {
     throw new Error('Could not find a description column next to the S.No column in the estimate.')
   }

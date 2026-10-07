@@ -25,6 +25,8 @@ import { computeMaterialTotals } from '@core/materialEstimate'
 import type { MaterialTotals } from '@core/materialEstimate'
 import {
   matchWorksRow,
+  matchWorksRowCached,
+  buildWorksRowEmbeddingCache,
   saveEcvToWorksList,
   downloadBoqFromItems,
   downloadScheduleAFromItems,
@@ -391,6 +393,7 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
   const deptDefault = defaultDepartmentName(office)
   const [pickError, setPickError] = useState<string | null>(null)
   const [ecvConfirm, setEcvConfirm] = useState<EcvConfirmState | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
   const [downloadingAllBoqs, setDownloadingAllBoqs] = useState(false)
   const [allBoqsSavedDir, setAllBoqsSavedDir] = useState<string | null>(null)
 
@@ -443,8 +446,13 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
     const visibleGrids = grids.filter((g) => !g.hidden)
     if (visibleGrids.length > 0) grids = visibleGrids
 
-    const added: Entry[] = []
     const worksTable = tables[0] ?? null
+
+    // Embed every Works List row name ONE time for this whole upload batch,
+    // not once per file — re-embedding the full list per file (via
+    // matchWorksRow) is what made uploading many estimates at once slow.
+    // Only the one work name per file still needs its own small embed call.
+    const worksEmbeddingCache = worksTable ? await buildWorksRowEmbeddingCache(worksTable) : null
 
     // Resolve a work to its Works List row once, up front — exact name match
     // first, then the same AI/embedding fallback the Schedule A tab uses, so a
@@ -454,7 +462,7 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
       workName: string | undefined
     ): Promise<{ match: WorksRowMatch | null; searched: boolean }> {
       if (!workName || !worksTable) return { match: null, searched: false }
-      const match = (await matchWorksRow(workName, worksTable)) ?? null
+      const match = (await matchWorksRowCached(workName, worksTable, worksEmbeddingCache)) ?? null
       return { match, searched: true }
     }
 
@@ -468,7 +476,28 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
       gridsByFile.set(g.name, list)
     }
 
+    let filesDone = 0
+    const totalFiles = gridsByFile.size
+    setUploadProgress({ done: 0, total: totalFiles })
+
+    // Append one file's entries right away and yield a tick, instead of
+    // building one giant array and setting state only after every file in
+    // the batch is done — otherwise the list (and the progress count) never
+    // updates and the window looks frozen until the whole upload finishes.
+    async function commitFile(added: Entry[]) {
+      setEntries((prev) => [...prev, ...added])
+      if (added.some((e) => e.isBoq && !e.error)) {
+        document.documentElement.style.setProperty('--font', 'Verdana, Geneva, Tahoma, sans-serif')
+        document.body.style.fontSize = '16px'
+      }
+      filesDone += 1
+      setUploadProgress({ done: filesDone, total: totalFiles })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+
+    try {
     for (const fileGrids of gridsByFile.values()) {
+      const added: Entry[] = []
       const abstractGrid = fileGrids.find((g) => looksLikeGeneralAbstractSheet(g.grid))
 
       // A General Abstract sheet means the workbook's other detailed-estimate
@@ -528,6 +557,7 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
             saved: null,
             previewDoc: 'boq'
           })
+          await commitFile(added)
           continue
         }
       }
@@ -633,16 +663,10 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
         }
       }
       }
+      await commitFile(added)
     }
-
-    setEntries((prev) => [...prev, ...added])
-
-    // Once a BOQ is uploaded here, switch the whole UI over to Verdana by
-    // overriding the --font design token on the document root (body and the
-    // rest of the chrome all read font-family from var(--font)).
-    if (added.some((e) => e.isBoq && !e.error)) {
-      document.documentElement.style.setProperty('--font', 'Verdana, Geneva, Tahoma, sans-serif')
-      document.body.style.fontSize = '16px'
+    } finally {
+      setUploadProgress(null)
     }
   }
 
@@ -741,8 +765,8 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
             : `${entries.length} estimate${entries.length === 1 ? '' : 's'} loaded.`}
         </p>
         <div className="boq-actions">
-          <button className="primary upload-btn" onClick={uploadEstimates}>
-            <IconFolder /> Add estimates/BOQs
+          <button className="primary upload-btn" onClick={uploadEstimates} disabled={uploadProgress !== null}>
+            <IconFolder /> {uploadProgress ? `Processing ${uploadProgress.done}/${uploadProgress.total}…` : 'Add estimates/BOQs'}
           </button>
           {boqReadyEntries.length > 1 && (
             <button className="ghost upload-btn" onClick={downloadAllBoqs} disabled={downloadingAllBoqs}>

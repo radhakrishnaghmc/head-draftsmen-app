@@ -298,7 +298,7 @@ const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
         { label: 'Item No', title: 'Item No' },
         { label: 'Wincode', title: 'Wincode' },
         { label: 'Administrative Sanction date', title: 'Admin sanction date' },
-        { label: 'Period of Completion', title: 'Period of completion' }
+        { label: 'Period of Completion', title: 'Period of completion', periodUnit: true, wide: true }
       ]
     },
     {
@@ -347,7 +347,7 @@ const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
       title: 'The work',
       fields: [
         { label: 'Name of the work', title: 'Name of the work', multiline: true },
-        { label: 'Period of Completion', title: 'Period of completion' }
+        { label: 'Period of Completion', title: 'Period of completion', periodUnit: true, wide: true }
       ]
     },
     {
@@ -1120,6 +1120,13 @@ export default function WorkOrderAgreementTab({
     setActionError(null)
     setPdfStatus(null)
     setWorksRowMatched(null)
+    // Clear any previously-loaded L1's data up front — if this file fails to
+    // parse below, a stale pdfEval from an earlier (possibly different) work
+    // must not keep being shown next to the newly-uploaded Online Intimation,
+    // which would make the two halves of the letter describe different works.
+    setPdfEval(null)
+    setPdfName('')
+    setAllBidders([])
     try {
       const lines = await pdfToTextLinesOrOcr(file)
       const ev = parseTenderEvaluation(lines)
@@ -1341,6 +1348,7 @@ export default function WorkOrderAgreementTab({
   async function renderDocInto(kind: DocKind, container: HTMLElement): Promise<number> {
     const filled = await fillDoc(kind)
     const { pageCount } = await renderDocPreview(base64ToUint8(filled), container)
+    normalizeDocxTextboxes(container)
     return pageCount
   }
 
@@ -1510,6 +1518,10 @@ export default function WorkOrderAgreementTab({
       const container = printScratchRef.current
       if (!container) throw new Error('Print failed to initialize.')
       await renderDocPreview(base64ToUint8(filled), container, { forSnapshot: true })
+      normalizeDocxTextboxes(container)
+      const __fo = container.querySelector('foreignObject')
+      const __span = __fo?.firstElementChild?.firstElementChild as HTMLElement | undefined
+      ;(window as any).__wadDebug = { transform: __span?.style.transform, fontSize: __span?.style.fontSize, textAlign: __span?.parentElement?.style.textAlign, fontsStatus: (document.fonts as any).status }
       await api.printCreatedDocument(container.innerHTML)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
@@ -1627,7 +1639,11 @@ export default function WorkOrderAgreementTab({
         if (agreementB64) await add(docName('agreement'), await fillDoc('agreement', { blankDate: true }))
         if (qccIntimationB64) await add(docName('qccIntimation'), await fillDoc('qccIntimation'))
         if (workOrderB64) await add(docName('workOrder'), await fillDoc('workOrder', { blankDate: true }))
-        if (noteReady) await add(noteSubmittedFileName(noteData?.workName), await api.noteSubmittedDocx(notePreviewHtml))
+        if (noteReady)
+          await add(
+            noteSubmittedFileName(noteData?.workName),
+            await api.noteSubmittedDocx(notePreviewHtml, NOTE_DOCX_MARGINS_TWIPS)
+          )
       }
       if (scheduleA)
         files.push({
@@ -1718,6 +1734,12 @@ export default function WorkOrderAgreementTab({
   }, [rowIndex, table, allBidders, pdfEval, notice, effectiveNotice, deriveFromUploads, selectedRow, emdReceiptInfo])
 
   const notePreviewHtml = useMemo(() => (noteData ? buildNoteSubmittedHtml(noteData) : ''), [noteData])
+  // Note Submitted's top/bottom page margin is 1 line (at its own 12pt/1.5
+  // line-height), not a full inch — in each export's own unit. Sides keep
+  // html-to-docx's 1.25in default. Word doc, downloaded PDF (same docx via
+  // LibreOffice) and Print/print-to-PDF all stay in agreement.
+  const NOTE_DOCX_MARGINS_TWIPS = { top: 360, bottom: 360 }
+  const NOTE_PRINT_MARGINS_MM = { top: 6.35, right: 31.75, bottom: 6.35, left: 31.75 }
   // Tile/preview visibility, matching the docx tiles (docsReady): the note shows
   // as soon as its data exists — blank framework included — and is editable and
   // downloadable on its own. noteReady below is the stricter gate for the
@@ -1767,7 +1789,7 @@ export default function WorkOrderAgreementTab({
     setActionError(null)
     setActionSaved(null)
     try {
-      const b64 = await api.noteSubmittedDocx(notePreviewHtml)
+      const b64 = await api.noteSubmittedDocx(notePreviewHtml, NOTE_DOCX_MARGINS_TWIPS)
       const name = noteSubmittedFileName(noteData.workName)
       const res = await api.exportCreatedDocument(b64, name, formats)
       setActionSaved(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
@@ -1783,7 +1805,7 @@ export default function WorkOrderAgreementTab({
     setBusy('print')
     setActionError(null)
     try {
-      await api.printCreatedDocument(notePreviewHtml)
+      await api.printCreatedDocument(notePreviewHtml, NOTE_PRINT_MARGINS_MM)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {

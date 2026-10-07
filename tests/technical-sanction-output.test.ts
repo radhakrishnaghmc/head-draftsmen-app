@@ -108,6 +108,29 @@ describe('applyTechnicalSanctionEdits', () => {
     expect(sheet2.getCell(2, 1).value).toBe('Cement')
   })
 
+  it('applies pale green/red/yellow fills (not font color) for Replicate Technical Sanction edits', async () => {
+    const clean = await buildSampleWorkbook()
+    const out = await applyTechnicalSanctionEdits(
+      clean,
+      'TS Copy',
+      [
+        { row: 1, col: 1, color: 'paleGreen' as const },
+        { row: 1, col: 0, color: 'paleRed' as const },
+        { row: 1, col: 2, color: 'yellow' as const }
+      ],
+      []
+    )
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(out as unknown as ArrayBuffer)
+    const ws = wb.getWorksheet('TS Copy')!
+    const green = ws.getCell(2, 2).style.fill as ExcelJS.FillPattern
+    const red = ws.getCell(2, 1).style.fill as ExcelJS.FillPattern
+    const yellow = ws.getCell(2, 3).style.fill as ExcelJS.FillPattern
+    expect(green.fgColor?.argb).toBe('FFC6EFCE')
+    expect(red.fgColor?.argb).toBe('FFFFC7CE')
+    expect(yellow.fgColor?.argb).toBe('FFFFEB9C')
+  })
+
   it('appends to an existing second sheet rather than replacing it', async () => {
     const wb = new ExcelJS.Workbook()
     wb.addWorksheet('TS Copy').addRow(['x'])

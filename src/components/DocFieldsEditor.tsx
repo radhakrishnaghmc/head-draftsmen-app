@@ -8,6 +8,22 @@ export interface DocField {
   multiline?: boolean
   /** Sits on its own full-width row instead of sharing one. Multiline fields always do. */
   wide?: boolean
+  /** A number + Months/Days toggle instead of a plain text box (e.g. "Period of Completion"), composed into "<n> Months" / "<n> Days". Defaults to Months. */
+  periodUnit?: boolean
+}
+
+const PERIOD_UNITS = ['Months', 'Days'] as const
+
+/** Splits a "<n> Months"/"<n> Days" (or bare "<n>") value into its number and unit, defaulting to Months when the value carries no unit yet. */
+function parsePeriod(value: string): { amount: string; unit: (typeof PERIOD_UNITS)[number] } {
+  const m = value.trim().match(/^(\d+)\s*(Months?|Days?)?$/i)
+  if (!m) return { amount: value.trim(), unit: 'Months' }
+  const unit = /^day/i.test(m[2] ?? '') ? 'Days' : 'Months'
+  return { amount: m[1], unit }
+}
+
+function composePeriod(amount: string, unit: (typeof PERIOD_UNITS)[number]): string {
+  return amount.trim() ? `${amount.trim()} ${unit}` : ''
 }
 
 export interface DocFieldGroup {
@@ -108,7 +124,31 @@ export default function DocFieldsEditor({ groups, derived, edits, onChange, onRe
                       </button>
                     )}
                   </span>
-                  {f.multiline ? (
+                  {f.periodUnit ? (
+                    (() => {
+                      const { amount, unit } = parsePeriod(value)
+                      return (
+                        <span className="doc-edit-period">
+                          <input
+                            value={amount}
+                            onChange={(e) => onChange(f.label, composePeriod(e.target.value, unit))}
+                          />
+                          <span className="doc-edit-period-toggle">
+                            {PERIOD_UNITS.map((u) => (
+                              <button
+                                key={u}
+                                type="button"
+                                className={u === unit ? 'active' : ''}
+                                onClick={() => onChange(f.label, composePeriod(amount, u))}
+                              >
+                                {u}
+                              </button>
+                            ))}
+                          </span>
+                        </span>
+                      )
+                    })()
+                  ) : f.multiline ? (
                     <textarea rows={2} value={value} onChange={(e) => onChange(f.label, e.target.value)} />
                   ) : (
                     <input value={value} onChange={(e) => onChange(f.label, e.target.value)} />

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { noteSubmittedSections, type NoteSubmittedData, type NoteBidder } from '@core/noteSubmitted'
 import { IconPlus } from './Icons'
 
@@ -36,7 +36,24 @@ export default function NoteSubmittedEditor({ data, onChange }: Props) {
     return first < 0 ? 1 : first + 1
   })
   const paperRef = useRef<HTMLDivElement>(null)
+  const pageRef = useRef<HTMLDivElement>(null)
   const noteRefs = useRef<Record<number, HTMLElement | null>>({})
+
+  // A4 printable height in px (297mm minus the 6.35mm/1-line top+bottom
+  // margins that match the Word doc, at 96dpi) — same geometry
+  // printCreatedDocument prints this sheet at, so the count here matches
+  // the real page count on paper.
+  const A4_PAGE_PX = 1075
+  const [pageCount, setPageCount] = useState(1)
+  useEffect(() => {
+    const measure = () => {
+      const h = pageRef.current?.scrollHeight ?? 0
+      setPageCount(Math.max(1, Math.ceil(h / A4_PAGE_PX)))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [sections])
 
   function openAndScroll(n: number) {
     setOpenNote(n)
@@ -235,7 +252,10 @@ export default function NoteSubmittedEditor({ data, onChange }: Props) {
       </div>
 
       <div className="note-paper" ref={paperRef}>
-        <div className="note-page">
+        <div className="note-page-badge">
+          A4 · {pageCount} page{pageCount === 1 ? '' : 's'}
+        </div>
+        <div className="note-page" ref={pageRef}>
           {sections.map((s) => (
             <section
               key={s.n}

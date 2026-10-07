@@ -1,21 +1,20 @@
 diff --git a/node_modules/docx-preview/dist/docx-preview.js b/node_modules/docx-preview/dist/docx-preview.js
-index 9abd132..22a81e6 100644
 --- a/node_modules/docx-preview/dist/docx-preview.js
 +++ b/node_modules/docx-preview/dist/docx-preview.js
-@@ -1294,6 +1294,13 @@
+@@ -1293,6 +1293,13 @@
+             case "textbox":
                  result.tagName = "foreignObject";
                  Object.assign(result.attrs, { width: '100%', height: '100%' });
-                 break;
++                break;
 +            case "textpath":
 +                // WordArt ("v:textpath") carries its text in the "string"
 +                // attribute, not as child nodes — patched in because the
 +                // upstream default case dropped it, leaving the shape's
 +                // empty wrapper box with no visible text at all.
 +                result.tagName = "text";
-+                break;
+                 break;
              default:
                  return null;
-         }
 @@ -1305,6 +1312,9 @@
                  case "fillcolor":
                      result.attrs.fill = at.value;
@@ -26,7 +25,38 @@ index 9abd132..22a81e6 100644
                  case "from":
                      const [x1, y1] = parsePoint(at.value);
                      Object.assign(result.attrs, { x1, y1 });
-@@ -2552,12 +2562,20 @@
+@@ -2370,6 +2380,17 @@
+                     case "color":
+                         style["color"] = xmlUtil.colorAttr(c, "val", null, autos.color);
+                         break;
++                    case "textOutline": {
++                        const strokeWidthEmu = globalXmlParser.intAttr(c, "w", 0);
++                        if (strokeWidthEmu)
++                            style["-webkit-text-stroke-width"] = (strokeWidthEmu / 12700) + "pt";
++                        const solidFill = globalXmlParser.element(c, "solidFill");
++                        const srgbClr = solidFill && globalXmlParser.element(solidFill, "srgbClr");
++                        const strokeColor = srgbClr && globalXmlParser.attr(srgbClr, "val");
++                        if (strokeColor)
++                            style["-webkit-text-stroke-color"] = "#" + strokeColor;
++                        break;
++                    }
+                     case "sz":
+                         style["font-size"] = style["min-height"] = globalXmlParser.lengthAttr(c, "val", LengthUsage.FontSize);
+                         break;
+@@ -2508,7 +2529,12 @@
+                 case "dashLongHeavy":
+                 case "dotDash":
+                 case "dotDotDash":
++                    // Word draws these with a fine, dense dash (near-solid at body
++                    // text sizes) — the browser's own "dashed" spacing is much
++                    // wider. A thin decoration-thickness shrinks the dash length
++                    // proportionally in Chromium, matching Word's look.
+                     style["text-decoration"] = "underline dashed";
++                    style["text-decoration-thickness"] = "0.5px";
+                     break;
+                 case "dotted":
+                 case "dottedHeavy":
+@@ -2552,12 +2578,20 @@
              var start = globalXmlParser.lengthAttr(node, "start");
              var right = globalXmlParser.lengthAttr(node, "right");
              var end = globalXmlParser.lengthAttr(node, "end");
@@ -49,7 +79,7 @@ index 9abd132..22a81e6 100644
              if (right || end)
                  style["margin-inline-end"] = right || end;
          }
-@@ -2711,7 +2729,13 @@
+@@ -2711,7 +2745,13 @@
              return 'solid';
          }
          static valueOfTblLayout(c) {
@@ -64,7 +94,7 @@ index 9abd132..22a81e6 100644
              return type == "fixed" ? "fixed" : "auto";
          }
          static classNameOfCnfStyle(c) {
-@@ -2799,16 +2823,52 @@
+@@ -2799,16 +2839,52 @@
      }
      function updateTabStop(elem, tabs, defaultTabSize, pixelToPoint = 72 / 96) {
          const p = elem.closest("p");
@@ -118,7 +148,7 @@ index 9abd132..22a81e6 100644
          const size = lengthToPoint(defaultTabSize);
          let pos = lastTab.pos + size;
          if (pos < pWidthPt) {
-@@ -2817,11 +2877,30 @@
+@@ -2817,11 +2893,30 @@
              }
          }
          const marginLeft = parseFloat(pcs.marginLeft);
@@ -152,7 +182,7 @@ index 9abd132..22a81e6 100644
          let width = 1;
          if (tab.style == "right" || tab.style == "center") {
              const tabStops = Array.from(p.querySelectorAll(`.${elem.className}`));
-@@ -2836,15 +2915,41 @@
+@@ -2836,15 +2931,41 @@
              }
              const mul = tab.style == "center" ? 0.5 : 1;
              const nextBB = range.getBoundingClientRect();
@@ -197,10 +227,63 @@ index 9abd132..22a81e6 100644
          switch (tab.leader) {
              case "dot":
              case "middleDot":
-@@ -3742,6 +3847,23 @@ section.${c}>footer { z-index: 1; }
+@@ -3274,30 +3395,30 @@
+         }
+         renderDefaultStyle() {
+             var c = this.className;
+-            var wrapperStyle = `
+-.${c}-wrapper { background: gray; padding: 30px; padding-bottom: 0px; display: flex; flex-flow: column; align-items: center; } 
++            var wrapperStyle = `
++.${c}-wrapper { background: gray; padding: 30px; padding-bottom: 0px; display: flex; flex-flow: column; align-items: center; } 
+ .${c}-wrapper>section.${c} { background: white; box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); margin-bottom: 30px; }`;
+             if (this.options.hideWrapperOnPrint) {
+                 wrapperStyle = `@media not print { ${wrapperStyle} }`;
+             }
+-            var styleText = `${wrapperStyle}
+-.${c} { color: black; hyphens: auto; text-underline-position: from-font; }
+-section.${c} { box-sizing: border-box; display: flex; flex-flow: column nowrap; position: relative; overflow: hidden; }
+-section.${c}>article { margin-bottom: auto; z-index: 1; }
+-section.${c}>footer { z-index: 1; }
+-.${c} table { border-collapse: collapse; }
+-.${c} table td, .${c} table th { vertical-align: top; }
+-.${c} p { margin: 0pt; min-height: 1em; }
+-.${c} span { white-space: pre-wrap; overflow-wrap: break-word; }
+-.${c} a { color: inherit; text-decoration: inherit; }
+-.${c} svg { fill: transparent; }
++            var styleText = `${wrapperStyle}
++.${c} { color: black; hyphens: auto; text-underline-position: from-font; }
++section.${c} { box-sizing: border-box; display: flex; flex-flow: column nowrap; position: relative; overflow: hidden; }
++section.${c}>article { margin-bottom: auto; z-index: 1; }
++section.${c}>footer { z-index: 1; }
++.${c} table { border-collapse: collapse; }
++.${c} table td, .${c} table th { vertical-align: top; }
++.${c} p { margin: 0pt; min-height: 1em; }
++.${c} span { white-space: pre-wrap; overflow-wrap: break-word; }
++.${c} a { color: inherit; text-decoration: inherit; }
++.${c} svg { fill: transparent; }
+ `;
+             if (this.options.renderComments) {
+-                styleText += `
+-.${c}-comment-ref { cursor: default; }
+-.${c}-comment-popover { display: none; z-index: 1000; padding: 0.5rem; background: white; position: absolute; box-shadow: 0 0 0.25rem rgba(0, 0, 0, 0.25); width: 30ch; }
+-.${c}-comment-ref:hover~.${c}-comment-popover { display: block; }
+-.${c}-comment-author,.${c}-comment-date { font-size: 0.875rem; color: #888; }
++                styleText += `
++.${c}-comment-ref { cursor: default; }
++.${c}-comment-popover { display: none; z-index: 1000; padding: 0.5rem; background: white; position: absolute; box-shadow: 0 0 0.25rem rgba(0, 0, 0, 0.25); width: 30ch; }
++.${c}-comment-ref:hover~.${c}-comment-popover { display: block; }
++.${c}-comment-author,.${c}-comment-date { font-size: 0.875rem; color: #888; }
+ `;
+             }
+             return [
+@@ -3742,16 +3863,100 @@
                      .then(x => result.setAttribute("href", x)));
              }
              container.appendChild(result);
+-            requestAnimationFrame(() => {
+-                const bb = container.firstElementChild.getBBox();
+-                container.setAttribute("width", `${Math.ceil(bb.x + bb.width)}`);
+-                container.setAttribute("height", `${Math.ceil(bb.y + bb.height)}`);
 +            // WordArt ("v:textpath") text is stretched to exactly fill the
 +            // shape's own declared width/height (mirroring VML's
 +            // `fitshape="t"`, which real Word letterhead titles rely on since
@@ -217,11 +300,77 @@ index 9abd132..22a81e6 100644
 +                    t.setAttribute('y', String((parseFloat(heightMatch[1]) * (96 / 72)) / 2));
 +                    t.setAttribute('dominant-baseline', 'middle');
 +                }
-+            });
-             requestAnimationFrame(() => {
-                 const bb = container.firstElementChild.getBBox();
-                 container.setAttribute("width", `${Math.ceil(bb.x + bb.width)}`);
-@@ -3752,6 +3874,10 @@ section.${c}>footer { z-index: 1; }
+             });
++            // Sized synchronously (not via requestAnimationFrame) because rAF is
++            // suspended by the browser whenever the window is unfocused/hidden
++            // — which is exactly the state the window is in during background
++            // print-preview generation, silently skipping this sizing forever.
++            // getBBox()/measureText() below force their own synchronous layout,
++            // so no frame wait is actually needed.
++            (() => {
++                // Newer WordArt (authored via `v:textbox` holding real
++                // `w:txbxContent` paragraphs, not legacy `v:textpath`) renders
++                // through the normal paragraph/run path into this
++                // `foreignObject`, at the run's own literal font size — which
++                // is never the size Word actually displays it at, since Word
++                // always stretches WordArt glyphs to exactly fill the shape's
++                // declared box (same `fitshape="t"` intent as the `<text>`
++                // stretch above). Mirror that: blow the font up to the box's
++                // height, then scaleX the natural (unstretched) width out to
++                // the box's width.
++                const foreignObject = container.querySelector('foreignObject');
++                const p = foreignObject?.childElementCount === 1 ? foreignObject.firstElementChild : null;
++                const span = p?.tagName === 'P' && p.childElementCount === 1 ? p.firstElementChild : null;
++                const finishSizing = () => {
++                    const bb = container.firstElementChild.getBBox();
++                    container.setAttribute("width", `${Math.ceil(bb.x + bb.width)}`);
++                    container.setAttribute("height", `${Math.ceil(bb.y + bb.height)}`);
++                };
++                if (foreignObject && p && span?.tagName === 'SPAN' && widthMatch && heightMatch) {
++                    const boxWidthPx = parseFloat(widthMatch[1]) * (96 / 72);
++                    const boxHeightPx = parseFloat(heightMatch[1]) * (96 / 72);
++                    p.style.textAlign = 'left';
++                    p.style.whiteSpace = 'nowrap';
++                    p.style.lineHeight = `${boxHeightPx}px`;
++                    span.style.display = 'inline-block';
++                    span.style.whiteSpace = 'nowrap';
++                    span.style.lineHeight = `${boxHeightPx}px`;
++                    span.style.fontSize = `${boxHeightPx}px`;
++                    const naturalFontFamily = span.style.fontFamily || 'sans-serif';
++                    const naturalFontWeight = span.style.fontWeight || 'normal';
++                    const naturalFontStyle = span.style.fontStyle || 'normal';
++                    const fontSpec = `${naturalFontStyle} ${naturalFontWeight} ${boxHeightPx}px ${naturalFontFamily}`;
++                    // Canvas measureText() resolves font-family against whatever
++                    // font is *actually loaded* at call time — on a cold app
++                    // start the real WordArt font (e.g. a bundled web font)
++                    // often hasn't finished loading yet, so the browser
++                    // silently measures against a fallback (different glyph
++                    // widths) and bakes a wrong scaleX in permanently. Wait for
++                    // the exact font to be ready before measuring.
++                    const applyScale = () => {
++                        const measureCanvas = document.createElement('canvas');
++                        const measureCtx = measureCanvas.getContext('2d');
++                        measureCtx.font = fontSpec;
++                        const naturalWidth = measureCtx.measureText(span.textContent || '').width;
++                        if (naturalWidth > 0) {
++                            span.style.transformOrigin = 'left top';
++                            span.style.transform = `scaleX(${boxWidthPx / naturalWidth})`;
++                        }
++                        finishSizing();
++                    };
++                    if (document.fonts && typeof document.fonts.load === 'function') {
++                        document.fonts.load(fontSpec, span.textContent || '').catch(() => {}).then(applyScale);
++                    }
++                    else {
++                        applyScale();
++                    }
++                }
++                else {
++                    finishSizing();
++                }
++            })();
+             return container;
+         }
          renderVmlChildElement(elem) {
              const result = this.createSvgElement(elem.tagName);
              Object.entries(elem.attrs).forEach(([k, v]) => result.setAttribute(k, v));
@@ -233,24 +382,23 @@ index 9abd132..22a81e6 100644
                  if (child.type == DomType.VmlElement) {
                      result.appendChild(this.renderVmlChildElement(child));
 diff --git a/node_modules/docx-preview/dist/docx-preview.mjs b/node_modules/docx-preview/dist/docx-preview.mjs
-index 68d59f2..0b0dabc 100644
 --- a/node_modules/docx-preview/dist/docx-preview.mjs
 +++ b/node_modules/docx-preview/dist/docx-preview.mjs
-@@ -1290,6 +1290,13 @@ function parseVmlElement(elem, parser) {
+@@ -1289,6 +1289,13 @@
+         case "textbox":
              result.tagName = "foreignObject";
              Object.assign(result.attrs, { width: '100%', height: '100%' });
-             break;
++            break;
 +        case "textpath":
 +            // WordArt ("v:textpath") carries its text in the "string"
 +            // attribute, not as child nodes — patched in because the
 +            // upstream default case dropped it, leaving the shape's
 +            // empty wrapper box with no visible text at all.
 +            result.tagName = "text";
-+            break;
+             break;
          default:
              return null;
-     }
-@@ -1301,6 +1308,9 @@ function parseVmlElement(elem, parser) {
+@@ -1301,6 +1308,9 @@
              case "fillcolor":
                  result.attrs.fill = at.value;
                  break;
@@ -260,7 +408,38 @@ index 68d59f2..0b0dabc 100644
              case "from":
                  const [x1, y1] = parsePoint(at.value);
                  Object.assign(result.attrs, { x1, y1 });
-@@ -2548,12 +2558,20 @@ class DocumentParser {
+@@ -2366,6 +2376,17 @@
+                 case "color":
+                     style["color"] = xmlUtil.colorAttr(c, "val", null, autos.color);
+                     break;
++                case "textOutline": {
++                    const strokeWidthEmu = globalXmlParser.intAttr(c, "w", 0);
++                    if (strokeWidthEmu)
++                        style["-webkit-text-stroke-width"] = (strokeWidthEmu / 12700) + "pt";
++                    const solidFill = globalXmlParser.element(c, "solidFill");
++                    const srgbClr = solidFill && globalXmlParser.element(solidFill, "srgbClr");
++                    const strokeColor = srgbClr && globalXmlParser.attr(srgbClr, "val");
++                    if (strokeColor)
++                        style["-webkit-text-stroke-color"] = "#" + strokeColor;
++                    break;
++                }
+                 case "sz":
+                     style["font-size"] = style["min-height"] = globalXmlParser.lengthAttr(c, "val", LengthUsage.FontSize);
+                     break;
+@@ -2504,7 +2525,12 @@
+             case "dashLongHeavy":
+             case "dotDash":
+             case "dotDotDash":
++                // Word draws these with a fine, dense dash (near-solid at body
++                // text sizes) — the browser's own "dashed" spacing is much
++                // wider. A thin decoration-thickness shrinks the dash length
++                // proportionally in Chromium, matching Word's look.
+                 style["text-decoration"] = "underline dashed";
++                style["text-decoration-thickness"] = "0.5px";
+                 break;
+             case "dotted":
+             case "dottedHeavy":
+@@ -2548,12 +2574,20 @@
          var start = globalXmlParser.lengthAttr(node, "start");
          var right = globalXmlParser.lengthAttr(node, "right");
          var end = globalXmlParser.lengthAttr(node, "end");
@@ -283,7 +462,7 @@ index 68d59f2..0b0dabc 100644
          if (right || end)
              style["margin-inline-end"] = right || end;
      }
-@@ -2707,7 +2725,13 @@ class values {
+@@ -2707,7 +2741,13 @@
          return 'solid';
      }
      static valueOfTblLayout(c) {
@@ -298,7 +477,7 @@ index 68d59f2..0b0dabc 100644
          return type == "fixed" ? "fixed" : "auto";
      }
      static classNameOfCnfStyle(c) {
-@@ -2795,16 +2819,52 @@ function computePixelToPoint(container = document.body) {
+@@ -2795,16 +2835,52 @@
  }
  function updateTabStop(elem, tabs, defaultTabSize, pixelToPoint = 72 / 96) {
      const p = elem.closest("p");
@@ -352,7 +531,7 @@ index 68d59f2..0b0dabc 100644
      const size = lengthToPoint(defaultTabSize);
      let pos = lastTab.pos + size;
      if (pos < pWidthPt) {
-@@ -2813,11 +2873,30 @@ function updateTabStop(elem, tabs, defaultTabSize, pixelToPoint = 72 / 96) {
+@@ -2813,11 +2889,30 @@
          }
      }
      const marginLeft = parseFloat(pcs.marginLeft);
@@ -386,7 +565,7 @@ index 68d59f2..0b0dabc 100644
      let width = 1;
      if (tab.style == "right" || tab.style == "center") {
          const tabStops = Array.from(p.querySelectorAll(`.${elem.className}`));
-@@ -2832,15 +2911,41 @@ function updateTabStop(elem, tabs, defaultTabSize, pixelToPoint = 72 / 96) {
+@@ -2832,15 +2927,41 @@
          }
          const mul = tab.style == "center" ? 0.5 : 1;
          const nextBB = range.getBoundingClientRect();
@@ -431,10 +610,63 @@ index 68d59f2..0b0dabc 100644
      switch (tab.leader) {
          case "dot":
          case "middleDot":
-@@ -3738,6 +3843,23 @@ section.${c}>footer { z-index: 1; }
+@@ -3270,30 +3391,30 @@
+     }
+     renderDefaultStyle() {
+         var c = this.className;
+-        var wrapperStyle = `
+-.${c}-wrapper { background: gray; padding: 30px; padding-bottom: 0px; display: flex; flex-flow: column; align-items: center; } 
++        var wrapperStyle = `
++.${c}-wrapper { background: gray; padding: 30px; padding-bottom: 0px; display: flex; flex-flow: column; align-items: center; } 
+ .${c}-wrapper>section.${c} { background: white; box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); margin-bottom: 30px; }`;
+         if (this.options.hideWrapperOnPrint) {
+             wrapperStyle = `@media not print { ${wrapperStyle} }`;
+         }
+-        var styleText = `${wrapperStyle}
+-.${c} { color: black; hyphens: auto; text-underline-position: from-font; }
+-section.${c} { box-sizing: border-box; display: flex; flex-flow: column nowrap; position: relative; overflow: hidden; }
+-section.${c}>article { margin-bottom: auto; z-index: 1; }
+-section.${c}>footer { z-index: 1; }
+-.${c} table { border-collapse: collapse; }
+-.${c} table td, .${c} table th { vertical-align: top; }
+-.${c} p { margin: 0pt; min-height: 1em; }
+-.${c} span { white-space: pre-wrap; overflow-wrap: break-word; }
+-.${c} a { color: inherit; text-decoration: inherit; }
+-.${c} svg { fill: transparent; }
++        var styleText = `${wrapperStyle}
++.${c} { color: black; hyphens: auto; text-underline-position: from-font; }
++section.${c} { box-sizing: border-box; display: flex; flex-flow: column nowrap; position: relative; overflow: hidden; }
++section.${c}>article { margin-bottom: auto; z-index: 1; }
++section.${c}>footer { z-index: 1; }
++.${c} table { border-collapse: collapse; }
++.${c} table td, .${c} table th { vertical-align: top; }
++.${c} p { margin: 0pt; min-height: 1em; }
++.${c} span { white-space: pre-wrap; overflow-wrap: break-word; }
++.${c} a { color: inherit; text-decoration: inherit; }
++.${c} svg { fill: transparent; }
+ `;
+         if (this.options.renderComments) {
+-            styleText += `
+-.${c}-comment-ref { cursor: default; }
+-.${c}-comment-popover { display: none; z-index: 1000; padding: 0.5rem; background: white; position: absolute; box-shadow: 0 0 0.25rem rgba(0, 0, 0, 0.25); width: 30ch; }
+-.${c}-comment-ref:hover~.${c}-comment-popover { display: block; }
+-.${c}-comment-author,.${c}-comment-date { font-size: 0.875rem; color: #888; }
++            styleText += `
++.${c}-comment-ref { cursor: default; }
++.${c}-comment-popover { display: none; z-index: 1000; padding: 0.5rem; background: white; position: absolute; box-shadow: 0 0 0.25rem rgba(0, 0, 0, 0.25); width: 30ch; }
++.${c}-comment-ref:hover~.${c}-comment-popover { display: block; }
++.${c}-comment-author,.${c}-comment-date { font-size: 0.875rem; color: #888; }
+ `;
+         }
+         return [
+@@ -3738,16 +3859,99 @@
                  .then(x => result.setAttribute("href", x)));
          }
          container.appendChild(result);
+-        requestAnimationFrame(() => {
+-            const bb = container.firstElementChild.getBBox();
+-            container.setAttribute("width", `${Math.ceil(bb.x + bb.width)}`);
+-            container.setAttribute("height", `${Math.ceil(bb.y + bb.height)}`);
 +        // WordArt ("v:textpath") text is stretched to exactly fill the
 +        // shape's own declared width/height (mirroring VML's
 +        // `fitshape="t"`, which real Word letterhead titles rely on since
@@ -451,11 +683,76 @@ index 68d59f2..0b0dabc 100644
 +                t.setAttribute('y', String((parseFloat(heightMatch[1]) * (96 / 72)) / 2));
 +                t.setAttribute('dominant-baseline', 'middle');
 +            }
-+        });
-         requestAnimationFrame(() => {
-             const bb = container.firstElementChild.getBBox();
-             container.setAttribute("width", `${Math.ceil(bb.x + bb.width)}`);
-@@ -3748,6 +3870,10 @@ section.${c}>footer { z-index: 1; }
+         });
++        // Sized synchronously (not via requestAnimationFrame) because rAF is
++        // suspended by the browser whenever the window is unfocused/hidden
++        // — which is exactly the state the window is in during background
++        // print-preview generation, silently skipping this sizing forever.
++        // getBBox()/measureText() below force their own synchronous layout,
++        // so no frame wait is actually needed.
++        (() => {
++            // Newer WordArt (authored via `v:textbox` holding real
++            // `w:txbxContent` paragraphs, not legacy `v:textpath`) renders
++            // through the normal paragraph/run path into this
++            // `foreignObject`, at the run's own literal font size — which
++            // is never the size Word actually displays it at, since Word
++            // always stretches WordArt glyphs to exactly fill the shape's
++            // declared box (same `fitshape="t"` intent as the `<text>`
++            // stretch above). Mirror that: blow the font up to the box's
++            // height, then scaleX the natural (unstretched) width out to
++            // the box's width.
++            const foreignObject = container.querySelector('foreignObject');
++            const p = foreignObject?.childElementCount === 1 ? foreignObject.firstElementChild : null;
++            const span = p?.tagName === 'P' && p.childElementCount === 1 ? p.firstElementChild : null;
++            const finishSizing = () => {
++                const bb = container.firstElementChild.getBBox();
++                container.setAttribute("width", `${Math.ceil(bb.x + bb.width)}`);
++                container.setAttribute("height", `${Math.ceil(bb.y + bb.height)}`);
++            };
++            if (foreignObject && p && span?.tagName === 'SPAN' && widthMatch && heightMatch) {
++                const boxWidthPx = parseFloat(widthMatch[1]) * (96 / 72);
++                const boxHeightPx = parseFloat(heightMatch[1]) * (96 / 72);
++                p.style.textAlign = 'left';
++                p.style.whiteSpace = 'nowrap';
++                p.style.lineHeight = `${boxHeightPx}px`;
++                span.style.display = 'inline-block';
++                span.style.whiteSpace = 'nowrap';
++                span.style.lineHeight = `${boxHeightPx}px`;
++                span.style.fontSize = `${boxHeightPx}px`;
++                const naturalFontFamily = span.style.fontFamily || 'sans-serif';
++                const naturalFontWeight = span.style.fontWeight || 'normal';
++                const naturalFontStyle = span.style.fontStyle || 'normal';
++                const fontSpec = `${naturalFontStyle} ${naturalFontWeight} ${boxHeightPx}px ${naturalFontFamily}`;
++                // Canvas measureText() resolves font-family against whatever font is
++                // actually loaded at call time — on a cold app start the real WordArt
++                // font often hasn't finished loading yet, so the browser silently
++                // measures against a fallback (different glyph widths) and bakes a
++                // wrong scaleX in permanently. Wait for the exact font to be ready
++                // before measuring.
++                const applyScale = () => {
++                    const measureCanvas = document.createElement('canvas');
++                    const measureCtx = measureCanvas.getContext('2d');
++                    measureCtx.font = fontSpec;
++                    const naturalWidth = measureCtx.measureText(span.textContent || '').width;
++                    if (naturalWidth > 0) {
++                        span.style.transformOrigin = 'left top';
++                        span.style.transform = `scaleX(${boxWidthPx / naturalWidth})`;
++                    }
++                    finishSizing();
++                };
++                if (document.fonts && typeof document.fonts.load === 'function') {
++                    document.fonts.load(fontSpec, span.textContent || '').catch(() => {}).then(applyScale);
++                }
++                else {
++                    applyScale();
++                }
++            }
++            else {
++                finishSizing();
++            }
++        })();
+         return container;
+     }
      renderVmlChildElement(elem) {
          const result = this.createSvgElement(elem.tagName);
          Object.entries(elem.attrs).forEach(([k, v]) => result.setAttribute(k, v));

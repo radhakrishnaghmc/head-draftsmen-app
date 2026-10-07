@@ -246,8 +246,18 @@ export function needsReview(match: ItemMatch): boolean {
 export interface CellEdit {
   row: number
   col: number
+  /** Which sheet to apply this edit to, for an estimate workbook that spreads its items across several sheets — undefined means the output file's default/single sheet. */
+  sheetName?: string
   value?: string | number
-  color?: 'green' | 'red'
+  /**
+   * 'green'/'red' recolor the description text (the Data Sheet/SoR rate
+   * lookup above, a confidence signal on an otherwise-unedited description).
+   * 'paleGreen'/'paleRed' fill the cell's background instead (Replicate
+   * Technical Sanction below, a found/not-found signal on an exact
+   * description match) — kept visually distinct so the two features' marks
+   * are never confused for each other on the same sheet.
+   */
+  color?: 'green' | 'red' | 'paleGreen' | 'paleRed' | 'yellow'
 }
 
 export interface ResolvedItem {
@@ -274,15 +284,16 @@ export function buildCellEdits(resolved: ResolvedItem[]): CellEdit[] {
   const edits: CellEdit[] = []
   for (const { item, chosen } of resolved) {
     if (item.descRow == null || item.descCol == null) continue
+    const sheetName = item.sheetName
     if (chosen && item.rateRow != null && item.rateCol != null) {
-      edits.push({ row: item.rateRow, col: item.rateCol, value: numOrStr(chosen.rate) })
+      edits.push({ row: item.rateRow, col: item.rateCol, sheetName, value: numOrStr(chosen.rate) })
       edits.push(
         item.isVariant
-          ? { row: item.descRow, col: item.descCol, color: 'green' }
-          : { row: item.descRow, col: item.descCol, value: chosen.description, color: 'green' }
+          ? { row: item.descRow, col: item.descCol, sheetName, color: 'green' }
+          : { row: item.descRow, col: item.descCol, sheetName, value: chosen.description, color: 'green' }
       )
     } else {
-      edits.push({ row: item.descRow, col: item.descCol, color: 'red' })
+      edits.push({ row: item.descRow, col: item.descCol, sheetName, color: 'red' })
     }
   }
   return edits
@@ -305,4 +316,73 @@ export function buildRateAnalysisSheet(resolved: ResolvedItem[]): (string | numb
     rows.push([])
   }
   return rows
+}
+
+/**
+ * Replicate Technical Sanction: a separate, simpler sibling to the Data
+ * Sheet/SoR rate lookup above — instead of retrieving a rate by keyword/
+ * semantic search, it reuses a rate already sanctioned on a *prior*
+ * estimate, for an item whose description is the same work repeated (e.g.
+ * this year's estimate re-quoting last year's already-sanctioned items).
+ * Exact description match only, no scoring/ranking — either a prior
+ * estimate carried that exact wording, or it didn't.
+ */
+export interface ReplicateMatch {
+  item: EstimateWorkItem
+  /** The rate carried over from a matching already-sanctioned item, or undefined when no source estimate had that description. */
+  rate?: string
+}
+
+/** Collapse a description to a bare comparison key — trimmed, whitespace-collapsed, case-insensitive, trailing-punctuation-stripped — so the same wording printed with different spacing/casing/a stray trailing full stop across two estimate files still counts as the same item. */
+export function normalizeItemDescription(description: string): string {
+  return description
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[.,;]+$/, '')
+}
+
+/**
+ * Build a description -> rate index from one or more already-sanctioned
+ * source estimates' items (merged across every file uploaded, by the
+ * caller re-calling this with the accumulated item list). The first rate
+ * seen for a given description wins — if two source estimates disagree
+ * on an item's rate, the first upload stays authoritative rather than
+ * silently overridden by a later one.
+ */
+export function buildReplicateIndex(oldItems: EstimateWorkItem[]): Map<string, string> {
+  const index = new Map<string, string>()
+  for (const item of oldItems) {
+    if (!item.description || !item.rate) continue
+    const key = normalizeItemDescription(item.description)
+    if (!index.has(key)) index.set(key, item.rate)
+  }
+  return index
+}
+
+/** Match each new estimate item's description, verbatim, against the already-sanctioned source index. */
+export function matchByExactDescription(newItems: EstimateWorkItem[], index: Map<string, string>): ReplicateMatch[] {
+  return newItems.map((item) => {
+    const rate = index.get(normalizeItemDescription(item.description))
+    return rate !== undefined ? { item, rate } : { item }
+  })
+}
+
+/**
+ * Turn exact matches into cell edits for the output file. A found item's
+ * rate cell is filled and marked yellow; an unmatched item gets no rate
+ * change, just its rate cell marked pale red — see CellEdit's color field
+ * for why this uses the pale fill colors instead of the Data Sheet lookup's
+ * green/red text colors.
+ */
+export function buildReplicateCellEdits(matches: ReplicateMatch[]): CellEdit[] {
+  const edits: CellEdit[] = []
+  for (const { item, rate } of matches) {
+    if (item.rateRow != null && rate !== undefined && item.rateCol != null) {
+      edits.push({ row: item.rateRow, col: item.rateCol, sheetName: item.sheetName, value: numOrStr(rate), color: 'yellow' })
+    } else if (item.rateRow != null && item.rateCol != null) {
+      edits.push({ row: item.rateRow, col: item.rateCol, sheetName: item.sheetName, color: 'paleRed' })
+    }
+  }
+  return edits
 }

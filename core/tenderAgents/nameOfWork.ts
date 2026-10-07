@@ -20,7 +20,15 @@ import { joinLines, stripItemNoTag } from './shared'
 // non-alphanumeric characters (spaces, commas, colons, dashes, parens, …)
 // between the number and the label, which absorbs punctuation variants this
 // code has never actually seen.
-const ITEM_DATED_LINE = /^item\s*\d+[^a-z0-9]*(?:dated|dt)\b\.?\s*:?\s*[\d./-]*[^a-z0-9]*$/i
+//
+// The leading "item <n>" itself is OPTIONAL in this pattern: on some sheets
+// the wrapped "ITEM" word lands on the PRECEDING line (glued onto the NIT
+// code's own continuation, e.g. "…Circle58/CMC/2026-27 ITEM"), leaving just
+// the bare "01,Dated:26.09.2026" tail as its own orphaned line with no "item"
+// word left in it at all — that line still needs to be recognized and
+// dropped, or it leaks onto the front of the title on its own.
+const TAG_CORE = '(?:item\\s*)?\\d{0,3}[^a-z0-9]*(?:dated|dt)\\b\\.?\\s*:?\\s*[\\d./-]*[^a-z0-9]*'
+const ITEM_DATED_LINE = new RegExp(`^${TAG_CORE}$`, 'i')
 
 function isWorkNameBoundary(line: string): boolean {
   const t = line.trim()
@@ -113,14 +121,20 @@ function extractFromLabelBlock(lines: string[]): string | undefined {
   }
   // Belt-and-suspenders: if the ITEM/Dated tag ended up glued onto the same
   // line as the title instead of its own line (pdf.js's y-rounding can go
-  // either way), strip it off the front rather than relying solely on the
-  // line-boundary check above.
+  // either way), strip it off rather than relying solely on the line-boundary
+  // check above. Not anchored to the very front: the tag can also land mid-
+  // string, preceded by the rest of the NIT code's own continuation line
+  // (e.g. "Circle58/CMC/2026-27 ITEM 01,Dated:26.09.2026 Laying of …" — the
+  // above-walk pulled that whole NIT-continuation line in because it isn't a
+  // bare ITEM/Dated line on its own, so it never tripped ITEM_DATED_LINE).
+  // Greedy `.*` finds the rightmost tag occurrence, so only genuine title
+  // text after the real tag survives.
   const name = parts
     .join(' ')
-    // Same punctuation-agnostic separator as ITEM_DATED_LINE above — this
-    // strip must stay in lockstep with that boundary check, or a variant it
-    // now recognizes as the tag would still fail to actually strip here.
-    .replace(/^item\s*\d+[^a-z0-9]*(?:dated|dt)\b\.?\s*:?\s*[\d./-]*[^a-z0-9]*/i, '')
+    // Built from the same TAG_CORE as ITEM_DATED_LINE above — this strip must
+    // stay in lockstep with that boundary check, or a variant it now
+    // recognizes as the tag would still fail to actually strip here.
+    .replace(new RegExp(`^.*${TAG_CORE}`, 'i'), '')
     .replace(/\s+/g, ' ')
     .trim()
   return name || undefined

@@ -200,6 +200,21 @@ describe('tender agents — real-world variants found by a bulk scan of NIZAMPET
     expect(detectTenderId(lines)).toBe('699966')
   })
 
+  it('Agent 1 (Tender ID) — id\'s NIT tail has "Circle" glued straight onto the circle number, no "/DB/EE/" or separator', () => {
+    // Real: a second office's L1 sheet wraps the tail as "<id> Circle<n>/CMC/<year>"
+    // — unlike the 699966 case above, the circle number has no bare leading
+    // digit; "Circle" sits directly in front of it with no space or hyphen.
+    const lines = [
+      'NIT No.58/DB/EE/Nizampet Circle-',
+      'Enquiry/IFB/Tender',
+      '738110 Circle58/CMC/2026-27 Dt.08.05.2026 (Item',
+      'Tender ID',
+      'Notice Number',
+      'No.01)'
+    ]
+    expect(detectTenderId(lines)).toBe('738110')
+  })
+
   it('Agent 2 (NIT No) — a real code that omits the "/CMC/" segment entirely', () => {
     // Real: NIT.06-26 WORKS/.../1).710536.../Stage Selected Form 1.pdf — this
     // office's older "Completed-26 works" NITs print no corporation segment.
@@ -217,6 +232,21 @@ describe('tender agents — real-world variants found by a bulk scan of NIZAMPET
     // Real: NIT.06-26 WORKS/.../2).710538.../Stage Selected Form 1.pdf
     const lines = ['Enquiry/IFB/Tender', 'E1/06/02/DB/Nizampet Circle-58/2026-27,Dt', 'Tender ID 710538']
     expect(detectNitNoAndDate(lines).noticeNo).toBe('E1/06/02/DB/Nizampet Circle-58/2026-27')
+  })
+
+  it('Agent 2 (Item No) — the "(Item No.N)" tag sits on the Notice Number line itself, not on the Name of Work', () => {
+    // Real: Commercial Evaluation page, NIT.26/Nizampet Circle-58 (Tender ID
+    // 738112) — "26/DB/EE/Nizampet Circle-58/CMC/2026-27 (Item No.03),Dt:26.09.2026".
+    const lines = [
+      'Enquiry/IFB/Tender',
+      'Notice Number',
+      '26/DB/EE/Nizampet Circle-58/CMC/2026-27',
+      '(Item No.03),Dt:26.09.2026'
+    ]
+    const r = detectNitNoAndDate(lines)
+    expect(r.noticeNo).toBe('26/DB/EE/Nizampet Circle-58/CMC/2026-27')
+    expect(r.itemNo).toBe('03')
+    expect(r.noticeDate).toBe('26.09.2026')
   })
 })
 

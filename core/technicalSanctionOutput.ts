@@ -5,6 +5,12 @@ import { stripDataValidations } from './templateWorkbook'
 
 const GREEN_ARGB = 'FF008000'
 const RED_ARGB = 'FFCC0000'
+// Excel's own standard "Good"/"Bad" conditional-formatting fill colors —
+// used for Replicate Technical Sanction's found/not-found marks so they
+// read as a background fill, distinct from the rate-lookup green/red text.
+const PALE_GREEN_FILL_ARGB = 'FFC6EFCE'
+const PALE_RED_FILL_ARGB = 'FFFFC7CE'
+const YELLOW_FILL_ARGB = 'FFFFEB9C'
 
 /**
  * Real-world estimate workbooks accumulate "phantom" bloat over years of
@@ -64,7 +70,16 @@ export function stripWorkbookBloat(buffer: Buffer): Buffer {
 // that used the same style index in the loaded file, so mutating a
 // sub-property in place silently recolors every other cell sharing that
 // style too. See core/boqTemplate.ts's styleCell() for the same fix.
-function setCellColor(cell: ExcelJS.Cell, color: 'green' | 'red'): void {
+function setCellColor(cell: ExcelJS.Cell, color: 'green' | 'red' | 'paleGreen' | 'paleRed' | 'yellow'): void {
+  if (color === 'paleGreen' || color === 'paleRed' || color === 'yellow') {
+    const argb =
+      color === 'paleGreen' ? PALE_GREEN_FILL_ARGB : color === 'paleRed' ? PALE_RED_FILL_ARGB : YELLOW_FILL_ARGB
+    cell.style = {
+      ...cell.style,
+      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb } }
+    }
+    return
+  }
   cell.style = {
     ...cell.style,
     font: { ...cell.style.font, color: { argb: color === 'green' ? GREEN_ARGB : RED_ARGB } }
@@ -91,11 +106,19 @@ export async function applyTechnicalSanctionEdits(
   const cleanedBuffer = stripWorkbookBloat(originalBuffer)
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.load(cleanedBuffer as unknown as ArrayBuffer)
-  const ws = workbook.getWorksheet(sheetName) ?? workbook.worksheets[0]
-  if (!ws) throw new Error('Could not find a worksheet to edit in the estimate file.')
-  stripDataValidations(ws)
+  const defaultWs = workbook.getWorksheet(sheetName) ?? workbook.worksheets[0]
+  if (!defaultWs) throw new Error('Could not find a worksheet to edit in the estimate file.')
 
+  // An estimate workbook can spread its items across several sheets (one
+  // estimate per sheet) — each edit carries its own sheetName in that case,
+  // falling back to the default sheet above when it doesn't.
+  const strippedSheets = new Set<ExcelJS.Worksheet>()
   for (const edit of edits) {
+    const ws = (edit.sheetName != null ? workbook.getWorksheet(edit.sheetName) : null) ?? defaultWs
+    if (!strippedSheets.has(ws)) {
+      stripDataValidations(ws)
+      strippedSheets.add(ws)
+    }
     // ExcelJS rows/columns are 1-indexed; our grid positions are 0-indexed.
     const cell = ws.getCell(edit.row + 1, edit.col + 1)
     if (edit.value !== undefined) cell.value = edit.value
@@ -103,7 +126,20 @@ export async function applyTechnicalSanctionEdits(
   }
 
   if (rateAnalysisRows.length > 0) {
-    const analysisSheet = workbook.worksheets[1] ?? workbook.addWorksheet('Sheet 2')
+    // With a multi-sheet estimate, every real sheet gets edits — so the
+    // analysis sheet can no longer be assumed to sit at a fixed position
+    // (e.g. "the second sheet"). Reuse the first sheet no edit touched (a
+    // pre-existing manual rate-analysis sheet, same convention as before);
+    // otherwise create a new one under a name that doesn't collide with any
+    // real estimate sheet.
+    const touchedNames = new Set([defaultWs.name, ...edits.map((edit) => edit.sheetName ?? defaultWs.name)])
+    let analysisSheet = workbook.worksheets.find((ws) => !touchedNames.has(ws.name))
+    if (!analysisSheet) {
+      let name = 'Sheet 2'
+      let n = 2
+      while (workbook.worksheets.some((ws) => ws.name === name)) name = `Sheet ${++n}`
+      analysisSheet = workbook.addWorksheet(name)
+    }
     for (const row of rateAnalysisRows) analysisSheet.addRow(row)
   }
 

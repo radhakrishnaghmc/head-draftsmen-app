@@ -6,6 +6,7 @@ const api: DocuGenApi = {
   pickExcels: () => ipcRenderer.invoke(IPC.pickExcels),
   pickExcelGrids: () => ipcRenderer.invoke(IPC.pickExcelGrids),
   pickEstimateGrid: () => ipcRenderer.invoke(IPC.pickEstimateGrid),
+  pickEstimateGrids: () => ipcRenderer.invoke(IPC.pickEstimateGrids),
   pickDataSheet: () => ipcRenderer.invoke(IPC.pickDataSheet),
   pickTenderDocuments: () => ipcRenderer.invoke(IPC.pickTenderDocuments),
   onTenderScanProgress: (callback) => {
@@ -114,9 +115,10 @@ const api: DocuGenApi = {
     ipcRenderer.invoke(IPC.bakeFixedPlaceholdersInDocument, docxBase64, values),
   exportCreatedDocument: (docxBase64, suggestedName, formats) =>
     ipcRenderer.invoke(IPC.exportCreatedDocument, docxBase64, suggestedName, formats),
-  printCreatedDocument: (renderedHtml) => ipcRenderer.invoke(IPC.printCreatedDocument, renderedHtml),
+  printCreatedDocument: (renderedHtml, pageMarginsMm) =>
+    ipcRenderer.invoke(IPC.printCreatedDocument, renderedHtml, pageMarginsMm),
   fontFallbackFiles: () => ipcRenderer.invoke(IPC.fontFallbackFiles),
-  noteSubmittedDocx: (html) => ipcRenderer.invoke(IPC.noteSubmittedDocx, html),
+  noteSubmittedDocx: (html, marginsTwips) => ipcRenderer.invoke(IPC.noteSubmittedDocx, html, marginsTwips),
   intimationTemplate: (variantId) => ipcRenderer.invoke(IPC.intimationTemplate, variantId),
   workOrderTemplate: (variantId) => ipcRenderer.invoke(IPC.workOrderTemplate, variantId),
   fileBackerTemplate: (variantId) => ipcRenderer.invoke(IPC.fileBackerTemplate, variantId),

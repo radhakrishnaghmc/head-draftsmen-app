@@ -8,6 +8,7 @@ import { circleFromNit } from '@core/workOrderAgreement'
 import {
   issueNoticePlaceholders,
   isNoticeOverdue,
+  defaultLoaNo,
   EMPTY_ISSUE_NOTICE_MANUAL_FIELDS,
   type IssueNoticeManualFields,
   type IssueNoticeOffice
@@ -481,24 +482,34 @@ export default function IssueNoticesTab({ office, items, onChange }: Props) {
       notice?.contractRupees ??
       pdfEval.contractRupees ??
       (ecv != null && pdfEval.tenderPercentage != null ? ecv * (1 - pdfEval.tenderPercentage / 100) : undefined)
+    const zone = !ee ? detected.zone : undefined
+    const circle = ee ? detected.circle : undefined
+    const cno = ee ? detected.cno : undefined
+    // LOA Date = the L-1 sheet's own "Server Time" footer (the date the LOA
+    // was actually issued) — same source Give Intimation seeds the Notice's
+    // LOA Date from (core/issueNotice.ts's "loa date" case) — so the Notice
+    // never starts with a blank Ref line the office has to look up by hand.
+    const loaDate = pdfEval.serverDate || ''
+    const loaNo = defaultLoaNo({ zone, circle, cno, corporation: corporationName }, loaDate)
     const item: PendingNoticeItem = {
       id: `notice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       officeKey: undefined,
       seMode: !ee,
-      zone: !ee ? detected.zone : undefined,
-      circle: ee ? detected.circle : undefined,
-      cno: ee ? detected.cno : undefined,
+      zone,
+      circle,
+      cno,
       corporation: corporationName,
       agencyName: notice?.agencyName ?? pdfEval.l1AgencyName,
       address: notice?.address,
       workName: pdfEval.nameOfWork,
       nitNo: notice?.nitNo ?? pdfEval.noticeNo,
       nitDate: notice?.nitDate ?? pdfEval.noticeDate,
+      itemNo: pdfEval.itemNo,
       ecvRupees: ecv,
       contractRupees: contract,
       tenderPercentage: pdfEval.tenderPercentage,
       intimationDate: new Date().toISOString().slice(0, 10),
-      manual: { ...EMPTY_ISSUE_NOTICE_MANUAL_FIELDS },
+      manual: { ...EMPTY_ISSUE_NOTICE_MANUAL_FIELDS, loaDate, loaNo },
       done: false
     }
     onChange([...items, item])

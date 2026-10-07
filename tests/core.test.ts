@@ -228,6 +228,25 @@ describe('extractEstimateItems', () => {
     expect(correctHeaderTypos('L')).toBe('L')
   })
 
+  it('finds a labelled Description column even when Unit/Rate sit between S.No and it', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    // S.No -> Unit -> Rate -> Per -> Description -> Qty -> Amount: Description is
+    // NOT the cell right after S.No here, but it IS explicitly labelled, so that
+    // label must win over the snoCol+1 positional default.
+    const header = ['SLNO', 'UNIT', 'RATE', 'Per', 'DETAILED DESCRIPTION OF ITEM', 'QTY', 'TOTAL AMOUNT']
+    const grid = [header, ['1', 'Cum', '308.31', '1', 'Earth work excavation', '237.06', '73108']]
+    const items = extractEstimateItems(grid, 0)
+    expect(items).toMatchObject([{ description: 'Earth work excavation', quantity: '237.06', rate: '308.31', unit: 'Cum' }])
+  })
+
+  it('tolerates a misspelled "DESRIPTION" Description header in the same reordered layout', async () => {
+    const { extractEstimateItems } = await import('../core/estimateExtract')
+    const header = ['SLNO', 'DETAILED DESRIPTION OF ITEM', 'UNIT', 'RATE', 'Per', 'QTY', 'TOTAL AMOUNT']
+    const grid = [header, ['1', 'Earth work excavation', 'Cum', '308.31', '1', '237.06', '73108']]
+    const items = extractEstimateItems(grid, 0)
+    expect(items).toMatchObject([{ description: 'Earth work excavation', quantity: '237.06', rate: '308.31', unit: 'Cum' }])
+  })
+
   it('resolves a mis-spelled "Qantity" quantity header (real footpath estimate)', async () => {
     const { extractEstimateItems } = await import('../core/estimateExtract')
     const header = ['Sl. No.', 'Description of Work', 'No.', 'L', 'B', 'D', 'Qantity', 'Rate', 'Unit', 'Amount']

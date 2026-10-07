@@ -5,6 +5,8 @@ export interface NitNoAndDate {
   noticeNo?: string
   /** The "Dated:"/"Dt:" date carried in the NIT No line (e.g. "15.07.2026"), if present. */
   noticeDate?: string
+  /** The NIT line's own "(Item No.3)" tag, if present — some offices print the item number here instead of (or as well as) tagging it onto the Name of Work (see bidDocument.ts's extractItemNo). */
+  itemNo?: string
 }
 
 // Some offices prefix the item number with 1-2 short alphanumeric segments
@@ -87,8 +89,17 @@ export function detectNitNoAndDate(lines: string[]): NitNoAndDate {
   // whole label+value sitting unstripped, wedged in whatever it landed next
   // to (see the noticeDate fix below, which this same stripped `cleaned` text
   // feeds into). Same failure class as PRICE_ROW's old `\s+…\b` in shared.ts.
+  // Same Tender ID value can also be labeled "Enquiry/IFB/Tender <id>" instead
+  // of "Tender ID <id>" (seen on the Commercial Evaluation page) — when that
+  // label+value lands between "NIT No <code>" and the rest of the NIT code
+  // ("…Nizampet Enquiry/IFB/Tender 738110 Circle58/CMC/2026-27"), cleanNit's
+  // own lazy capture keeps it as part of the NIT No since it sits *inside*
+  // the span, not before/after it where codeStart/the tail-trim would catch
+  // it. Stripped here first, same as the "Tender ID" label form, so it never
+  // reaches the NIT capture at all.
   const cleaned = joined
     .replace(/Tender ID\s*\d{5,8}\b|\b\d{5,8}\s+Tender ID/gi, ' ')
+    .replace(/Enquiry\/IFB\/Tender\s*\d{5,8}\b|\b\d{5,8}\s+Enquiry\/IFB\/Tender/gi, ' ')
     .replace(/Notice Number/gi, ' ')
   // Capture through to the tail (or the line's end), then cleanNit drops any
   // Tender ID / "Enquiry/IFB/Tender" / date fragment wedged into the value.
@@ -157,6 +168,14 @@ export function detectNitNoAndDate(lines: string[]): NitNoAndDate {
       cleaned
     )
   if (date) result.noticeDate = `${date[1]}${date[2]}${date[3]}${date[4]}${date[5]}`
+
+  // The "(Item No.N)" tag sits right on the NIT line itself, between the
+  // notice number's year tail and its "Dt:"/"Dated:" date — e.g. "…CMC/2026-27
+  // (Item No.03),Dt:26.09.2026" — rather than on the Name of Work (the only
+  // place extractItemNo in bidDocument.ts looks). Parenthesised, so this
+  // never collides with an unrelated "item" mentioned elsewhere on the sheet.
+  const item = /\(\s*Item[\s.-]*No\.?\s*[:.]?\s*(\d{1,3})\s*\)/i.exec(cleaned)
+  if (item) result.itemNo = item[1]
 
   return result
 }

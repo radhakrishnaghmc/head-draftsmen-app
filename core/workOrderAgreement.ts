@@ -238,8 +238,9 @@ export function deriveFields(
   const workName = pdf.nameOfWork || row['Name of the work'] || ''
   // SE offices tag the item number onto the work name itself ("...(Item No.3)")
   // — pull it into its own field and strip the tag back out, so it doesn't also
-  // print as part of the printed work name.
-  const itemNo = extractItemNo(workName) ?? ''
+  // print as part of the printed work name. Other offices print it on the NIT
+  // line instead (pdf.itemNo, from the Notice Number field) — try that next.
+  const itemNo = extractItemNo(workName) ?? pdf.itemNo ?? ''
 
   return {
     circle: row['Circle'] ?? '',

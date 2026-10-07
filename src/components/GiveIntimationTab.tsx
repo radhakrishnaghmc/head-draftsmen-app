@@ -728,6 +728,14 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     setBusy('pdf')
     setActionError(null)
     setPdfStatus(null)
+    // Clear any previously-loaded L1's data up front — if this file fails to
+    // parse below, a stale pdfEval from an earlier (possibly different) work
+    // must not keep being shown next to the newly-uploaded Online Intimation,
+    // which would make the two halves of the letter describe different works.
+    setPdfEval(null)
+    setPdfName('')
+    setAllBidders([])
+    setWorksRowMatched(null)
     try {
       const lines = await pdfToTextLinesOrOcr(file)
       const ev = parseTenderEvaluation(lines)
@@ -736,7 +744,6 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       }
       setPdfEval(ev)
       setPdfName(file.name)
-      setWorksRowMatched(null)
       // Every bidder on the sheet (not just L-1) — feeds the SE Bid Evaluation /
       // Agency Approval notes' tables.
       setAllBidders(parseAllBidders(lines))

@@ -165,6 +165,15 @@ function TemplateSection({ title, subtitle, storageKey, variants, defaultVariant
   const modalRef = useRef<HTMLDivElement | null>(null)
   const selectedVariant = variants.find((v) => v.id === selected)
 
+  // storageKey switches from the bare (unscoped) key to the office-scoped one
+  // once the office finishes its async restore on app launch — re-read the
+  // saved selection under the now-correct key instead of leaving `selected`
+  // stuck at the bare key's (usually empty) value from the initial mount.
+  useEffect(() => {
+    setSelected(localStorage.getItem(storageKey) || defaultVariant)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey])
+
   function choose(id: string) {
     setSelected(id)
     localStorage.setItem(storageKey, id)

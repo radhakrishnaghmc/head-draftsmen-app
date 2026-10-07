@@ -6,7 +6,11 @@ import {
   isAutoResolved,
   needsReview,
   extractItemCode,
-  extractGrade
+  extractGrade,
+  normalizeItemDescription,
+  buildReplicateIndex,
+  matchByExactDescription,
+  buildReplicateCellEdits
 } from '../core/technicalSanction'
 import type { EstimateWorkItem } from '../core/estimateExtract'
 import type { RateEntry } from '../core/rateDatabase'
@@ -241,5 +245,59 @@ describe('buildRateAnalysisSheet', () => {
     const est = item({ descRow: 1, descCol: 1, rateRow: 1, rateCol: 3 })
     expect(buildRateAnalysisSheet([{ item: est, chosen: null }])).toEqual([])
     expect(buildRateAnalysisSheet([{ item: est, chosen: candidate({ breakdown: [] }) }])).toEqual([])
+  })
+})
+
+describe('Replicate Technical Sanction', () => {
+  it('normalizeItemDescription collapses spacing/casing differences', () => {
+    expect(normalizeItemDescription('  Earthwork  In   Excavation ')).toBe('earthwork in excavation')
+    expect(normalizeItemDescription('Earthwork in excavation')).toBe('earthwork in excavation')
+  })
+
+  it('buildReplicateIndex keeps the first rate seen for a description, skips items with no description/rate', () => {
+    const oldItems = [
+      item({ description: 'Earthwork in excavation', rate: '308.31' }),
+      item({ description: 'EARTHWORK IN EXCAVATION', rate: '999.99' }), // duplicate, same normalized key — first wins
+      item({ description: 'Brick masonry work', rate: '6720.10' }),
+      item({ description: '', rate: '1.00' }),
+      item({ description: 'No rate item', rate: '' })
+    ]
+    const index = buildReplicateIndex(oldItems)
+    expect(index.get('earthwork in excavation')).toBe('308.31')
+    expect(index.get('brick masonry work')).toBe('6720.10')
+    expect(index.size).toBe(2)
+  })
+
+  it('matchByExactDescription fills a rate only for an exact (normalized) description match', () => {
+    const index = buildReplicateIndex([
+      item({ description: 'Earthwork in excavation', rate: '308.31' }),
+      item({ description: 'Brick masonry work', rate: '6720.10' })
+    ])
+    const newItems = [
+      item({ description: ' earthwork IN excavation ' }),
+      item({ description: 'Brick masonry work' }),
+      item({ description: 'Concrete work M20 grade' })
+    ]
+    const matches = matchByExactDescription(newItems, index)
+    expect(matches[0].rate).toBe('308.31')
+    expect(matches[1].rate).toBe('6720.10')
+    expect(matches[2].rate).toBeUndefined()
+  })
+
+  it('buildReplicateCellEdits fills and marks the rate cell yellow on a match, pale red on the rate cell when not found', () => {
+    const index = buildReplicateIndex([item({ description: 'Earthwork in excavation', rate: '308.31' })])
+    const found = item({ description: 'Earthwork in excavation', descRow: 1, descCol: 1, rateRow: 1, rateCol: 3 })
+    const notFound = item({ description: 'Unrelated item', descRow: 2, descCol: 1, rateRow: 2, rateCol: 3 })
+    const edits = buildReplicateCellEdits(matchByExactDescription([found, notFound], index))
+    expect(edits).toEqual([
+      { row: 1, col: 3, value: 308.31, color: 'yellow' },
+      { row: 2, col: 3, color: 'paleRed' }
+    ])
+  })
+
+  it('buildReplicateCellEdits skips items with no rate cell position', () => {
+    const index = buildReplicateIndex([item({ description: 'Earthwork in excavation', rate: '308.31' })])
+    const noPosition = item({ description: 'Earthwork in excavation' })
+    expect(buildReplicateCellEdits(matchByExactDescription([noPosition], index))).toEqual([])
   })
 })

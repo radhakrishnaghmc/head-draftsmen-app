@@ -49,6 +49,11 @@ function isSecondSaturday(year: number, mi: number, day: number): boolean {
   return new Date(year, mi, day).getDay() === 6 && day >= 8 && day <= 14
 }
 
+function isToday(year: number, mi: number, day: number): boolean {
+  const now = new Date()
+  return now.getFullYear() === year && now.getMonth() === mi && now.getDate() === day
+}
+
 /** Choose how many month grids to show based on the viewport width. */
 function colsForWidth(w: number): number {
   if (w >= 1280) return 3
@@ -427,7 +432,8 @@ export default function Dashboard({ cached, onData, office }: Props) {
                             ? 'sunday'
                             : '',
                           num != null ? 'numbered' : '',
-                          isAnchor ? 'anchor' : ''
+                          isAnchor ? 'anchor' : '',
+                          isToday(m.year, m.mi, day) ? 'cal-today-blink' : ''
                         ]
                           .filter(Boolean)
                           .join(' ')

@@ -16,6 +16,21 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.38.0',
+    changes: [
+      'Give Technical Sanction now looks up rates from the Data Sheet and the SoR PDF together, instead of the Data Sheet alone, so fewer items come back without a rate.',
+      'Letterhead titles on printed previews no longer wrap awkwardly to two lines or lean to the right.',
+      'Work Order: the Ref block now prints as a clean 3-line table (Ref:-, 1), 2), 3)) with no visible borders and the reference numbers un-bolded.',
+      'Give Notice now fills in the LOA Date and LOA No on its own from the uploaded L1 sheet, instead of starting blank.',
+      'Item numbers printed on the NIT line itself (not just tagged onto the work name) are now read correctly across Notice, Work Order and Technical Sanction.',
+      'Uploading many estimates at once is faster and shows a progress count instead of appearing frozen.',
+      'Estimates with an explicit "Description"/"Particulars" column header, or no Unit column at all, now extract correctly.',
+      'Note Submitted shows an A4 page-count badge while editing.',
+      "Dashboard: today's date now blinks on the calendar.",
+      'Fixed a template-selection bug in Settings where a just-restored office could show the wrong saved template as selected.'
+    ]
+  },
+  {
     version: '1.37.0',
     changes: [
       'File Backer, Work Order, Agreement Bond and QCC Intimation now open as editors: every printed value is listed beside the live page, and typing over a line carries into Word, PDF, Print and Download all.',

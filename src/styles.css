@@ -3140,6 +3140,40 @@ button.upload-btn {
   padding: 6px 9px;
   font-size: 12.5px;
 }
+.doc-edit-period {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.doc-edit-period input {
+  width: 64px;
+  flex: none;
+  min-width: 0;
+}
+.doc-edit-period-toggle {
+  display: flex;
+  flex: none;
+  border: 1px solid var(--line, #d8dbe2);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.doc-edit-period-toggle button {
+  border: none;
+  background: transparent;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  color: inherit;
+}
+.doc-edit-period-toggle button + button {
+  border-left: 1px solid var(--line, #d8dbe2);
+}
+.doc-edit-period-toggle button.active {
+  background: var(--chakra);
+  color: #fff;
+}
 .doc-edit-count {
   font-weight: 600;
   letter-spacing: 0;
@@ -6982,7 +7016,19 @@ tr.on .rp-box span {
 }
 .sheet-inline {
   padding: 0;
-  overflow: hidden;
+  /* Horizontal only. This used to be a plain `overflow: hidden`, clipping
+     both axes — but that meant min-height below had to exactly equal the
+     sum of every child's height (header + search bar + .sheet-wrap's fixed
+     640px + footer) or any excess got silently clipped off the BOTTOM, i.e.
+     exactly the last visible slice of .sheet-wrap once scrolled to the end
+     (reported: "last row of Works List not visible"). The real one-time fix
+     is to only clip horizontally (still needed, see min-width/max-width
+     below) and let vertical content past min-height simply make the card
+     taller instead of clipping it — .sheet-wrap already caps and internally
+     scrolls itself, so nothing here actually needs the vertical clip, and
+     min-height no longer has to be bumped by hand whenever the header/footer
+     content above or below .sheet-wrap changes. */
+  overflow-x: hidden;
   /* .page (this card's flex parent, flex-direction: column) defaults every
      flex item to min-width: auto — without this override, the Works List
      table's own intrinsic width (33 fixed-width columns, easily wider than
@@ -6999,38 +7045,23 @@ tr.on .rp-box span {
   /* .sheet-wrap below used to be capped with max-height:58vh/70vh (a flat
      fraction of the WHOLE viewport) — but the real space left for it, once
      .page-head/QC-parties/Google-import/notices above it are accounted
-     for, is routinely LESS than that fraction. .sheet-wrap (plus the
-     .sheet-foot "Add row/Add column" bar after it, and critically the
-     horizontal scrollbar sitting at .sheet-wrap's own bottom edge) then
-     overflowed THIS card's box height and got silently swallowed by the
-     overflow:hidden above — confirmed via devtools: .sheet-wrap's
-     getBoundingClientRect().bottom sat ~24-90px past .sheet-inline's own
-     bottom, clipping off exactly the scrollbar strip and the whole footer.
-     Making this a flex column and letting .sheet-wrap's own flex:1 (see
-     below — it already had this, unused until now) claim the ACTUAL
-     leftover height fixes it structurally instead of guessing a fraction.
-     flex is 0 1 auto, NOT 1 — a plain flex:1 unconditionally grows this
-     card to fill 100% of .page's remaining height even for a short/
-     filtered table, stranding "Add row/Add column" below a big dead gap
-     instead of right under the last real row. 0 1 auto only shrinks
-     (never grows past its own content) when content genuinely doesn't
-     fit — a short table stays content-sized, a long one still gets
-     capped and internally scrolled exactly as before. */
-  /* min-height must cover the link-import header + search bar + .sheet-wrap's
-     own 640px floor below (~15 rows) + the Add row/Add column footer, not 0
-     — a real Windows report: the list loaded showing only 1 row, because
-     with min-height:0 here .page's flex-shrink was free to squeeze this
-     card down to whatever it liked with nothing stopping it, regardless of
-     what .sheet-wrap needs internally. .sheet-wrap's own floor doesn't help
-     if the container it sits in was already shrunk smaller than that floor
-     (by the OUTER .page flex pass, which sizes this card before this card's
-     own flex column distributes that size to its children) — its content
-     then overflows this card's box and gets clipped by the overflow:hidden
-     above, same failure mode as the original clipping bug, just approached
-     from the other side. Keeping both floors in agreement (this one ==
-     header + search bar + .sheet-wrap's floor + footer) fixes it either
-     way — bump this any time .sheet-wrap's own floor or the header content
-     above it changes. */
+     for, is routinely LESS than that fraction. Making this a flex column
+     and letting .sheet-wrap's own flex:1 (see below — it already had this,
+     unused until now) claim the ACTUAL leftover height fixes it
+     structurally instead of guessing a fraction. flex is 0 1 auto, NOT 1 —
+     a plain flex:1 unconditionally grows this card to fill 100% of .page's
+     remaining height even for a short/filtered table, stranding "Add row/
+     Add column" below a big dead gap instead of right under the last real
+     row. 0 1 auto only shrinks (never grows past its own content) when
+     content genuinely doesn't fit — a short table stays content-sized, a
+     long one still gets capped and internally scrolled exactly as before. */
+  /* min-height is a FLOOR only (overflow-x above no longer clips any
+     excess) — without it, a real Windows report: the list loaded showing
+     only 1 row, because with min-height:0 here .page's flex-shrink was free
+     to squeeze this card down to whatever it liked with nothing stopping
+     it, regardless of what .sheet-wrap needs internally. Doesn't need to be
+     exact; it only has to be in the right ballpark (header + search bar +
+     .sheet-wrap's 640px floor + footer) to stop that squeeze. */
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
@@ -8335,6 +8366,19 @@ tr.on .rp-box span {
   background: #fff;
 }
 
+.cal-day.cal-today-blink {
+  animation: cal-today-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes cal-today-blink {
+  0%, 100% {
+    box-shadow: 0 0 0 2px var(--danger);
+  }
+  50% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
 .cal-legend {
   display: flex;
   flex-wrap: wrap;
@@ -9252,6 +9296,20 @@ tr.on .rp-box span {
   background: #e7e9ec;
   padding: 22px;
 }
+.note-page-badge {
+  position: sticky;
+  top: 8px;
+  float: right;
+  margin: 0 8px 0 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(16, 24, 40, 0.72);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  z-index: 1;
+}
 .note-page {
   width: 100%;
   max-width: 684px;
@@ -9259,9 +9317,10 @@ tr.on .rp-box span {
   background: var(--note-paper);
   border-radius: 2px;
   box-shadow: 0 2px 16px rgba(16, 24, 40, 0.16);
-  padding: 30px 34px 30px 0;
+  padding: 1.5em 34px 1.5em 0;
   /* Same face the exported document sets on itself — the preview has to read
-     as the printed sheet, not as app UI. */
+     as the printed sheet, not as app UI. Top/bottom padding is 1 line (1.5em
+     at this line-height), matching the exported doc's own margins. */
   font-family: 'Bookman Old Style', Georgia, serif;
   font-size: 11pt;
   line-height: 1.5;

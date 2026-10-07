@@ -79,24 +79,45 @@ export function normalizeDocxTextboxes(container: HTMLElement): void {
     d.style.transform = 'none'
     d.querySelectorAll<HTMLElement>('*').forEach((el) => {
       if (el.style.width === '100%') el.style.width = 'auto'
+      // Skip anything inside a foreignObject: that's docx-preview's WordArt
+      // fit-to-box scaleX (added to replicate Word's letterhead-title
+      // stretch), not the stray full-width scale this loop is meant to undo.
+      if (el.closest('foreignObject')) return
       if (el.style.transform && /scale/i.test(el.style.transform)) el.style.transform = 'none'
     })
   })
 
-  // WordArt ("v:textpath" — e.g. the same "CYBERABAD MUNICIPAL CORPORATION"
-  // letterhead, in its older VML form) renders as an <svg> that keeps VML's
-  // authored `position:absolute; margin-left:…; margin-top:…` — offsets from
-  // wherever docx-preview happens to lay out the run in normal flow, which is
-  // never where Word actually placed it, so the title drifts off the page's
-  // right edge. Word's real intent is simpler: it's the sole run on an
-  // already `text-align:center` line — so drop the absolute positioning and
-  // let it flow centered, keeping only its authored size (svg[style*=
-  // "v-text-anchor"] is a reliable VML-only marker, never emitted for
-  // anything else docx-preview renders).
+  // WordArt letterhead titles come in two different VML shapes across our
+  // bundled templates, and docx-preview renders both as an <svg> that keeps
+  // VML's authored `style` string verbatim (svg[style*="v-text-anchor"] is a
+  // reliable marker for either kind — never emitted for anything else
+  // docx-preview renders):
+  //
+  // 1. A plain text-box shape (`_x0000_t202`, e.g. work-order-template.docx)
+  //    authored with an explicit `left:0; margin-left:…; margin-top:…` — an
+  //    offset from the paragraph/cell hosting the drawing's run, exactly as
+  //    Word anchors it. But docx-preview never marks that run's own wrapper
+  //    `position: relative`, so the browser resolves the explicit `left:0`
+  //    against the nearest positioned ancestor up the tree instead — usually
+  //    the page root — landing the title far from its authored spot. Marking
+  //    the immediate parent `relative` makes the browser resolve it the way
+  //    Word does.
+  // 2. A curved WordArt shape (`_x0000_t136`, e.g. zonal-work-order-
+  //    template.docx) authored with only `margin-left`/`margin-top` and no
+  //    `left` at all — its real position is Word's own in-flow placement of
+  //    that single centered-text line, which fixing the ancestor can't
+  //    recover. Dropping the absolute positioning and centering it in flow
+  //    (keeping only its authored size) matches Word here instead.
   container.querySelectorAll<SVGElement>('svg[style*="v-text-anchor"]').forEach((svg) => {
-    svg.style.position = 'static'
-    svg.style.display = 'block'
-    svg.style.margin = '0 auto'
+    const style = svg.getAttribute('style') ?? ''
+    if (style.includes('left:0')) {
+      const parent = svg.parentElement
+      if (parent && getComputedStyle(parent).position === 'static') parent.style.position = 'relative'
+    } else {
+      svg.style.position = 'static'
+      svg.style.display = 'block'
+      svg.style.margin = '0 auto'
+    }
   })
 }
 

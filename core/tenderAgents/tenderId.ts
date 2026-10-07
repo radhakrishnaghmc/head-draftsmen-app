@@ -26,12 +26,16 @@ export function detectTenderId(lines: string[]): string | undefined {
   // the wrapped TAIL follows the id instead — "…Circle- Enquiry/IFB/Tender
   // 699966 58/QBZ/CMC/2026-27 Dt.08.05.2026…" — no "/DB/EE/" in that tail at
   // all, just "<circleNo>/[QBZ/]CMC/<year>" directly. Accept either shape.
+  // Some offices glue the word "Circle" onto that circle number with no
+  // separator — "738110 Circle58/CMC/2026-27" — so the tail's leading digit
+  // is hidden behind "Circle"; allow an optional "Circle" (with or without a
+  // following hyphen/space) before the circle number.
   // "Tender ID\s+" is `\s*` (not `\s+`): a rasterized/no-text-layer L1 sheet
   // goes through OCR, which doesn't reliably keep the space between a label
   // and its value — a real sample row read "Tender ID722274" with no gap at
   // all. Same failure class as PRICE_ROW's old `\s+…\b` in shared.ts.
   const m =
-    /Tender ID\s*(\d{5,8})\b|\b(\d{5,8})\s+Tender ID|\b(\d{5,8})\s+(?=\d{1,3}\/(?:DB\/EE\/|(?:QBZ\/)?CMC\/))/i.exec(
+    /Tender ID\s*(\d{5,8})\b|\b(\d{5,8})\s+Tender ID|\b(\d{5,8})\s+(?=(?:Circle\s*-?\s*)?\d{1,3}\/(?:DB\/EE\/|(?:QBZ\/)?CMC\/))/i.exec(
       joined
     )
   return m ? (m[1] ?? m[2] ?? m[3]) : undefined

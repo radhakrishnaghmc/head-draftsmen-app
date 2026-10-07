@@ -7,9 +7,19 @@ import { buildRateIndex } from '@core/rateDatabase'
 import type { RateEntry } from '@core/rateDatabase'
 import { buildSorRateIndex } from '@core/sorPdfExtract'
 import { pdfPagesToTextLinesFromData } from '../pdfToText'
-import { matchEstimateItems, buildCellEdits, buildRateAnalysisSheet, isAutoResolved, needsReview } from '@core/technicalSanction'
-import type { ItemMatch, ResolvedItem } from '@core/technicalSanction'
-import { IconFolder, IconDownload, IconWarn, IconCheck, IconTable } from './Icons'
+import {
+  matchEstimateItems,
+  buildCellEdits,
+  buildRateAnalysisSheet,
+  isAutoResolved,
+  needsReview,
+  matchByExactDescription,
+  buildReplicateIndex,
+  buildReplicateCellEdits
+} from '@core/technicalSanction'
+import type { ItemMatch, ResolvedItem, ReplicateMatch } from '@core/technicalSanction'
+import type { EstimateWorkItem } from '@core/estimateExtract'
+import { IconFolder, IconDownload, IconWarn, IconCheck, IconTable, IconRefresh, IconChevronLeft, IconTrash } from './Icons'
 import type { SheetGrid } from '../../electron/ipc-contract'
 
 function stripExt(name: string): string {
@@ -43,6 +53,11 @@ function formatRate(rate: string): string {
  * edits into a copy of the original estimate file.
  */
 export default function GiveTechnicalSanctionTab() {
+  // Which tile's workspace (if any) has taken over the tab: the Data Sheet/SoR
+  // rate lookup above, or Replicate Technical Sanction below. null = the tile
+  // grid picker.
+  const [mode, setMode] = useState<'lookup' | 'replicate' | null>(null)
+
   const [dataSheetName, setDataSheetName] = useState<string | null>(null)
   const [dataRateIndex, setDataRateIndex] = useState<RateEntry[] | null>(null)
   const [rateSheetCount, setRateSheetCount] = useState(0)
@@ -58,7 +73,9 @@ export default function GiveTechnicalSanctionTab() {
 
   const [combinedEmbeddings, setCombinedEmbeddings] = useState<number[][] | null>(null)
 
-  const [estimate, setEstimate] = useState<SheetGrid | null>(null)
+  // The estimate workbook's sheets (usually one — a workbook can also spread
+  // one estimate's items across several, each read and matched in turn).
+  const [estimate, setEstimate] = useState<SheetGrid[] | null>(null)
   const [matches, setMatches] = useState<ItemMatch[] | null>(null)
   const [selections, setSelections] = useState<(number | null)[]>([])
   const [estimateError, setEstimateError] = useState<string | null>(null)
@@ -70,6 +87,25 @@ export default function GiveTechnicalSanctionTab() {
   const [saved, setSaved] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [generateError, setGenerateError] = useState<string | null>(null)
+
+  // Replicate Technical Sanction: a separate workflow (see
+  // core/technicalSanction.ts's matchByExactDescription) — exact-description
+  // reuse of an already-sanctioned estimate's rates, not the Data Sheet/SoR
+  // keyword/semantic lookup above.
+  const [oldItems, setOldItems] = useState<EstimateWorkItem[]>([])
+  const [oldEstimateNames, setOldEstimateNames] = useState<string[]>([])
+  const [oldEstimateError, setOldEstimateError] = useState<string | null>(null)
+  const [oldEstimateBusy, setOldEstimateBusy] = useState(false)
+
+  const [newEstimate, setNewEstimate] = useState<SheetGrid[] | null>(null)
+  const [replicateMatches, setReplicateMatches] = useState<ReplicateMatch[] | null>(null)
+  const [replicateColumnsAiAssisted, setReplicateColumnsAiAssisted] = useState<string[]>([])
+  const [newEstimateError, setNewEstimateError] = useState<string | null>(null)
+  const [newEstimateBusy, setNewEstimateBusy] = useState(false)
+
+  const [replicateSaved, setReplicateSaved] = useState<string | null>(null)
+  const [replicateGenerating, setReplicateGenerating] = useState(false)
+  const [replicateGenerateError, setReplicateGenerateError] = useState<string | null>(null)
 
   // Semantic matching is an enhancement, not a hard requirement — if the
   // bundled model can't be loaded for any reason, fall back to keyword
@@ -85,9 +121,22 @@ export default function GiveTechnicalSanctionTab() {
     }
   }
 
-  async function runMatching(grid: SheetGrid, index: RateEntry[], entryVectors: number[][] | null) {
-    const { items, aiAssisted } = await extractEstimateItemsWithAi(grid.grid, guessHeaderRow(grid.grid))
-    setColumnsAiAssisted(aiAssisted)
+  async function runMatching(grids: SheetGrid[], index: RateEntry[], entryVectors: number[][] | null) {
+    const items: EstimateWorkItem[] = []
+    const aiAssisted = new Set<string>()
+    for (const grid of grids) {
+      // A multi-sheet workbook can carry sheets that aren't an estimate table
+      // at all (an empty sheet, a summary table with different columns) —
+      // skip those rather than letting one bad sheet abort the whole upload.
+      try {
+        const extracted = await extractEstimateItemsWithAi(grid.grid, guessHeaderRow(grid.grid))
+        extracted.aiAssisted.forEach((a) => aiAssisted.add(a))
+        items.push(...extracted.items.map((it) => ({ ...it, sheetName: grid.sheetName })))
+      } catch {
+        continue
+      }
+    }
+    setColumnsAiAssisted([...aiAssisted])
     if (items.length === 0) {
       throw new Error('No work items with a quantity, rate, and unit were found in that estimate.')
     }
@@ -163,16 +212,16 @@ export default function GiveTechnicalSanctionTab() {
     setSaved(null)
     setEstimateBusy(true)
     setColumnsAiAssisted([])
-    let grid: SheetGrid | null = null
+    let grids: SheetGrid[] | null = null
     try {
-      grid = await api.pickEstimateGrid()
-      if (!grid) return
-      setEstimate(grid)
+      grids = await api.pickEstimateGrids()
+      if (!grids || grids.length === 0) return
+      setEstimate(grids)
       setMatches(null)
       const combined = [...(dataRateIndex ?? []), ...(sorRateIndex ?? [])]
-      if (combined.length > 0) await runMatching(grid, combined, combinedEmbeddings)
+      if (combined.length > 0) await runMatching(grids, combined, combinedEmbeddings)
     } catch (e) {
-      const hint = grid ? mismatchHint(grid.grid[guessHeaderRow(grid.grid)] ?? [], 'estimate') : null
+      const hint = grids ? mismatchHint(grids[0].grid[guessHeaderRow(grids[0].grid)] ?? [], 'estimate') : null
       setEstimateError((e instanceof Error ? e.message : String(e)) + (hint ? ` ${hint}` : ''))
     } finally {
       setEstimateBusy(false)
@@ -198,10 +247,10 @@ export default function GiveTechnicalSanctionTab() {
       }))
       const edits = buildCellEdits(resolved)
       const rateAnalysisRows = buildRateAnalysisSheet(resolved)
-      const suggestedName = `${stripExt(estimate.name)} Technical Sanction`
+      const suggestedName = `${stripExt(estimate[0].name)} Technical Sanction`
       const path = await api.generateTechnicalSanction(
-        estimate.path,
-        estimate.sheetName,
+        estimate[0].path,
+        estimate[0].sheetName,
         edits,
         suggestedName,
         rateAnalysisRows
@@ -214,6 +263,127 @@ export default function GiveTechnicalSanctionTab() {
     }
   }
 
+  async function runReplicateMatching(grids: SheetGrid[], items: EstimateWorkItem[]) {
+    const index = buildReplicateIndex(items)
+    const newItems: EstimateWorkItem[] = []
+    const aiAssisted = new Set<string>()
+    for (const grid of grids) {
+      try {
+        const extracted = await extractEstimateItemsWithAi(grid.grid, guessHeaderRow(grid.grid))
+        extracted.aiAssisted.forEach((a) => aiAssisted.add(a))
+        newItems.push(...extracted.items.map((it) => ({ ...it, sheetName: grid.sheetName })))
+      } catch {
+        continue
+      }
+    }
+    setReplicateColumnsAiAssisted([...aiAssisted])
+    if (newItems.length === 0) {
+      throw new Error('No work items with a quantity, rate, and unit were found in that estimate.')
+    }
+    setReplicateMatches(matchByExactDescription(newItems, index))
+  }
+
+  async function uploadOldEstimate() {
+    setOldEstimateError(null)
+    setOldEstimateBusy(true)
+    try {
+      const grids = await api.pickEstimateGrids()
+      if (!grids || grids.length === 0) return
+      const items: EstimateWorkItem[] = []
+      for (const grid of grids) {
+        try {
+          const extracted = await extractEstimateItemsWithAi(grid.grid, guessHeaderRow(grid.grid))
+          items.push(...extracted.items)
+        } catch {
+          continue
+        }
+      }
+      if (items.length === 0) {
+        throw new Error('No work items with a quantity, rate, and unit were found in that estimate.')
+      }
+      const merged = [...oldItems, ...items]
+      setOldItems(merged)
+      setOldEstimateNames((prev) => [...prev, grids[0].name])
+      setReplicateSaved(null)
+      if (newEstimate) await runReplicateMatching(newEstimate, merged)
+    } catch (e) {
+      setOldEstimateError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setOldEstimateBusy(false)
+    }
+  }
+
+  async function uploadNewEstimate() {
+    setNewEstimateError(null)
+    setReplicateSaved(null)
+    setNewEstimateBusy(true)
+    setReplicateColumnsAiAssisted([])
+    let grids: SheetGrid[] | null = null
+    try {
+      grids = await api.pickEstimateGrids()
+      if (!grids || grids.length === 0) return
+      setNewEstimate(grids)
+      setReplicateMatches(null)
+      if (oldItems.length > 0) await runReplicateMatching(grids, oldItems)
+    } catch (e) {
+      const hint = grids ? mismatchHint(grids[0].grid[guessHeaderRow(grids[0].grid)] ?? [], 'estimate') : null
+      setNewEstimateError((e instanceof Error ? e.message : String(e)) + (hint ? ` ${hint}` : ''))
+    } finally {
+      setNewEstimateBusy(false)
+    }
+  }
+
+  async function generateReplicate() {
+    if (!newEstimate || !replicateMatches) return
+    setReplicateGenerating(true)
+    setReplicateGenerateError(null)
+    try {
+      const edits = buildReplicateCellEdits(replicateMatches)
+      const suggestedName = `${stripExt(newEstimate[0].name)} Technical Sanction`
+      const path = await api.generateTechnicalSanction(newEstimate[0].path, newEstimate[0].sheetName, edits, suggestedName)
+      if (path) setReplicateSaved(path)
+    } catch (e) {
+      setReplicateGenerateError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setReplicateGenerating(false)
+    }
+  }
+
+  const replicateFoundCount = replicateMatches ? replicateMatches.filter((m) => m.rate !== undefined).length : 0
+  const replicateNotFoundCount = replicateMatches ? replicateMatches.filter((m) => m.rate === undefined).length : 0
+
+  function clearLookup() {
+    setDataSheetName(null)
+    setDataRateIndex(null)
+    setRateSheetCount(0)
+    setDataError(null)
+    setSorFileName(null)
+    setSorRateIndex(null)
+    setSorError(null)
+    setSorProgress(null)
+    setCombinedEmbeddings(null)
+    setEmbedNotice(null)
+    setEstimate(null)
+    setMatches(null)
+    setSelections([])
+    setEstimateError(null)
+    setColumnsAiAssisted([])
+    setSaved(null)
+    setGenerateError(null)
+  }
+
+  function clearReplicate() {
+    setOldItems([])
+    setOldEstimateNames([])
+    setOldEstimateError(null)
+    setNewEstimate(null)
+    setReplicateMatches(null)
+    setReplicateColumnsAiAssisted([])
+    setNewEstimateError(null)
+    setReplicateSaved(null)
+    setReplicateGenerateError(null)
+  }
+
   const combinedCount = (dataRateIndex?.length ?? 0) + (sorRateIndex?.length ?? 0)
 
   // Resolved = anything now carrying a chosen rate, auto-filled or user-picked.
@@ -222,8 +392,160 @@ export default function GiveTechnicalSanctionTab() {
   const ambiguousCount = matches ? matches.filter((m, i) => needsReview(m) && selections[i] == null).length : 0
   const notFoundCount = matches ? matches.filter((m) => m.candidates.length === 0).length : 0
 
+  if (mode === null) {
+    return (
+      <div className="card">
+        <div className="doc-tile-grid tools-grid">
+          <button className="doc-tile-card tone-green tool-card" onClick={() => setMode('lookup')}>
+            <span className="tool-card-ic">
+              <IconTable />
+            </span>
+            <span className="doc-tile-card-name">Rate Lookup</span>
+            <span className="doc-tile-card-meta">Data Sheet / SoR keyword &amp; semantic rate lookup</span>
+            <span className="tool-card-cta">
+              <IconFolder /> Open workspace
+            </span>
+          </button>
+
+          <button className="doc-tile-card tone-green tool-card" onClick={() => setMode('replicate')}>
+            <span className="tool-card-ic">
+              <IconRefresh />
+            </span>
+            <span className="doc-tile-card-name">Replicate Technical Sanction</span>
+            <span className="doc-tile-card-meta">Reuse rates from an already-sanctioned estimate, by matching description</span>
+            <span className="tool-card-cta">
+              <IconFolder /> Open workspace
+            </span>
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (mode === 'replicate') {
+    return (
+      <>
+        <div className="pdf-ws-topbar">
+          <div className="pdf-ws-title">
+            <IconRefresh /> <span className="pdf-ws-title-label">Tool:</span> Replicate Technical Sanction
+          </div>
+          <button className="ghost" onClick={clearReplicate}>
+            <IconTrash /> Clear
+          </button>
+          <button className="ghost pdf-ws-back" onClick={() => setMode(null)}>
+            <IconChevronLeft /> Back
+          </button>
+        </div>
+        <div className="card pdf-workspace">
+          <div className="empty">
+            <IconRefresh />
+            <p>
+              {oldEstimateNames.length > 0
+                ? `${oldItems.length} items loaded across ${oldEstimateNames.length} already-sanctioned estimate${oldEstimateNames.length === 1 ? '' : 's'} (“${oldEstimateNames.join('”, “')}”).`
+                : 'Upload one or more already Technical Sanctioned estimates, as the source of rates to reuse.'}
+            </p>
+            <div className="boq-actions">
+              <button className="primary upload-btn" onClick={uploadOldEstimate} disabled={oldEstimateBusy}>
+                <IconFolder /> {oldEstimateBusy ? 'Loading…' : oldEstimateNames.length > 0 ? 'Add Another Sanctioned Estimate' : 'Upload Sanctioned Estimate'}
+              </button>
+            </div>
+            {oldEstimateError && (
+              <div className="notice error">
+                <IconWarn />
+                {oldEstimateError}
+              </div>
+            )}
+
+            <p style={{ marginTop: 18 }}>
+              {newEstimate
+                ? `Loaded “${newEstimate[0].name}”${newEstimate.length > 1 ? ` (${newEstimate.length} sheets)` : ''}.`
+                : 'Upload the new estimate whose rates should be filled in from the sanctioned estimate(s) above.'}
+            </p>
+            <div className="boq-actions">
+              <button className="primary upload-btn" onClick={uploadNewEstimate} disabled={newEstimateBusy}>
+                <IconFolder /> {newEstimateBusy ? 'Loading & computing matches…' : 'Upload New Estimate'}
+              </button>
+              {replicateMatches && (
+                <button className="primary" onClick={generateReplicate} disabled={replicateGenerating}>
+                  <IconDownload /> {replicateGenerating ? 'Saving…' : 'Generate Technical Sanction'}
+                </button>
+              )}
+            </div>
+            {newEstimateError && (
+              <div className="notice error">
+                <IconWarn />
+                {newEstimateError}
+              </div>
+            )}
+            {replicateColumnsAiAssisted.length > 0 && (
+              <div className="notice warn">
+                <IconWarn />
+                {replicateColumnsAiAssisted.join(', ')} column{replicateColumnsAiAssisted.length === 1 ? '' : 's'} matched by AI —
+                please double-check the estimate's items below.
+              </div>
+            )}
+            {replicateGenerateError && (
+              <div className="notice error">
+                <IconWarn />
+                {replicateGenerateError}
+              </div>
+            )}
+            {replicateSaved && (
+              <div className="notice ok">
+                <IconCheck />
+                Saved to {replicateSaved}
+              </div>
+            )}
+          </div>
+
+          {replicateMatches && (
+            <>
+              <p className="hint" style={{ margin: '14px 18px 0' }}>
+                {replicateFoundCount} rate{replicateFoundCount === 1 ? '' : 's'} found · {replicateNotFoundCount} not found
+              </p>
+              <ul className="todo-list boq-entries" style={{ margin: '10px 18px 18px' }}>
+                {replicateMatches.map((m, i) => (
+                  <li key={i} className="todo-item">
+                    <div className="todo-body">
+                      <span
+                        className="todo-text"
+                        title={m.item.description}
+                        style={{
+                          background: m.rate !== undefined ? '#c6efce' : '#ffc7ce',
+                          borderRadius: 4,
+                          padding: '1px 4px'
+                        }}
+                      >
+                        {m.item.description.length > 100 ? `${m.item.description.slice(0, 100)}…` : m.item.description}
+                      </span>
+                      <span className="todo-dates" style={{ color: m.rate !== undefined ? '#008000' : '#cc0000' }}>
+                        {m.rate !== undefined ? `Rate found: ${formatRate(m.rate)}` : 'Not found — left for manual entry'}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      </>
+    )
+  }
+
   return (
-    <div className="card">
+    <>
+      <div className="pdf-ws-topbar">
+        <div className="pdf-ws-title">
+          <IconTable /> <span className="pdf-ws-title-label">Tool:</span> Rate Lookup
+        </div>
+        <button className="ghost" onClick={clearLookup}>
+          <IconTrash /> Clear
+        </button>
+        <button className="ghost pdf-ws-back" onClick={() => setMode(null)}>
+          <IconChevronLeft /> Back
+        </button>
+      </div>
+      <div className="card pdf-workspace">
       <div className="empty">
         <IconTable />
         <p>
@@ -290,7 +612,9 @@ export default function GiveTechnicalSanctionTab() {
         )}
 
         <p style={{ marginTop: 18 }}>
-          {estimate ? `Loaded “${estimate.name}”.` : 'Upload the Estimate to match its items against the Data Sheet.'}
+          {estimate
+            ? `Loaded “${estimate[0].name}”${estimate.length > 1 ? ` (${estimate.length} sheets)` : ''}.`
+            : 'Upload the Estimate to match its items against the Data Sheet.'}
         </p>
         <div className="boq-actions">
           <button className="primary upload-btn" onClick={uploadEstimate} disabled={estimateBusy}>
@@ -380,6 +704,7 @@ export default function GiveTechnicalSanctionTab() {
           </ul>
         </>
       )}
-    </div>
+      </div>
+    </>
   )
 }

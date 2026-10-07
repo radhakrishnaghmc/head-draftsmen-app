@@ -18,6 +18,8 @@ export interface TenderEvaluation {
   noticeNo?: string
   /** The "Dated:"/"Dt:" date carried in the NIT No line (e.g. "15.07.2026"), if present. */
   noticeDate?: string
+  /** The NIT line's own "(Item No.3)" tag, if present — see tenderAgents/nitNoAndDate.ts. */
+  itemNo?: string
   /** The page footer's "Server Time: 02/07/2026 …" date (bottom-right of the L1 sheet) — when the sheet was generated; used as the Note Submitted's Intimation date. Normalised to dd.mm.yyyy. */
   serverDate?: string
   /** Estimated Contract Value, in rupees (the portal reports rupees, not Lakhs). */
@@ -57,7 +59,7 @@ export interface TenderEvaluation {
  */
 export function parseTenderEvaluation(lines: string[]): TenderEvaluation {
   const joined = joinLines(lines)
-  const { noticeNo, noticeDate } = detectNitNoAndDate(lines)
+  const { noticeNo, noticeDate, itemNo } = detectNitNoAndDate(lines)
 
   // The page footer (bottom-right) prints "Server Time: 02/07/2026 03:59:31 PM"
   // — when this L1 sheet was generated. Anchored on the "Server Time"/"Server
@@ -72,6 +74,7 @@ export function parseTenderEvaluation(lines: string[]): TenderEvaluation {
     tenderId: detectTenderId(lines),
     noticeNo,
     noticeDate,
+    itemNo,
     serverDate: server ? `${server[1]}.${server[2]}.${server[3]}` : undefined,
     nameOfWork: detectNameOfWork(lines),
     ecvRupees: detectEcv(lines),

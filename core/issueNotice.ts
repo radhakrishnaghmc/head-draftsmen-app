@@ -75,7 +75,7 @@ export function issueNoticePlaceholders(
     pdf.contractRupees ??
     (ecv != null && tenderPct != null ? ecv * (1 - tenderPct / 100) : null)
   const workName = stripItemNoTag(pdf.nameOfWork || '')
-  const itemNo = extractItemNo(pdf.nameOfWork || '') ?? ''
+  const itemNo = extractItemNo(pdf.nameOfWork || '') ?? pdf.itemNo ?? ''
 
   return {
     Zone: office.zone ?? '',

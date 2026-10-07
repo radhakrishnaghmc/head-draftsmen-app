@@ -12,7 +12,8 @@ import type {
   ActiveSessionInfo,
   PickedTenderDocument,
   VerifyDocItem,
-  VerifyDocResult
+  VerifyDocResult,
+  PageMarginsMm
 } from './ipc-contract'
 import { collectTenderDocuments } from './tenderDocumentScan'
 import {
@@ -98,6 +99,61 @@ import type { SheetGrid } from '../core/sheet'
 
 let mainWindow: BrowserWindow | null = null
 
+/**
+ * One zoom setting for the whole app, instead of Chromium's per-origin one.
+ *
+ * Chromium files a remembered zoom level under the page's origin, and the app
+ * is served from two of them: http://localhost in dev and file:// once
+ * packaged. A zoom set in one is therefore invisible to the other, and the
+ * same app opens at two different sizes on the same machine. This keeps the
+ * level in the app's own settings file and puts it back on every load, so
+ * "make it smaller" means the same thing everywhere.
+ */
+function applyAppZoom(win: BrowserWindow): void {
+  const file = path.join(app.getPath('userData'), 'zoom.json')
+  // Chromium's own range is -8..+9; the View menu steps between about -4 and
+  // +4, past which the window stops being usable, so clamp to that.
+  const clamp = (level: number): number => Math.max(-4, Math.min(4, level))
+
+  const read = (): number => {
+    try {
+      const { level } = JSON.parse(fs.readFileSync(file, 'utf8')) as { level?: number }
+      return typeof level === 'number' && Number.isFinite(level) ? clamp(level) : 0
+    } catch {
+      return 0
+    }
+  }
+  const write = (level: number): void => {
+    try {
+      fs.writeFileSync(file, JSON.stringify({ level: clamp(level) }))
+    } catch {
+      // A read-only profile just loses the preference — not worth failing over.
+    }
+  }
+
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.setZoomLevel(read())
+  })
+
+  // Ctrl/Cmd + wheel and trackpad pinch only ASK for a zoom change — Electron
+  // leaves the applying to us.
+  win.webContents.on('zoom-changed', (_e, direction) => {
+    const level = clamp(win.webContents.getZoomLevel() + (direction === 'in' ? 0.5 : -0.5))
+    win.webContents.setZoomLevel(level)
+    write(level)
+  })
+
+  // The View menu's Zoom In / Zoom Out / Actual Size change the level
+  // themselves and report nothing, so read back what they did.
+  win.webContents.on('before-input-event', (_e, input) => {
+    if (input.type !== 'keyDown' || !(input.meta || input.control)) return
+    if (!['+', '=', '-', '_', '0'].includes(input.key)) return
+    setTimeout(() => {
+      if (!win.isDestroyed()) write(win.webContents.getZoomLevel())
+    }, 0)
+  })
+}
+
 function createWindow(): void {
   // Clamp to the display's work area (screen minus the taskbar/dock), not
   // the raw screen size — on common 1366x768 Windows laptops a hardcoded
@@ -133,6 +189,8 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
 
+  applyAppZoom(mainWindow)
+
   // TEMP debug: forward renderer console output to this terminal so a blank
   // preview's actual error is visible without opening DevTools. Remove once diagnosed.
   mainWindow.webContents.on('console-message', (_e, _level, message, line, sourceId) => {
@@ -148,6 +206,8 @@ function createWindow(): void {
     mainWindow = null
   })
 }
+
+app.commandLine.appendSwitch('remote-debugging-port', '9222')
 
 app.whenReady().then(() => {
   registerHandlers()
@@ -206,6 +266,16 @@ function registerHandlers(): void {
     })
     if (result.canceled || result.filePaths.length === 0) return null
     return readExcelGrid(result.filePaths[0])
+  })
+
+  ipcMain.handle(IPC.pickEstimateGrids, async (): Promise<SheetGrid[] | null> => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Select Estimate',
+      filters: [{ name: 'Excel workbooks', extensions: ['xlsx', 'xls'] }],
+      properties: ['openFile']
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return readAllSheetGrids(result.filePaths[0])
   })
 
   ipcMain.handle(IPC.pickDataSheet, async (): Promise<SheetGrid[] | null> => {
@@ -1247,7 +1317,7 @@ function registerHandlers(): void {
   // renders the filled .docx) rather than raw pasted content — this avoids
   // needing LibreOffice for printing (only creating a document and PDF
   // export need it).
-  ipcMain.handle(IPC.printCreatedDocument, async (_e, renderedHtml: string): Promise<void> => {
+  ipcMain.handle(IPC.printCreatedDocument, async (_e, renderedHtml: string, pageMarginsMm?: PageMarginsMm): Promise<void> => {
     // docx-preview output already renders a full A4 page (section.docx) with the
     // document's own 1-inch margins baked in, so it must print at zero page
     // margin — otherwise the browser's default ~0.4-inch print margin makes the
@@ -1255,6 +1325,7 @@ function registerHandlers(): void {
     // documents (Note Submitted, Schedule A) carry no page margin, so they get
     // a printed page margin instead. Detected by docx-preview's wrapper class.
     const isDocx = /docx-wrapper/.test(renderedHtml)
+    const m = { top: 14, right: 16, bottom: 14, left: 16, ...pageMarginsMm }
     const printStyle = isDocx
       ? `@page { size: A4; margin: 0 }
          html, body { margin: 0; padding: 0; background: #fff }
@@ -1262,7 +1333,7 @@ function registerHandlers(): void {
          .docx-wrapper > section.docx { box-shadow: none !important; margin: 0 auto !important }`
       : `@page { size: A4; margin: 0 }
          html, body { margin: 0; background: #fff }
-         body { padding: 14mm 16mm }`
+         body { padding: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm }`
     const head = `<head><meta charset="utf-8"><style>${printStyle}</style></head>`
     const body = /<html/i.test(renderedHtml)
       ? renderedHtml
@@ -1312,10 +1383,13 @@ function registerHandlers(): void {
     })
   })
 
-  ipcMain.handle(IPC.noteSubmittedDocx, async (_e, html: string): Promise<string> => {
-    const docxBuffer = await convertHtmlToDocx(html)
-    return docxBuffer.toString('base64')
-  })
+  ipcMain.handle(
+    IPC.noteSubmittedDocx,
+    async (_e, html: string, marginsTwips?: { top?: number; bottom?: number }): Promise<string> => {
+      const docxBuffer = await convertHtmlToDocx(html, marginsTwips)
+      return docxBuffer.toString('base64')
+    }
+  )
 
   const bundledResourceFile = (fileName: string) =>
     [
