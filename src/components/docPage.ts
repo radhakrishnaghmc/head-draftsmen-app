@@ -192,12 +192,21 @@ async function settleTabStops(container: HTMLElement): Promise<void> {
 export async function renderDocPreview(
   docxBytes: Uint8Array,
   container: HTMLElement,
-  // Set when the caller is about to read the rendered HTML back out (printing)
-  // rather than leave it on screen — see settleTabStops above.
-  options?: { forSnapshot?: boolean }
+  options?: {
+    // Set when the caller is about to read the rendered HTML back out (printing)
+    // rather than leave it on screen — see settleTabStops above.
+    forSnapshot?: boolean
+    // false renders the whole document as one continuous flow instead of
+    // docx-preview's default per-real-page-break sections with gaps between
+    // them — used by previews (e.g. Issue Tender Notice) that want a single
+    // scrollable sheet rather than a stack of separate page blocks.
+    breakPages?: boolean
+  }
 ): Promise<{ pageCount: number; accurate: boolean }> {
   container.innerHTML = ''
-  await renderAsync(docxBytes, container, undefined, DOCX_PREVIEW_OPTIONS)
+  const renderOptions =
+    options?.breakPages === false ? { ...DOCX_PREVIEW_OPTIONS, breakPages: false } : DOCX_PREVIEW_OPTIONS
+  await renderAsync(docxBytes, container, undefined, renderOptions)
   normalizeDocxTextboxes(container)
   await addFontFallbacks(container)
   if (options?.forSnapshot) await settleTabStops(container)

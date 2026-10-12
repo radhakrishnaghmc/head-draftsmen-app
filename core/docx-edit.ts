@@ -218,7 +218,7 @@ function computeParagraphEdits(paragraphs: Element[], fillFn: (text: string) => 
   return edits
 }
 
-function transformPlaceholders(buffer: Buffer, part: string, fillFn: (text: string) => string): Buffer {
+export function transformPlaceholders(buffer: Buffer, part: string, fillFn: (text: string) => string): Buffer {
   const { zip, xml } = loadDoc(buffer, part)
   const paragraphs = tag(xml, 'w:p')
   const edits = computeParagraphEdits(paragraphs, fillFn)

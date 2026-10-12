@@ -4,14 +4,14 @@
 // stays a plain localStorage value (same "survives updates, not a reinstall"
 // tier as LAST_SEEN_VERSION_KEY in App.tsx) rather than office-scoped or
 // synced state.
-export type ThemeId = 'default' | 'aurora' | 'paper' | 'cyan'
+export type ThemeId = 'default' | 'aurora' | 'paper' | 'cyan' | 'meadow'
 
 const THEME_KEY = 'issueDocsTheme'
 // 'default' and 'aurora' are pulled out of the app (not offered in Settings,
 // not selectable) but kept here — CSS/types/App.tsx class-toggling untouched
 // — so they can be brought back later without rebuilding them from scratch.
 // Anyone with one of those already stored falls back to 'paper' below.
-const VALID: ThemeId[] = ['paper', 'cyan']
+const VALID: ThemeId[] = ['paper', 'cyan', 'meadow']
 
 export function getStoredTheme(): ThemeId {
   const stored = localStorage.getItem(THEME_KEY)
@@ -34,6 +34,12 @@ const ALL_THEME_OPTIONS: { id: ThemeId; label: string; description: string }[] =
     label: 'Cyan',
     description:
       "Whole app restyled with CMC (cmc.telangana.gov.in)'s own blue — same light glass look as Aurora, just recolored to match the corporation's website."
+  },
+  {
+    id: 'meadow',
+    label: 'Meadow',
+    description:
+      'A brighter, more colorful take on Paper — lighter sage-green sidebar, warm orange highlights, and more saturated status colors throughout the dashboard.'
   }
 ]
 

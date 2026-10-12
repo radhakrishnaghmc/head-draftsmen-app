@@ -16,6 +16,17 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.39.0',
+    changes: [
+      'Search Tender: a new Action column with a View button opens the tender\'s full details from the portal inside the app.',
+      'Evaluation Sheet: when you upload a View Bidders PDF, the app now finds the tender on the portal and uses its own list of required documents as the conditions, instead of the fixed list.',
+      'Evaluation Sheet: the 3AN-B rows now appear only for works whose estimate amount (from the Works List) is above 5 lakhs.',
+      'Evaluation Sheet: if the work is not on the Works List and the ECV is 5 lakhs or less, the app asks whether the estimate is below 5 lakhs.',
+      'The upload button now shows progress while reading the PDF, looking up the estimate and fetching the conditions.',
+      'Tender Notice, Technical Sanction, Monitoring Format and bid-document improvements, a new Meadow theme, and Telugu text now prints with a bundled font.'
+    ]
+  },
+  {
     version: '1.38.0',
     changes: [
       'Give Technical Sanction now looks up rates from the Data Sheet and the SoR PDF together, instead of the Data Sheet alone, so fewer items come back without a rate.',

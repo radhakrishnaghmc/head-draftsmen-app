@@ -215,6 +215,62 @@ body.theme-paper {
   --shadow-glow: none;
 }
 
+body.theme-meadow {
+  /* Accent: a lighter, warmer sage-green (a shade brighter/yellower than
+     Paper's deep teal-green) — pale sage tints for badges/pills, the solid
+     sage for the sidebar and fills, a deeper shade for hover states. The
+     categorical hues (sky/rose/amber/teal) are pushed more saturated than
+     Paper's so cards, chips and dots read as genuinely colorful rather than
+     a single-accent palette with color used only sparingly. */
+  --indigo-50: #eef8f0;
+  --indigo-100: #d6edda;
+  --indigo-200: #a9d9b2;
+  --indigo-500: #5ea06c; /* sage green — interactive accent (focus, active borders) */
+  --indigo-600: #4c8459; /* solid sage — sidebar background, accent fills */
+  --indigo-700: #366143; /* deepest sage — hover state / promo tile */
+  --violet-500: #8ec498; /* lighter sage — gradient partner, kept subtle since gradients are off */
+  --chakra: #4c8459;
+  --sky-100: #dcefff;
+  --sky-500: #2f8fe0; /* vivid sky blue */
+  --teal-500: #14b8a6;
+  --teal-100: #ccfbf1;
+  --rose-500: #f0548a; /* vivid pink */
+  --rose-100: #ffe0ec;
+  --amber-500: #f5940f; /* vivid orange — the dashboard's one deliberate warm "pop" color */
+  --amber-100: #fef0d8;
+  --green-bg: #eafbea;
+  --orange-bg: #fff0e0;
+
+  /* Soft warm-sage canvas that the rounded app shell floats on — see .shell. */
+  --paper-canvas: #e3f2e5;
+
+  --bg-grad-a: #ffffff;
+  --bg-grad-b: #ffffff;
+  --surface: #ffffff; /* opaque, not translucent — no glass */
+  --surface-2: #f4faf5;
+  --border: #e3ece4;
+  --border-strong: #cde0d0;
+
+  --text: #1e293b;
+  --text-2: #475569;
+  --muted: #8fa295;
+
+  --ok: #19a463;
+  --ok-bg: #eafbea;
+  --warn: #f5940f;
+  --warn-bg: #fff0e0;
+  --danger: #ef4458;
+  --danger-bg: #ffecee;
+
+  /* Soft floating-card shadows (no blur/glass) instead of Default/Aurora's
+     glassy glow — matches the reference dashboard's card elevation. */
+  --glass-blur: none;
+  --shadow-sm: 0 1px 2px rgba(20, 60, 36, 0.06);
+  --shadow-md: 0 10px 28px -12px rgba(20, 60, 36, 0.18);
+  --shadow-lg: 0 24px 56px -18px rgba(20, 60, 36, 0.3);
+  --shadow-glow: none;
+}
+
 body.theme-cyan {
   /* Accent: CMC (cmc.telangana.gov.in)'s own blue — same recipe as Paper
      (pale tints for badges/pills, solid fill for sidebar/buttons, a
@@ -337,10 +393,18 @@ body.theme-paper {
   background: #ffffff;
 }
 
+body.theme-meadow {
+  background: #ffffff;
+}
+
 body.theme-cyan {
   background: #ffffff;
 }
 body.theme-paper::before {
+  display: none;
+}
+
+body.theme-meadow::before {
   display: none;
 }
 
@@ -349,6 +413,11 @@ body.theme-cyan::before {
 }
 body.theme-paper .skyline-bg,
 body.theme-paper .sidebar-art-bg {
+  display: none;
+}
+
+body.theme-meadow .skyline-bg,
+body.theme-meadow .sidebar-art-bg {
   display: none;
 }
 
@@ -458,6 +527,11 @@ body.theme-cyan .sidebar-art-bg {
    #root/.shell above) so the badge still sits just inside the shell's
    rounded top-right corner instead of drifting into the mint canvas. */
 body.theme-paper .profile-menu {
+  top: 46px;
+  right: 42px;
+}
+
+body.theme-meadow .profile-menu {
   top: 46px;
   right: 42px;
 }
@@ -631,6 +705,13 @@ body.theme-paper #root {
   overflow: visible;
 }
 
+body.theme-meadow #root {
+  padding: 18px;
+  box-sizing: border-box;
+  background: var(--paper-canvas);
+  overflow: visible;
+}
+
 body.theme-cyan #root {
   padding: 18px;
   box-sizing: border-box;
@@ -638,6 +719,15 @@ body.theme-cyan #root {
   overflow: visible;
 }
 body.theme-paper .shell {
+  height: 100%;
+  /* Sidebar and workspace float as two separate rounded cards (each rounds
+     and shadows itself below) with a gap between, instead of one big
+     rounded rectangle — reads as two uniform panels on the mint canvas. */
+  gap: 10px;
+  overflow: visible;
+}
+
+body.theme-meadow .shell {
   height: 100%;
   /* Sidebar and workspace float as two separate rounded cards (each rounds
      and shadows itself below) with a gap between, instead of one big
@@ -695,6 +785,15 @@ body.theme-paper .sidebar {
   box-shadow: 0 30px 70px -20px rgba(15, 60, 40, 0.35);
 }
 
+body.theme-meadow .sidebar {
+  height: 100%;
+  background: var(--indigo-600);
+  border-right: none;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 30px 70px -20px rgba(15, 60, 40, 0.35);
+}
+
 body.theme-cyan .sidebar {
   height: 100%;
   background: var(--indigo-600);
@@ -715,6 +814,11 @@ body.theme-paper .side-brand {
   border-bottom: 1px solid rgba(255, 255, 255, 0.14);
 }
 
+body.theme-meadow .side-brand {
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+
 body.theme-cyan .side-brand {
   padding-bottom: 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.14);
@@ -729,6 +833,16 @@ body.theme-aurora .side-brand .logo {
   filter: drop-shadow(0 4px 10px rgba(16, 156, 222, 0.35));
 }
 body.theme-paper .side-brand .logo {
+  filter: none;
+  /* The mark's dark linework is illegible on the sidebar's solid green —
+     give it a white chip to sit on, like the reference's logo mark. */
+  background: #fff;
+  border-radius: 14px;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+body.theme-meadow .side-brand .logo {
   filter: none;
   /* The mark's dark linework is illegible on the sidebar's solid green —
      give it a white chip to sit on, like the reference's logo mark. */
@@ -761,6 +875,14 @@ body.theme-paper .side-brand h1 {
   color: #fff;
 }
 
+body.theme-meadow .side-brand h1 {
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
+}
+
 body.theme-cyan .side-brand h1 {
   font-size: 16px;
   font-weight: 700;
@@ -779,6 +901,10 @@ body.theme-paper .side-brand p {
   color: rgba(255, 255, 255, 0.68);
 }
 
+body.theme-meadow .side-brand p {
+  color: rgba(255, 255, 255, 0.68);
+}
+
 body.theme-cyan .side-brand p {
   color: rgba(255, 255, 255, 0.68);
 }
@@ -786,6 +912,10 @@ body.theme-cyan .side-brand p {
   color: var(--amber-600, #b45309);
 }
 body.theme-paper .side-brand p.warn {
+  color: #fde68a;
+}
+
+body.theme-meadow .side-brand p.warn {
   color: #fde68a;
 }
 
@@ -814,6 +944,11 @@ body.theme-cyan .side-brand p.warn {
   opacity: 1;
 }
 body.theme-paper .side-office-change {
+  color: #fff;
+  text-decoration: underline;
+}
+
+body.theme-meadow .side-office-change {
   color: #fff;
   text-decoration: underline;
 }
@@ -1015,11 +1150,21 @@ body.theme-paper .nav-item {
   padding-left: 16px;
 }
 
+body.theme-meadow .nav-item {
+  border-left: none;
+  padding-left: 16px;
+}
+
 body.theme-cyan .nav-item {
   border-left: none;
   padding-left: 16px;
 }
 body.theme-paper .nav-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: none;
+}
+
+body.theme-meadow .nav-item:hover {
   background: rgba(255, 255, 255, 0.1);
   transform: none;
 }
@@ -1034,12 +1179,22 @@ body.theme-paper .nav-item.on {
   box-shadow: none;
 }
 
+body.theme-meadow .nav-item.on {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: transparent;
+  box-shadow: none;
+}
+
 body.theme-cyan .nav-item.on {
   background: rgba(255, 255, 255, 0.16);
   border-color: transparent;
   box-shadow: none;
 }
 body.theme-paper .nav-ic {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+body.theme-meadow .nav-ic {
   color: rgba(255, 255, 255, 0.7);
 }
 
@@ -1050,10 +1205,22 @@ body.theme-paper .nav-item.on .nav-ic {
   color: #fff;
 }
 
+/* Meadow theme: an active nav item with a categorical tone (Issue
+   Documents/BOQ/Search Tender/Tools) keeps its tone color instead of
+   Paper's flat white — more color variety in the sidebar itself, not
+   just the cards. Untoned items still fall back to white. */
+body.theme-meadow .nav-item.on .nav-ic {
+  color: var(--tone-a, #fff);
+}
+
 body.theme-cyan .nav-item.on .nav-ic {
   color: #fff;
 }
 body.theme-paper .nav-label {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+body.theme-meadow .nav-label {
   color: rgba(255, 255, 255, 0.92);
 }
 
@@ -1078,6 +1245,16 @@ body.theme-paper .nav-section-label {
   color: rgba(255, 255, 255, 0.45);
 }
 
+body.theme-meadow .nav-section-label {
+  display: block;
+  margin: 14px 10px 2px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
 body.theme-cyan .nav-section-label {
   display: block;
   margin: 14px 10px 2px;
@@ -1088,6 +1265,10 @@ body.theme-cyan .nav-section-label {
   color: rgba(255, 255, 255, 0.45);
 }
 body.theme-paper .nav-section-label:first-child {
+  margin-top: 4px;
+}
+
+body.theme-meadow .nav-section-label:first-child {
   margin-top: 4px;
 }
 
@@ -1384,6 +1565,14 @@ body.theme-paper .workspace {
   box-shadow: 0 30px 70px -20px rgba(15, 60, 40, 0.35);
 }
 
+body.theme-meadow .workspace {
+  height: 100%;
+  background: var(--surface-2);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 30px 70px -20px rgba(15, 60, 40, 0.35);
+}
+
 body.theme-cyan .workspace {
   height: 100%;
   background: var(--surface-2);
@@ -1639,6 +1828,21 @@ body.theme-cyan .workspace {
   margin-bottom: 4px;
 }
 
+.bid-batch-toggle {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+.bid-batch-toggle-icon {
+  transition: transform 0.15s ease;
+}
+.bid-batch-toggle-icon.open {
+  transform: rotate(90deg);
+}
+
 .step-num {
   flex: none;
   width: 30px;
@@ -1880,6 +2084,15 @@ body.theme-paper button.primary {
   border-color: transparent;
 }
 
+/* Meadow: primary buttons get a sage-to-teal gradient instead of a flat
+   fill — the theme's one deliberately "louder" control, echoing the promo
+   tile's gradient treatment rather than the flat single-hue other themes use. */
+body.theme-meadow button.primary {
+  background: linear-gradient(135deg, var(--indigo-600), var(--teal-500));
+  color: #fff;
+  border-color: transparent;
+}
+
 body.theme-cyan button.primary {
   background: var(--indigo-600);
   color: #fff;
@@ -1890,11 +2103,20 @@ body.theme-paper button.primary:hover:not(:disabled) {
   border-color: transparent;
 }
 
+body.theme-meadow button.primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--teal-500), var(--indigo-600));
+  border-color: transparent;
+}
+
 body.theme-cyan button.primary:hover:not(:disabled) {
   background: var(--indigo-700);
   border-color: transparent;
 }
 body.theme-paper button.primary:active:not(:disabled) {
+  background: var(--indigo-700);
+}
+
+body.theme-meadow button.primary:active:not(:disabled) {
   background: var(--indigo-700);
 }
 
@@ -1920,6 +2142,15 @@ body.theme-paper button.ghost {
   background: var(--surface);
 }
 
+/* Meadow: ghost buttons get a warm amber border/text instead of the
+   neutral grey other themes use, so secondary actions read as a distinct
+   colour (not just a muted copy) from the sage/teal primary buttons. */
+body.theme-meadow button.ghost {
+  border-color: var(--amber-500);
+  background: var(--surface);
+  color: var(--indigo-700);
+}
+
 body.theme-cyan button.ghost {
   border-color: var(--border-strong);
   background: var(--surface);
@@ -1928,6 +2159,12 @@ body.theme-paper button.ghost:hover:not(:disabled) {
   background: var(--indigo-50);
   border-color: var(--indigo-500);
   color: var(--text);
+}
+
+body.theme-meadow button.ghost:hover:not(:disabled) {
+  background: var(--amber-100);
+  border-color: var(--amber-500);
+  color: #92400e;
 }
 
 body.theme-cyan button.ghost:hover:not(:disabled) {
@@ -4358,7 +4595,7 @@ textarea:placeholder-shown {
 }
 
 .tender-modal {
-  width: min(460px, 92vw);
+  width: min(640px, 92vw);
   max-height: 90vh;
   overflow-y: auto;
   background: var(--surface);
@@ -4448,6 +4685,16 @@ textarea:placeholder-shown {
   font-weight: 700;
   color: var(--text);
 }
+.tender-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.tender-modal-head h3 {
+  margin: 0;
+}
 .tender-field {
   display: flex;
   flex-direction: column;
@@ -4501,6 +4748,44 @@ textarea:placeholder-shown {
   border-color: var(--indigo-500);
   background: #fff;
 }
+.tender-dategroup {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  margin-bottom: 10px;
+  background: var(--surface-2);
+}
+.tender-dategroup .tender-field-row {
+  margin-bottom: 0;
+}
+.tender-dategroup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.tender-dategroup-head .ghost {
+  padding: 4px 10px;
+  height: auto;
+  font-size: 12px;
+}
+.tender-dategroup-count {
+  width: 52px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid #c9ccd3;
+  background: #fff;
+  font-size: 13px;
+  text-align: center;
+}
+.tender-add-group {
+  align-self: flex-start;
+}
 .bid-se-fields {
   flex-wrap: wrap;
   margin-top: 6px;
@@ -4550,9 +4835,13 @@ textarea:placeholder-shown {
    earlier one regardless of which "looks" more specific to a reader. */
 .doc-work-search.tender-wincode-search {
   flex: none;
+  height: 38px;
   margin-bottom: 8px;
+  border: 1.5px solid color-mix(in srgb, var(--text) 28%, transparent);
   border-radius: var(--radius-pill);
-  padding-left: 16px;
+  background: var(--surface-2);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  padding: 0 12px 0 16px;
 }
 .tender-wincode-item .tender-wincode-code {
   font-weight: 700;
@@ -4567,21 +4856,97 @@ textarea:placeholder-shown {
   white-space: nowrap;
   min-width: 0;
 }
+.tender-serial-badge {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft, var(--surface-2, var(--surface)));
+  color: var(--accent, var(--text));
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 5px;
+}
+.tender-recall-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  margin-left: auto;
+}
+.tender-recall-toggle {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 9px;
+  cursor: pointer;
+  line-height: 1.5;
+}
+.tender-recall-toggle.active {
+  border-color: var(--amber-400, #d97706);
+  background: var(--amber-50, #fff7ed);
+  color: var(--amber-700, #b45309);
+}
+.tender-recall-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--amber-700, #b45309);
+}
+.tender-recall-stepper button {
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  padding: 0;
+  font-size: 13px;
+}
+.tender-recall-count {
+  white-space: nowrap;
+  font-weight: 600;
+}
 .tender-modal-wide {
-  width: min(900px, 94vw);
+  width: min(1200px, 96vw);
+  height: min(90vh, 1100px);
   max-height: 90vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding: 0;
+}
+.tender-modal-wide .docprev-head {
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 .tender-preview-scroll {
   flex: 1;
   overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  margin-bottom: 14px;
+  background: #eef0f4;
   min-height: 0;
+}
+.tender-preview-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+.tender-preview-foot .notice {
+  margin: 0;
+  flex: 1;
 }
 button.danger {
   height: 38px;
@@ -5159,12 +5524,22 @@ body.theme-paper .gen-output-modes .seg:hover {
   border-color: var(--indigo-500);
 }
 
+body.theme-meadow .gen-output-modes .seg:hover {
+  border-color: var(--teal-500);
+}
+
 body.theme-cyan .gen-output-modes .seg:hover {
   border-color: var(--indigo-500);
 }
 body.theme-paper .gen-output-modes .seg.active {
   border-color: transparent;
   background: var(--indigo-600);
+  color: #fff;
+}
+
+body.theme-meadow .gen-output-modes .seg.active {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--indigo-600), var(--teal-500));
   color: #fff;
 }
 
@@ -5215,29 +5590,56 @@ body.theme-cyan .gen-output-modes .seg.active {
 }
 
 /* Works List: enter the 3rd/4th-party QC agencies once, per office. */
+/* Works List page: a single persistent row of 3 tabs (QC parties,
+   Monitoring Format, Works List Database) that never reflows — clicking a
+   tab swaps the content panel below it, instead of the old side-by-side
+   tiles where opening one shifted the other two down. */
+.worklist-tabs-wrap {
+  margin: 0 0 16px;
+}
+.worklist-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 4px;
+  margin-bottom: 12px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.worklist-tabs .mf-toggle {
+  flex: 1 1 0;
+  justify-content: center;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  transition: background 0.15s var(--ease);
+}
+.worklist-tabs .mf-toggle:hover {
+  background: var(--surface-2, rgba(0, 0, 0, 0.04));
+}
+.worklist-tabs .mf-toggle:active {
+  opacity: 0.75;
+}
+.worklist-tabs .settings-section-chevron {
+  transition: transform 0.15s var(--ease), color 0.15s var(--ease);
+}
+.worklist-tabs .mf-toggle:hover .settings-section-chevron {
+  color: var(--indigo-600);
+}
+.worklist-tabs h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .qcp {
-  margin: 10px 0 0;
+  margin: 0;
   padding: 0;
-}
-.qcp > summary {
-  cursor: pointer;
-  padding: 14px 16px;
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--text);
-  list-style: none;
-}
-.qcp > summary::-webkit-details-marker {
-  display: none;
-}
-.qcp > summary::before {
-  content: '▸';
-  display: inline-block;
-  margin-right: 8px;
-  color: var(--muted);
-}
-.qcp[open] > summary::before {
-  content: '▾';
 }
 .qcp-hint {
   font-weight: 400;
@@ -5248,7 +5650,7 @@ body.theme-cyan .gen-output-modes .seg.active {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
-  padding: 4px 16px 16px;
+  padding: 4px 14px 16px;
 }
 @media (max-width: 720px) {
   .qcp-grid {
@@ -5546,6 +5948,11 @@ body.theme-paper .doc-tile-card::after {
   display: none;
 }
 
+body.theme-meadow .doc-tile-card::before,
+body.theme-meadow .doc-tile-card::after {
+  display: none;
+}
+
 body.theme-cyan .doc-tile-card::after {
   display: none;
 }
@@ -5553,10 +5960,19 @@ body.theme-paper .doc-tile-card {
   box-shadow: var(--shadow-md);
 }
 
+body.theme-meadow .doc-tile-card {
+  box-shadow: var(--shadow-md);
+}
+
 body.theme-cyan .doc-tile-card {
   box-shadow: var(--shadow-md);
 }
 body.theme-paper .doc-tile-card:hover {
+  box-shadow: var(--shadow-lg);
+  border-color: var(--border);
+}
+
+body.theme-meadow .doc-tile-card:hover {
   box-shadow: var(--shadow-lg);
   border-color: var(--border);
 }
@@ -6191,7 +6607,8 @@ table.sheet tr.row-flash td {
   animation: rowFlashBlink 2.4s ease-in-out 1;
   background: var(--green-50, #f0fdf4);
 }
-table.sheet tr.row-flash td input {
+table.sheet tr.row-flash td input,
+table.sheet tr.row-flash td textarea.cell-wrap {
   font-weight: 600;
 }
 table.sheet tr.row-flash-msg td {
@@ -6212,6 +6629,29 @@ table.sheet td input {
   color: var(--text);
 }
 table.sheet td input:focus {
+  outline: 2px solid var(--indigo-500);
+  outline-offset: -2px;
+  background: var(--surface);
+}
+/* Work-name cell: a textarea instead of a single-line input, sized to fit
+   its own wrapped text (Chromium's field-sizing:content) rather than
+   scrolling the name off to one side like every other column. */
+table.sheet td textarea.cell-wrap {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  border: none;
+  background: transparent;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  resize: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  field-sizing: content;
+}
+table.sheet td textarea.cell-wrap:focus {
   outline: 2px solid var(--indigo-500);
   outline-offset: -2px;
   background: var(--surface);
@@ -7067,14 +7507,6 @@ tr.on .rp-box span {
   flex: 0 1 auto;
   min-height: 860px;
 }
-/* The min-height above is sized for the search bar + table + footer — but
-   it's on this outer card, which stays mounted (just its content
-   conditionally rendered) when collapsed, so without this override
-   collapsing left the card's full-height blank box behind instead of
-   shrinking to just the header. */
-.sheet-inline.is-collapsed {
-  min-height: 0;
-}
 .sheet-inline .sheet-wrap {
   max-width: 100%;
   border-top: none;
@@ -7087,6 +7519,7 @@ tr.on .rp-box span {
      the pane scrolls internally instead of growing the whole card/page. */
   min-height: 640px;
   max-height: 640px;
+  animation: rise 0.2s var(--ease);
 }
 /* The Works List table (33 fixed-width columns) is always wider than the
    pane — .sheet-wrap's overflow-x:auto genuinely scrolls (confirmed: real
@@ -7118,10 +7551,6 @@ tr.on .rp-box span {
 }
 .sheet-inline-header {
   padding: 14px 14px 0;
-}
-.sheet-inline .card-head {
-  padding: 14px 14px 14px;
-  margin-bottom: 0;
 }
 .sheet-inline .sheet-foot {
   border-top: 1px solid var(--border);
@@ -7754,6 +8183,10 @@ tr.on .rp-box span {
   font-weight: 600;
   color: var(--text);
 }
+.tk-action {
+  white-space: nowrap;
+  text-align: center;
+}
 .tk-date {
   white-space: nowrap;
   color: var(--text-2);
@@ -8298,6 +8731,27 @@ tr.on .rp-box span {
   transform: translateY(-1px);
 }
 
+/* Instant holiday-name tooltip — a native `title` attribute's OS-controlled
+   hover delay (~1-1.5s in Chromium) read as the calendar "slow to load" on
+   hover even though the data was already in memory; this shows immediately. */
+.cal-day[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--gray-900, #1f2937);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  z-index: 20;
+}
+
 .cal-day.empty {
   background: transparent;
   border-color: transparent;
@@ -8372,10 +8826,10 @@ tr.on .rp-box span {
 
 @keyframes cal-today-blink {
   0%, 100% {
-    box-shadow: 0 0 0 2px var(--danger);
+    background: #90ee90;
   }
   50% {
-    box-shadow: 0 0 0 2px transparent;
+    background: transparent;
   }
 }
 
@@ -9580,6 +10034,68 @@ tr.on .rp-box span {
   bottom: 12px;
   padding: 7px 12px;
   font-size: 11.5px;
+}
+/* Give Technical Sanction's own Rate Lookup / Replicate Technical Sanction
+   picker: only two tiles on an otherwise-empty workspace screen, so they
+   read better larger than the compact multi-tile Tools grid they otherwise
+   share styling with. */
+.ts-mode-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 22px;
+}
+.ts-mode-grid.tools-grid .tool-card {
+  height: 260px;
+  padding: 34px 18px 20px;
+}
+.ts-mode-grid.tools-grid .tool-card .doc-tile-card-name {
+  font-size: 16px;
+}
+.ts-mode-grid.tools-grid .tool-card .doc-tile-card-meta {
+  font-size: 13px;
+}
+.ts-mode-grid.tools-grid .tool-card .tool-card-ic {
+  width: 58px;
+  height: 58px;
+}
+.ts-mode-grid.tools-grid .tool-card .tool-card-ic svg {
+  width: 30px;
+  height: 30px;
+}
+.ts-mode-grid.tools-grid .tool-card .tool-card-cta {
+  bottom: 16px;
+  padding: 9px 14px;
+  font-size: 13px;
+}
+/* Replicate Technical Sanction: one compact card per uploaded new-estimate
+   file — shrunk padding/font so several cards stack without dominating the
+   page, matched items list capped to a scrollable height instead of growing
+   the card with every item. */
+.ts-replicate-card {
+  margin: 8px 18px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.ts-replicate-card .boq-actions {
+  margin: 0;
+}
+.ts-replicate-card strong {
+  font-size: 13px;
+}
+.ts-replicate-card .notice {
+  padding: 6px 10px;
+  font-size: 12px;
+  margin-top: 6px;
+}
+.ts-replicate-card .hint {
+  font-size: 12px;
+}
+.ts-replicate-items-scroll {
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.ts-replicate-items-scroll .todo-item {
+  padding: 4px 0;
 }
 /* Blank-form document tiles: the whole tile isn't a button (it holds three), so
    don't show the grab/click cursor on the card itself. */
@@ -11500,33 +12016,26 @@ body.theme-aurora .pdf-ws-page.on {
 
 /* Monitoring Format card (Works List page) */
 .mf-card {
-  margin-top: 16px;
-  /* Matches .sheet-inline: padding lives on .card-head (collapsed height)
-     and .mf-body (open content) instead of the outer .card's flat 20px,
-     which otherwise stayed on the box even collapsed size (with
-     .card-head's own content hidden) taller than the other two cards
-     on this page. */
+  margin: 0;
   padding: 0;
 }
-.mf-card .card-head {
+.mf-body {
+  padding: 14px;
+}
+.mf-body-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 14px 14px 14px;
-  margin-bottom: 0;
-}
-.mf-body {
-  padding: 0 14px 14px;
-}
-.mf-card .card-head h3 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 .mf-toggle {
   flex: 1;
   min-width: 0;
+}
+.mf-body,
+.qcp-grid {
+  animation: rise 0.2s var(--ease);
 }
 .mf-new-btn {
   display: inline-flex;
@@ -11591,6 +12100,68 @@ body.theme-aurora .pdf-ws-page.on {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+}
+
+.mf-works-wrap {
+  overflow: auto;
+  max-height: 50vh;
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.mf-works-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.mf-works-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  padding: 8px 10px;
+  font-weight: 650;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.mf-works-table tbody td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.mf-works-table tbody tr:hover {
+  background: var(--surface-2);
+}
+.mf-works-table .mf-works-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mf-works-table .mf-works-nowrap {
+  white-space: nowrap;
+}
+.mf-works-table .mf-works-name {
+  min-width: 260px;
+  max-width: 420px;
+  white-space: normal;
+}
+.mf-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--pill-color);
+  white-space: nowrap;
+}
+.mf-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pill-color);
+  flex: none;
 }
 
 /* Weather card */
@@ -11693,6 +12264,34 @@ button.ov-promo:hover:not(:disabled) {
   background: var(--surface-2);
   border-color: transparent;
 }
+/* Meadow theme: the promo tile is the dashboard's one deliberate warm
+   "pop" color (reference design's orange accent) against the otherwise
+   sage-green/white palette, instead of reusing the mint green every other
+   tile already uses. */
+body.theme-meadow .ov-promo {
+  background: linear-gradient(135deg, var(--amber-500), #ffb648);
+  color: #fff;
+}
+body.theme-meadow .ov-promo-head {
+  color: #fff;
+}
+body.theme-meadow .ov-promo-head svg {
+  color: #fff;
+}
+body.theme-meadow .ov-promo-badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+body.theme-meadow .ov-promo-sub {
+  color: rgba(255, 255, 255, 0.85);
+}
+body.theme-meadow .ov-promo-btn {
+  background: #fff;
+  color: var(--amber-500);
+}
+body.theme-meadow button.ov-promo:hover:not(:disabled) {
+  background: linear-gradient(135deg, #ffb648, var(--amber-500));
+}
 
 @media (max-width: 1200px) {
   .ov-grid {
@@ -11725,12 +12324,23 @@ body.theme-paper .ov-card {
   border-radius: 20px;
 }
 
+body.theme-meadow .card,
+body.theme-meadow .ov-card {
+  box-shadow: var(--shadow-md);
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  border-radius: 20px;
+}
+
 body.theme-cyan .ov-card {
   box-shadow: var(--shadow-md);
   border: 1px solid rgba(15, 34, 42, 0.05);
   border-radius: 20px;
 }
 body.theme-paper .card:hover {
+  box-shadow: var(--shadow-lg);
+}
+
+body.theme-meadow .card:hover {
   box-shadow: var(--shadow-lg);
 }
 
@@ -11749,12 +12359,35 @@ body.theme-paper .ov-stat {
   padding: 20px 20px 18px;
 }
 
+body.theme-meadow .ov-stat {
+  position: relative;
+  border-radius: 20px;
+  padding: 20px 20px 18px;
+}
+
 body.theme-cyan .ov-stat {
   position: relative;
   border-radius: 20px;
   padding: 20px 20px 18px;
 }
 body.theme-paper .ov-stat::after {
+  content: '\2197';
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+
+body.theme-meadow .ov-stat::after {
   content: '\2197';
   position: absolute;
   top: 16px;
@@ -11800,6 +12433,19 @@ body.theme-paper .ov-stat-sub {
   white-space: normal;
 }
 
+body.theme-meadow .ov-stat-sub {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 10px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--indigo-50);
+  color: var(--indigo-700);
+  font-size: 11.5px;
+  font-weight: 650;
+  white-space: normal;
+}
+
 body.theme-cyan .ov-stat-sub {
   display: inline-flex;
   align-items: center;
@@ -11813,6 +12459,10 @@ body.theme-cyan .ov-stat-sub {
   white-space: normal;
 }
 body.theme-paper .ov-stat-hero b {
+  font-size: 34px;
+}
+
+body.theme-meadow .ov-stat-hero b {
   font-size: 34px;
 }
 
@@ -11830,6 +12480,11 @@ body.theme-paper .ov-stat-warn .ov-stat-sub {
   color: var(--danger);
 }
 
+body.theme-meadow .ov-stat-warn .ov-stat-sub {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
 body.theme-cyan .ov-stat-warn .ov-stat-sub {
   background: var(--danger-bg);
   color: var(--danger);
@@ -11838,6 +12493,12 @@ body.theme-cyan .ov-stat-warn .ov-stat-sub {
    "Bid closing…" phrase), so a rounded-oval pill clips awkwardly — give it
    a plain box instead, unlike the other three KPI cards' short pill chips. */
 body.theme-paper .ov-stat-nextdeadline .ov-stat-sub {
+  display: block;
+  border-radius: 8px;
+  width: 100%;
+}
+
+body.theme-meadow .ov-stat-nextdeadline .ov-stat-sub {
   display: block;
   border-radius: 8px;
   width: 100%;
@@ -11856,6 +12517,27 @@ body.theme-paper .ov-task-ic {
   color: var(--indigo-600);
 }
 
+body.theme-meadow .ov-task-ic {
+  background: var(--indigo-50);
+  color: var(--indigo-600);
+}
+/* Meadow theme: each Upcoming-list icon is tinted by its own kind (To
+   Do/MB Scrutiny/Tender) instead of every row sharing one accent color —
+   a small but real extra bit of color variety in a list that's otherwise
+   all text. */
+body.theme-meadow .ov-task-ic-todo {
+  background: var(--indigo-50);
+  color: var(--indigo-600);
+}
+body.theme-meadow .ov-task-ic-mb {
+  background: var(--sky-100);
+  color: var(--sky-500);
+}
+body.theme-meadow .ov-task-ic-tender {
+  background: var(--rose-100);
+  color: var(--rose-500);
+}
+
 body.theme-cyan .ov-task-ic {
   background: var(--indigo-50);
   color: var(--indigo-600);
@@ -11865,6 +12547,18 @@ body.theme-cyan .ov-task-ic {
    and count per segment, so the chart reads on its own instead of only
    through the separate tile list beside it. */
 body.theme-paper .ov-donut-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 150px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 130px;
+  overflow-y: auto;
+}
+
+body.theme-meadow .ov-donut-legend-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -11895,6 +12589,14 @@ body.theme-paper .ov-donut-legend-list li {
   color: var(--text-2);
 }
 
+body.theme-meadow .ov-donut-legend-list li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
 body.theme-cyan .ov-donut-legend-list li {
   display: flex;
   align-items: center;
@@ -11903,6 +12605,14 @@ body.theme-cyan .ov-donut-legend-list li {
   color: var(--text-2);
 }
 body.theme-paper .ov-donut-legend-list li span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.theme-meadow .ov-donut-legend-list li span {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -11922,11 +12632,23 @@ body.theme-paper .ov-donut-legend-list b {
   color: var(--text);
 }
 
+body.theme-meadow .ov-donut-legend-list b {
+  font-weight: 700;
+  color: var(--text);
+}
+
 body.theme-cyan .ov-donut-legend-list b {
   font-weight: 700;
   color: var(--text);
 }
 body.theme-paper .ov-donut-legend-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+body.theme-meadow .ov-donut-legend-dot {
   flex: none;
   width: 9px;
   height: 9px;
@@ -11951,6 +12673,15 @@ body.theme-paper .ov-progress-bar {
   overflow: hidden;
 }
 
+body.theme-meadow .ov-progress-bar {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  margin-top: 14px;
+  background: var(--indigo-50);
+  overflow: hidden;
+}
+
 body.theme-cyan .ov-progress-bar {
   display: block;
   height: 10px;
@@ -11960,6 +12691,16 @@ body.theme-cyan .ov-progress-bar {
   overflow: hidden;
 }
 body.theme-paper .ov-progress-bar::after {
+  content: '';
+  display: block;
+  height: 100%;
+  width: var(--done-pct, 0%);
+  border-radius: 999px;
+  background: var(--indigo-600);
+  transition: width 0.4s var(--ease);
+}
+
+body.theme-meadow .ov-progress-bar::after {
   content: '';
   display: block;
   height: 100%;
@@ -11989,10 +12730,29 @@ body.theme-paper .ov-mf-tile {
   padding-bottom: 20px;
 }
 
+body.theme-meadow .ov-mf-tile {
+  padding-bottom: 20px;
+}
+
 body.theme-cyan .ov-mf-tile {
   padding-bottom: 20px;
 }
 body.theme-paper .ov-mf-tile::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 10px;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--tile-color) 0 var(--tile-pct, 0%),
+    var(--border) var(--tile-pct, 0%) 100%
+  );
+}
+
+body.theme-meadow .ov-mf-tile::after {
   content: '';
   position: absolute;
   left: 14px;

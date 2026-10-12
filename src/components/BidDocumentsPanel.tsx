@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
-import { IconDoc, IconEye, IconDownload, IconTrash, IconCheck, IconWarn } from './Icons'
+import { IconDoc, IconEye, IconDownload, IconTrash, IconCheck, IconWarn, IconChevronRight } from './Icons'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import type { BidDocumentBatch, BidDocumentWork } from '@core/types'
 import type { BidDocumentInput, BidDocumentBatchProgress } from '../../electron/ipc-contract'
 import { closeOnBackdropMouseDown } from '../overlayClose'
+import { resolveTypeLabel } from '@core/tenderNotice'
+import { inferWorkLocation } from '@core/workLocationExtractor'
 
 interface Props {
   batches: BidDocumentBatch[]
@@ -34,11 +36,21 @@ function rowKey(batchId: string, serial: number): string {
 }
 
 function suggestedName(work: BidDocumentWork): string {
-  // Save each Bid Document under its Win Code, e.g. "Bid Document 12345".
-  // Falls back to the serial-number label for older batches saved before the
-  // Win Code was carried through.
-  const id = work.winCode?.trim() || String(work.serial)
-  return `Bid Document ${id}`.slice(0, 150)
+  // Save each Bid Document under its work type + location + estimate, e.g.
+  // "Bid Document: CC Roads @ Venkateshwaranagar 45 Lakhs". The Works
+  // List's own "Type of work" column wins when the row has one; a blank
+  // column falls back to inferTypeOfWork(name) via resolveTypeLabel (same
+  // rule the Tender Notice's own page-3 count breakdown uses — see
+  // core/tenderNotice.ts). Location is a best-effort guess off the work
+  // name (core/workLocationExtractor.ts) and is left out of the name
+  // entirely when nothing plausible was found, rather than showing a
+  // misleading placeholder. The colon is safe even though Windows
+  // disallows it in file names — sanitizeFileName (electron/main.ts)
+  // strips it to "-" before the name hits disk.
+  const typeLabel = resolveTypeLabel({ name: work.name, amount: work.amount, typeOfWork: work.typeOfWork })
+  const location = inferWorkLocation(work.name)
+  const locationTag = location ? ` @ ${location}` : ''
+  return `Bid Document: ${typeLabel}${locationTag} ${work.amount} Lakhs`.slice(0, 150)
 }
 
 /**
@@ -55,6 +67,17 @@ export default function BidDocumentsPanel({ batches, onRemove, onUpdateWork }: P
   const [batchProgress, setBatchProgress] = useState<BidDocumentBatchProgress | null>(null)
   const [batchSavedDir, setBatchSavedDir] = useState<{ batchId: string; dir: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Each batch's work list auto-collapses on arrival (a Calendar session can
+  // pile up several NIT batches, each with dozens of works) — a batch id
+  // only stays expanded once the user explicitly opens it here.
+  const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set())
+  const toggleExpanded = (id: string) =>
+    setExpandedBatches((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   const [previewing, setPreviewing] = useState<{ batch: BidDocumentBatch; work: BidDocumentWork } | null>(
     null
   )
@@ -134,9 +157,18 @@ export default function BidDocumentsPanel({ batches, onRemove, onUpdateWork }: P
 
   return (
     <>
-      {batches.map((batch) => (
+      {batches.map((batch) => {
+        const expanded = expandedBatches.has(batch.id)
+        return (
         <section className="card bid-batch" key={batch.id}>
           <div className="card-head">
+            <button
+              className="ghost bid-batch-toggle"
+              title={expanded ? 'Collapse' : 'Expand'}
+              onClick={() => toggleExpanded(batch.id)}
+            >
+              <IconChevronRight className={expanded ? 'bid-batch-toggle-icon open' : 'bid-batch-toggle-icon'} />
+            </button>
             <div className="head-ic">
               <IconDoc />
             </div>
@@ -173,6 +205,7 @@ export default function BidDocumentsPanel({ batches, onRemove, onUpdateWork }: P
             </div>
           )}
 
+          {expanded && (
           <ul className="todo-list boq-entries">
             {batch.works.map((work) => {
               const key = rowKey(batch.id, work.serial)
@@ -252,6 +285,7 @@ export default function BidDocumentsPanel({ batches, onRemove, onUpdateWork }: P
               )
             })}
           </ul>
+          )}
 
           {error && (
             <div className="notice error">
@@ -260,7 +294,8 @@ export default function BidDocumentsPanel({ batches, onRemove, onUpdateWork }: P
             </div>
           )}
         </section>
-      ))}
+        )
+      })}
 
       {previewing &&
         createPortal(

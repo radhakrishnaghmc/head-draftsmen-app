@@ -51,17 +51,11 @@ export default function QcPartiesEditor({ parties, onChange, circleSelected }: P
   }
 
   return (
-    // Collapsed by default — these agency details are entered once and rarely
-    // revisited, so the section stays folded until the user clicks to open it.
-    <details className="qcp card">
-      <summary>
-        3rd / 4th-party QC agency details
-        <span className="qcp-hint"> — enter once here; the 3rd/4th-party QC letters fill their address from it</span>
-      </summary>
+    <div className="card qcp">
       <div className="qcp-grid">
         {block('third', '3rd Party QC (inspection college)')}
         {block('fourth', '4th Party (testing lab)')}
       </div>
-    </details>
+    </div>
   )
 }

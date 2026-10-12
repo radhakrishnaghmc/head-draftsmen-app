@@ -30,9 +30,7 @@ const DEV_TEST_LOGIN_ID = 'radhakrishna'
 const DEV_AUTOLOGIN_PASSWORD = import.meta.env.DEV ? (import.meta.env.VITE_DEV_PASSWORD as string | undefined) : undefined
 
 export default function LoginPage({ onSuccess }: Props) {
-  const [loginId, setLoginId] = useState(() =>
-    import.meta.env.DEV ? DEV_TEST_LOGIN_ID : localStorage.getItem(REMEMBERED_LOGIN_ID_KEY) ?? ''
-  )
+  const [loginId, setLoginId] = useState(() => localStorage.getItem(REMEMBERED_LOGIN_ID_KEY) ?? '')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -146,10 +144,8 @@ export default function LoginPage({ onSuccess }: Props) {
               setError(null)
               setMaxSessionsHit(false)
             }}
-            autoFocus={!import.meta.env.DEV}
+            autoFocus
             autoComplete="username"
-            readOnly={import.meta.env.DEV}
-            title={import.meta.env.DEV ? 'Dev environment always signs in as the test account.' : undefined}
           />
         </label>
 

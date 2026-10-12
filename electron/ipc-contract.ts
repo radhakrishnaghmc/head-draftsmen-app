@@ -9,7 +9,7 @@ import type { SheetGrid } from '../core/sheet'
 import type { SheetPreview } from '../core/excel'
 import type { CalendarData } from '../core/calendar'
 import type { ScheduleAMeta } from '../core/scheduleA'
-import type { TenderNoticeInput } from '../core/tenderNotice'
+import type { TenderNoticeInput, TenderNoticeGroup } from '../core/tenderNotice'
 import type { CellEdit } from '../core/technicalSanction'
 import type { BidDocumentInput } from '../core/bidDocument'
 import type { LoginResult } from '../core/auth'
@@ -105,6 +105,7 @@ export const IPC = {
   pickExcelGrids: 'dialog:pickExcelGrids',
   pickEstimateGrid: 'dialog:pickEstimateGrid',
   pickEstimateGrids: 'dialog:pickEstimateGrids',
+  pickEstimateGridsMulti: 'dialog:pickEstimateGridsMulti',
   pickDataSheet: 'dialog:pickDataSheet',
   pickTenderDocuments: 'dialog:pickTenderDocuments',
   ocrEstimatePhotos: 'data:ocrEstimatePhotos',
@@ -167,6 +168,8 @@ export const IPC = {
   previewBidDocument: 'data:previewBidDocument',
   generateTechnicalSanction: 'data:generateTechnicalSanction',
   searchTenders: 'tenders:search',
+  viewTenderDetails: 'tenders:viewDetails',
+  fetchTenderConditions: 'tenders:conditions',
   embedTexts: 'ai:embedTexts',
   listDocumentParagraphs: 'doc:listDocumentParagraphs',
   saveDocumentEdits: 'doc:saveDocumentEdits',
@@ -233,6 +236,8 @@ export interface DocuGenApi {
   pickEstimateGrid(): Promise<SheetGrid | null>
   /** Same picker, but reads every sheet of the chosen workbook — for Technical Sanction's estimate uploads, which may spread one estimate's items across several sheets. */
   pickEstimateGrids(): Promise<SheetGrid[] | null>
+  /** Same picker, but lets the user select several workbooks at once — each entry of the result is one workbook's own sheets (every sheet of file N stays grouped under result[N]). */
+  pickEstimateGridsMulti(): Promise<SheetGrid[][] | null>
   pickDataSheet(): Promise<SheetGrid[] | null>
   /**
    * Lets the user pick loose files AND/OR whole folders in one native dialog
@@ -374,6 +379,10 @@ export interface DocuGenApi {
     rateAnalysisRows?: (string | number)[][]
   ): Promise<string | null>
   searchTenders(query: TenderQuery): Promise<TenderResult>
+  /** Opens the portal's "View Tender Details" page for a tender in an app window. */
+  /** Required-document names from the portal's tender page for a tender ID. */
+  fetchTenderConditions(tenderId: string): Promise<string[]>
+  viewTenderDetails(indentId: string, category: string, procurementId: string): Promise<void>
   embedTexts(texts: string[]): Promise<number[][]>
   /** Plain text of every paragraph in a base64 .docx, in document order — used to diff a user's typed edits back against the original before saving. */
   listDocumentParagraphs(docxBase64: string): Promise<string[]>
@@ -404,8 +413,8 @@ export interface DocuGenApi {
   ): Promise<{ file: string; format: 'docx' | 'pdf' }[] | null>
   /** Open the OS print dialog directly against the already-rendered document HTML (docx-preview's own output, captured by the caller). For plain-HTML (non-docx) documents, `pageMarginsMm` overrides the default 14mm/16mm page padding (any side omitted keeps its default). */
   printCreatedDocument(renderedHtml: string, pageMarginsMm?: PageMarginsMm): Promise<void>
-  /** Reads the bundled Carlito (Regular + Bold) font files, base64-encoded — the metric-compatible open substitute for "Calibri", embedded as a fallback @font-face in the docx-preview HTML (see core/fontFallbacks.ts) so letterhead titles don't mis-wrap on machines without Calibri installed. Fetched once and cached by the caller. */
-  fontFallbackFiles(): Promise<{ regular: string; bold: string }>
+  /** Reads the bundled Carlito (Regular + Bold) and Noto Sans Telugu font files, base64-encoded — the metric-compatible open substitutes for "Calibri" and "Gautami", embedded as fallback @font-face rules in the docx-preview HTML (see core/fontFallbacks.ts) so letterhead titles/captions don't mis-wrap on machines whose installed fonts differ from each other. Fetched once and cached by the caller. */
+  fontFallbackFiles(): Promise<{ regular: string; bold: string; telugu: string }>
   /** Converts built Note Submitted HTML into a base64 .docx, for export via exportCreatedDocument. `marginsTwips`, if given, overrides the given page margins (sides not listed stay at html-to-docx's defaults). */
   noteSubmittedDocx(html: string, marginsTwips?: { top?: number; bottom?: number }): Promise<string>
   /** Reads the bundled Intimation format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */
@@ -480,7 +489,7 @@ export interface AgreementBundleFile {
   /** True for a Zone-level (SE) office's Schedule A — uses the Superintending Engineer template/signature instead of the Executive Engineer one. Only meaningful alongside scheduleATable. */
   scheduleAIsSe?: boolean
 }
-export type { TenderNoticeInput }
+export type { TenderNoticeInput, TenderNoticeGroup }
 export type { CellEdit }
 export type { BidDocumentInput }
 export type { LoginResult }

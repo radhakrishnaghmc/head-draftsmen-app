@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { Office } from '../office'
-import type { MonitoringFormatSummary, MonitoringFormatWorkRow } from '@core/monitoringFormat'
+import type { MfStatusKey, MonitoringFormatSummary, MonitoringFormatWorkRow } from '@core/monitoringFormat'
 import { extractMonitoringFormatForOffice, extractMonitoringFormatWorksForOffice } from '@core/monitoringFormat'
 import { findMonitoringFormatErrors } from '@core/worksListAgent'
 import { indianDigitGroups } from '@core/worksAmounts'
 import { api } from '../ipc'
-import { IconPlus, IconLink, IconChevronRight, IconWarn, IconCheck, IconClose } from './Icons'
+import { IconPlus, IconLink, IconWarn, IconCheck, IconClose } from './Icons'
 
 interface Props {
   office: Office
@@ -17,6 +17,17 @@ interface Props {
 }
 
 type VerifyStatus = 'idle' | 'checking' | 'ok' | 'error'
+
+// Same label/color per status as the Dashboard's MF_TILES (OverviewDashboard.tsx)
+// so a status reads identically wherever it's shown in the app.
+const STATUS_META: Record<MfStatusKey, { label: string; color: string }> = {
+  completed: { label: 'Completed', color: 'var(--ok)' },
+  progressTotal: { label: 'In Progress', color: 'var(--teal-500)' },
+  toBeStarted: { label: 'To Be Started', color: 'var(--violet-500)' },
+  tenderProcess: { label: 'Tender Process', color: 'var(--sky-500)' },
+  heldUp: { label: 'Held Up', color: 'var(--warn)' },
+  cancelled: { label: 'Cancelled', color: 'var(--danger)' }
+}
 
 /**
  * Lives on the Works List page, next to the works-database link import — the
@@ -34,7 +45,6 @@ export default function MonitoringFormatCard({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [link, setLink] = useState(monitoringFormatLink ?? '')
-  const [open, setOpen] = useState(false)
   const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>('idle')
   const [verifyIssues, setVerifyIssues] = useState<string[]>([])
 
@@ -87,54 +97,40 @@ export default function MonitoringFormatCard({
 
   return (
     <div className="card mf-card">
-      <div className="card-head">
-        <button
-          type="button"
-          className="settings-section-toggle mf-toggle"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-        >
-          <IconChevronRight className={`settings-section-chevron ${open ? 'open' : ''}`} />
-          <h3>Monitoring Format</h3>
-        </button>
-        {open && (
-          <>
-            {monitoringFormat && (
-              <div className="verify-block">
-                <button type="button" className="verify-btn" onClick={() => void verify()} disabled={verifyStatus === 'checking'}>
-                  {verifyStatus === 'checking' ? 'Verifying…' : 'Verify'}
-                </button>
-                {verifyStatus === 'ok' && (
-                  <span className="verify-ok">
-                    <IconCheck /> No errors found
-                  </span>
-                )}
-                {verifyStatus === 'error' && (
-                  <div className="verify-banner verify-blinking" role="alert">
-                    <div className="verify-banner-title">
-                      <IconWarn /> Errors found
-                      <button type="button" className="verify-banner-close" aria-label="Dismiss" onClick={() => setVerifyStatus('idle')}>
-                        <IconClose />
-                      </button>
-                    </div>
-                    <ul>
-                      {verifyIssues.map((message, i) => (
-                        <li key={i}>{message}</li>
-                      ))}
-                    </ul>
+      <div className="mf-body">
+        <div className="mf-body-toolbar">
+          {monitoringFormat && (
+            <div className="verify-block">
+              <button type="button" className="verify-btn" onClick={() => void verify()} disabled={verifyStatus === 'checking'}>
+                {verifyStatus === 'checking' ? 'Verifying…' : 'Verify'}
+              </button>
+              {verifyStatus === 'ok' && (
+                <span className="verify-ok">
+                  <IconCheck /> No errors found
+                </span>
+              )}
+              {verifyStatus === 'error' && (
+                <div className="verify-banner verify-blinking" role="alert">
+                  <div className="verify-banner-title">
+                    <IconWarn /> Errors found
+                    <button type="button" className="verify-banner-close" aria-label="Dismiss" onClick={() => setVerifyStatus('idle')}>
+                      <IconClose />
+                    </button>
                   </div>
-                )}
-              </div>
-            )}
-            <button className="ghost mf-new-btn" onClick={importFile} disabled={busy}>
-              <IconPlus /> {busy ? 'Importing…' : 'Import file'}
-            </button>
-          </>
-        )}
-      </div>
-      {open && (
-        <div className="mf-body">
-          <div className="link-import-row mf-link-row">
+                  <ul>
+                    {verifyIssues.map((message, i) => (
+                      <li key={i}>{message}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          <button className="ghost mf-new-btn" onClick={importFile} disabled={busy}>
+            <IconPlus /> {busy ? 'Importing…' : 'Import file'}
+          </button>
+        </div>
+        <div className="link-import-row mf-link-row">
             <IconLink />
             <input
               value={link}
@@ -180,10 +176,59 @@ export default function MonitoringFormatCard({
                   </div>
                 ))}
               </div>
+              {monitoringFormatWorks && monitoringFormatWorks.length > 0 && (
+                <div className="mf-works-wrap">
+                  <table className="mf-works-table">
+                    <thead>
+                      <tr>
+                        <th className="mf-works-num">Sl.No</th>
+                        <th>Circle</th>
+                        <th>Ward</th>
+                        <th>Name of Work</th>
+                        <th>Type of Work</th>
+                        <th>Win Code</th>
+                        <th className="mf-works-num">Estimate (Rs. Lakhs)</th>
+                        <th>Agency Details</th>
+                        <th>Target Date</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monitoringFormatWorks.map((w, i) => {
+                        const meta = w.statusKey ? STATUS_META[w.statusKey] : null
+                        return (
+                          <tr key={`${w.winCode || w.slNo}-${i}`}>
+                            <td className="mf-works-num">{w.slNo}</td>
+                            <td className="mf-works-nowrap">{w.circle}</td>
+                            <td className="mf-works-nowrap">{w.ward}</td>
+                            <td className="mf-works-name">{w.workName}</td>
+                            <td className="mf-works-nowrap">{w.typeOfWork}</td>
+                            <td className="mf-works-nowrap">{w.winCode}</td>
+                            <td className="mf-works-num">{indianDigitGroups(w.estimateAmt)}</td>
+                            <td>{w.agencyDetails}</td>
+                            <td className="mf-works-nowrap">{w.targetDate}</td>
+                            <td className="mf-works-nowrap">
+                              {meta ? (
+                                <span className="mf-status-pill" style={{ ['--pill-color' as string]: meta.color }}>
+                                  <i className="mf-status-dot" />
+                                  {meta.label}
+                                </span>
+                              ) : (
+                                w.status
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </>
           )}
         </div>
-      )}
-    </div>
+      </div>
   )
 }
+
+

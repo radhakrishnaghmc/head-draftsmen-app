@@ -24,13 +24,25 @@
  * installed on the machine, in both the on-screen preview and the Print
  * window (the generated <style> tag travels with the captured
  * container.innerHTML into printCreatedDocument's HTML).
+ *
+ * "Gautami" is the mirror-image case: it's the complex-script font the
+ * letterhead's Telugu caption declares (see core/docxToPdf.ts's own doc
+ * comment on PDF_FONT_SUBSTITUTES), and unlike Calibri it IS installed at
+ * the OS level on Windows (shipped there for Indic-script support) but not
+ * on macOS/Linux. So without a pinned substitute, the preview renders real
+ * Gautami on Windows and some other, narrower, auto-picked Telugu-capable
+ * font on Mac/Linux — fitting one line on Mac but wrapping on Windows.
+ * Pinning both platforms to the same embedded "Noto Sans Telugu" (the font
+ * already used for this run in the LibreOffice/PDF path) makes the preview
+ * match the PDF, on every OS, regardless of what's actually installed.
  */
 export const FONT_SUBSTITUTES: Record<string, string> = {
-  calibri: 'Carlito'
+  calibri: 'Carlito',
+  gautami: 'Noto Sans Telugu'
 }
 
-/** Builds the @font-face CSS for the given base64-encoded Carlito TTFs (see api.fontFallbackFiles). */
-export function buildFontFallbackCss(fonts: { regular: string; bold: string }): string {
+/** Builds the @font-face CSS for the given base64-encoded Carlito/Noto Sans Telugu TTFs (see api.fontFallbackFiles). */
+export function buildFontFallbackCss(fonts: { regular: string; bold: string; telugu: string }): string {
   return [
     '@font-face {',
     "  font-family: 'Carlito';",
@@ -42,6 +54,12 @@ export function buildFontFallbackCss(fonts: { regular: string; bold: string }): 
     "  font-family: 'Carlito';",
     `  src: url(data:font/truetype;base64,${fonts.bold}) format('truetype');`,
     '  font-weight: bold;',
+    '  font-style: normal;',
+    '}',
+    '@font-face {',
+    "  font-family: 'Noto Sans Telugu';",
+    `  src: url(data:font/truetype;base64,${fonts.telugu}) format('truetype');`,
+    '  font-weight: normal;',
     '  font-style: normal;',
     '}'
   ].join('\n')

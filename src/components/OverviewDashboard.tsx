@@ -564,7 +564,7 @@ export default function OverviewDashboard({
             <ul className="ov-task-list">
               {upcoming.map((d) => (
                 <li key={`${d.kind}-${d.id}`}>
-                  <span className="ov-task-ic">
+                  <span className={`ov-task-ic ov-task-ic-${d.kind}`}>
                     {d.kind === 'mb' ? <IconEye /> : d.kind === 'tender' ? <IconSearch /> : <IconChecklist />}
                   </span>
                   <span className="ov-task-body">

@@ -56,6 +56,8 @@ import { fillTenderNotice } from '../core/tenderNotice'
 import type { TenderNoticeInput } from '../core/tenderNotice'
 import { fillBidDocument, fillSeBidDocument } from '../core/bidDocument'
 import type { BidDocumentInput } from '../core/bidDocument'
+import { runBidDocumentBatch } from './bidDocumentBatchRunner'
+import type { BidDocumentBatchEntry } from './bidDocumentBatchRunner'
 import type { CalendarData } from '../core/calendar'
 import { convertHtmlToDocx } from '../core/htmlToDocx'
 import { textToParagraphsHtml, buildPhotosWorkbook, buildWorkbookFromRows } from '../core/photosToDoc'
@@ -276,6 +278,16 @@ function registerHandlers(): void {
     })
     if (result.canceled || result.filePaths.length === 0) return null
     return readAllSheetGrids(result.filePaths[0])
+  })
+
+  ipcMain.handle(IPC.pickEstimateGridsMulti, async (): Promise<SheetGrid[][] | null> => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Select Estimates',
+      filters: [{ name: 'Excel workbooks', extensions: ['xlsx', 'xls'] }],
+      properties: ['openFile', 'multiSelections']
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths.map((p) => readAllSheetGrids(p))
   })
 
   ipcMain.handle(IPC.pickDataSheet, async (): Promise<SheetGrid[] | null> => {
@@ -1215,6 +1227,17 @@ function registerHandlers(): void {
     }
   )
 
+  ipcMain.handle(
+    IPC.viewTenderDetails,
+    async (_e, indentId: string, category: string, procurementId: string): Promise<void> => {
+      await openTenderDetails(indentId, category, procurementId)
+    }
+  )
+
+  ipcMain.handle(IPC.fetchTenderConditions, async (_e, tenderId: string): Promise<string[]> => {
+    return fetchTenderConditions(tenderId)
+  })
+
   ipcMain.handle(IPC.embedTexts, async (_e, texts: string[]): Promise<number[][]> => {
     return embedTexts(texts)
   })
@@ -1405,13 +1428,15 @@ function registerHandlers(): void {
       }
     })
 
-  ipcMain.handle(IPC.fontFallbackFiles, async (): Promise<{ regular: string; bold: string }> => {
+  ipcMain.handle(IPC.fontFallbackFiles, async (): Promise<{ regular: string; bold: string; telugu: string }> => {
     const regularPath = bundledResourceFile('fonts/Carlito-Regular.ttf')
     const boldPath = bundledResourceFile('fonts/Carlito-Bold.ttf')
-    if (!regularPath || !boldPath) throw new Error('Font fallback files are missing from the app bundle.')
+    const teluguPath = bundledResourceFile('fonts/NotoSansTelugu-Regular.ttf')
+    if (!regularPath || !boldPath || !teluguPath) throw new Error('Font fallback files are missing from the app bundle.')
     return {
       regular: fs.readFileSync(regularPath).toString('base64'),
-      bold: fs.readFileSync(boldPath).toString('base64')
+      bold: fs.readFileSync(boldPath).toString('base64'),
+      telugu: fs.readFileSync(teluguPath).toString('base64')
     }
   })
 
@@ -1676,11 +1701,11 @@ function registerHandlers(): void {
     if (isSeWork(work)) {
       const templatePath = bidDocumentSeTemplateFile()
       if (!templatePath) throw new Error('SE Bid Document template is missing from the app bundle.')
-      return { templatePath, fill: fillSeBidDocument }
+      return { templatePath, kind: 'se' as const, fill: fillSeBidDocument }
     }
     const templatePath = bidDocumentTemplateFile()
     if (!templatePath) throw new Error('Bid Document template is missing from the app bundle.')
-    return { templatePath, fill: fillBidDocument }
+    return { templatePath, kind: 'ee' as const, fill: fillBidDocument }
   }
 
   // Make an arbitrary label safe to use as a single file name. Win Codes and
@@ -1757,21 +1782,18 @@ function registerHandlers(): void {
       if (result.canceled || result.filePaths.length === 0) return null
       const dir = result.filePaths[0]
 
-      // A single tender notice's works all share one office, so every entry
-      // resolves to the same template — but each is still resolved on its
-      // own (cheap: just a file-existence check) rather than assumed, so a
-      // mixed batch (however unlikely) still gets the right template per row.
-      const templateCache = new Map<string, Buffer>()
+      // Resolving the template path + a collision-free file name per entry is
+      // cheap (file-existence checks only) and stays on the main thread — a
+      // single tender notice's works all share one office, so every entry
+      // resolves to the same template, but each is still resolved on its own
+      // rather than assumed, so a mixed batch (however unlikely) still gets
+      // the right template per row. The actual fill/sanitize/write — CPU-
+      // bound and synchronous — runs on a worker thread (bidDocumentWorker.ts)
+      // so a big batch doesn't hog the main process and freeze every window
+      // for the whole duration.
       const used = new Set<string>()
-      const written: string[] = []
-      for (let i = 0; i < entries.length; i++) {
-        const entry = entries[i]
-        const { templatePath, fill } = resolveBidDocumentFiller(entry.input.work)
-        let templateBuffer = templateCache.get(templatePath)
-        if (!templateBuffer) {
-          templateBuffer = fs.readFileSync(templatePath)
-          templateCache.set(templatePath, templateBuffer)
-        }
+      const workerEntries: BidDocumentBatchEntry[] = entries.map((entry) => {
+        const { templatePath, kind } = resolveBidDocumentFiller(entry.input.work)
         const base = sanitizeFileName(entry.suggestedName || 'Bid Document')
         let fileName = `${base}.docx`
         let n = 2
@@ -1780,18 +1802,12 @@ function registerHandlers(): void {
           n += 1
         }
         used.add(fileName)
-        fs.writeFileSync(path.join(dir, fileName), sanitizeDocxForWord2007(fill(templateBuffer, entry.input)))
-        written.push(path.join(dir, fileName))
-        mainWindow?.webContents.send(IPC.bidDocumentBatchProgress, { done: i + 1, total: entries.length })
-        // Filling + sanitizing a docx is CPU-bound and synchronous — looping
-        // straight through a big batch with no yield hogs the main process's
-        // single thread for the whole batch, freezing every window's IPC and
-        // repaints along with it. Yielding once per document (not per-line
-        // inside the fill itself) lets the event loop breathe between
-        // documents without materially slowing the batch down.
-        await new Promise((resolve) => setImmediate(resolve))
-      }
-      return written
+        return { templatePath, kind, input: entry.input, filePath: path.join(dir, fileName) }
+      })
+
+      return runBidDocumentBatch(workerEntries, (done, total) => {
+        mainWindow?.webContents.send(IPC.bidDocumentBatchProgress, { done, total })
+      })
     }
   )
 
@@ -2135,6 +2151,135 @@ async function runTenderFetch(win: BrowserWindow, url: string): Promise<string> 
 }
 
 const looksLikeJson = (s: string): boolean => s.trimStart().startsWith('{')
+
+/**
+ * Open the portal's "View Tender Details" page. The portal's own viewBtn()
+ * POSTs a hidden form into a popup, and only works from a live listing page,
+ * so we reach one the same way the site does (home -> "More...") in a window
+ * with its own fresh session, then call viewBtn and let the popup it opens
+ * through. The listing window stays hidden; the details popup is shown only
+ * when `visible` is set. Resolves with the details popup.
+ */
+async function openTenderDetailsWindow(
+  indentId: string,
+  category: string,
+  procurementId: string,
+  visible: boolean
+): Promise<BrowserWindow> {
+  const ids = [indentId, category, procurementId]
+  if (!ids.every((v) => /^\d+$/.test(v))) throw new Error('Invalid tender reference.')
+  const win = new BrowserWindow({
+    width: 1100,
+    height: 800,
+    show: false,
+    title: 'Tender Details',
+    webPreferences: { partition: `tender-view-${Date.now()}-${Math.random()}`, contextIsolation: true }
+  })
+  win.setMenuBarVisibility(false)
+  win.webContents.setWindowOpenHandler(() => ({
+    action: 'allow',
+    overrideBrowserWindowOptions: {
+      width: 1100,
+      height: 800,
+      show: visible,
+      title: 'Tender Details',
+      autoHideMenuBar: true
+    }
+  }))
+  const popup = new Promise<BrowserWindow>((resolve, reject) => {
+    win.webContents.once('did-create-window', (child) => {
+      child.on('closed', () => {
+        if (!win.isDestroyed()) win.destroy()
+      })
+      resolve(child)
+    })
+    setTimeout(() => reject(new Error('The tender details page did not open.')), 30000)
+  })
+  popup.catch(() => {})
+  try {
+    await win.loadURL(TENDER_ROOT).catch(() => {})
+    // The "More..." link is rendered after the home page finishes loading.
+    let clicked = false
+    for (let i = 0; i < 50 && !clicked; i += 1) {
+      clicked = await win.webContents.executeJavaScript(
+        `(function () { var a = document.getElementById('viewCurrentall'); if (a) { a.click() } return !!a })()`
+      )
+      if (!clicked) await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+    if (!clicked) throw new Error('Could not reach the tender portal. Please try again.')
+    const listingLoaded = new Promise<void>((resolve) =>
+      win.webContents.once('did-finish-load', () => resolve())
+    )
+    await Promise.race([
+      listingLoaded,
+      new Promise<void>((resolve) => setTimeout(resolve, 15000))
+    ])
+    const reached = await win.webContents.executeJavaScript(`typeof viewBtn === 'function'`)
+    if (!reached) throw new Error('Could not reach the tender portal. Please try again.')
+    await win.webContents.executeJavaScript(`viewBtn(${ids.join(',')})`)
+    return await popup
+  } catch (err) {
+    if (!win.isDestroyed()) win.destroy()
+    throw err
+  }
+}
+
+async function openTenderDetails(
+  indentId: string,
+  category: string,
+  procurementId: string
+): Promise<void> {
+  await openTenderDetailsWindow(indentId, category, procurementId, true)
+}
+
+/** Parse the viewBtn(a,b,c) arguments out of a listing row's Action-column HTML. */
+function parseViewArgs(actionHtml: string | undefined): [string, string, string] | null {
+  const m = /viewBtn\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/.exec(actionHtml ?? '')
+  return m ? [m[1], m[2], m[3]] : null
+}
+
+/**
+ * Look a tender up by its ID on the portal and return the document names from
+ * its "Required Tender Documents Details" table (the tender's conditions), with
+ * the portal's "1. " numbering stripped. Throws if the tender is not found.
+ */
+async function fetchTenderConditions(tenderId: string): Promise<string[]> {
+  const id = tenderId.trim()
+  if (!/^\d+$/.test(id)) throw new Error('Invalid tender ID.')
+  const raw = await fetchTenders({ start: 0, length: 10, type: 'current', search: id })
+  let rows: string[][] = []
+  try {
+    rows = (JSON.parse(raw) as { aaData?: string[][] }).aaData ?? []
+  } catch {
+    throw new Error('The tender portal returned an unexpected response.')
+  }
+  const row = rows.find((r) => (r[1] ?? '').trim() === id)
+  const args = row ? parseViewArgs(row[9]) : null
+  if (!args) throw new Error(`Tender ${id} was not found on the tender portal.`)
+
+  const popup = await openTenderDetailsWindow(args[0], args[1], args[2], false)
+  try {
+    const read = `(function () {
+         var t = document.getElementById('VTMSBodyContent_TenderDetailsGridView');
+         if (!t) return null;
+         return Array.prototype.map.call(t.querySelectorAll('tbody tr'), function (tr) {
+           var td = tr.querySelectorAll('td');
+           return td.length > 1 ? td[1].textContent.replace(/\\s+/g, ' ').trim() : '';
+         });
+       })()`
+    let names: string[] | null = null
+    for (let i = 0; i < 100 && !names; i += 1) {
+      names = await popup.webContents.executeJavaScript(read).catch(() => null)
+      if (!names) await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+    if (!names) throw new Error(`Could not read the tender page for tender ${id}.`)
+    const cleaned = names.map((n) => n.replace(/^\d+\s*[.)]\s*/, '').trim()).filter(Boolean)
+    if (cleaned.length === 0) throw new Error(`No tender conditions listed for tender ${id}.`)
+    return cleaned
+  } finally {
+    if (!popup.isDestroyed()) popup.destroy()
+  }
+}
 
 async function fetchTenders(query: TenderQuery): Promise<string> {
   const url = buildTenderUrl(query)

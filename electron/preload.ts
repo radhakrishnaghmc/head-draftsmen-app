@@ -7,6 +7,7 @@ const api: DocuGenApi = {
   pickExcelGrids: () => ipcRenderer.invoke(IPC.pickExcelGrids),
   pickEstimateGrid: () => ipcRenderer.invoke(IPC.pickEstimateGrid),
   pickEstimateGrids: () => ipcRenderer.invoke(IPC.pickEstimateGrids),
+  pickEstimateGridsMulti: () => ipcRenderer.invoke(IPC.pickEstimateGridsMulti),
   pickDataSheet: () => ipcRenderer.invoke(IPC.pickDataSheet),
   pickTenderDocuments: () => ipcRenderer.invoke(IPC.pickTenderDocuments),
   onTenderScanProgress: (callback) => {
@@ -105,6 +106,9 @@ const api: DocuGenApi = {
       rateAnalysisRows
     ),
   searchTenders: (query) => ipcRenderer.invoke(IPC.searchTenders, query),
+  fetchTenderConditions: (tenderId) => ipcRenderer.invoke(IPC.fetchTenderConditions, tenderId),
+  viewTenderDetails: (indentId, category, procurementId) =>
+    ipcRenderer.invoke(IPC.viewTenderDetails, indentId, category, procurementId),
   embedTexts: (texts) => ipcRenderer.invoke(IPC.embedTexts, texts),
   listDocumentParagraphs: (docxBase64) => ipcRenderer.invoke(IPC.listDocumentParagraphs, docxBase64),
   saveDocumentEdits: (docxBase64, edits) => ipcRenderer.invoke(IPC.saveDocumentEdits, docxBase64, edits),

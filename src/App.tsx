@@ -8,6 +8,7 @@ import {
   applyWorksSchemaWithMapping,
   migrateEcvContractToRupees,
   repairInflatedRupees,
+  reorderWorksColumns,
   ECV_RUPEES_STATE_VERSION,
   WORKS_COLUMNS
 } from './worksSchema'
@@ -195,6 +196,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     document.body.classList.toggle('theme-aurora', theme === 'aurora')
     document.body.classList.toggle('theme-paper', theme === 'paper')
     document.body.classList.toggle('theme-cyan', theme === 'cyan')
+    document.body.classList.toggle('theme-meadow', theme === 'meadow')
   }, [theme])
 
   // Portal targets for the Agreement/Work Order and Intimation pages' own
@@ -320,6 +322,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [mbScrutiny, setMbScrutiny] = useState<MBScrutinyItem[]>([])
   const [mbMeasurementOpen, setMbMeasurementOpen] = useState(false)
+  const [worklistOpenTile, setWorklistOpenTile] = useState<'qc' | 'mf' | 'wl' | null>('wl')
   const [lastGoogleLink, setLastGoogleLink] = useState<string | null>(null)
   const [refreshingWorks, setRefreshingWorks] = useState(false)
   const [refreshError, setRefreshError] = useState<string | null>(null)
@@ -357,6 +360,13 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   const [pendingOfficeImport, setPendingOfficeImport] = useState<string | null>(null)
   // Outcome of the Google-link refresh (a plain re-import of the Works List).
   const [refreshSummary, setRefreshSummary] = useState<string | null>(null)
+  // Auto-dismiss the success banner after a few seconds — it's a one-time
+  // confirmation, not a persistent status, so it shouldn't linger forever.
+  useEffect(() => {
+    if (!refreshSummary) return
+    const t = setTimeout(() => setRefreshSummary(null), 6000)
+    return () => clearTimeout(t)
+  }, [refreshSummary])
   const [tenderReminders, setTenderReminders] = useState<TenderReminder[]>([])
   const [refreshingReminderId, setRefreshingReminderId] = useState<string | null>(null)
   // Auto-prepared "Notice for Non-conclusion of Agreement" tiles — one is
@@ -547,6 +557,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
               // Always heal any ECV/Contract Amount left absurdly inflated by an
               // earlier over-migration (idempotent — see repairInflatedRupees).
               .map(repairInflatedRupees)
+              // Always re-apply the canonical column order (idempotent).
+              .map(reorderWorksColumns)
 
           // Restore each office's own Works List. Legacy states stored only a
           // single top-level `tables` (the last office in use) — migrate it into
@@ -618,7 +630,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       // office never wipes ours.
       if (partial.tablesByOffice) {
         const incoming: Record<string, ExcelTable[]> = {}
-        for (const [k, v] of Object.entries(partial.tablesByOffice)) incoming[k] = v.map(applyWorksSchema)
+        for (const [k, v] of Object.entries(partial.tablesByOffice))
+          incoming[k] = v.map(applyWorksSchema).map(reorderWorksColumns)
         setTablesByOffice((prev) => ({ ...prev, ...incoming }))
         // Reflect it on screen only when it's this office's own data.
         const mine = incoming[currentOfficeKey]
@@ -628,7 +641,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
         }
       } else if (partial.tables) {
         // Legacy remote (older client) sends only the flat `tables`.
-        const loadedTables = partial.tables.map(applyWorksSchema)
+        const loadedTables = partial.tables.map(applyWorksSchema).map(reorderWorksColumns)
         // Keep the same Zone/Circle withholding behaviour as the initial
         // load: don't surface a Works List for a different office.
         if (blockedWorksList) {
@@ -1538,13 +1551,6 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                 )}
               </div>
             </div>
-            <QcPartiesEditor
-              parties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
-              circleSelected={!!office.circle}
-              onChange={(next) =>
-                currentOfficeKey && setQcParties((prev) => ({ ...prev, [currentOfficeKey]: next }))
-              }
-            />
             {officeSwitchBusy && (
               <div className="notice warn office-switch-busy">
                 <IconRefresh className="spin" /> Loading <strong>{officeSwitchBusy}</strong>'s Works List…
@@ -1558,14 +1564,84 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
             )}
             {refreshError && <div className="notice error">{refreshError}</div>}
             {refreshSummary && <div className="notice ok">{refreshSummary}</div>}
-            <MonitoringFormatCard
-              office={office}
-              monitoringFormat={currentOfficeKey ? monitoringFormatByOffice[currentOfficeKey] : undefined}
-              monitoringFormatWorks={officeMonitoringFormatWorks}
-              onImportMonitoringFormat={setOfficeMonitoringFormat}
-              monitoringFormatLink={currentOfficeKey ? monitoringFormatLinks[currentOfficeKey] : undefined}
-              onSaveMonitoringFormatLink={saveMonitoringFormatLink}
-            />
+            {/* A single persistent header row of tabs that never reflows — clicking
+                a tab shows its content in the panel below, instead of the old
+                equal-width-tiles layout where opening one tile shifted the others. */}
+            <div className="worklist-tabs-wrap">
+              <div className="card-head worklist-tabs">
+                {office.circle && (
+                  <button
+                    type="button"
+                    className="settings-section-toggle mf-toggle"
+                    onClick={() => setWorklistOpenTile((t) => (t === 'qc' ? null : 'qc'))}
+                    aria-expanded={worklistOpenTile === 'qc'}
+                  >
+                    <IconChevronRight className={`settings-section-chevron ${worklistOpenTile === 'qc' ? 'open' : ''}`} />
+                    <h3>3rd / 4th-party QC agency details</h3>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="settings-section-toggle mf-toggle"
+                  onClick={() => setWorklistOpenTile((t) => (t === 'mf' ? null : 'mf'))}
+                  aria-expanded={worklistOpenTile === 'mf'}
+                >
+                  <IconChevronRight className={`settings-section-chevron ${worklistOpenTile === 'mf' ? 'open' : ''}`} />
+                  <h3>Monitoring Format</h3>
+                </button>
+                <button
+                  type="button"
+                  className="settings-section-toggle mf-toggle"
+                  onClick={() => setWorklistOpenTile((t) => (t === 'wl' ? null : 'wl'))}
+                  aria-expanded={worklistOpenTile === 'wl'}
+                >
+                  <IconChevronRight className={`settings-section-chevron ${worklistOpenTile === 'wl' ? 'open' : ''}`} />
+                  <h3>Works List Database</h3>
+                </button>
+              </div>
+              {worklistOpenTile === 'qc' && (
+                <QcPartiesEditor
+                  parties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
+                  circleSelected={!!office.circle}
+                  onChange={(next) =>
+                    currentOfficeKey && setQcParties((prev) => ({ ...prev, [currentOfficeKey]: next }))
+                  }
+                />
+              )}
+              {worklistOpenTile === 'mf' && (
+                <MonitoringFormatCard
+                  office={office}
+                  monitoringFormat={currentOfficeKey ? monitoringFormatByOffice[currentOfficeKey] : undefined}
+                  monitoringFormatWorks={officeMonitoringFormatWorks}
+                  onImportMonitoringFormat={setOfficeMonitoringFormat}
+                  monitoringFormatLink={currentOfficeKey ? monitoringFormatLinks[currentOfficeKey] : undefined}
+                  onSaveMonitoringFormatLink={saveMonitoringFormatLink}
+                />
+              )}
+              {worklistOpenTile === 'wl' &&
+                (currentTable ? (
+                  <ExcelInline
+                    key={`${currentTable.id}:${worksFlash?.token ?? 0}`}
+                    table={currentTable}
+                    onChange={updateTable}
+                    autofillRow={autofillWorksRowForLogin}
+                    flashRows={worksFlash?.rows}
+                    flashMessage={worksFlash?.message}
+                    header={<GoogleLinkImport onImport={importFromGoogleLink} />}
+                  />
+                ) : (
+                  <div className="card worklist-tile-full">
+                    <GoogleLinkImport onImport={importFromGoogleLink} />
+                    <div className="empty">
+                      <IconTable />
+                      <p>No works database yet. Create one with the standard work columns and start adding rows.</p>
+                      <button className="primary" onClick={createDatabase}>
+                        <IconPlus /> Create works database
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
             {circleMismatchConfirm &&
               createPortal(
                 <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => resolveCircleMismatch(false))}>
@@ -1632,28 +1708,6 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                 </div>,
                 document.body
               )}
-            {currentTable ? (
-              <ExcelInline
-                key={`${currentTable.id}:${worksFlash?.token ?? 0}`}
-                table={currentTable}
-                onChange={updateTable}
-                autofillRow={autofillWorksRowForLogin}
-                flashRows={worksFlash?.rows}
-                flashMessage={worksFlash?.message}
-                header={<GoogleLinkImport onImport={importFromGoogleLink} />}
-              />
-            ) : (
-              <div className="card">
-                <GoogleLinkImport onImport={importFromGoogleLink} />
-                <div className="empty">
-                  <IconTable />
-                  <p>No works database yet. Create one with the standard work columns and start adding rows.</p>
-                  <button className="primary" onClick={createDatabase}>
-                    <IconPlus /> Create works database
-                  </button>
-                </div>
-              </div>
-            )}
             <CollisionPanel
               collisions={collisions}
               resolution={resolution}
@@ -1774,7 +1828,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                 onIntimationIssued={handleIntimationIssued}
               />
             ) : (
-              <EvaluationSheetTab key={evaluationInstanceKey} office={office} />
+              <EvaluationSheetTab key={evaluationInstanceKey} office={office} tables={tables} />
             )}
           </section>
         </KeepAlive>

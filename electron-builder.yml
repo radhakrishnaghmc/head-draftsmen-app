@@ -79,6 +79,8 @@ extraResources:
     to: fonts/Carlito-Regular.ttf
   - from: resources/fonts/Carlito-Bold.ttf
     to: fonts/Carlito-Bold.ttf
+  - from: resources/fonts/NotoSansTelugu-Regular.ttf
+    to: fonts/NotoSansTelugu-Regular.ttf
   - from: resources/work-order-template.docx
     to: work-order-template.docx
   - from: resources/work-order-template-kompally.docx

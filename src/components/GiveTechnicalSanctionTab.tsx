@@ -7,6 +7,7 @@ import { buildRateIndex } from '@core/rateDatabase'
 import type { RateEntry } from '@core/rateDatabase'
 import { buildSorRateIndex } from '@core/sorPdfExtract'
 import { pdfPagesToTextLinesFromData } from '../pdfToText'
+import { pdfPagesToDataUrlsFromData } from '../pdfToImages'
 import {
   matchEstimateItems,
   buildCellEdits,
@@ -17,8 +18,11 @@ import {
   buildReplicateIndex,
   buildReplicateCellEdits
 } from '@core/technicalSanction'
-import type { ItemMatch, ResolvedItem, ReplicateMatch } from '@core/technicalSanction'
+import type { ItemMatch, ResolvedItem, ReplicateMatch, CellEdit } from '@core/technicalSanction'
 import type { EstimateWorkItem } from '@core/estimateExtract'
+import { parseCementSteelRateLines, findCementSteelRateCells } from '@core/cementSteelRate'
+import type { CementSteelRateCellRef, CementSteelRates } from '@core/cementSteelRate'
+import { CEMENT_STEEL_MONTHS, cementSteelRatePeriodKey } from '@core/cementSteelRates'
 import { IconFolder, IconDownload, IconWarn, IconCheck, IconTable, IconRefresh, IconChevronLeft, IconTrash } from './Icons'
 import type { SheetGrid } from '../../electron/ipc-contract'
 
@@ -97,15 +101,44 @@ export default function GiveTechnicalSanctionTab() {
   const [oldEstimateError, setOldEstimateError] = useState<string | null>(null)
   const [oldEstimateBusy, setOldEstimateBusy] = useState(false)
 
-  const [newEstimate, setNewEstimate] = useState<SheetGrid[] | null>(null)
-  const [replicateMatches, setReplicateMatches] = useState<ReplicateMatch[] | null>(null)
-  const [replicateColumnsAiAssisted, setReplicateColumnsAiAssisted] = useState<string[]>([])
+  // Each uploaded "new estimate" file is an independent work needing its own
+  // Technical Sanction output — never merged with another file's items —
+  // so these all live as one entry per file rather than singular state.
+  interface NewEstimateEntry {
+    id: string
+    grids: SheetGrid[]
+    matches: ReplicateMatch[] | null
+    columnsAiAssisted: string[]
+    cementSteelCellEdits: CellEdit[]
+    cementSteelFillInfo: { sheetName: string; month: string; year: number; cementRate?: string; steelRate?: string }[]
+    cementSteelFillError: string | null
+    matchError: string | null
+    saved: string | null
+    generating: boolean
+    generateError: string | null
+  }
+  const [newEstimates, setNewEstimates] = useState<NewEstimateEntry[]>([])
   const [newEstimateError, setNewEstimateError] = useState<string | null>(null)
   const [newEstimateBusy, setNewEstimateBusy] = useState(false)
 
-  const [replicateSaved, setReplicateSaved] = useState<string | null>(null)
-  const [replicateGenerating, setReplicateGenerating] = useState(false)
-  const [replicateGenerateError, setReplicateGenerateError] = useState<string | null>(null)
+  // Auto-fills a new estimate's own "Cement (<Month> <Year>)=Rs…" / "Steel
+  // HYSD(<Month> <Year>) =Rs…" header cells (see core/cementSteelRate.ts's
+  // findCementSteelRateCells) straight from that month's departmental
+  // circular, so the replicated Technical Sanction carries the current rate
+  // rather than whatever the old sanctioned estimate cited. Tracks whichever
+  // file/sheet is currently being processed while uploadNewEstimates loops
+  // through every selected file.
+  const [cementSteelFillPhase, setCementSteelFillPhase] = useState<'finding' | 'downloading' | 'reading' | 'updating' | null>(
+    null
+  )
+  const [cementSteelFillTarget, setCementSteelFillTarget] = useState<{
+    fileIndex: number
+    fileTotal: number
+    month: string
+    year: number
+    sheetIndex: number
+    sheetTotal: number
+  } | null>(null)
 
   // Semantic matching is an enhancement, not a hard requirement — if the
   // bundled model can't be loaded for any reason, fall back to keyword
@@ -263,7 +296,10 @@ export default function GiveTechnicalSanctionTab() {
     }
   }
 
-  async function runReplicateMatching(grids: SheetGrid[], items: EstimateWorkItem[]) {
+  async function matchAgainstOldItems(
+    grids: SheetGrid[],
+    items: EstimateWorkItem[]
+  ): Promise<{ matches: ReplicateMatch[]; columnsAiAssisted: string[] }> {
     const index = buildReplicateIndex(items)
     const newItems: EstimateWorkItem[] = []
     const aiAssisted = new Set<string>()
@@ -276,36 +312,157 @@ export default function GiveTechnicalSanctionTab() {
         continue
       }
     }
-    setReplicateColumnsAiAssisted([...aiAssisted])
     if (newItems.length === 0) {
       throw new Error('No work items with a quantity, rate, and unit were found in that estimate.')
     }
-    setReplicateMatches(matchByExactDescription(newItems, index))
+    return { matches: matchByExactDescription(newItems, index), columnsAiAssisted: [...aiAssisted] }
+  }
+
+  /** Re-runs matching for one already-uploaded new-estimate entry (e.g. after more sanctioned estimates are added to the rate pool) without re-reading its file. */
+  async function runReplicateMatchingFor(id: string, items: EstimateWorkItem[]) {
+    const entry = newEstimates.find((e) => e.id === id)
+    if (!entry) return
+    try {
+      const { matches, columnsAiAssisted } = await matchAgainstOldItems(entry.grids, items)
+      setNewEstimates((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, matches, columnsAiAssisted, matchError: null } : e))
+      )
+    } catch (e) {
+      setNewEstimates((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, matchError: e instanceof Error ? e.message : String(e) } : e))
+      )
+    }
+  }
+
+  /** Finds any "Cement (<Month> <Year>)=Rs…" / "Steel HYSD(<Month> <Year>)
+   * =Rs…" cells in the uploaded estimate and, if there's internet, fetches
+   * each cited month's circular from the department site (same list the
+   * sidebar's Cement & Steel Rates tab browses), OCRs it, and refreshes
+   * those cells' rate in place. Never blocks the rest of Replicate Technical
+   * Sanction — on any failure that sheet's original rate is left untouched.
+   *
+   * Grouped per sheet (not treated as one workbook-wide target), because an
+   * uploaded workbook can bundle several unrelated estimates each citing a
+   * different rate month (e.g. TS FOR KOMPALLY.xlsx's two sheets) — using
+   * only the first match found would silently apply its month's rate to
+   * every other sheet too, or skip them if the first sheet's circular
+   * wasn't found. Circulars already fetched for a period are cached so two
+   * sheets citing the same month only trigger one download.
+   *
+   * `onProgress` reports which sheet (of this file) is being worked on —
+   * the caller additionally knows which file (of a multi-file upload) this
+   * is, so file-level position is layered on by the caller, not here. */
+  async function autoFillCementSteelRates(
+    grids: SheetGrid[],
+    onProgress: (phase: 'finding' | 'downloading' | 'reading' | 'updating', month: string, year: number, sheetIndex: number, sheetTotal: number) => void
+  ): Promise<{
+    edits: CellEdit[]
+    infos: { sheetName: string; month: string; year: number; cementRate?: string; steelRate?: string }[]
+    error: string | null
+  }> {
+    const cells = findCementSteelRateCells(grids)
+    if (cells.length === 0) return { edits: [], infos: [], error: null }
+
+    const bySheet = new Map<string, CementSteelRateCellRef[]>()
+    for (const cell of cells) {
+      const arr = bySheet.get(cell.sheetName)
+      if (arr) arr.push(cell)
+      else bySheet.set(cell.sheetName, [cell])
+    }
+    const sheetGroups = [...bySheet.entries()]
+
+    const rateCache = new Map<number, CementSteelRates>()
+    const failCache = new Map<number, string>()
+    let sheetIndexForProgress = 0
+
+    async function ratesForPeriod(month: string, year: number): Promise<CementSteelRates> {
+      const monthIndex = CEMENT_STEEL_MONTHS.indexOf(month)
+      const target = year * 12 + monthIndex
+      if (failCache.has(target)) throw new Error(failCache.get(target)!)
+      const cached = rateCache.get(target)
+      if (cached) return cached
+      try {
+        onProgress('finding', month, year, sheetIndexForProgress, sheetGroups.length)
+        const rates = await api.fetchCementSteelRates()
+        const match = rates.find((r) => cementSteelRatePeriodKey(r) === target)
+        if (!match) {
+          throw new Error(`No Cement & Steel Rates circular found for ${month} ${year} on the department site yet.`)
+        }
+
+        onProgress('downloading', month, year, sheetIndexForProgress, sheetGroups.length)
+        const bytes = await api.fetchCementSteelRateBytes(match.token)
+        const dataUrls = await pdfPagesToDataUrlsFromData(bytes)
+
+        onProgress('reading', month, year, sheetIndexForProgress, sheetGroups.length)
+        const sheet = await api.ocrEstimatePhotos(dataUrls)
+        const lines = sheet.grid.map((row) => row[0] ?? '')
+        const parsed = parseCementSteelRateLines(lines)
+        rateCache.set(target, parsed)
+        return parsed
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        failCache.set(target, msg)
+        throw new Error(msg)
+      }
+    }
+
+    const edits: CellEdit[] = []
+    const infos: { sheetName: string; month: string; year: number; cementRate?: string; steelRate?: string }[] = []
+    const errors: string[] = []
+
+    for (let i = 0; i < sheetGroups.length; i++) {
+      const [sheetName, sheetCells] = sheetGroups[i]
+      const { month, year } = sheetCells[0]
+      sheetIndexForProgress = i + 1
+      try {
+        const parsed = await ratesForPeriod(month, year)
+        onProgress('updating', month, year, sheetIndexForProgress, sheetGroups.length)
+        for (const cell of sheetCells) {
+          const newRate = cell.kind === 'cement' ? parsed.cementRate : parsed.steelRate
+          if (!newRate) continue
+          const value = cell.raw.replace(cell.oldRateText, newRate.replace(/,/g, ''))
+          edits.push({ row: cell.row, col: cell.col, sheetName: cell.sheetName, value })
+        }
+        infos.push({ sheetName, month, year, cementRate: parsed.cementRate, steelRate: parsed.steelRate })
+      } catch (e) {
+        errors.push(
+          `Sheet "${sheetName}" (${month} ${year}): ${e instanceof Error ? e.message : String(e)} — its own original rate was left unchanged.`
+        )
+      }
+    }
+
+    return { edits, infos, error: errors.length > 0 ? errors.join(' ') : null }
   }
 
   async function uploadOldEstimate() {
     setOldEstimateError(null)
     setOldEstimateBusy(true)
     try {
-      const grids = await api.pickEstimateGrids()
-      if (!grids || grids.length === 0) return
+      const files = await api.pickEstimateGridsMulti()
+      if (!files || files.length === 0) return
       const items: EstimateWorkItem[] = []
-      for (const grid of grids) {
-        try {
-          const extracted = await extractEstimateItemsWithAi(grid.grid, guessHeaderRow(grid.grid))
-          items.push(...extracted.items)
-        } catch {
-          continue
+      const names: string[] = []
+      for (const grids of files) {
+        names.push(grids[0]?.name ?? 'Estimate')
+        for (const grid of grids) {
+          try {
+            const extracted = await extractEstimateItemsWithAi(grid.grid, guessHeaderRow(grid.grid))
+            items.push(...extracted.items)
+          } catch {
+            continue
+          }
         }
       }
       if (items.length === 0) {
-        throw new Error('No work items with a quantity, rate, and unit were found in that estimate.')
+        throw new Error('No work items with a quantity, rate, and unit were found in those estimate(s).')
       }
       const merged = [...oldItems, ...items]
       setOldItems(merged)
-      setOldEstimateNames((prev) => [...prev, grids[0].name])
-      setReplicateSaved(null)
-      if (newEstimate) await runReplicateMatching(newEstimate, merged)
+      setOldEstimateNames((prev) => [...prev, ...names])
+      setNewEstimates((prev) => prev.map((e) => ({ ...e, saved: null })))
+      for (const entry of newEstimates) {
+        await runReplicateMatchingFor(entry.id, merged)
+      }
     } catch (e) {
       setOldEstimateError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -313,44 +470,73 @@ export default function GiveTechnicalSanctionTab() {
     }
   }
 
-  async function uploadNewEstimate() {
+  async function uploadNewEstimates() {
     setNewEstimateError(null)
-    setReplicateSaved(null)
     setNewEstimateBusy(true)
-    setReplicateColumnsAiAssisted([])
-    let grids: SheetGrid[] | null = null
     try {
-      grids = await api.pickEstimateGrids()
-      if (!grids || grids.length === 0) return
-      setNewEstimate(grids)
-      setReplicateMatches(null)
-      if (oldItems.length > 0) await runReplicateMatching(grids, oldItems)
+      const files = await api.pickEstimateGridsMulti()
+      if (!files || files.length === 0) return
+      for (let i = 0; i < files.length; i++) {
+        const grids = files[i]
+        const id = `${Date.now()}-${i}`
+        const entry: NewEstimateEntry = {
+          id,
+          grids,
+          matches: null,
+          columnsAiAssisted: [],
+          cementSteelCellEdits: [],
+          cementSteelFillInfo: [],
+          cementSteelFillError: null,
+          matchError: null,
+          saved: null,
+          generating: false,
+          generateError: null
+        }
+        try {
+          if (oldItems.length > 0) {
+            const { matches, columnsAiAssisted } = await matchAgainstOldItems(grids, oldItems)
+            entry.matches = matches
+            entry.columnsAiAssisted = columnsAiAssisted
+          }
+        } catch (e) {
+          const hint = mismatchHint(grids[0].grid[guessHeaderRow(grids[0].grid)] ?? [], 'estimate')
+          entry.matchError = `${e instanceof Error ? e.message : String(e)}${hint ? ` ${hint}` : ''}`
+        }
+        const fill = await autoFillCementSteelRates(grids, (phase, month, year, sheetIndex, sheetTotal) => {
+          setCementSteelFillPhase(phase)
+          setCementSteelFillTarget({ fileIndex: i + 1, fileTotal: files.length, month, year, sheetIndex, sheetTotal })
+        })
+        entry.cementSteelCellEdits = fill.edits
+        entry.cementSteelFillInfo = fill.infos
+        entry.cementSteelFillError = fill.error
+        setNewEstimates((prev) => [...prev, entry])
+      }
     } catch (e) {
-      const hint = grids ? mismatchHint(grids[0].grid[guessHeaderRow(grids[0].grid)] ?? [], 'estimate') : null
-      setNewEstimateError((e instanceof Error ? e.message : String(e)) + (hint ? ` ${hint}` : ''))
+      setNewEstimateError(e instanceof Error ? e.message : String(e))
     } finally {
       setNewEstimateBusy(false)
+      setCementSteelFillPhase(null)
+      setCementSteelFillTarget(null)
     }
   }
 
-  async function generateReplicate() {
-    if (!newEstimate || !replicateMatches) return
-    setReplicateGenerating(true)
-    setReplicateGenerateError(null)
+  async function generateReplicateFor(id: string) {
+    const entry = newEstimates.find((e) => e.id === id)
+    if (!entry || !entry.matches) return
+    setNewEstimates((prev) => prev.map((e) => (e.id === id ? { ...e, generating: true, generateError: null } : e)))
     try {
-      const edits = buildReplicateCellEdits(replicateMatches)
-      const suggestedName = `${stripExt(newEstimate[0].name)} Technical Sanction`
-      const path = await api.generateTechnicalSanction(newEstimate[0].path, newEstimate[0].sheetName, edits, suggestedName)
-      if (path) setReplicateSaved(path)
+      const edits = [...buildReplicateCellEdits(entry.matches), ...entry.cementSteelCellEdits]
+      const suggestedName = `${stripExt(entry.grids[0].name)} Technical Sanction`
+      const path = await api.generateTechnicalSanction(entry.grids[0].path, entry.grids[0].sheetName, edits, suggestedName)
+      setNewEstimates((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, saved: path ?? e.saved, generating: false } : e))
+      )
     } catch (e) {
-      setReplicateGenerateError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setReplicateGenerating(false)
+      setNewEstimates((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, generateError: e instanceof Error ? e.message : String(e), generating: false } : e))
+      )
     }
   }
-
-  const replicateFoundCount = replicateMatches ? replicateMatches.filter((m) => m.rate !== undefined).length : 0
-  const replicateNotFoundCount = replicateMatches ? replicateMatches.filter((m) => m.rate === undefined).length : 0
 
   function clearLookup() {
     setDataSheetName(null)
@@ -376,13 +562,18 @@ export default function GiveTechnicalSanctionTab() {
     setOldItems([])
     setOldEstimateNames([])
     setOldEstimateError(null)
-    setNewEstimate(null)
-    setReplicateMatches(null)
-    setReplicateColumnsAiAssisted([])
+    setNewEstimates([])
     setNewEstimateError(null)
-    setReplicateSaved(null)
-    setReplicateGenerateError(null)
+    setCementSteelFillPhase(null)
+    setCementSteelFillTarget(null)
   }
+
+  const CEMENT_STEEL_FILL_STEPS = {
+    finding: { pct: 25, label: 'Finding circular…' },
+    downloading: { pct: 50, label: 'Downloading circular…' },
+    reading: { pct: 75, label: 'Reading cement & steel rates…' },
+    updating: { pct: 100, label: 'Updating estimate…' }
+  } as const
 
   const combinedCount = (dataRateIndex?.length ?? 0) + (sorRateIndex?.length ?? 0)
 
@@ -395,7 +586,7 @@ export default function GiveTechnicalSanctionTab() {
   if (mode === null) {
     return (
       <div className="card">
-        <div className="doc-tile-grid tools-grid">
+        <div className="doc-tile-grid tools-grid ts-mode-grid">
           <button className="doc-tile-card tone-green tool-card" onClick={() => setMode('lookup')}>
             <span className="tool-card-ic">
               <IconTable />
@@ -457,19 +648,19 @@ export default function GiveTechnicalSanctionTab() {
             )}
 
             <p style={{ marginTop: 18 }}>
-              {newEstimate
-                ? `Loaded “${newEstimate[0].name}”${newEstimate.length > 1 ? ` (${newEstimate.length} sheets)` : ''}.`
-                : 'Upload the new estimate whose rates should be filled in from the sanctioned estimate(s) above.'}
+              {newEstimates.length > 0
+                ? `${newEstimates.length} new estimate${newEstimates.length === 1 ? '' : 's'} loaded.`
+                : 'Upload the new estimate(s) whose rates should be filled in from the sanctioned estimate(s) above.'}
             </p>
             <div className="boq-actions">
-              <button className="primary upload-btn" onClick={uploadNewEstimate} disabled={newEstimateBusy}>
-                <IconFolder /> {newEstimateBusy ? 'Loading & computing matches…' : 'Upload New Estimate'}
+              <button className="primary upload-btn" onClick={uploadNewEstimates} disabled={newEstimateBusy}>
+                <IconFolder />{' '}
+                {newEstimateBusy
+                  ? 'Loading & computing matches…'
+                  : newEstimates.length > 0
+                    ? 'Add More New Estimates'
+                    : 'Upload New Estimate(s)'}
               </button>
-              {replicateMatches && (
-                <button className="primary" onClick={generateReplicate} disabled={replicateGenerating}>
-                  <IconDownload /> {replicateGenerating ? 'Saving…' : 'Generate Technical Sanction'}
-                </button>
-              )}
             </div>
             {newEstimateError && (
               <div className="notice error">
@@ -477,56 +668,113 @@ export default function GiveTechnicalSanctionTab() {
                 {newEstimateError}
               </div>
             )}
-            {replicateColumnsAiAssisted.length > 0 && (
-              <div className="notice warn">
-                <IconWarn />
-                {replicateColumnsAiAssisted.join(', ')} column{replicateColumnsAiAssisted.length === 1 ? '' : 's'} matched by AI —
-                please double-check the estimate's items below.
-              </div>
-            )}
-            {replicateGenerateError && (
-              <div className="notice error">
-                <IconWarn />
-                {replicateGenerateError}
-              </div>
-            )}
-            {replicateSaved && (
-              <div className="notice ok">
-                <IconCheck />
-                Saved to {replicateSaved}
+            {cementSteelFillPhase && cementSteelFillTarget && (
+              <div className="progress" style={{ margin: '10px 0' }}>
+                <div className="progress-bar">
+                  <div style={{ width: `${CEMENT_STEEL_FILL_STEPS[cementSteelFillPhase].pct}%` }} />
+                </div>
+                <div className="progress-label">
+                  File {cementSteelFillTarget.fileIndex} of {cementSteelFillTarget.fileTotal} — Sheet{' '}
+                  {cementSteelFillTarget.sheetIndex} of {cementSteelFillTarget.sheetTotal} —{' '}
+                  {CEMENT_STEEL_FILL_STEPS[cementSteelFillPhase].label} ({cementSteelFillTarget.month}{' '}
+                  {cementSteelFillTarget.year} Cement &amp; Steel rate)
+                </div>
               </div>
             )}
           </div>
 
-          {replicateMatches && (
-            <>
-              <p className="hint" style={{ margin: '14px 18px 0' }}>
-                {replicateFoundCount} rate{replicateFoundCount === 1 ? '' : 's'} found · {replicateNotFoundCount} not found
-              </p>
-              <ul className="todo-list boq-entries" style={{ margin: '10px 18px 18px' }}>
-                {replicateMatches.map((m, i) => (
-                  <li key={i} className="todo-item">
-                    <div className="todo-body">
-                      <span
-                        className="todo-text"
-                        title={m.item.description}
-                        style={{
-                          background: m.rate !== undefined ? '#c6efce' : '#ffc7ce',
-                          borderRadius: 4,
-                          padding: '1px 4px'
-                        }}
-                      >
-                        {m.item.description.length > 100 ? `${m.item.description.slice(0, 100)}…` : m.item.description}
-                      </span>
-                      <span className="todo-dates" style={{ color: m.rate !== undefined ? '#008000' : '#cc0000' }}>
-                        {m.rate !== undefined ? `Rate found: ${formatRate(m.rate)}` : 'Not found — left for manual entry'}
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
+          {newEstimates.map((entry) => {
+            const foundCount = entry.matches ? entry.matches.filter((m) => m.rate !== undefined).length : 0
+            const notFoundCount = entry.matches ? entry.matches.filter((m) => m.rate === undefined).length : 0
+            return (
+              <div key={entry.id} className="card ts-replicate-card">
+                <div className="boq-actions" style={{ justifyContent: 'space-between' }}>
+                  <strong>
+                    {entry.grids[0].name}
+                    {entry.grids.length > 1 ? ` (${entry.grids.length} sheets)` : ''}
+                  </strong>
+                  {entry.matches && (
+                    <button className="primary" onClick={() => generateReplicateFor(entry.id)} disabled={entry.generating}>
+                      <IconDownload /> {entry.generating ? 'Saving…' : 'Generate Technical Sanction'}
+                    </button>
+                  )}
+                </div>
+                {entry.matchError && (
+                  <div className="notice error">
+                    <IconWarn />
+                    {entry.matchError}
+                  </div>
+                )}
+                {entry.cementSteelFillError && (
+                  <div className="notice error">
+                    <IconWarn />
+                    {entry.cementSteelFillError}
+                  </div>
+                )}
+                {entry.cementSteelFillInfo.length > 0 && (
+                  <div className="notice ok">
+                    <IconCheck />
+                    {entry.cementSteelFillInfo.map((info, i) => (
+                      <div key={i}>
+                        “{info.sheetName}” — {info.month} {info.year} rates filled —{' '}
+                        {info.cementRate ? `Cement ${formatRate(info.cementRate)}` : 'Cement not found'}
+                        {', '}
+                        {info.steelRate ? `Steel ${formatRate(info.steelRate)}` : 'Steel not found'}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {entry.columnsAiAssisted.length > 0 && (
+                  <div className="notice warn">
+                    <IconWarn />
+                    {entry.columnsAiAssisted.join(', ')} column{entry.columnsAiAssisted.length === 1 ? '' : 's'} matched by AI —
+                    please double-check the estimate's items below.
+                  </div>
+                )}
+                {entry.generateError && (
+                  <div className="notice error">
+                    <IconWarn />
+                    {entry.generateError}
+                  </div>
+                )}
+                {entry.saved && (
+                  <div className="notice ok">
+                    <IconCheck />
+                    Saved to {entry.saved}
+                  </div>
+                )}
+                {entry.matches && (
+                  <>
+                    <p className="hint" style={{ margin: '10px 0 0' }}>
+                      {foundCount} rate{foundCount === 1 ? '' : 's'} found · {notFoundCount} not found
+                    </p>
+                    <ul className="todo-list boq-entries ts-replicate-items-scroll" style={{ margin: '10px 0 0' }}>
+                      {entry.matches.map((m, i) => (
+                        <li key={i} className="todo-item">
+                          <div className="todo-body">
+                            <span
+                              className="todo-text"
+                              title={m.item.description}
+                              style={{
+                                background: m.rate !== undefined ? '#c6efce' : '#ffc7ce',
+                                borderRadius: 4,
+                                padding: '1px 4px'
+                              }}
+                            >
+                              {m.item.description.length > 100 ? `${m.item.description.slice(0, 100)}…` : m.item.description}
+                            </span>
+                            <span className="todo-dates" style={{ color: m.rate !== undefined ? '#008000' : '#cc0000' }}>
+                              {m.rate !== undefined ? `Rate found: ${formatRate(m.rate)}` : 'Not found — left for manual entry'}
+                            </span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )
+          })}
         </div>
       </>
     )

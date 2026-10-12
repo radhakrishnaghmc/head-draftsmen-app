@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { api } from '../ipc'
 import { fetchTenders } from '../tenderCache'
 import { IconSearch, IconTable, IconPlus } from './Icons'
 
@@ -24,6 +25,12 @@ function formatValue(raw: string): string {
   const n = Number(raw)
   if (!raw || Number.isNaN(n)) return raw || '—'
   return inr.format(n)
+}
+
+/** Pulls the viewBtn(a,b,c) arguments out of the portal's Action-column HTML. */
+function viewArgs(actionHtml: string | undefined): [string, string, string] | null {
+  const m = /viewBtn\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/.exec(actionHtml ?? '')
+  return m ? [m[1], m[2], m[3]] : null
 }
 
 interface Props {
@@ -231,12 +238,13 @@ export default function SearchTender({ onAddReminder }: Props) {
                       {c.label}
                     </th>
                   ))}
+                  <th className="tk-action">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 && !loading ? (
                   <tr>
-                    <td className="tender-none" colSpan={COLUMNS.length + 1}>
+                    <td className="tender-none" colSpan={COLUMNS.length + 2}>
                       No tenders match “{submitted}”.
                     </td>
                   </tr>
@@ -256,6 +264,20 @@ export default function SearchTender({ onAddReminder }: Props) {
                           {c.key === 5 ? formatValue(r[5]) : r[c.key] || '—'}
                         </td>
                       ))}
+                      <td className="tk-action">
+                        <button
+                          className="ghost"
+                          disabled={!viewArgs(r[9])}
+                          onClick={() => {
+                            const args = viewArgs(r[9])
+                            if (args) {
+                              api.viewTenderDetails(...args).catch((e) => setError(String(e?.message ?? e)))
+                            }
+                          }}
+                        >
+                          View
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}

@@ -3,12 +3,17 @@ import { api } from '../ipc'
 import { pdfToTextLinesOrOcr } from '../pdfToText'
 import { parseTenderEvaluation } from '@core/tenderEvaluationPdf'
 import { parseParticipatingBidders } from '@core/viewBiddersPdf'
-import type { EvaluationSheetInput } from '@core/evaluationSheet'
+import { BID_CAPACITY_THRESHOLD, type EvaluationSheetInput } from '@core/evaluationSheet'
 import type { Office } from '../office'
+import type { ExcelTable } from '@core/types'
+import { matchWorksRow } from '../estimateDownloads'
+import { lakhsToRupees } from '@core/worksAmounts'
 import { IconFolder, IconTable, IconPlus, IconTrash, IconChecklist, IconWarn, IconDownload } from './Icons'
 
 interface Props {
   office: Office
+  /** Works List tables; the first is the office's Works List. */
+  tables: ExcelTable[]
 }
 
 interface SheetEntry {
@@ -18,8 +23,16 @@ interface SheetEntry {
   nitLine: string
   workLine: string
   ecv: string
+  /** Estimate amount in rupees from the Works List ("" when the work isn't found there). */
+  estimate: string
+  /** Where the estimate came from / why it is missing. */
+  estimateNote: string | null
   signature: string
   bidders: string[]
+  /** Tender conditions fetched from the portal; null = use the standard eleven. */
+  conditions: string[] | null
+  /** Why the portal conditions could not be used (shown as a hint). */
+  conditionsNote: string | null
   error: string | null
   saved: string | null
 }
@@ -51,12 +64,29 @@ function suggestedName(e: SheetEntry): string {
  * office to key in from each bidder's documents. Several tenders can be
  * loaded at once and their sheets downloaded together into one folder.
  */
-export default function EvaluationSheetTab({ office }: Props) {
+export default function EvaluationSheetTab({ office, tables }: Props) {
   const [entries, setEntries] = useState<SheetEntry[]>([])
   const [busy, setBusy] = useState<null | 'reading' | 'downloadAll'>(null)
+  // Upload progress shown inside the upload button: file `index` of `total`, in `phase`.
+  const [progress, setProgress] = useState<{ index: number; total: number; phase: 'reading' | 'estimate' | 'conditions' } | null>(null)
   const [pickError, setPickError] = useState<string | null>(null)
   const [savedAllDir, setSavedAllDir] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Pop-up asking whether a work missing from the Works List has an estimate of 5 lakhs or below.
+  const [estimateAsk, setEstimateAsk] = useState<{ work: string; why: string; answer: (below: boolean) => void } | null>(null)
+
+  function askEstimateBelowFiveLakhs(work: string, why: string): Promise<boolean> {
+    return new Promise((resolve) =>
+      setEstimateAsk({
+        work,
+        why,
+        answer: (below) => {
+          setEstimateAsk(null)
+          resolve(below)
+        }
+      })
+    )
+  }
 
   function defaultSignature(): string {
     const circle = (office.circle ?? '').trim()
@@ -71,12 +101,61 @@ export default function EvaluationSheetTab({ office }: Props) {
     setPickError(null)
     setSavedAllDir(null)
     try {
-      for (const file of files) {
+      for (const [fileIndex, file] of files.entries()) {
+        setProgress({ index: fileIndex, total: files.length, phase: 'reading' })
         const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
         try {
           const lines = isPdf ? await pdfToTextLinesOrOcr(file) : await api.ocrPhotosToLines([await readAsDataUrl(file)])
           const ev = parseTenderEvaluation(lines)
           const list = parseParticipatingBidders(lines)
+          // Estimate amount from the Works List, matched on the work's name — it
+          // decides whether the sheet needs the 3AN−B rows (estimate > 5 lakhs).
+          let estimate = ''
+          let estimateNote: string | null = null
+          const worksTable = tables[0]
+          if (!ev.nameOfWork) {
+            estimateNote = 'No work name found in the upload, so the Works List estimate could not be looked up.'
+          } else if (!worksTable) {
+            estimateNote = 'No Works List loaded, so the estimate could not be looked up.'
+          } else {
+            setProgress({ index: fileIndex, total: files.length, phase: 'estimate' })
+            const match = await matchWorksRow(ev.nameOfWork, worksTable)
+            const rupees = match ? lakhsToRupees(match.row['Amount of estimate'] ?? '') : 0
+            if (rupees > 0) {
+              estimate = String(rupees)
+              estimateNote = `Estimate ₹${rupees.toLocaleString('en-IN')} from the Works List${match?.matchedViaAi ? ' (AI name match — please verify)' : ''}.`
+            } else {
+              const why = match ? 'The Works List row has no estimate amount' : 'Work not found on the Works List'
+              // The estimate is always above the ECV, so an ECV over 5 lakhs already
+              // means 3AN−B applies. Only a small ECV leaves the question open: ask.
+              if (ev.ecvRupees != null && ev.ecvRupees <= BID_CAPACITY_THRESHOLD) {
+                const below = await askEstimateBelowFiveLakhs(ev.nameOfWork, why)
+                if (below) {
+                  estimate = String(BID_CAPACITY_THRESHOLD)
+                  estimateNote = `${why}; confirmed the estimate is ₹5 lakhs or below, so the 3AN−B rows are left out.`
+                } else {
+                  estimateNote = `${why}; estimate confirmed above ₹5 lakhs, so the 3AN−B rows are kept.`
+                }
+              } else {
+                estimateNote = `${why}; the ECV is above ₹5 lakhs (or unknown), so the 3AN−B rows are kept.`
+              }
+            }
+          }
+          // The View Bidders sheet names the tender; look it up on the portal and
+          // take its listed conditions in place of the standard eleven.
+          let conditions: string[] | null = null
+          let conditionsNote: string | null = null
+          if (ev.tenderId) {
+            setProgress({ index: fileIndex, total: files.length, phase: 'conditions' })
+            try {
+              conditions = await api.fetchTenderConditions(ev.tenderId)
+            } catch (err) {
+              const why = err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(err)
+              conditionsNote = `Could not fetch the tender conditions from the portal (${why}); using the standard conditions.`
+            }
+          } else {
+            conditionsNote = 'No tender ID found in the upload, so the standard conditions are used.'
+          }
           const entry: SheetEntry = {
             id: newId(),
             sourceName: file.name,
@@ -86,6 +165,10 @@ export default function EvaluationSheetTab({ office }: Props) {
             ecv: ev.ecvRupees != null ? String(ev.ecvRupees) : '',
             signature: defaultSignature(),
             bidders: list.map((b) => b.name),
+            estimate,
+            estimateNote,
+            conditions,
+            conditionsNote,
             error:
               list.length === 0
                 ? `No participating bidders found in ${file.name}. Upload the portal's "View Bidders" (Supplier List) page, as a PDF or a clear photo.`
@@ -105,6 +188,10 @@ export default function EvaluationSheetTab({ office }: Props) {
               ecv: '',
               signature: defaultSignature(),
               bidders: [],
+              estimate: '',
+              estimateNote: null,
+              conditions: null,
+              conditionsNote: null,
               error: e instanceof Error ? e.message : String(e),
               saved: null
             }
@@ -113,6 +200,7 @@ export default function EvaluationSheetTab({ office }: Props) {
       }
     } finally {
       setBusy(null)
+      setProgress(null)
     }
   }
 
@@ -141,7 +229,7 @@ export default function EvaluationSheetTab({ office }: Props) {
   function toInput(e: SheetEntry): EvaluationSheetInput | null {
     const bidders = e.bidders.map((b) => b.trim()).filter(Boolean)
     if (bidders.length === 0) return null
-    return { nitLine: e.nitLine, workLine: e.workLine, bidders, ecv: Number(e.ecv.replace(/,/g, '')) || null, signature: e.signature }
+    return { nitLine: e.nitLine, workLine: e.workLine, bidders, ecv: Number(e.ecv.replace(/,/g, '')) || null, estimate: Number(e.estimate.replace(/,/g, '')) || null, signature: e.signature, conditions: e.conditions ?? undefined }
   }
 
   async function downloadOne(e: SheetEntry) {
@@ -183,15 +271,53 @@ export default function EvaluationSheetTab({ office }: Props) {
     }
   }
 
+  // Each file counts as three steps: read the PDF, look up its estimate, fetch its conditions.
+  const pct = progress
+    ? Math.round(((progress.index + (progress.phase === 'conditions' ? 0.66 : progress.phase === 'estimate' ? 0.33 : 0)) / progress.total) * 100)
+    : 0
   const readyCount = entries.filter((e) => e.bidders.some((b) => b.trim())).length
 
   return (
     <div className="card">
+      {estimateAsk && (
+        <div className="wo-modal-overlay">
+          <div className="wo-modal office-modal" role="dialog" aria-modal="true" style={{ padding: 20 }}>
+            <h3 style={{ marginTop: 0 }}>Estimate amount not found</h3>
+            <p className="estimate-hint">{estimateAsk.why}:</p>
+            <p>{estimateAsk.work}</p>
+            <p>Is the estimate amount of this work ₹5 lakhs or below? (3AN−B is checked only above ₹5 lakhs.)</p>
+            <div className="boq-actions">
+              <button className="primary" onClick={() => estimateAsk.answer(true)}>
+                Yes, 5 lakhs or below
+              </button>
+              <button className="ghost" onClick={() => estimateAsk.answer(false)}>
+                No, above 5 lakhs
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="empty empty--tight">
         <IconChecklist />
         <div className="boq-actions">
-          <button className="primary upload-btn" onClick={() => fileInputRef.current?.click()} disabled={busy !== null}>
-            <IconFolder /> {busy === 'reading' ? 'Reading…' : entries.length > 0 ? 'Add more tenders' : 'Upload View Bidders PDFs / photos'}
+          <button
+            className="primary upload-btn"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={busy !== null}
+            style={
+              progress
+                ? { background: `linear-gradient(to right, rgba(255,255,255,0.28) ${pct}%, transparent ${pct}%), var(--primary, #2563eb)` }
+                : undefined
+            }
+          >
+            <IconFolder />{' '}
+            {progress
+              ? `${progress.phase === 'reading' ? 'Reading' : progress.phase === 'estimate' ? 'Looking up estimate' : 'Fetching tender conditions'} ${progress.index + 1}/${progress.total}… ${pct}%`
+              : busy === 'reading'
+                ? 'Reading…'
+                : entries.length > 0
+                  ? 'Add more tenders'
+                  : 'Upload View Bidders PDFs / photos'}
           </button>
           <input
             ref={fileInputRef}
@@ -243,7 +369,11 @@ export default function EvaluationSheetTab({ office }: Props) {
                 </p>
               )}
               {e.saved && <p className="estimate-hint">{e.saved}</p>}
-
+              {e.conditions && (
+                <p className="estimate-hint">Using the {e.conditions.length} tender conditions fetched from the tender portal.</p>
+              )}
+              {e.estimateNote && <p className="estimate-hint">{e.estimateNote}</p>}
+              {e.conditionsNote && <p className="estimate-hint">{e.conditionsNote}</p>}
               {e.bidders.length > 0 && (
                 <div className="estimate-body">
                   <div className="loa-manual-fields">

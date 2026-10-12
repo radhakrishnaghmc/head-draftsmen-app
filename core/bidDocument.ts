@@ -1,4 +1,4 @@
-import { listParagraphs, setParagraphText } from './docx-edit'
+import { transformPlaceholders } from './docx-edit'
 import { lakhsToRupees, rupeesFromCell, indianDigitGroups, formatRupees } from './worksAmounts'
 import { zoneAbbr } from './loaSe'
 export { stripItemNoTag } from './tenderAgents/shared'
@@ -53,26 +53,21 @@ export interface BidDocumentInput {
 
 export { lakhsToRupees }
 
-/** Replace every occurrence of literal `{{Token}}` placeholders across the given zip parts, preserving run formatting (via core/docx-edit's diff-based rewrite) — mirrors the substitution approach in core/tenderNotice.ts, generalized to headers/footers. */
+/** Replace every occurrence of literal `{{Token}}` placeholders across the given zip parts, preserving run formatting (via core/docx-edit's diff-based rewrite) — mirrors the substitution approach in core/tenderNotice.ts, generalized to headers/footers. One zip load/save per part (not per token/occurrence), so filling a document stays a handful of zip passes instead of dozens — matters when batch-generating many Bid Documents at once. */
 function fillPlaceholders(buffer: Buffer, swaps: Array<[string, string]>, parts: string[] = DOC_PARTS): Buffer {
   let current = buffer
   for (const part of parts) {
-    let paragraphs: string[]
     try {
-      paragraphs = listParagraphs(current, part)
+      current = transformPlaceholders(current, part, (text) => {
+        let out = text
+        for (const [token, value] of swaps) {
+          if (token === value) continue
+          out = out.split(token).join(value)
+        }
+        return out
+      })
     } catch {
       continue // template has no such part (e.g. fewer footers)
-    }
-    for (const [token, value] of swaps) {
-      if (token === value) continue
-      let list = paragraphs
-      for (let i = 0; i < list.length; i++) {
-        if (!list[i].includes(token)) continue
-        const next = list[i].split(token).join(value)
-        current = setParagraphText(current, i, next, list[i], part)
-        list = listParagraphs(current, part)
-      }
-      paragraphs = list
     }
   }
   return current

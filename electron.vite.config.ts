@@ -11,7 +11,8 @@ export default defineConfig({
           index: resolve(__dirname, 'electron/main.ts'),
           embeddingsWorker: resolve(__dirname, 'electron/embeddingsWorker.ts'),
           ocrWorker: resolve(__dirname, 'electron/ocrWorker.ts'),
-          splitWorker: resolve(__dirname, 'electron/splitWorker.ts')
+          splitWorker: resolve(__dirname, 'electron/splitWorker.ts'),
+          bidDocumentWorker: resolve(__dirname, 'electron/bidDocumentWorker.ts')
         }
       }
     },

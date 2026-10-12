@@ -8,20 +8,20 @@ import type { PlaceholderMatch } from '@core/createDocument'
  */
 export const WORKS_COLUMNS: string[] = [
   'Zone',
-  'Circle',
-  'Circle number',
   'Wincode',
   'Name of the work',
   'Amount of estimate',
   'ECV',
+  'Tender Percentage',
   'Contract Amount',
+  'Circle',
+  'Circle number',
   'Sanction By',
   'Tender notice',
   'Financial Year',
   'Tender Notice No',
   'Tender notice Date',
   'Tender ID',
-  'Tender Percentage',
   'Name of the Agency',
   'Address of the agency',
   'Phone number of the agency',
@@ -98,6 +98,25 @@ export function applyWorksSchema(table: ExcelTable): ExcelTable {
     return next
   })
   return { ...table, path: '', headers, rows }
+}
+
+/**
+ * Reorder a table's own `headers` to match `WORKS_COLUMNS`' canonical order
+ * (a previously-saved table keeps whatever order it was created/imported
+ * with — see applyWorksSchema — so this is the one place the column
+ * sequence actually gets updated after `WORKS_COLUMNS` changes). Idempotent,
+ * safe to run on every load. Any column not in `WORKS_COLUMNS` keeps its
+ * relative position among the other unknown columns, after the known ones.
+ * `sourceHeaders` (download order) is left untouched.
+ */
+export function reorderWorksColumns(table: ExcelTable): ExcelTable {
+  const rank = new Map(WORKS_COLUMNS.map((h, i) => [h, i]))
+  const headers = [...table.headers].sort((a, b) => {
+    const ra = rank.get(a) ?? WORKS_COLUMNS.length + table.headers.indexOf(a)
+    const rb = rank.get(b) ?? WORKS_COLUMNS.length + table.headers.indexOf(b)
+    return ra - rb
+  })
+  return { ...table, headers }
 }
 
 /** Persisted-state schema version at which ECV/Contract Amount moved from Lakhs to rupees (see migrateEcvContractToRupees). */

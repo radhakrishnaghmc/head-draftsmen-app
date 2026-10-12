@@ -8,6 +8,8 @@
  * single matched line rather than needing column reconstruction.
  */
 
+import { CEMENT_STEEL_MONTHS } from './cementSteelRates'
+
 export interface CementSteelRates {
   /** "146/Cement & Steel/T3/May/2025-26" — the bit after "C. Memo.No." */
   memoRef?: string
@@ -87,5 +89,64 @@ export function parseCementSteelRateLines(lines: string[]): CementSteelRates {
   // sub-heading (that heading line itself carries no rate).
   out.steelRate = rateNear(lines, /Category-?B\s+Steel/i)
 
+  return out
+}
+
+/** A "Cement (July 2026)= Rs.5200/MT" / "Steel HYSD(July 2026) =Rs. 52800/MT" style cell matched in an uploaded estimate's raw grid (see TS FOR KOMPALLY.xlsx's header rows) — one such line per material, giving the month/year whose departmental circular Replicate Technical Sanction should auto-fetch. */
+export interface CementSteelRateCellRef {
+  row: number
+  col: number
+  sheetName: string
+  kind: 'cement' | 'steel'
+  /** Lowercase month name, one of CEMENT_STEEL_MONTHS. */
+  month: string
+  /** The year the estimate itself cites, or the current year when the estimate names only a month (never guessed from anywhere else). */
+  year: number
+  /** The exact old-rate substring matched (e.g. "5200") — replaced in place with the newly fetched rate so the rest of the cell's wording/unit is left untouched. */
+  oldRateText: string
+  /** Full original cell text. */
+  raw: string
+}
+
+// "Cement (July 2026)= Rs.5200/MT" / "Steel HYSD(July 2026) =Rs. 52800/MT" —
+// label, then month (year optional — estimates sometimes name only the
+// month), then the "Rs." rate figure, wherever it lands relative to the
+// parenthesised month/year.
+const CEMENT_STEEL_CELL_RE = /^(Cement|Steel(?:\s*HYSD)?)\b.*?\(?\s*([A-Za-z]+)\.?\s*(\d{4})?\)?.*?Rs\.?\s*([\d][\d,]*(?:\.\d+)?)/i
+
+/**
+ * Scans an uploaded estimate's raw cells for the office's own
+ * "Cement (<Month> <Year>)= Rs.<rate>/MT" / "Steel HYSD(<Month> <Year>)
+ * =Rs.<rate>/MT" header convention, so Replicate Technical Sanction can
+ * auto-fetch that month's departmental circular and refresh the figure
+ * instead of silently carrying over whatever rate the old sanctioned
+ * estimate happened to cite.
+ */
+export function findCementSteelRateCells(grids: { sheetName: string; grid: string[][] }[]): CementSteelRateCellRef[] {
+  const out: CementSteelRateCellRef[] = []
+  const currentYear = new Date().getFullYear()
+  for (const g of grids) {
+    for (let row = 0; row < g.grid.length; row++) {
+      const gridRow = g.grid[row] ?? []
+      for (let col = 0; col < gridRow.length; col++) {
+        const raw = String(gridRow[col] ?? '').trim()
+        if (!raw) continue
+        const m = CEMENT_STEEL_CELL_RE.exec(raw)
+        if (!m) continue
+        const month = m[2].toLowerCase()
+        if (!CEMENT_STEEL_MONTHS.includes(month)) continue
+        out.push({
+          row,
+          col,
+          sheetName: g.sheetName,
+          kind: /^cement/i.test(m[1]) ? 'cement' : 'steel',
+          month,
+          year: m[3] ? Number(m[3]) : currentYear,
+          oldRateText: m[4],
+          raw
+        })
+      }
+    }
+  }
   return out
 }

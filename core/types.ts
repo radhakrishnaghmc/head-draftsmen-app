@@ -246,11 +246,13 @@ export interface QcOfficeParties {
 export interface BidDocumentWork {
   /** Position within the tender notice's item table (1-based) — labels the row "BID Document N". */
   serial: number
-  /** Win Code this work was selected by — used to name the saved file "Bid Document <winCode>". */
+  /** Win Code this work was selected by. */
   winCode?: string
   name: string
   /** Estimate amount as entered on the Works List, in Lakhs. */
   amount: string
+  /** Works List "Type of work" column value, if the row has one — see core/tenderNotice.ts's resolveTypeLabel, which this falls back from onto inferTypeOfWork(name) when blank. Used to name the saved file. */
+  typeOfWork?: string
   /** ECV, in Lakhs — EMD @ 1% is computed from this. Left blank when ECV isn't available yet. */
   ecv?: string
   zone?: string

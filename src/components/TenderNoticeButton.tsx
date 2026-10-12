@@ -5,11 +5,12 @@ import { IconDoc, IconWarn, IconCheck, IconEye, IconSearch } from './Icons'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import type { ExcelTable } from '@core/types'
 import type { BidDocumentBatch } from '@core/types'
-import type { TenderNoticeInput } from '../../electron/ipc-contract'
+import type { TenderNoticeInput, TenderNoticeGroup } from '../../electron/ipc-contract'
 import { indianFinancialYear } from '@core/workOrderAgreement'
 import { type Office, officeScopedKey, isZoneOnlyOffice, CONTACT_KEYS } from '../office'
 import { closeOnBackdropMouseDown } from '../overlayClose'
 import { corporationByName } from '../zoneCircleDirectory'
+import { applyRecallTag, ordinal } from '@core/tenderAgents/recallTag'
 
 interface Props {
   tables: ExcelTable[]
@@ -37,9 +38,57 @@ function toDDMMYYYY(iso: string): string {
   return `${d}.${m}.${y}`
 }
 
+/** A DD.MM.YYYY date, reordered to YYYYMMDD so plain string comparison sorts chronologically. */
+function ddmmyyyyKey(s: string): string {
+  const [d, m, y] = s.split('.')
+  return `${y}${m}${d}`
+}
+
+interface DateGroupInput {
+  /** ISO (yyyy-mm-dd), straight from a date input. */
+  startDate: string
+  endDate: string
+  /** Works in this group — ignored (computed as the remainder) for the last group. */
+  count: number
+}
+
+/**
+ * Each group's item count. The last group always takes whatever's left, so a
+ * mis-sized split can never leave it empty; earlier groups are clamped to
+ * leave at least one item for every group after them.
+ */
+function computeGroupSizes(groups: DateGroupInput[], total: number): number[] {
+  const sizes: number[] = []
+  let remaining = total
+  for (let i = 0; i < groups.length; i++) {
+    if (i === groups.length - 1) {
+      sizes.push(Math.max(0, remaining))
+      break
+    }
+    const reserveForRest = groups.length - 1 - i
+    const size = Math.min(Math.max(1, groups[i].count || 1), Math.max(0, remaining - reserveForRest))
+    sizes.push(size)
+    remaining -= size
+  }
+  return sizes
+}
+
 /** The office's default e-mail, following the circle's number ("eec58.GHMC@gmail.com"). */
 function defaultEmailFor(office?: Office): string {
   return office?.circleNumber ? `eec${office.circleNumber}.GHMC@gmail.com` : ''
+}
+
+// Last-used recall round per Win Code, remembered per office so re-opening
+// the dialog for the same work pre-fills its round — convenience only, never
+// written by Issue/generate itself (see `recallRounds` state's own comment).
+const RECALL_ROUNDS_KEY = 'hda-tn-recall-rounds'
+function loadRecallRounds(office?: Office): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(officeScopedKey(RECALL_ROUNDS_KEY, office))
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
 }
 
 /**
@@ -101,6 +150,7 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
   const circleHeader = worksTable ? findHeader(worksTable.headers, 'Circle') : undefined
   const completionHeader = worksTable ? findHeader(worksTable.headers, 'Completion Period') : undefined
   const ecvHeader = worksTable ? findHeader(worksTable.headers, 'ECV') : undefined
+  const typeOfWorkHeader = worksTable ? findHeader(worksTable.headers, 'Type of work') : undefined
 
   const winCodes = useMemo(() => {
     if (!worksTable || !winCodeHeader) return []
@@ -128,6 +178,12 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
 
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Which recall round each Win Code is being issued under, this dialog
+  // session only — 0 means "not a recall" (plain name, no tag). Never
+  // written to the Works List or bumped automatically on Issue: re-running
+  // a notice for testing must not silently drift the count, so it's a plain
+  // per-work toggle the user sets by hand, same as every other field here.
+  const [recallRounds, setRecallRounds] = useState<Record<string, number>>({})
   // Filters which Win Codes are shown (not which are selected) — a checked
   // item stays checked even while scrolled out of view by the filter.
   const [winSearch, setWinSearch] = useState('')
@@ -159,8 +215,10 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
   // render rather than only when nitSerial/office/datedDate change.
   const nitNo = composeReady ? composeNitNo(nitSerial, office, datedDate) : nitNoManual
 
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  // One Download Start/End date pair per group. Most notices have exactly
+  // one group covering every selected work; a notice recalling works on
+  // different timelines splits the ordered selection across more.
+  const [dateGroups, setDateGroups] = useState<DateGroupInput[]>([{ startDate: '', endDate: '', count: 0 }])
   const [email, setEmail] = useState('')
   const [eePhone, setEePhone] = useState('')
   const [hdPhone, setHdPhone] = useState('')
@@ -188,19 +246,34 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
     if (!open) return
     setNitSerial('16')
     setWinSearch('')
+    setDateGroups([{ startDate: '', endDate: '', count: 0 }])
     setEmail(localStorage.getItem(officeScopedKey(CONTACT_KEYS.email, office)) || defaultEmailFor(office))
     setEePhone(localStorage.getItem(officeScopedKey(CONTACT_KEYS.eePhone, office)) || '')
     setHdPhone(localStorage.getItem(officeScopedKey(CONTACT_KEYS.hdPhone, office)) || '')
+    setRecallRounds(loadRecallRounds(office))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  /** Sets a Win Code's recall round (clamped to >= 0) and remembers it for next time this dialog opens for this office. */
+  function setRecallRound(code: string, round: number) {
+    setRecallRounds((prev) => {
+      const next = { ...prev, [code]: Math.max(0, round) }
+      localStorage.setItem(officeScopedKey(RECALL_ROUNDS_KEY, office), JSON.stringify(next))
+      return next
+    })
+  }
 
   const items = useMemo(() => {
     if (!worksTable || !winCodeHeader || !nameHeader || !amountHeader) return []
     return Array.from(selected)
-      .map((code) => worksTable.rows.find((r) => (r[winCodeHeader] ?? '').trim() === code))
-      .filter((r): r is Record<string, string> => !!r)
-      .map((r) => ({ name: r[nameHeader] ?? '', amount: r[amountHeader] ?? '' }))
-  }, [worksTable, winCodeHeader, nameHeader, amountHeader, selected])
+      .map((code) => ({ code, row: worksTable.rows.find((r) => (r[winCodeHeader] ?? '').trim() === code) }))
+      .filter((e): e is { code: string; row: Record<string, string> } => !!e.row)
+      .map(({ code, row }) => ({
+        name: applyRecallTag(row[nameHeader] ?? '', recallRounds[code] ?? 0),
+        amount: row[amountHeader] ?? '',
+        typeOfWork: typeOfWorkHeader ? row[typeOfWorkHeader] : undefined
+      }))
+  }, [worksTable, winCodeHeader, nameHeader, amountHeader, typeOfWorkHeader, selected, recallRounds])
 
   // Same selection, same order as `items` above, but carrying the extra
   // fields the Bid Document template needs (ECV/Zone/Circle/Completion
@@ -210,32 +283,44 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
   const bidWorks = useMemo(() => {
     if (!worksTable || !winCodeHeader || !nameHeader || !amountHeader) return []
     return Array.from(selected)
-      .map((code) => worksTable.rows.find((r) => (r[winCodeHeader] ?? '').trim() === code))
-      .filter((r): r is Record<string, string> => !!r)
-      .map((r, i) => ({
+      .map((code) => ({ code, row: worksTable.rows.find((r) => (r[winCodeHeader] ?? '').trim() === code) }))
+      .filter((e): e is { code: string; row: Record<string, string> } => !!e.row)
+      .map(({ code, row }, i) => ({
         serial: i + 1,
-        winCode: winCodeHeader ? (r[winCodeHeader] ?? '').trim() : undefined,
-        name: r[nameHeader] ?? '',
-        amount: r[amountHeader] ?? '',
-        ecv: ecvHeader ? r[ecvHeader] : undefined,
-        zone: zoneHeader ? r[zoneHeader] : undefined,
-        circle: circleHeader ? r[circleHeader] : undefined,
+        winCode: code,
+        name: applyRecallTag(row[nameHeader] ?? '', recallRounds[code] ?? 0),
+        amount: row[amountHeader] ?? '',
+        typeOfWork: typeOfWorkHeader ? row[typeOfWorkHeader] : undefined,
+        ecv: ecvHeader ? row[ecvHeader] : undefined,
+        zone: zoneHeader ? row[zoneHeader] : undefined,
+        circle: circleHeader ? row[circleHeader] : undefined,
         corporation: office?.corporation,
         corporationFullName: corporationByName(office?.corporation)?.fullName,
-        completionPeriod: completionHeader ? r[completionHeader] : undefined
+        completionPeriod: completionHeader ? row[completionHeader] : undefined
       }))
   }, [
     worksTable,
     winCodeHeader,
     nameHeader,
     amountHeader,
+    typeOfWorkHeader,
     ecvHeader,
     zoneHeader,
     circleHeader,
     completionHeader,
     selected,
+    recallRounds,
     office?.corporation
   ])
+
+  // Each selected Win Code's Sl.No in the generated Tender Notice — same
+  // order `items`/`bidWorks` build from (Set iteration order == selection
+  // order), shown beside the Win Code so the picker matches the document.
+  const serialByCode = useMemo(() => {
+    const map = new Map<string, number>()
+    Array.from(selected).forEach((code, i) => map.set(code, i + 1))
+    return map
+  }, [selected])
 
   function toggleWinCode(code: string) {
     setSelected((prev) => {
@@ -246,6 +331,20 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
     })
   }
 
+  const groupSizes = useMemo(() => computeGroupSizes(dateGroups, items.length), [dateGroups, items.length])
+
+  function addDateGroup() {
+    setDateGroups((prev) => [...prev, { startDate: '', endDate: '', count: 1 }])
+  }
+
+  function removeDateGroup(index: number) {
+    setDateGroups((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  function updateDateGroup(index: number, patch: Partial<DateGroupInput>) {
+    setDateGroups((prev) => prev.map((g, i) => (i === index ? { ...g, ...patch } : g)))
+  }
+
   function openModal() {
     setOpen(true)
     setError(null)
@@ -253,16 +352,51 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
     setPreviewing(false)
   }
 
+  /** Resets every field back to the dialog's just-opened defaults, back to the edit view, so the user can start a fresh notice without closing/reopening the dialog. */
+  function clearAll() {
+    setSelected(new Set())
+    setRecallRounds({})
+    setWinSearch('')
+    setNitSerial('16')
+    setNitNoManual('')
+    setDatedDate(todayISO())
+    setDateGroups([{ startDate: '', endDate: '', count: 0 }])
+    setEmail(localStorage.getItem(officeScopedKey(CONTACT_KEYS.email, office)) || defaultEmailFor(office))
+    setEePhone(localStorage.getItem(officeScopedKey(CONTACT_KEYS.eePhone, office)) || '')
+    setHdPhone(localStorage.getItem(officeScopedKey(CONTACT_KEYS.hdPhone, office)) || '')
+    setError(null)
+    setPreviewing(false)
+  }
+
   function buildInput(): TenderNoticeInput | null {
-    if (selected.size === 0 || !nitNo.trim() || !datedDate || !startDate || !endDate) {
-      setError('Select at least one Win Code, and fill in the NIT number, Dated, and both dates.')
+    if (selected.size === 0 || !nitNo.trim() || !datedDate) {
+      setError('Select at least one Win Code, and fill in the NIT number and Dated.')
+      return null
+    }
+    if (dateGroups.some((g) => !g.startDate || !g.endDate)) {
+      setError('Fill in the Download Start/End dates for every group.')
+      return null
+    }
+    const groups: TenderNoticeGroup[] = []
+    let offset = 0
+    for (let i = 0; i < dateGroups.length; i++) {
+      const size = groupSizes[i]
+      if (size > 0) {
+        groups.push({
+          startDate: toDDMMYYYY(dateGroups[i].startDate),
+          endDate: toDDMMYYYY(dateGroups[i].endDate),
+          items: items.slice(offset, offset + size)
+        })
+      }
+      offset += size
+    }
+    if (groups.length === 0) {
+      setError('Select at least one Win Code.')
       return null
     }
     return {
       nitNo: nitNo.trim(),
-      items,
-      startDate: toDDMMYYYY(startDate),
-      endDate: toDDMMYYYY(endDate),
+      groups,
       today: toDDMMYYYY(datedDate),
       // Carry the chosen office's circle/zone so the template's hard-coded
       // Gajularamaram Circle-57 / Quthbullapur Zone place names are rewritten
@@ -294,7 +428,7 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
         void (async () => {
           const container = previewRef.current
           if (!container) return
-          await renderDocPreview(base64ToUint8(b64), container)
+          await renderDocPreview(base64ToUint8(b64), container, { breakPages: false })
         })()
       })
     } catch (e) {
@@ -320,12 +454,17 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
         setSaved(path)
         setOpen(false)
         onGenerated?.(input.nitNo)
+        // The batch (and every Bid Document in it) carries one download
+        // window — the full span across all groups — since Bid Documents
+        // don't yet support a per-work window of their own.
+        const starts = input.groups.map((g) => g.startDate)
+        const ends = input.groups.map((g) => g.endDate)
         onBidBatch?.({
           id: `bid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           nitNo: input.nitNo,
           dated: input.today,
-          downloadStartDate: input.startDate,
-          downloadEndDate: input.endDate,
+          downloadStartDate: starts.reduce((min, d) => (ddmmyyyyKey(d) < ddmmyyyyKey(min) ? d : min)),
+          downloadEndDate: ends.reduce((max, d) => (ddmmyyyyKey(d) > ddmmyyyyKey(max) ? d : max)),
           works: bidWorks,
           createdDate: todayISO()
         })
@@ -359,17 +498,22 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
           >
             {previewing ? (
               <>
-                <h3>Preview — this is exactly what gets saved</h3>
+                <div className="docprev-head">
+                  <h3>Preview — this is exactly what gets saved</h3>
+                </div>
                 <div className="tender-preview-scroll">
                   <div ref={previewRef} className="docprev-body" />
                 </div>
-                {error && (
-                  <div className="notice error">
-                    <IconWarn />
-                    {error}
-                  </div>
-                )}
-                <div className="confirm-actions">
+                <div className="tender-preview-foot">
+                  {error && (
+                    <div className="notice error">
+                      <IconWarn />
+                      {error}
+                    </div>
+                  )}
+                  <button className="ghost" onClick={clearAll} disabled={busy}>
+                    Clear
+                  </button>
                   <button className="ghost" onClick={() => setPreviewing(false)} disabled={busy}>
                     Back to edit
                   </button>
@@ -380,7 +524,12 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
               </>
             ) : (
               <>
-                <h3>Issue tender notice</h3>
+                <div className="tender-modal-head">
+                  <h3>Issue tender notice</h3>
+                  <button className="ghost" onClick={clearAll} disabled={busy}>
+                    Clear
+                  </button>
+                </div>
 
                 {winCodes.length > 0 ? (
                   <div className="tender-field">
@@ -410,9 +559,54 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
                               checked={selected.has(code)}
                               onChange={() => toggleWinCode(code)}
                             />
+                            {selected.has(code) && (
+                              <span className="tender-serial-badge" title="Sl.No in the Tender Notice">
+                                {serialByCode.get(code)}
+                              </span>
+                            )}
                             <span className="tender-wincode-code">{code}</span>
                             {winCodeToName.get(code) && (
                               <span className="tender-wincode-name">{winCodeToName.get(code)}</span>
+                            )}
+                            {selected.has(code) && (
+                              <span className="tender-recall-controls">
+                                <button
+                                  type="button"
+                                  className={`tender-recall-toggle${recallRounds[code] ? ' active' : ''}`}
+                                  title="Mark this work as a re-tendered (recall) work"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    setRecallRound(code, recallRounds[code] ? 0 : 1)
+                                  }}
+                                >
+                                  Recall
+                                </button>
+                                {!!recallRounds[code] && (
+                                  <span className="tender-recall-stepper">
+                                    <button
+                                      type="button"
+                                      aria-label="Previous recall round"
+                                      onClick={(e) => {
+                                        e.preventDefault()
+                                        setRecallRound(code, (recallRounds[code] ?? 1) - 1)
+                                      }}
+                                    >
+                                      −
+                                    </button>
+                                    <span className="tender-recall-count">{ordinal(recallRounds[code])} Recall</span>
+                                    <button
+                                      type="button"
+                                      aria-label="Next recall round"
+                                      onClick={(e) => {
+                                        e.preventDefault()
+                                        setRecallRound(code, (recallRounds[code] ?? 0) + 1)
+                                      }}
+                                    >
+                                      +
+                                    </button>
+                                  </span>
+                                )}
+                              </span>
                             )}
                           </label>
                         ))
@@ -457,18 +651,64 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
                   </p>
                 )}
 
-                <label className="tender-field">
-                  <span>Download Start Date (2:00 P.M)</span>
-                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                </label>
-
-                <label className="tender-field">
-                  <span>Download End Date (2:00 P.M)</span>
-                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                </label>
+                <div className="tender-field">
+                  <span>Download Schedule</span>
+                  {dateGroups.map((g, i) => {
+                    const isLast = i === dateGroups.length - 1
+                    return (
+                      <div key={i} className="tender-dategroup">
+                        {dateGroups.length > 1 && (
+                          <div className="tender-dategroup-head">
+                            <span>
+                              Group {i + 1} —{' '}
+                              {isLast ? (
+                                `${groupSizes[i]} work${groupSizes[i] === 1 ? '' : 's'} (remaining)`
+                              ) : (
+                                <>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={g.count || groupSizes[i] || 1}
+                                    onChange={(e) => updateDateGroup(i, { count: Number(e.target.value) || 1 })}
+                                    className="tender-dategroup-count"
+                                  />{' '}
+                                  work{groupSizes[i] === 1 ? '' : 's'}
+                                </>
+                              )}
+                            </span>
+                            <button className="ghost" onClick={() => removeDateGroup(i)}>
+                              Remove
+                            </button>
+                          </div>
+                        )}
+                        <div className="tender-field-row">
+                          <label className="tender-field">
+                            <span>Download Start Date (2:00 P.M)</span>
+                            <input
+                              type="date"
+                              value={g.startDate}
+                              onChange={(e) => updateDateGroup(i, { startDate: e.target.value })}
+                            />
+                          </label>
+                          <label className="tender-field">
+                            <span>Download End Date (2:00 P.M)</span>
+                            <input
+                              type="date"
+                              value={g.endDate}
+                              onChange={(e) => updateDateGroup(i, { endDate: e.target.value })}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  <button className="ghost tender-add-group" onClick={addDateGroup}>
+                    + Split off a date group
+                  </button>
+                </div>
 
                 <p className="hint">
-                  Price Bid Opening is the same day as the download end date, at 2:30 P.M.
+                  Price Bid Opening is the same day as each group's download end date, at 2:30 P.M.
                 </p>
 
                 <label className="tender-field">

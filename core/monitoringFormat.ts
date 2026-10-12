@@ -366,7 +366,13 @@ export function parseMonitoringFormatWorkSheet(sheet: SheetGrid): MonitoringForm
     agreementDate: colIndex(header, (h) => h.includes('agreement')),
     targetDate: colIndex(header, (h) => h.includes('target')),
     agencyDetails: colIndex(header, (h) => h.includes('agency')),
-    status: colIndex(header, (h) => h.includes('current status')),
+    // Some circles' sheets carry the real status in a plain "Status" column
+    // and leave "Current status" blank on every row (the opposite of what
+    // the header-row anchor above assumes) — try both, per row, and use
+    // whichever one actually has text.
+    statusCols: [colIndex(header, (h) => h.includes('current status')), colIndex(header, (h) => h === 'status')].filter(
+      (i) => i >= 0
+    ),
     winCode: colIndex(header, (h) => h.includes('win'))
   }
 
@@ -376,7 +382,7 @@ export function parseMonitoringFormatWorkSheet(sheet: SheetGrid): MonitoringForm
     const slNo = cellAt(row, col.slNo)
     const workName = cellAt(row, col.workName)
     if (!slNo && !workName) continue
-    const status = cellAt(row, col.status)
+    const status = col.statusCols.map((idx) => cellAt(row, idx)).find((s) => s) || ''
     const statusKey = normalizeWorkStatus(status)
     if (!statusKey) continue
     rows.push({

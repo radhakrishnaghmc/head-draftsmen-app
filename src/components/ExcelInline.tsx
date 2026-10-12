@@ -1,5 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { IconPlus, IconTrash, IconSearch, IconChevronRight } from './Icons'
+import { IconPlus, IconTrash, IconSearch } from './Icons'
 import type { ExcelTable } from '@core/types'
 
 // Fixed column widths (px) — the sheet uses table-layout:fixed so column widths
@@ -8,6 +8,12 @@ import type { ExcelTable } from '@core/types'
 const COL_W = 160
 const ROWNUM_W = 44
 const ROWDEL_W = 44
+// The work-name column gets a wider fixed width and wraps its text across
+// lines (via a textarea, matched to the Monitoring Format list's read-only
+// table) instead of scrolling off in a single-line input like every other
+// column.
+const NAME_COL_W = 340
+const NAME_RE = /name\s*of\s*(the\s*)?work/i
 
 // One Works List row, memoised so editing a single cell re-renders ONLY that
 // row — not all 200+ rows × ~28 inputs. setCell replaces just the edited row's
@@ -17,6 +23,7 @@ interface SheetRowProps {
   ri: number
   row: string[]
   headerCount: number
+  nameIndex: number
   onCell: (ri: number, ci: number, value: string) => void
   onDelete: (ri: number) => void
   flashed: boolean
@@ -28,6 +35,7 @@ const SheetRow = memo(function SheetRow({
   ri,
   row,
   headerCount,
+  nameIndex,
   onCell,
   onDelete,
   flashed,
@@ -39,11 +47,21 @@ const SheetRow = memo(function SheetRow({
     <Fragment>
       <tr ref={isFirstFlash ? firstFlashRef : undefined} className={flashed ? 'row-flash' : ''}>
         <td className="rownum">{ri + 1}</td>
-        {Array.from({ length: headerCount }, (_, ci) => (
-          <td key={ci}>
-            <input value={row[ci] ?? ''} onChange={(e) => onCell(ri, ci, e.target.value)} />
-          </td>
-        ))}
+        {Array.from({ length: headerCount }, (_, ci) =>
+          ci === nameIndex ? (
+            <td key={ci}>
+              <textarea
+                className="cell-wrap"
+                value={row[ci] ?? ''}
+                onChange={(e) => onCell(ri, ci, e.target.value)}
+              />
+            </td>
+          ) : (
+            <td key={ci}>
+              <input value={row[ci] ?? ''} onChange={(e) => onCell(ri, ci, e.target.value)} />
+            </td>
+          )
+        )}
         <td className="rowdel">
           <button className="danger-ghost" title="Delete row" onClick={() => onDelete(ri)}>
             <IconTrash />
@@ -111,7 +129,7 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
     table.rows.map((r) => orderedHeaders.map((h) => r[h] ?? ''))
   )
   const [query, setQuery] = useState('')
-  const [open, setOpen] = useState(true)
+  const nameIndex = useMemo(() => headers.findIndex((h) => NAME_RE.test(h)), [headers])
 
   // Blink the just-updated rows, then settle: the "Updated from L1" message and
   // highlight clear after a few seconds so they don't linger over later edits.
@@ -286,20 +304,7 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
   const onDelete = useCallback((ri: number) => handlersRef.current.deleteRow(ri), [])
 
   return (
-    <section className={`card sheet-inline ${open ? '' : 'is-collapsed'}`}>
-      <div className="card-head">
-        <button
-          type="button"
-          className="settings-section-toggle mf-toggle"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-        >
-          <IconChevronRight className={`settings-section-chevron ${open ? 'open' : ''}`} />
-          <h3>Works List Database</h3>
-        </button>
-      </div>
-      {open && (
-        <>
+    <section className="card sheet-inline">
       {header && <div className="sheet-inline-header">{header}</div>}
       {error && <div className="notice warn editor-warn">{error}</div>}
 
@@ -325,12 +330,19 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
       <div className="sheet-wrap">
         <table
           className="sheet"
-          style={{ tableLayout: 'fixed', width: Math.max(ROWNUM_W + headers.length * COL_W + ROWDEL_W, 0) || undefined }}
+          style={{
+            tableLayout: 'fixed',
+            width:
+              Math.max(
+                ROWNUM_W + headers.length * COL_W + (nameIndex >= 0 ? NAME_COL_W - COL_W : 0) + ROWDEL_W,
+                0
+              ) || undefined
+          }}
         >
           <colgroup>
             <col style={{ width: ROWNUM_W }} />
             {headers.map((_, ci) => (
-              <col key={ci} style={{ width: COL_W }} />
+              <col key={ci} style={{ width: ci === nameIndex ? NAME_COL_W : COL_W }} />
             ))}
             <col style={{ width: ROWDEL_W }} />
           </colgroup>
@@ -366,6 +378,7 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
                 ri={ri}
                 row={row}
                 headerCount={headers.length}
+                nameIndex={nameIndex}
                 onCell={onCell}
                 onDelete={onDelete}
                 flashed={flashing && flashSet.has(ri)}
@@ -396,8 +409,6 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
           Rename headers to change field names. Rows here drive how many documents generate.
         </span>
       </div>
-        </>
-      )}
     </section>
   )
 }

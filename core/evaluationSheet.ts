@@ -9,6 +9,11 @@ import * as ExcelJS from 'exceljs'
 // the office to key in from each bidder's documents, and the bid-capacity cell
 // (3AN−B) plus the surplus are live formulas that resolve as those blanks fill.
 
+/** Works with an estimate above this (rupees, 5 lakhs) are evaluated on 3AN−B. */
+export const BID_CAPACITY_THRESHOLD = 500000
+/** Indices in EVALUATION_CRITERIA that only apply to works evaluated on 3AN−B. */
+const BID_CAPACITY_CRITERIA = [3, 4, 5]
+
 /** The eleven standard tender-condition rows (column B, Sl. No 1–11). */
 export const EVALUATION_CRITERIA: readonly string[] = [
   'Contractor registration (Class-V) issued by GHMC authorities only & Other Departments Class III & above as per G.O.M.S.No. 94 I & CAD, Dated: 01-07-2003 (Upload the original copy for clarity)',
@@ -33,25 +38,28 @@ export interface EvaluationSheetInput {
   bidders: string[]
   /** ECV in rupees for the ECV row; null leaves it blank. */
   ecv: number | null
+  /**
+   * Estimate amount (rupees) from the Works List — a different figure from the
+   * ECV. Decides whether the 3AN−B rows are needed; when unknown they are kept.
+   */
+  estimate?: number | null
+  /**
+   * Tender conditions for the requirement rows, as listed on the portal's
+   * "Required Tender Documents Details" for this tender. When absent or empty,
+   * the eleven standard conditions in EVALUATION_CRITERIA are used.
+   */
+  conditions?: string[]
   /** Signature block for the bottom-right, e.g. "Executive Engineer,\nGajularamaram circle,CMC". */
   signature: string
 }
 
-// Row layout (1-based). Rows 5–15 hold the eleven criteria; the bid-capacity
-// block follows.
+// Row layout (1-based). The criteria rows start at R_CRITERIA_START and run for
+// as many conditions as the tender lists; the bid-capacity block follows them.
 const R_TITLE = 1
 const R_NIT = 2
 const R_WORK = 3
 const R_HEADER = 4
 const R_CRITERIA_START = 5 // Sl.No 1
-const R_A = 16 // Sl.No 12 — Turnover (A)
-const R_N = 17 // Sl.No 13 — N (period in years)
-const R_B = 18 // Sl.No 14 — B (existing commitments)
-const R_3ANB = 19 // Sl.No 15 — 3AN − B (bid capacity)
-const R_ECV = 20 // Sl.No 16 — ECV
-const R_REMARKS = 21 // Sl.No 17 — Remarks
-const R_SURPLUS = 22 // Sl.No 18 — bid capacity − ECV
-const R_SIGN = 26 // signature sits two rows below where it used to (was 24)
 
 const FIRST_BIDDER_COL = 3 // column C
 const ACCOUNTING_FMT = '_ * #,##0.00_ ;_ * -#,##0.00_ ;_ * "-"??_ ;_ @_ '
@@ -91,6 +99,29 @@ function wrappedRowHeight(text: string, mergedWidthUnits: number): number {
  */
 export async function buildEvaluationSheet(input: EvaluationSheetInput): Promise<Buffer> {
   const bidders = input.bidders.map((b) => b.trim()).filter(Boolean)
+  const conditions = (input.conditions ?? []).map((c) => c.trim()).filter(Boolean)
+  // Works with an estimate above 5 lakhs are evaluated on bid capacity (3AN−B); at
+  // or below it the A / N / B / 3AN−B / surplus rows are dropped. With no estimate
+  // the rows are kept (the ECV is never used in its place).
+  const needsBidCapacity = input.estimate == null || input.estimate > BID_CAPACITY_THRESHOLD
+  // The standard list carries three bid-capacity conditions (existing commitments,
+  // the 3AN−B rule, the CA turnover certificate) that also drop for small works.
+  const standard = needsBidCapacity
+    ? [...EVALUATION_CRITERIA]
+    : EVALUATION_CRITERIA.filter((_, i) => !BID_CAPACITY_CRITERIA.includes(i))
+  const criteria = conditions.length > 0 ? conditions : standard
+  const nCrit = criteria.length
+  // Rows after the criteria, in order; the bid-capacity ones only when needed.
+  let next = R_CRITERIA_START + nCrit
+  let sl = nCrit + 1
+  const R_A = needsBidCapacity ? next++ : -1 // Turnover (A)
+  const R_N = needsBidCapacity ? next++ : -1 // N (period in years)
+  const R_B = needsBidCapacity ? next++ : -1 // B (existing commitments)
+  const R_3ANB = needsBidCapacity ? next++ : -1 // 3AN − B (bid capacity)
+  const R_ECV = next++ // ECV
+  const R_REMARKS = next++ // Remarks
+  const R_SURPLUS = needsBidCapacity ? next++ : -1 // bid capacity − ECV
+  const R_SIGN = next + 3 // signature, below the last row
   const nCols = 2 + Math.max(bidders.length, 1) // Sl.No + Requirements + one per bidder
   const lastColLetter = columnLetter(nCols)
 
@@ -161,26 +192,30 @@ export async function buildEvaluationSheet(input: EvaluationSheetInput): Promise
     }
   }
 
-  // Eleven eligibility criteria — bidder cells blank for the office to fill.
-  EVALUATION_CRITERIA.forEach((text, i) => dataRow(R_CRITERIA_START + i, i + 1, text, () => null))
+  // Eligibility criteria — bidder cells blank for the office to fill.
+  criteria.forEach((text, i) => dataRow(R_CRITERIA_START + i, i + 1, text, () => null))
 
   // Bid-capacity block. A / N / B are blank inputs; 3AN−B, Remarks and the
   // surplus are formulas that reference this bidder's own column.
-  dataRow(R_A, 12, 'Turnover in Civil Engineering Works, Turnover Certificate issued by CA.(A)', () => null, {
-    boldLabel: true,
-    accounting: true
-  })
-  dataRow(R_N, 13, 'N', () => null, { boldLabel: true })
-  dataRow(R_B, 14, 'B', () => null, { boldLabel: true, accounting: true })
-  dataRow(R_3ANB, 15, '3AN-B', (_c, L) => ({ formula: `(3*${L}${R_A}*${L}${R_N})-${L}${R_B}` }), {
-    boldLabel: true,
-    accounting: true
-  })
-  dataRow(R_ECV, 16, 'ECV', () => (input.ecv != null ? input.ecv : null), { boldLabel: true, accounting: true })
+  if (needsBidCapacity) {
+    dataRow(R_A, sl++, 'Turnover in Civil Engineering Works, Turnover Certificate issued by CA.(A)', () => null, {
+      boldLabel: true,
+      accounting: true
+    })
+    dataRow(R_N, sl++, 'N', () => null, { boldLabel: true })
+    dataRow(R_B, sl++, 'B', () => null, { boldLabel: true, accounting: true })
+    dataRow(R_3ANB, sl++, '3AN-B', (_c, L) => ({ formula: `(3*${L}${R_A}*${L}${R_N})-${L}${R_B}` }), {
+      boldLabel: true,
+      accounting: true
+    })
+  }
+  dataRow(R_ECV, sl++, 'ECV', () => (input.ecv != null ? input.ecv : null), { boldLabel: true, accounting: true })
   // Remarks are left blank under each bidder for the office to write by hand
   // (Responsive / Non-Responsive with the reason), not auto-derived.
-  dataRow(R_REMARKS, 17, 'Remarks', () => null, { boldLabel: true })
-  dataRow(R_SURPLUS, 18, '', (_c, L) => ({ formula: `${L}${R_3ANB}-${L}${R_ECV}` }), { accounting: true })
+  dataRow(R_REMARKS, sl++, 'Remarks', () => null, { boldLabel: true })
+  if (needsBidCapacity) {
+    dataRow(R_SURPLUS, sl, '', (_c, L) => ({ formula: `${L}${R_3ANB}-${L}${R_ECV}` }), { accounting: true })
+  }
 
   // Signature, bottom-right under the last bidder column.
   const sign = ws.getCell(R_SIGN, nCols)

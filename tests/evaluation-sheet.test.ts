@@ -135,4 +135,56 @@ describe('buildEvaluationSheet', () => {
     expect(shortHeight).toBeGreaterThan(0)
     expect(longHeight).toBeGreaterThan(shortHeight)
   })
+
+  it('replaces the standard criteria with the tender\'s own conditions and shifts the block down', async () => {
+    const base = {
+      nitLine: 'NIT',
+      workLine: 'Work',
+      bidders: ['A', 'B'],
+      ecv: 600000,
+      estimate: 600000,
+      signature: 'EE'
+    }
+    const conditions = ['Registration Certification', 'EMD', 'Transaction Details']
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load((await buildEvaluationSheet({ ...base, conditions })) as unknown as ArrayBuffer)
+    const ws = wb.worksheets[0]
+    expect(ws.getCell(5, 2).value).toBe('Registration Certification')
+    expect(ws.getCell(7, 2).value).toBe('Transaction Details')
+    // Bid-capacity block follows the three conditions: A at row 8, 3AN-B at row 11.
+    expect(ws.getCell(8, 1).value).toBe(4)
+    expect(String(ws.getCell(8, 2).value)).toContain('Turnover')
+    const f = ws.getCell(11, 3).value as { formula: string }
+    expect(f.formula).toBe('(3*C8*C9)-C10')
+    expect(ws.getCell(12, 3).value).toBe(600000)
+  })
+
+  it('drops the 3AN-B block for works at or below 5 lakhs, keeps it above', async () => {
+    const base = { nitLine: 'NIT', workLine: 'Work', bidders: ['A'], signature: 'EE', conditions: ['Registration', 'EMD'] }
+    const labels = async (estimate: number | null) => {
+      const wb = new ExcelJS.Workbook()
+      await wb.xlsx.load((await buildEvaluationSheet({ ...base, ecv: 450000, estimate })) as unknown as ArrayBuffer)
+      const ws = wb.worksheets[0]
+      const out: string[] = []
+      ws.eachRow((row) => out.push(String(row.getCell(2).value ?? '')))
+      return out.join('|')
+    }
+    const small = await labels(400260)
+    expect(small).not.toMatch(/3AN-B|Turnover/)
+    expect(small).toMatch(/ECV\|Remarks/)
+    expect(await labels(500000)).not.toMatch(/3AN-B/)
+    expect(await labels(500001)).toMatch(/3AN-B/)
+    // No estimate on the Works List: keep the rows, whatever the ECV is.
+    expect(await labels(null)).toMatch(/3AN-B/)
+  })
+
+  it('omits the bid-capacity standard criteria for small works', async () => {
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(
+      (await buildEvaluationSheet({ nitLine: 'N', workLine: 'W', bidders: ['A'], ecv: 900000, estimate: 300000, signature: 'EE' })) as unknown as ArrayBuffer
+    )
+    const text = wb.worksheets[0].getColumn(2).values.join('|')
+    expect(text).not.toMatch(/3AN-B|existing commitments|Maximum value of Civil/)
+    expect(text).toMatch(/GST Registration/)
+  })
 })

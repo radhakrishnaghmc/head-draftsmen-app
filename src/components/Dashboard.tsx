@@ -441,7 +441,7 @@ export default function Dashboard({ cached, onData, office }: Props) {
                           <button
                             key={idx}
                             className={cls}
-                            title={info ? `${info.name} (${info.type})` : undefined}
+                            data-tooltip={info ? `${info.name} (${info.type})` : undefined}
                             onClick={() =>
                               toggleAnchor(m.year, m.mi, day, type === 'public')
                             }
