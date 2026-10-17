@@ -49,3 +49,23 @@ export function rankByEmbedding(queryVector: number[], candidateVectors: number[
  * own.
  */
 export const WORK_IDENTITY_MATCH_THRESHOLD = 0.85
+
+/**
+ * Whether two work names carry different ward or circle numbers ("ward no
+ * 259" vs "ward no -274", "Circle-53" vs "Circle-58"). Same-template works
+ * ("Making Arrangements for Bathukamma Festival at ... ward ... Circle ...")
+ * score above WORK_IDENTITY_MATCH_THRESHOLD on cosine alone, so an embedding
+ * match must also clear this check — a differing number on either side
+ * means a different work, however similar the sentence reads.
+ */
+export function workNamesConflict(a: string, b: string): boolean {
+  const nums = (s: string, re: RegExp): Set<string> =>
+    new Set([...s.matchAll(re)].map((m) => String(Number(m[1]))))
+  const differs = (re: RegExp): boolean => {
+    const x = nums(a, re)
+    const y = nums(b, re)
+    if (x.size === 0 || y.size === 0) return false
+    return ![...x].some((n) => y.has(n))
+  }
+  return differs(/ward\s*(?:no\.?|number)?\s*[-.:]?\s*(\d+)/gi) || differs(/circle\s*(?:no\.?)?\s*[-.:]?\s*(\d+)/gi)
+}

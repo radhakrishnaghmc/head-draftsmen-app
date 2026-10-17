@@ -369,8 +369,8 @@ export function parseMonitoringFormatWorkSheet(sheet: SheetGrid): MonitoringForm
     // Some circles' sheets carry the real status in a plain "Status" column
     // and leave "Current status" blank on every row (the opposite of what
     // the header-row anchor above assumes) — try both, per row, and use
-    // whichever one actually has text.
-    statusCols: [colIndex(header, (h) => h.includes('current status')), colIndex(header, (h) => h === 'status')].filter(
+    // whichever one names a status (see the per-row pick below).
+    statusCols: [colIndex(header, (h) => h === 'status'), colIndex(header, (h) => h.includes('current status'))].filter(
       (i) => i >= 0
     ),
     winCode: colIndex(header, (h) => h.includes('win'))
@@ -382,7 +382,10 @@ export function parseMonitoringFormatWorkSheet(sheet: SheetGrid): MonitoringForm
     const slNo = cellAt(row, col.slNo)
     const workName = cellAt(row, col.workName)
     if (!slNo && !workName) continue
-    const status = col.statusCols.map((idx) => cellAt(row, idx)).find((s) => s) || ''
+    // Some circles' sheets carry both a "Status" column (Progress / Completed …) and a
+    // "Current status" column holding just the progress % ("upto 25%") — take the first
+    // cell that actually names a status, not merely the first non-empty one.
+    const status = col.statusCols.map((idx) => cellAt(row, idx)).find((s) => normalizeWorkStatus(s)) || ''
     const statusKey = normalizeWorkStatus(status)
     if (!statusKey) continue
     rows.push({
@@ -424,7 +427,26 @@ export function findMonitoringFormatWorkSheets(sheets: SheetGrid[], office: Offi
       if (cno && new RegExp(`(^|[^0-9])0*${cno}([^0-9]|$)`).test(s.sheetName)) return true
       return circle ? s.sheetName.toLowerCase().includes(circle) : false
     })
-    return match ? [match] : []
+    if (match) return [match]
+    // The tab name doesn't carry the circle (e.g. just "List of works"): a lone list
+    // sheet is the one, otherwise pick the sheet whose own Circle column names this circle.
+    if (candidates.length === 1) return candidates
+    const cellMatches = (v: string) => {
+      const t = v.trim().toLowerCase()
+      if (!t) return false
+      if (circle && t.includes(circle)) return true
+      return !!cno && new RegExp(`^0*${cno}([^0-9]|$)`).test(t)
+    }
+    let best: SheetGrid | null = null
+    let bestCount = 0
+    for (const s of candidates) {
+      const count = parseMonitoringFormatWorkSheet(s).filter((w) => cellMatches(w.circle)).length
+      if (count > bestCount) {
+        best = s
+        bestCount = count
+      }
+    }
+    return best ? [best] : []
   }
 
   return candidates

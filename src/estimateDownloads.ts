@@ -4,8 +4,10 @@ import type { EstimateWorkItem } from '@core/estimateExtract'
 import { buildBoqFromEstimate, boqToScheduleA } from './boqTransform'
 import { findWorksRowByName, metaFromWorksRow } from '@core/scheduleA'
 import type { WorksRowMatch } from '@core/scheduleA'
-import { applyEcvFromBoq } from '@core/worksAmounts'
 import { computeMaterialTotals } from '@core/materialEstimate'
+import { matchMaterialRag } from '@core/materialQuantityRag'
+import type { MaterialRag } from '@core/materialQuantityRag'
+import materialRagData from '@core/data/materialQuantityRag.json'
 import type { DeviationItem } from '@core/deviationTemplate'
 
 /**
@@ -77,36 +79,6 @@ export async function matchWorksRowCached(
   }
 }
 
-/**
- * Writes an estimate's computed ECV back to its matching Works List row
- * (name match, with the same embedding fallback as matchWorksRow) — returns
- * the updated table, or null if no matching row was found so the caller
- * leaves the Works List untouched.
- */
-export async function saveEcvToWorksList(
-  workName: string,
-  ecvRupees: number,
-  worksTable: ExcelTable
-): Promise<ExcelTable | null> {
-  let result = applyEcvFromBoq(worksTable, workName, ecvRupees)
-  if (!result.matched) {
-    const nameHeader = worksTable.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
-    if (nameHeader) {
-      try {
-        const rowNames = worksTable.rows.map((r) => r[nameHeader] ?? '')
-        const vectors = await api.embedTexts([workName, ...rowNames])
-        result = applyEcvFromBoq(worksTable, workName, ecvRupees, {
-          workNameVector: vectors[0],
-          rowNameVectors: vectors.slice(1)
-        })
-      } catch {
-        // Embeddings unavailable — leave the Works List untouched.
-      }
-    }
-  }
-  return result.matched ? result.table : null
-}
-
 export function downloadBoqFromItems(
   items: EstimateWorkItem[],
   workName: string | undefined,
@@ -153,6 +125,18 @@ export async function downloadDeviationFromItems(
   )
 }
 
+const MATERIAL_RAG = materialRagData as unknown as MaterialRag
+
+/**
+ * Material Quantity totals for an estimate: the bundled material-quantity index
+ * (built from the SE office Data Sheet — see scripts/buildMaterialRag.ts) supplies
+ * each matched item's per-unit material quantities, and the standard rules in
+ * core/materialEstimate.ts cover whatever it doesn't match.
+ */
+export function materialTotalsForItems(items: EstimateWorkItem[]): ReturnType<typeof computeMaterialTotals> {
+  return computeMaterialTotals(items, undefined, matchMaterialRag(items, MATERIAL_RAG))
+}
+
 export function downloadMaterialFromItems(
   items: EstimateWorkItem[],
   workName: string | undefined,
@@ -161,7 +145,7 @@ export function downloadMaterialFromItems(
   district: string,
   suggestedNameBase: string
 ): Promise<string | null> {
-  const { totals } = computeMaterialTotals(items)
+  const { totals } = materialTotalsForItems(items)
   return api.exportMaterialEstimate(
     totals,
     {

@@ -1,7 +1,7 @@
 import type { ExcelTable } from './types'
 import type { TenderEvaluation } from './tenderEvaluationPdf'
 import type { IntimationNotice } from './intimationNotice'
-import { rankByEmbedding, WORK_IDENTITY_MATCH_THRESHOLD } from './embeddingMatch'
+import { rankByEmbedding, workNamesConflict, WORK_IDENTITY_MATCH_THRESHOLD } from './embeddingMatch'
 import { rupeesToCell } from './worksAmounts'
 import { normalizeWorkNameForMatch as norm } from './tenderAgents/nameOfWork'
 
@@ -107,7 +107,13 @@ export function updateWorksListFromEvaluations(
     let idx = rowKeyToIndex.get(target)
     if (idx == null && embeddings) {
       const [best] = rankByEmbedding(embeddings.evalNameVectors[evIndex], embeddings.rowNameVectors)
-      if (best && best.score >= WORK_IDENTITY_MATCH_THRESHOLD) idx = best.index
+      if (
+        best &&
+        best.score >= WORK_IDENTITY_MATCH_THRESHOLD &&
+        !workNamesConflict(ev.nameOfWork!, table.rows[best.index][nameHeader] ?? '')
+      ) {
+        idx = best.index
+      }
     }
     if (idx == null) {
       unmatched.push(ev.nameOfWork!)

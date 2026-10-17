@@ -1,5 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { IconPlus, IconTrash, IconSearch } from './Icons'
+import { IconPlus, IconTrash, IconSearch, IconLink, IconChevronRight } from './Icons'
 import type { ExcelTable } from '@core/types'
 
 // Fixed column widths (px) — the sheet uses table-layout:fixed so column widths
@@ -129,6 +129,9 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
     table.rows.map((r) => orderedHeaders.map((h) => r[h] ?? ''))
   )
   const [query, setQuery] = useState('')
+  // The link-import row (`header`) is rare and destructive, so it stays folded away
+  // behind a toolbar button instead of pushing the table down the page.
+  const [importOpen, setImportOpen] = useState(false)
   const nameIndex = useMemo(() => headers.findIndex((h) => NAME_RE.test(h)), [headers])
 
   // Blink the just-updated rows, then settle: the "Updated from L1" message and
@@ -305,27 +308,39 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
 
   return (
     <section className="card sheet-inline">
-      {header && <div className="sheet-inline-header">{header}</div>}
       {error && <div className="notice warn editor-warn">{error}</div>}
 
-      <div className="sheet-search">
-        <IconSearch />
-        <input
-          value={query}
-          placeholder="Search the works database…"
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        {query && (
-          <>
-            <span className="sheet-search-count">
-              {visible.length} of {matrix.length}
-            </span>
+      <div className="sheet-toolbar">
+        <div className="sheet-search">
+          <IconSearch />
+          <input
+            value={query}
+            placeholder="Search the works database…"
+            aria-label="Search the works database"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {query && (
             <button className="link-btn" onClick={() => setQuery('')}>
               Clear
             </button>
-          </>
+          )}
+        </div>
+        <span className="sheet-count" aria-live="polite">
+          {query ? `${visible.length} of ${matrix.length} works` : `${matrix.length} works`}
+        </span>
+        {header && (
+          <button
+            type="button"
+            className={`sheet-import-toggle${importOpen ? ' open' : ''}`}
+            aria-expanded={importOpen}
+            onClick={() => setImportOpen((o) => !o)}
+          >
+            <IconLink /> Import from link
+            <IconChevronRight className="sheet-import-chev" />
+          </button>
         )}
       </div>
+      {header && importOpen && <div className="sheet-inline-header">{header}</div>}
 
       <div className="sheet-wrap">
         <table

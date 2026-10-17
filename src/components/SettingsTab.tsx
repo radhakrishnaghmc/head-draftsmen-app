@@ -5,6 +5,10 @@ import { type Office, officeScopedKey, TEMPLATE_KEYS, TEMPLATE_VARIANT_CHANGED_E
 import { corporationByName } from '../zoneCircleDirectory'
 import {
   WORK_ORDER_TEMPLATE_VARIANTS,
+  variantsForCorporation,
+  corporationDefaultVariant,
+  CONCLUDING_AGREEMENT_TEMPLATE_VARIANTS,
+  MEMO_EE_TEMPLATE_VARIANTS,
   DEFAULT_WORK_ORDER_TEMPLATE_VARIANT,
   AGREEMENT_TEMPLATE_VARIANTS,
   DEFAULT_AGREEMENT_TEMPLATE_VARIANT,
@@ -18,6 +22,7 @@ import {
 } from '@core/workOrderTemplateVariants'
 import {
   workOrderPlaceholders,
+  zonalDocsPlaceholders,
   agreementPlaceholders,
   fileBackerPlaceholders,
   civilTenderPlaceholders,
@@ -334,6 +339,11 @@ function TemplateSection({ title, subtitle, storageKey, variants, defaultVariant
                   <div ref={modalRef} className="intimation-docx-preview" />
                 )}
               </div>
+              <div className="wo-modal-foot">
+                <button className="ghost wo-foot-close" onClick={() => setPreviewId(null)}>
+                  Close
+                </button>
+              </div>
             </div>
           </div>,
           document.body
@@ -562,8 +572,8 @@ export default function SettingsTab({ office, theme, onThemeChange }: Props) {
           title="File Backer"
           subtitle="Some circles word and lay out their own File Backer cover page differently."
           storageKey={officeScopedKey(TEMPLATE_KEYS.fileBacker, office)}
-          variants={FILE_BACKER_TEMPLATE_VARIANTS}
-          defaultVariant={DEFAULT_FILE_BACKER_TEMPLATE_VARIANT}
+          variants={variantsForCorporation(FILE_BACKER_TEMPLATE_VARIANTS, office.corporation)}
+          defaultVariant={corporationDefaultVariant(office.corporation, DEFAULT_FILE_BACKER_TEMPLATE_VARIANT)}
           fields={fields}
           fetchTemplate={api.fileBackerTemplate}
           placeholders={fileBackerPlaceholders}
@@ -584,19 +594,48 @@ export default function SettingsTab({ office, theme, onThemeChange }: Props) {
           title="Work Order"
           subtitle="Some circles word and lay out their own Work Order differently."
           storageKey={officeScopedKey(TEMPLATE_KEYS.workOrder, office)}
-          variants={WORK_ORDER_TEMPLATE_VARIANTS}
+          // A zone-level (SE) office's Work Order comes in the default letterhead or the logo header (type 3) only.
+          variants={variantsForCorporation(WORK_ORDER_TEMPLATE_VARIANTS, office.corporation).filter(
+            (v) => !isZoneOnlyOffice(office) || v.id !== 'kompally'
+          )}
           defaultVariant={DEFAULT_WORK_ORDER_TEMPLATE_VARIANT}
           fields={fields}
-          fetchTemplate={api.workOrderTemplate}
-          placeholders={workOrderPlaceholders}
+          fetchTemplate={isZoneOnlyOffice(office) ? api.zonalWorkOrderTemplate : api.workOrderTemplate}
+          placeholders={isZoneOnlyOffice(office) ? (f) => zonalDocsPlaceholders(f, {}, {}) : workOrderPlaceholders}
         />
+
+        {isZoneOnlyOffice(office) && (
+          <>
+            <TemplateSection
+              title="Concluding Agreement"
+              subtitle="Default letterhead, or the logo header used by Work Order type 3 (types 4-6 for MMC / CMC / GHMC) — same body text."
+              storageKey={officeScopedKey(TEMPLATE_KEYS.concludingAgreement, office)}
+              variants={variantsForCorporation(CONCLUDING_AGREEMENT_TEMPLATE_VARIANTS, office.corporation)}
+              defaultVariant={corporationDefaultVariant(office.corporation, DEFAULT_WORK_ORDER_TEMPLATE_VARIANT)}
+              fields={fields}
+              fetchTemplate={api.zonalConcludingAgreementTemplate}
+              placeholders={(f) => zonalDocsPlaceholders(f, {}, {})}
+            />
+
+            <TemplateSection
+              title="Memo to EE"
+              subtitle="Default letterhead, or the logo header used by Work Order type 3 (types 4-6 for MMC / CMC / GHMC) — same body text."
+              storageKey={officeScopedKey(TEMPLATE_KEYS.memoEe, office)}
+              variants={variantsForCorporation(MEMO_EE_TEMPLATE_VARIANTS, office.corporation)}
+              defaultVariant={corporationDefaultVariant(office.corporation, DEFAULT_WORK_ORDER_TEMPLATE_VARIANT)}
+              fields={fields}
+              fetchTemplate={api.zonalMemoEeTemplate}
+              placeholders={(f) => zonalDocsPlaceholders(f, {}, {})}
+            />
+          </>
+        )}
 
         <TemplateSection
           title="Tender Document"
           subtitle="Some circles word and lay out their own Tender Document header differently."
           storageKey={officeScopedKey(TEMPLATE_KEYS.civilTender, office)}
-          variants={CIVIL_TENDER_TEMPLATE_VARIANTS}
-          defaultVariant={DEFAULT_CIVIL_TENDER_TEMPLATE_VARIANT}
+          variants={variantsForCorporation(CIVIL_TENDER_TEMPLATE_VARIANTS, office.corporation)}
+          defaultVariant={corporationDefaultVariant(office.corporation, DEFAULT_CIVIL_TENDER_TEMPLATE_VARIANT)}
           fields={fields}
           fetchTemplate={api.civilTenderTemplate}
           placeholders={civilTenderSettingsPlaceholders}

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  findMonitoringFormatWorkSheets,
+  parseMonitoringFormatWorkSheet,
   parseMonitoringFormatSheet,
   findMonitoringFormatSheet,
   extractMonitoringFormatForOffice
@@ -187,5 +189,53 @@ describe('findMonitoringFormatSheet / extractMonitoringFormatForOffice', () => {
     expect(() => extractMonitoringFormatForOffice(sheets, { circle: 'Somewhere Else', circleNumber: '99' })).toThrow(
       /Somewhere Else/
     )
+  })
+})
+
+describe('findMonitoringFormatWorkSheets', () => {
+  const header = ['Sl.NO.', 'Name of the Circle', 'Name of the ward', 'Name of the Work', 'Current status']
+  const listSheet = (sheetName: string, circle: string): SheetGrid => ({
+    id: sheetName,
+    name: 'x',
+    path: '',
+    sheetName,
+    startRow: 0,
+    grid: [['title'], header, ['1', circle, 'W1', 'Road', 'In progress']]
+  })
+
+  it('matches by circle number in the tab name', () => {
+    const sheets = [listSheet('C57 list of works', '57-Gajularamaram'), listSheet('C58 list of works', '58-Nizampet')]
+    const found = findMonitoringFormatWorkSheets(sheets, { circle: 'Nizampet', circleNumber: '58' })
+    expect(found.map((s) => s.sheetName)).toEqual(['C58 list of works'])
+  })
+
+  it("falls back to the sheet whose Circle column names the circle when the tab name doesn't", () => {
+    const sheets = [listSheet('List A', '57-Gajularamaram'), listSheet('List B', '58-Nizampet')]
+    const found = findMonitoringFormatWorkSheets(sheets, { circle: 'Nizampet', circleNumber: '58' })
+    expect(found.map((s) => s.sheetName)).toEqual(['List B'])
+  })
+
+  it('uses a lone list sheet as-is', () => {
+    const found = findMonitoringFormatWorkSheets([listSheet('Works list', '58-Nizampet')], { circle: 'Nizampet', circleNumber: '58' })
+    expect(found).toHaveLength(1)
+  })
+})
+
+describe('parseMonitoringFormatWorkSheet status columns', () => {
+  it('reads Progress from the "Status" column when "Current status" only holds a percentage', () => {
+    const sheet: SheetGrid = {
+      id: 's',
+      name: 'x',
+      path: '',
+      sheetName: 'C58 list of works',
+      startRow: 0,
+      grid: [
+        ['Sl.NO.', 'Name of the Work', 'Status', 'Current status'],
+        ['1', 'Road A', 'Progress', 'upto 25%'],
+        ['2', 'Road B', 'Completed', ''],
+        ['3', 'Road C', '', 'Held up']
+      ]
+    }
+    expect(parseMonitoringFormatWorkSheet(sheet).map((w) => w.statusKey)).toEqual(['progressTotal', 'completed', 'heldUp'])
   })
 })

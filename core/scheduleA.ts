@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx'
 import type { ExcelTable } from './types'
 import { computeWorkAmounts, indianDigitGroups, tenderPercentFromRow } from './worksAmounts'
-import { rankByEmbedding, WORK_IDENTITY_MATCH_THRESHOLD } from './embeddingMatch'
+import { rankByEmbedding, workNamesConflict, WORK_IDENTITY_MATCH_THRESHOLD } from './embeddingMatch'
 import { normalizeWorkNameForMatch } from './tenderAgents/nameOfWork'
 
 export interface ScheduleAItem {
@@ -99,7 +99,11 @@ export function findWorksRowByName(
 
   if (embeddings) {
     const [best] = rankByEmbedding(embeddings.workNameVector, embeddings.rowNameVectors)
-    if (best && best.score >= WORK_IDENTITY_MATCH_THRESHOLD) {
+    if (
+      best &&
+      best.score >= WORK_IDENTITY_MATCH_THRESHOLD &&
+      !workNamesConflict(workName, worksTable.rows[best.index][nameHeader] ?? '')
+    ) {
       return { row: worksTable.rows[best.index], matchedViaAi: true }
     }
   }

@@ -103,6 +103,8 @@ export interface BidDocumentBatchProgress {
 export const IPC = {
   pickExcels: 'dialog:pickExcels',
   pickExcelGrids: 'dialog:pickExcelGrids',
+  pickExcelPaths: 'dialog:pickExcelPaths',
+  readWorkbookGrids: 'data:readWorkbookGrids',
   pickEstimateGrid: 'dialog:pickEstimateGrid',
   pickEstimateGrids: 'dialog:pickEstimateGrids',
   pickEstimateGridsMulti: 'dialog:pickEstimateGridsMulti',
@@ -187,6 +189,7 @@ export const IPC = {
   agreementTemplate: 'doc:agreementTemplate',
   qccIntimationTemplate: 'doc:qccIntimationTemplate',
   forwardingSlipTemplate: 'doc:forwardingSlipTemplate',
+  workBillNoteTemplate: 'doc:workBillNoteTemplate',
   civilTenderTemplate: 'doc:civilTenderTemplate',
   seAgreementBondTemplate: 'doc:seAgreementBondTemplate',
   zonalWorkOrderTemplate: 'doc:zonalWorkOrderTemplate',
@@ -233,6 +236,10 @@ export interface VerifyDocResult {
 export interface DocuGenApi {
   pickExcels(): Promise<ExcelTable[]>
   pickExcelGrids(): Promise<SheetGrid[]>
+  /** Just the file dialog (multi-select) — the workbooks are then read one at a time with readWorkbookGrids, so a big batch shows progress instead of freezing until every file is parsed. */
+  pickExcelPaths(): Promise<string[]>
+  /** Every sheet of one workbook; yields to the event loop first so the window can repaint between files. */
+  readWorkbookGrids(filePath: string): Promise<SheetGrid[]>
   pickEstimateGrid(): Promise<SheetGrid | null>
   /** Same picker, but reads every sheet of the chosen workbook — for Technical Sanction's estimate uploads, which may spread one estimate's items across several sheets. */
   pickEstimateGrids(): Promise<SheetGrid[] | null>
@@ -416,7 +423,7 @@ export interface DocuGenApi {
   /** Reads the bundled Carlito (Regular + Bold) and Noto Sans Telugu font files, base64-encoded — the metric-compatible open substitutes for "Calibri" and "Gautami", embedded as fallback @font-face rules in the docx-preview HTML (see core/fontFallbacks.ts) so letterhead titles/captions don't mis-wrap on machines whose installed fonts differ from each other. Fetched once and cached by the caller. */
   fontFallbackFiles(): Promise<{ regular: string; bold: string; telugu: string }>
   /** Converts built Note Submitted HTML into a base64 .docx, for export via exportCreatedDocument. `marginsTwips`, if given, overrides the given page margins (sides not listed stay at html-to-docx's defaults). */
-  noteSubmittedDocx(html: string, marginsTwips?: { top?: number; bottom?: number }): Promise<string>
+  noteSubmittedDocx(html: string, marginsTwips?: { top?: number; bottom?: number; left?: number; right?: number }): Promise<string>
   /** Reads the bundled Intimation format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */
   intimationTemplate(variantId?: string): Promise<string>
   /** Reads the bundled Work Order format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */
@@ -429,16 +436,18 @@ export interface DocuGenApi {
   qccIntimationTemplate(): Promise<string>
   /** Reads the bundled Forwarding Slip format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
   forwardingSlipTemplate(): Promise<string>
+  workBillNoteTemplate(): Promise<string>
   /** Reads the bundled full Civil Tender Document (.docx) — the 41-page NIT/tender document whose page 1 is the Forwarding Slip — returns it base64-encoded for filling its {{placeholders}}. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */
   civilTenderTemplate(variantId?: string): Promise<string>
   /** Reads the bundled Zone-level (SE office) Agreement Bond paper (.docx) — the "A G R E E M E N T" cover page signed by the Superintending Engineer. Base64-encoded, for filling its {{placeholders}}. */
   seAgreementBondTemplate(): Promise<string>
   /** Reads the bundled Zone-level (SE office) Work Order (.docx). Base64-encoded, for filling its {{placeholders}}. */
-  zonalWorkOrderTemplate(): Promise<string>
+  /** SE (zone-level) Work Order format; `variantId` 'header2' picks the logo-header variant (Work Order type 3), anything else the default. */
+  zonalWorkOrderTemplate(variantId?: string): Promise<string>
   /** Reads the bundled Zone-level (SE office) Memo — Concluding Agreement (.docx), forwarding the executed Agreement Bond to the Executive Engineer. Base64-encoded, for filling its {{placeholders}}. */
-  zonalConcludingAgreementTemplate(): Promise<string>
+  zonalConcludingAgreementTemplate(variantId?: string): Promise<string>
   /** Reads the bundled Zone-level (SE office) Memo — Copy to EE (.docx), the covering memo enclosing the Agreement Booklet. Base64-encoded, for filling its {{placeholders}}. */
-  zonalMemoEeTemplate(): Promise<string>
+  zonalMemoEeTemplate(variantId?: string): Promise<string>
   /** Reads the bundled Zone-level (SE office) Agreement Put-up Note (.docx). Base64-encoded, for filling its {{placeholders}}. */
   seAgreementNoteTemplate(): Promise<string>
   /** Reads the bundled Contract Deed (.docx) — the 5-page "FORM No.6" abstract-of-quantities deed accompanying Schedule "A", signed by the Superintending Engineer (citing the executing circle's EE throughout its clauses) — one of the SE (Zone) office's Agreement-section documents. Base64-encoded, for filling its {{placeholders}}. */

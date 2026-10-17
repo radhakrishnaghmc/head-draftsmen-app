@@ -39,6 +39,8 @@ const SIGN_OFF = (zoneAbbr: string, spacerLines = 0): string =>
 /** Fields shared by both notes' Sub/Ref block. */
 export interface SeEvaluationRefs {
   zoneAbbr: string
+  /** Corporation abbreviation ("CMC", "GHMC", "MMC") — defaults to CMC when unset. */
+  corp?: string
   workName: string
   estimateLakhs: string
   /** "Zonal Commissioner, QBZ, CMC" or "Commissioner, CMC" — no trailing date. */
@@ -102,7 +104,7 @@ function refBlockHtml(d: SeEvaluationRefs, extraItem?: { n: string; html: string
     // 4 spaces of hand-fill room right after the label — the T.S.No itself is
     // a manual field the office often hasn't typed in yet when this note is
     // first generated.
-    refRow('2)', `T.S.No.&nbsp;&nbsp;&nbsp;&nbsp;${esc(d.tsNo)}/SE/${esc(d.zoneAbbr)}/CMC/${esc(d.financialYear)}, Dated: ${esc(d.tsDate)}`) +
+    refRow('2)', `T.S.No.&nbsp;&nbsp;&nbsp;&nbsp;${esc(d.tsNo)}/SE/${esc(d.zoneAbbr)}/${esc(d.corp || 'CMC')}/${esc(d.financialYear)}, Dated: ${esc(d.tsDate)}`) +
     refRow('3)', `NIT.No.${esc(d.nitNo)}, Dated: ${esc(d.nitDate)} (Item No.${esc(d.itemNo)})`) +
     refRow('4)', `Technical bid opened on ${esc(d.techBidOpenDate)}.`) +
     (extraItem ? refRow(extraItem.n, extraItem.html) : '') +
@@ -122,7 +124,7 @@ export function buildBidEvaluationHtml(d: BidEvaluationData): string {
   return (
     '<p style="margin:0 0 10px;font-weight:bold">Note submitted:-</p>' +
     P(
-      `Sub:&emsp;CMC –ENGG– SE – ${esc(d.zoneAbbr)} - ${esc(d.workName)} – Estimate Cost- Rs.${esc(
+      `Sub:&emsp;${esc(d.corp || 'CMC')} –ENGG– SE – ${esc(d.zoneAbbr)} - ${esc(d.workName)} – Estimate Cost- Rs.${esc(
         d.estimateLakhs
       )} Lakhs - Submission of Technical bid evaluation – Regarding.`
     ) +
@@ -194,13 +196,13 @@ export function buildAgencyApprovalHtml(d: AgencyApprovalData): string {
   return (
     '<p style="margin:0 0 10px;font-weight:bold">Note Submitted:</p>' +
     P(
-      `Sub:&emsp;CMC- Engg. – SE-${esc(d.zoneAbbr)}- ${esc(d.workName)} – Estimate Cost- Rs.${esc(
+      `Sub:&emsp;${esc(d.corp || 'CMC')}- Engg. – SE-${esc(d.zoneAbbr)}- ${esc(d.workName)} – Estimate Cost- Rs.${esc(
         d.estimateLakhs
       )} Lakhs -Evaluation of Financial Bids–Agency approval and issue of  LOA – Regarding.`
     ) +
     refBlockHtml(d, {
       n: '5)',
-      html: `Technical Bid evaluation Approved by SE, ${esc(d.zoneAbbr)}, CMC on ${esc(d.bidEvalApprovedDate)}.`
+      html: `Technical Bid evaluation Approved by SE, ${esc(d.zoneAbbr)}, ${esc(d.corp || 'CMC')} on ${esc(d.bidEvalApprovedDate)}.`
     }) +
     '<p style="margin:6px 0;text-align:center">*********</p>' +
     P(
@@ -213,7 +215,7 @@ export function buildAgencyApprovalHtml(d: AgencyApprovalData): string {
     P(
       `The above work was Technically Sanctioned for Rs.${esc(d.estimateLakhs)} Lakhs by Superintending Engineer, ${esc(
         d.zone
-      )} Zone, CMC vide 2nd cited. Tenders were invited through ‘e’ procurement vide 3rd cited and the technical bid opened.`
+      )} Zone, ${esc(d.corp || 'CMC')} vide 2nd cited. Tenders were invited through ‘e’ procurement vide 3rd cited and the technical bid opened.`
     ) +
     P(
       `Technical bid was scrutinized in the O/o Superintending Engineer and after careful examination it is found that (${String(

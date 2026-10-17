@@ -575,7 +575,7 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
       {preview &&
         createPortal(
           <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setPreview(null))}>
-            <div className="editor-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="editor-modal print-preview-modal" onClick={(e) => e.stopPropagation()}>
               <div className="editor-head">
                 <span className="editor-title">{previewTitle} — preview</span>
                 <div className="editor-head-actions">

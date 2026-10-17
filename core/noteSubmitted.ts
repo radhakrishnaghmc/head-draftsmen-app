@@ -440,7 +440,8 @@ export function noteSubmittedFromRow(
   row: Record<string, string>,
   pdf: TenderEvaluation = {},
   notice: IntimationNotice = {},
-  defaultCircle = ''
+  defaultCircle = '',
+  corp = 'CMC'
 ): NoteSubmittedData {
   const amounts = computeWorkAmounts(row)
   // SE offices tag the item number onto the work name itself, sometimes at
@@ -475,7 +476,7 @@ export function noteSubmittedFromRow(
     : []
 
   return {
-    body: 'CMC',
+    body: corp.trim() || 'CMC',
     circle: (row['Circle'] ?? '').trim() || defaultCircle,
     workName,
     estimateLakhs: (row['Amount of estimate'] ?? '').trim(),

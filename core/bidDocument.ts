@@ -1,6 +1,7 @@
 import { transformPlaceholders } from './docx-edit'
 import { lakhsToRupees, rupeesFromCell, indianDigitGroups, formatRupees } from './worksAmounts'
 import { zoneAbbr } from './loaSe'
+import { applyCorporationBranding, brandingFromRow } from './corporationBranding'
 export { stripItemNoTag } from './tenderAgents/shared'
 
 // Placeholder tokens present in the bundled Bid Document template, and the
@@ -143,12 +144,12 @@ export function extractItemNo(name: string): string | undefined {
  * clause entirely when the date isn't available yet, matching how the
  * office's own documents look before the AS date is filled in.
  */
-function adminSanctionLine(authority: 'zonal' | 'commissioner', zoneAbbrCode: string, asDate: string | undefined): string {
+function adminSanctionLine(authority: 'zonal' | 'commissioner', zoneAbbrCode: string, asDate: string | undefined, corp = 'CMC'): string {
   const date = (asDate ?? '').trim()
   if (authority === 'zonal') {
-    return `Administrative Sanction approved by the Zonal Commissioner, ${zoneAbbrCode}, CMC` + (date ? ` vide Dt. ${date}.` : '')
+    return `Administrative Sanction approved by the Zonal Commissioner, ${zoneAbbrCode}, ${corp}` + (date ? ` vide Dt. ${date}.` : '')
   }
-  return `Administrative Sanction approved by the Commissioner, CMC` + (date ? ` Dt:${date}` : '')
+  return `Administrative Sanction approved by the Commissioner, ${corp}` + (date ? ` Dt:${date}` : '')
 }
 
 /**
@@ -173,7 +174,7 @@ export function fillSeBidDocument(buffer: Buffer, input: BidDocumentInput): Buff
     ['{{Name of the work}}', input.work.name],
     ['{{Item No}}', itemNo],
     ['{{Amount of Estimate}}', lakhsFixed2(input.work.amount)],
-    ['{{Administrative Sanction}}', adminSanctionLine(input.work.asAuthority ?? 'commissioner', zoneAbbrCode, input.work.asDate)],
+    ['{{Administrative Sanction}}', adminSanctionLine(input.work.asAuthority ?? 'commissioner', zoneAbbrCode, input.work.asDate, input.work.corporation?.trim() || 'CMC')],
     ['{{TS No}}', input.work.tsNo ?? ''],
     ['{{TS Date}}', input.work.tsDate ?? ''],
     ['{{ECV}}', ecvRupees !== null ? `${indianDigitGroups(ecvRupees)}/-` : ''],
@@ -188,5 +189,8 @@ export function fillSeBidDocument(buffer: Buffer, input: BidDocumentInput): Buff
     ['{{Corp Full Caps}}', (input.work.corporationFullName ?? '').toUpperCase()]
   ]
 
-  return fillPlaceholders(buffer, swaps, SE_DOC_PARTS)
+  const filled = fillPlaceholders(buffer, swaps, SE_DOC_PARTS)
+  // Footers still read "{{Zone}} Zone CMC" — retarget to the chosen corporation.
+  const branding = brandingFromRow({ Corporation: input.work.corporation ?? '' })
+  return branding ? applyCorporationBranding(filled, branding) : filled
 }

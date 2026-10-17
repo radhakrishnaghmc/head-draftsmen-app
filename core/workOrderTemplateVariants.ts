@@ -17,13 +17,75 @@ export interface TemplateVariantOption {
   label: string
 }
 
+export const MMC_WORK_ORDER_TEMPLATE_VARIANT = 'mmc'
+export const CMC_WORK_ORDER_TEMPLATE_VARIANT = 'cmc'
+export const GHMC_WORK_ORDER_TEMPLATE_VARIANT = 'ghmc'
+
+/** Corporation-specific logo-header variants, keyed by the office's corporation abbreviation. */
+const CORPORATION_VARIANT_IDS: Record<string, string> = {
+  MMC: MMC_WORK_ORDER_TEMPLATE_VARIANT,
+  CMC: CMC_WORK_ORDER_TEMPLATE_VARIANT,
+  GHMC: GHMC_WORK_ORDER_TEMPLATE_VARIANT
+}
+const CORPORATION_VARIANT_ID_SET = new Set(Object.values(CORPORATION_VARIANT_IDS))
+
+/** Drops the other corporations' logo-header variants from a picker list. */
+export function variantsForCorporation(variants: TemplateVariantOption[], corporation: string | undefined): TemplateVariantOption[] {
+  const own = corporation ? CORPORATION_VARIANT_IDS[corporation] : undefined
+  return variants.filter((v) => !CORPORATION_VARIANT_ID_SET.has(v.id) || v.id === own)
+}
+
+/** A saved variant pick, or undefined when it's another corporation's logo header (a stale choice). */
+export function variantForCorporation(variantId: string | undefined, corporation: string | undefined): string | undefined {
+  if (!variantId || !CORPORATION_VARIANT_ID_SET.has(variantId)) return variantId
+  return variantId === (corporation ? CORPORATION_VARIANT_IDS[corporation] : undefined) ? variantId : undefined
+}
+
+/**
+ * The variant an office gets with no saved pick: MMC, CMC and GHMC offices default
+ * to their own logo header, everything else keeps `fallback`.
+ */
+export function corporationDefaultVariant<T extends string | undefined>(corporation: string | undefined, fallback: T): string | T {
+  return corporation && CORPORATION_VARIANT_IDS[corporation] ? CORPORATION_VARIANT_IDS[corporation] : fallback
+}
+
+/** Resolves a zone-level (SE) template variant id to its filename suffix, or undefined for the default letterhead. */
+export function zonalTemplateVariant(variantId: string | undefined): string | undefined {
+  return variantId === 'header2' || (variantId && CORPORATION_VARIANT_ID_SET.has(variantId)) ? variantId : undefined
+}
+
 export const WORK_ORDER_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
   { id: 'default', label: 'Work Order type 1' },
   { id: 'kompally', label: 'Work Order type 2' },
-  { id: 'header2', label: 'Work Order type 3' }
+  { id: 'header2', label: 'Work Order type 3' },
+  // Corporation-only: type 3's layout with that corporation's horizontal logo as the whole header (types 4-6).
+  { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Work Order type 4 (MMC)' },
+  { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Work Order type 5 (CMC)' },
+  { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Work Order type 6 (GHMC)' }
 ]
 
 export const DEFAULT_WORK_ORDER_TEMPLATE_VARIANT = 'default'
+
+/**
+ * SE (zone-level) Concluding Agreement and Memo to EE: the default letterhead,
+ * or the logo header shared with Work Order type 3 ("header2") — body text is
+ * identical. Resolved in electron/main.ts.
+ */
+export const CONCLUDING_AGREEMENT_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
+  { id: 'default', label: 'Concluding Agreement type 1' },
+  { id: 'header2', label: 'Concluding Agreement type 3' },
+  // MMC-only: the horizontal Malkajgiri Municipal Corporation logo header (Work Order type 4).
+  { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Concluding Agreement type 4 (MMC)' },
+  { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Concluding Agreement type 5 (CMC)' },
+  { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Concluding Agreement type 6 (GHMC)' }
+]
+export const MEMO_EE_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
+  { id: 'default', label: 'Memo to EE type 1' },
+  { id: 'header2', label: 'Memo to EE type 3' },
+  { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Memo to EE type 4 (MMC)' },
+  { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Memo to EE type 5 (CMC)' },
+  { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Memo to EE type 6 (GHMC)' }
+]
 
 /**
  * Maps a variant id to its bundled resource filename — "work-order-template
@@ -89,7 +151,11 @@ export function intimationTemplateFileName(variantId: string | undefined): strin
  */
 export const FILE_BACKER_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
   { id: 'default', label: 'File Backer type 1' },
-  { id: 'header2', label: 'File Backer type 2' }
+  { id: 'header2', label: 'File Backer type 2' },
+  // MMC-only: the horizontal Malkajgiri Municipal Corporation logo header (Work Order type 4).
+  { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'File Backer type 3 (MMC)' },
+  { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'File Backer type 4 (CMC)' },
+  { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'File Backer type 5 (GHMC)' }
 ]
 
 export const DEFAULT_FILE_BACKER_TEMPLATE_VARIANT = 'default'
@@ -109,7 +175,9 @@ export function fileBackerTemplateFileName(variantId: string | undefined): strin
  */
 export const CIVIL_TENDER_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
   { id: 'default', label: 'Tender Document type 1' },
-  { id: 'header2', label: 'Tender Document type 2' }
+  { id: 'header2', label: 'Tender Document type 2' },
+  // CMC-only: the horizontal CMC logo header (Work Order type 5) on the Forwarding Slip and NIT pages.
+  { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Tender Document type 3 (CMC)' }
 ]
 
 export const DEFAULT_CIVIL_TENDER_TEMPLATE_VARIANT = 'default'

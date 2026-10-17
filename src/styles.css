@@ -3468,6 +3468,9 @@ button.upload-btn {
   width: auto;
   padding: 0;
 }
+.ns-preview-scroll .intimation-docx-preview .docx-wrapper {
+  padding: 16px;
+}
 .doc-sheet-title {
   position: sticky;
   top: 0;
@@ -5180,6 +5183,48 @@ button.danger:disabled {
   box-shadow: 0 0 0 3px var(--indigo-100);
 }
 
+/* Print Document preview: every page shown as a real A4 sheet (210 x 297 mm,
+   794 x 1123 px) — white, shadowed and centered on a gray desk, with a gap
+   between consecutive sheets. The modal is widened so a full sheet fits. */
+.print-preview-modal {
+  width: min(960px, 96vw);
+}
+.print-preview-modal .doc-desk {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+}
+.print-preview-modal .doc-editor-wrap {
+  width: max-content;
+  min-width: 100%;
+}
+.print-preview-modal .docx-editor-canvas {
+  max-height: none;
+  overflow: visible;
+  border: none;
+  background: transparent;
+}
+.print-preview-modal .docx-wrapper {
+  background: transparent;
+  padding: 24px 0;
+  align-items: center;
+}
+.print-preview-modal .docx-wrapper > section.docx {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto 24px;
+  box-sizing: border-box;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(16, 24, 40, 0.12), 0 4px 14px rgba(16, 24, 40, 0.18);
+}
+.print-preview-modal .doc-page-badge {
+  position: fixed;
+}
+
 /* ---------- field picker dropdown ---------- */
 .picker {
   position: absolute;
@@ -5590,53 +5635,6 @@ body.theme-cyan .gen-output-modes .seg.active {
 }
 
 /* Works List: enter the 3rd/4th-party QC agencies once, per office. */
-/* Works List page: a single persistent row of 3 tabs (QC parties,
-   Monitoring Format, Works List Database) that never reflows — clicking a
-   tab swaps the content panel below it, instead of the old side-by-side
-   tiles where opening one shifted the other two down. */
-.worklist-tabs-wrap {
-  margin: 0 0 16px;
-}
-.worklist-tabs {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-  padding: 4px;
-  margin-bottom: 12px;
-  border-radius: var(--radius);
-  background: var(--surface);
-  border: 1px solid var(--border);
-}
-.worklist-tabs .mf-toggle {
-  flex: 1 1 0;
-  justify-content: center;
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  transition: background 0.15s var(--ease);
-}
-.worklist-tabs .mf-toggle:hover {
-  background: var(--surface-2, rgba(0, 0, 0, 0.04));
-}
-.worklist-tabs .mf-toggle:active {
-  opacity: 0.75;
-}
-.worklist-tabs .settings-section-chevron {
-  transition: transform 0.15s var(--ease), color 0.15s var(--ease);
-}
-.worklist-tabs .mf-toggle:hover .settings-section-chevron {
-  color: var(--indigo-600);
-}
-.worklist-tabs h3 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .qcp {
   margin: 0;
   padding: 0;
@@ -5745,6 +5743,29 @@ body.theme-cyan .gen-output-modes .seg.active {
   outline: none;
   background: transparent;
   font-size: 14px;
+  /* The app-wide input[type='text'] rules add padding, a radius and a focus
+     ring, and input:placeholder-shown forces a white background with
+     !important — undo all of that so the field blends into the box's own pill
+     instead of drawing a second, smaller pill inside it. */
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.doc-work-search input,
+.doc-work-search input:focus,
+.doc-work-search input:hover {
+  /* :focus variants of input[type='text'] and .tender-field input have higher
+     specificity (0,2,1) than the base rule above and add a focus ring
+     (box-shadow), a border-color and a white background — which drew the
+     rectangle inside the pill while focused. */
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  height: auto;
+  outline: none;
+}
+.doc-work-search input:placeholder-shown {
+  background: transparent !important;
 }
 .doc-work-select {
   flex: 1 1 260px;
@@ -9744,11 +9765,99 @@ tr.on .rp-box span {
   flex: 1 1 auto;
   min-width: 360px;
   max-height: 78vh;
+  overflow-x: hidden;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: #e7e9ec;
   padding: 22px;
+}
+.note-margins {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+}
+.note-margins-label {
+  font-weight: 700;
+  color: var(--text);
+}
+.note-margins-hint {
+  flex: 1;
+}
+.note-margins-read {
+  font-variant-numeric: tabular-nums;
+}
+.note-margins .ghost {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+/* Draggable margin guides: a dashed line at each margin with a wide invisible
+   grab area. The sheet is position: relative, so mm offsets land on the paper. */
+.note-guide {
+  position: absolute;
+  z-index: 3;
+  touch-action: none;
+}
+.note-guide::before {
+  content: '';
+  position: absolute;
+  border: 0 dashed var(--indigo-600, #3949ab);
+  opacity: 0.85;
+}
+.note-guide:hover::before,
+.note-guide.dragging::before {
+  opacity: 1;
+}
+.note-guide-top,
+.note-guide-bottom {
+  left: 0;
+  right: 0;
+  height: 12px;
+  margin: -6px 0;
+  cursor: row-resize;
+}
+.note-guide-top::before,
+.note-guide-bottom::before {
+  left: 0;
+  right: 0;
+  top: 5px;
+  border-top-width: 2px;
+}
+.note-guide-left,
+.note-guide-right {
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  margin: 0 -6px;
+  cursor: col-resize;
+}
+.note-guide-left::before,
+.note-guide-right::before {
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  border-left-width: 2px;
+}
+.note-guide-tip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--indigo-600, #3949ab);
+  color: #fff;
+  font: 600 11px/1.3 system-ui, sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
 }
 .note-page-badge {
   position: sticky;
@@ -9764,44 +9873,58 @@ tr.on .rp-box span {
   letter-spacing: 0.02em;
   z-index: 1;
 }
-.note-page {
-  width: 100%;
-  max-width: 684px;
-  margin: 0 auto;
-  background: var(--note-paper);
-  border-radius: 2px;
-  box-shadow: 0 2px 16px rgba(16, 24, 40, 0.16);
-  padding: 1.5em 34px 1.5em 0;
-  /* Same face the exported document sets on itself — the preview has to read
-     as the printed sheet, not as app UI. Top/bottom padding is 1 line (1.5em
-     at this line-height), matching the exported doc's own margins. */
-  font-family: 'Bookman Old Style', Georgia, serif;
-  font-size: 11pt;
+/* True-size A4 sheets (794 x 1122 px, the print margins as padding), shrunk to
+   fit by the editor's `zoom`. The note number and rule sit in the left margin
+   without taking layout space, so wrapping matches the printed page exactly. */
+.note-a4s {
+  font-size: 12pt;
   line-height: 1.5;
   color: var(--note-ink);
+  width: 794px;
+  margin: 0 auto;
 }
-/* Each note sits to the right of the sheet's margin rule, its number in the
-   margin — the ruling is the sheet's, not decoration added per note. */
+.note-a4 {
+  position: relative;
+  box-sizing: border-box;
+  padding: 24px 120px;
+  margin: 0 0 20px;
+  background: var(--note-paper);
+  box-shadow: 0 2px 16px rgba(16, 24, 40, 0.16);
+}
+.note-a4-no {
+  position: absolute;
+  right: 14px;
+  bottom: 6px;
+  font: 600 11px/1 system-ui, sans-serif;
+  color: var(--muted);
+}
 .note-block {
   position: relative;
-  padding: 2px 0 2px 26px;
-  border-left: 1px solid var(--note-rule);
-  margin-left: 46px;
   cursor: pointer;
+}
+.note-block::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--note-rule);
 }
 .note-block-n {
   position: absolute;
-  left: -24px;
+  left: -48px;
   top: 2px;
-  width: 18px;
+  width: 26px;
   font-size: 14px;
   color: var(--muted);
   text-align: right;
 }
 .note-block.active {
-  border-left-color: var(--note-active);
-  box-shadow: inset 2px 0 0 var(--note-active);
   background: rgba(40, 53, 147, 0.035);
+}
+.note-block.active::before {
+  border-left: 2px solid var(--note-active);
+  left: -15px;
 }
 .note-block.active .note-block-n {
   color: var(--note-active);
@@ -12782,3 +12905,1017 @@ body.theme-cyan .ov-mf-tile::after {
   );
 }
 
+
+/* ---------- document preview revamp: one footer, one field-status language ----------
+   Every document preview modal ends with the same row: [message] Close · Word ·
+   PDF · Print. In the field panel every input carries one of three states:
+   auto-filled (read from uploads), needs input (blank, will print empty) or
+   edited (typed over). Colours come from theme tokens so default, aurora,
+   paper, meadow and cyan all follow. */
+.wo-foot-close {
+  margin-right: auto;
+}
+.wo-modal-foot .notice.error + .wo-foot-close {
+  margin-left: 0;
+}
+.doc-edit-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.doc-edit-head {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-grad-a);
+  padding-bottom: 10px;
+}
+.doc-edit-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.doc-edit-chip {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.doc-edit-chip.auto {
+  color: var(--ok);
+  background: var(--ok-bg);
+  border-color: var(--ok);
+}
+.doc-edit-chip.need {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-color: var(--warn);
+}
+.doc-edit-chip.edited {
+  color: var(--chakra);
+  background: var(--surface);
+  border-color: var(--chakra);
+}
+.doc-edit-chip.zero {
+  opacity: 0.45;
+}
+.doc-edit-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.doc-edit-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2, var(--muted));
+  cursor: pointer;
+}
+.doc-edit-filter input {
+  width: auto;
+  margin: 0;
+}
+.doc-edit-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.doc-edit-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--ok);
+}
+.doc-edit-dot.need {
+  background: var(--warn);
+}
+.doc-edit-dot.edited {
+  background: var(--chakra);
+}
+.doc-edit-badge {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--warn);
+}
+.doc-edit-field.state-need input,
+.doc-edit-field.state-need textarea {
+  border-color: var(--warn);
+  background: var(--warn-bg);
+}
+.doc-edit-field input:focus,
+.doc-edit-field textarea:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--chakra) 22%, transparent);
+}
+/* Where the focused field prints on the live page. */
+mark.doc-hl {
+  background: #ffe066;
+  color: inherit;
+  outline: 2px solid #f5b800;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* ── To Do List revamp (presentation only; scoped to .todo-card so the
+   shared .mb-* MB Scrutiny styles are untouched) ─────────────────── */
+.todo-card .todo-composer {
+  padding: 14px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  align-items: flex-end;
+}
+.todo-card .todo-composer .primary {
+  height: 40px;
+  border-radius: var(--radius-pill);
+  padding: 0 20px;
+}
+.todo-card .todo-composer .mb-field input:focus {
+  box-shadow: 0 0 0 3px var(--indigo-100);
+}
+.todo-card .todo-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.todo-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.todo-group.tone-overdue .todo-group-head {
+  color: var(--danger);
+}
+.todo-group.tone-today .todo-group-head {
+  color: var(--amber-500);
+}
+.todo-card .todo-item {
+  align-items: center;
+  padding: 12px 14px 12px 16px;
+  border-radius: var(--radius);
+  gap: 14px;
+}
+.todo-card .todo-item.is-overdue {
+  border-left-color: var(--danger);
+}
+.todo-card .todo-item:focus-within {
+  border-color: var(--indigo-500);
+  box-shadow: 0 0 0 3px var(--indigo-100);
+}
+.todo-card .todo-item .todo-checkbox {
+  margin-top: 0;
+  width: 20px;
+  height: 20px;
+}
+.todo-card .todo-item.done .todo-text {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.todo-card .todo-text {
+  font-size: 14.5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.todo-card .todo-dates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.todo-card .todo-dates .badge {
+  margin-left: 0;
+}
+.todo-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.todo-chip.chip-target {
+  color: var(--indigo-700);
+  background: var(--indigo-50);
+}
+.todo-chip.chip-today {
+  color: var(--amber-500);
+  background: var(--amber-100);
+}
+.todo-chip.chip-overdue {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+.todo-chip.chip-done {
+  color: var(--green-700, #15803d);
+  background: var(--green-bg);
+}
+.todo-card .todo-item .ghost,
+.todo-card .todo-item .danger-ghost {
+  flex: none;
+  opacity: 0.75;
+  transition: opacity 0.16s var(--ease);
+}
+.todo-card .todo-item:hover .ghost,
+.todo-card .todo-item:hover .danger-ghost,
+.todo-card .todo-item:focus-within .ghost,
+.todo-card .todo-item:focus-within .danger-ghost {
+  opacity: 1;
+}
+.todo-card .todo-empty {
+  padding: 36px 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+}
+@media (max-width: 640px) {
+  .todo-card .todo-composer .mb-field,
+  .todo-card .todo-composer .primary {
+    flex: 1 1 100%;
+  }
+  .todo-card .todo-item {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .todo-card .todo-item .todo-body {
+    flex: 1 1 calc(100% - 40px);
+  }
+  .todo-card .todo-item .mb-row-date {
+    flex-direction: row;
+    align-items: center;
+    margin-left: 34px;
+  }
+}
+
+
+/* Issue Notices — Works List work picker + draft tile */
+.notice-work-combo { position: relative; max-width: 560px; }
+.notice-work-combo input { width: 100%; }
+.notice-work-list {
+  position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px);
+  max-height: 280px; overflow-y: auto;
+  background: var(--surface, #fff); border: 1px solid var(--border, #d6dbe4);
+  border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+.notice-work-option {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
+  padding: 8px 12px; border: 0; border-bottom: 1px solid var(--border, #eef0f4);
+  background: transparent; color: var(--text); cursor: pointer; font: inherit;
+}
+.notice-work-option:hover { background: var(--hover, rgba(79, 70, 229, 0.08)); }
+.notice-work-name { font-size: 13px; line-height: 1.3; }
+.notice-work-agency, .notice-work-empty { font-size: 12px; color: var(--muted, #667085); }
+.notice-work-empty { padding: 10px 12px; }
+.notice-draft-badge {
+  position: absolute; top: 8px; left: 8px; z-index: 2; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; background: var(--indigo-500, #4f46e5); color: #fff;
+}
+.wo-tile { position: relative; }
+
+/* ===== Issue Notices tile footer: agency / type of work / estimate amount ===== */
+.wo-tile-foot.notice-tile-foot {
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.notice-tile-foot > div > span {
+  font-weight: 500;
+  color: var(--muted);
+}
+.notice-tile-foot .notice-tile-resolved {
+  color: var(--ok, #16a34a);
+  font-weight: 700;
+}
+
+/* ===== Issue Notices work picker: agency summary row ===== */
+.notice-work-agency-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--indigo-700, var(--text-2));
+  background: var(--indigo-50);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ===== Issue Notices work picker: list attached to its search box ===== */
+.notice-work-combo.open input {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-color: var(--indigo-500);
+  box-shadow: none;
+}
+.notice-work-combo.open .notice-work-list {
+  top: 100%;
+  margin-top: -1px;
+  border-color: var(--indigo-500);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+}
+.notice-work-source {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface-2, #f4f6f9);
+  border-bottom: 1px solid var(--border);
+}
+.notice-work-source + .notice-work-agency-head {
+  top: 28px;
+}
+
+/* ======================================================================
+   Works List workspace (revamp)
+   summary strip -> one shell holding a tab bar + the panel it controls.
+   Tokens only, so every theme (Default, Aurora, Paper, Cyan, Meadow) follows.
+   ====================================================================== */
+.wl-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 0 16px;
+}
+
+/* ---- summary strip ---- */
+.wl-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 160px)) minmax(220px, 1fr);
+  gap: 12px;
+}
+.wl-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 16px;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(15, 23, 42, 0.05));
+}
+.wl-stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.wl-stat-value {
+  font-size: 24px;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.wl-stat-text {
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wl-stat-action {
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.wl-stat-action:hover {
+  background: var(--surface-2);
+}
+.wl-stat-action:focus-visible {
+  outline: 2px solid var(--indigo-500);
+  outline-offset: 2px;
+}
+.wl-stat-action.warn {
+  border-color: var(--danger-200, #fecaca);
+}
+.wl-stat-action.warn .wl-stat-value {
+  color: var(--danger, #dc2626);
+}
+.wl-stat-action.ok .wl-stat-value {
+  color: var(--green-700, #15803d);
+}
+
+/* ---- shell: tab bar + the panel it controls ---- */
+.wl-shell {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+.wl-tabbar {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.wl-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 12px 18px 11px;
+  font: inherit;
+  text-align: left;
+  color: var(--text-2);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  cursor: pointer;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+}
+.wl-tab:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+.wl-tab:focus-visible {
+  outline: 2px solid var(--indigo-500);
+  outline-offset: -2px;
+}
+.wl-tab-ic {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--muted);
+}
+.wl-tab-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.wl-tab-label {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+}
+.wl-tab-meta {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* The selected tab is lifted to the panel's own surface and underlined in the
+   accent colour, so it reads as the title of the content below it. */
+.wl-tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: inset 0 -3px 0 var(--indigo-500);
+}
+.wl-tab.active .wl-tab-ic {
+  color: var(--indigo-600, var(--indigo-500));
+}
+.wl-tab.active .wl-tab-meta {
+  color: var(--text-2);
+}
+
+/* ---- panel: strips the inner cards' own chrome so there is one frame ---- */
+.wl-panel {
+  min-width: 0;
+}
+.wl-panel > .card,
+.wl-panel > section.card {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  animation: none;
+}
+.wl-panel-hint {
+  margin: 0;
+  padding: 48px 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* ---- Works List Database panel: toolbar ---- */
+.wl-panel .sheet-inline {
+  min-height: 0;
+}
+.sheet-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.sheet-toolbar .sheet-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  padding: 0 14px;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease), background 0.15s var(--ease);
+}
+.sheet-toolbar .sheet-search:focus-within {
+  border-color: var(--indigo-500);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--indigo-100);
+}
+/* The app-wide input rules (padding, border, focus ring, forced white
+   placeholder background) would otherwise draw a second box inside the pill. */
+.sheet-toolbar .sheet-search input,
+.sheet-toolbar .sheet-search input:focus,
+.sheet-toolbar .sheet-search input:hover {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+}
+.sheet-toolbar .sheet-search input:placeholder-shown {
+  background: transparent !important;
+}
+.sheet-count {
+  flex: none;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+.sheet-import-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.sheet-import-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+.sheet-import-toggle:hover {
+  color: var(--text);
+  border-color: var(--indigo-500);
+}
+.sheet-import-toggle.open {
+  color: var(--indigo-700, var(--indigo-600));
+  background: var(--indigo-50);
+  border-color: var(--indigo-500);
+}
+.sheet-import-chev {
+  transition: transform 0.15s var(--ease);
+}
+.sheet-import-toggle.open .sheet-import-chev {
+  transform: rotate(90deg);
+}
+.sheet-inline-header {
+  padding: 14px 16px 16px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  animation: rise 0.2s var(--ease);
+}
+.link-import-title {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+/* ---- the table ---- */
+.wl-panel .sheet-inline .sheet-wrap {
+  flex: none;
+  min-height: 420px;
+  max-height: none;
+  height: clamp(420px, calc(100vh - 440px), 900px);
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+}
+.wl-panel table.sheet th {
+  padding: 0 8px;
+  height: 42px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  box-shadow: 0 1px 0 var(--border);
+}
+.wl-panel .col-name {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
+}
+.wl-panel table.sheet td {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+}
+.wl-panel table.sheet tbody tr:hover td {
+  background: var(--indigo-50);
+}
+.wl-panel table.sheet tbody tr:hover td.rownum {
+  background: var(--indigo-100);
+  color: var(--text);
+}
+.wl-panel table.sheet .rownum {
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+  font-size: 12px;
+  z-index: 1;
+}
+.wl-panel table.sheet th.rownum {
+  z-index: 3;
+}
+.wl-panel .sheet-inline .sheet-foot {
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--surface-2);
+  border-top: 0;
+}
+.wl-panel .sheet-foot .hint {
+  margin-left: auto;
+}
+
+/* ---- narrow windows ---- */
+@media (max-width: 900px) {
+  .wl-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .wl-stat-office {
+    grid-column: 1 / -1;
+  }
+  .sheet-toolbar {
+    flex-wrap: wrap;
+  }
+  .sheet-toolbar .sheet-search {
+    flex-basis: 100%;
+  }
+  .wl-tab-meta {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet-inline-header {
+    animation: none;
+  }
+  .sheet-import-chev {
+    transition: none;
+  }
+}
+
+
+/* ======================================================================
+   Issue Notices workspace — sticky "create" sidebar on the left, the
+   notice board (summary chips + NIT groups of tiles) on the right.
+   Tokens only so every theme follows.
+   ====================================================================== */
+.ntc-workspace {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 980px) {
+  .ntc-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.ntc-side {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+.ntc-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.ntc-compose-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.ntc-compose-head p {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.ntc-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ntc-source {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.ntc-source + .ntc-source {
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.ntc-source-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ntc-step {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: #fff;
+  background: var(--indigo-500, #4f46e5);
+}
+.ntc-source .notice-work-combo {
+  max-width: none;
+}
+.ntc-source .estimate-hint,
+.ntc-source .notice {
+  margin: 0;
+}
+.ntc-actions {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 0;
+}
+.ntc-actions button.upload-btn {
+  min-width: 0;
+  width: 100%;
+  padding: 9px 14px;
+}
+.ntc-office {
+  flex: none;
+  min-width: 0;
+}
+
+.ntc-board {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+.ntc-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ntc-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+.ntc-chip-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ntc-chip-value {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ntc-chip-warn {
+  border-color: var(--danger-200, #fecaca);
+}
+.ntc-chip-warn .ntc-chip-value {
+  color: var(--danger, #dc2626);
+}
+.ntc-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.ntc-group-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ntc-group-count {
+  min-width: 22px;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  background: var(--surface-2, rgba(0, 0, 0, 0.06));
+  border: 1px solid var(--border);
+}
+.ntc-board .notice-nit-group {
+  margin-top: 0;
+}
+.ntc-board .notice-nit-group .wo-tiles {
+  margin-top: 12px;
+}
+
+/* Issue Notices — compact command-bar variant (supersedes the sidebar layout above) */
+.ntc-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.ntc-side {
+  position: static;
+  max-height: none;
+  overflow: visible;
+}
+.ntc-compose {
+  gap: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+}
+.ntc-compose-head,
+.ntc-step {
+  display: none;
+}
+.ntc-sources {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px 20px;
+}
+.ntc-source {
+  flex: 1 1 320px;
+  gap: 6px;
+}
+.ntc-source + .ntc-source {
+  flex: 0 1 auto;
+  padding-top: 0;
+  border-top: 0;
+  padding-left: 20px;
+  border-left: 1px solid var(--border);
+}
+.ntc-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.ntc-actions button.upload-btn {
+  width: auto;
+  white-space: nowrap;
+}
+.ntc-source > .estimate-hint,
+.ntc-source > .notice,
+.ntc-office {
+  flex-basis: 100%;
+}
+.ntc-summary {
+  gap: 6px;
+}
+.ntc-chip {
+  padding: 3px 12px;
+  background: transparent;
+}
+.ntc-chip-value {
+  font-size: 14px;
+}
+@media (max-width: 760px) {
+  .ntc-source + .ntc-source {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+/* Issue Notices workspace — darker description/hint text (the global --muted is too faint here) */
+.ntc-workspace .estimate-hint,
+.ntc-workspace .ntc-source-title,
+.ntc-workspace .ntc-compose-head p,
+.ntc-workspace .ntc-group-title,
+.ntc-workspace .ntc-chip-label,
+.ntc-workspace .notice-work-agency,
+.ntc-workspace .notice-work-empty,
+.ntc-workspace .loa-manual-grid label,
+.ntc-workspace .estimate-preview-title,
+.ntc-workspace .notice-tile-foot > div > span {
+  color: var(--text-2, #3f4352);
+}
+.ntc-workspace .estimate-hint {
+  font-size: 13px;
+}
+
+/* Issue Notices landing — wider, taller tiles so long notice names and
+   descriptions show in full instead of being clamped. */
+.tools-grid.notice-kind-grid {
+  grid-template-columns: repeat(auto-fill, minmax(300px, 340px));
+}
+.notice-kind-grid .tool-card {
+  height: auto;
+  min-height: 250px;
+  padding: 26px 22px 52px;
+}
+.notice-kind-grid .tool-card .doc-tile-card-name {
+  display: block;
+  font-size: 16px;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+.notice-kind-grid .tool-card .doc-tile-card-meta {
+  font-size: 13px;
+  color: var(--text-2, #444650);
+}
+
+/* File Backer preview: host for the draggable margin guides (PageMarginGuides). */
+.page-margin-host {
+  position: relative;
+}
+.page-margin-reset {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* A4 sheet preview (File Backer, Agreement Bond): every page is exactly 210mm x 297mm. */
+.intimation-docx-preview.a4-sheet .docx-wrapper > section.docx {
+  width: 210mm;
+  min-height: 297mm;
+  box-sizing: border-box;
+  background: #fff;
+}

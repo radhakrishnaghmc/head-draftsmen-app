@@ -32,7 +32,21 @@ export interface MaterialEstimateResult {
 const CEMENT_DENSITY_MT_PER_CUM = 1.44
 const SAND_DENSITY_MT_PER_CUM = 1.6
 const AGGREGATE_DENSITY_MT_PER_CUM = 1.55
-const GRAVEL_DENSITY_MT_PER_CUM = 1.75
+
+/**
+ * Single editable table: m3 -> MT conversion for road-layer items (supplied by
+ * the department; the Data Sheet quotes these layers in cum, the Material
+ * Quantity sheet wants MT). Steel needs no entry: the estimate/Data Sheet
+ * give it in kg and weightMt() divides by 1000.
+ *  - wmm   Wet Mix Macadam            -> Gravel bucket
+ *  - dgbm  Dense Graded Bituminous Macadam (DBM) -> Stone Aggregates bucket
+ *  - bc    Bituminous Concrete (BC/SDBC)         -> Stone Aggregates bucket
+ *  - gravel gravel / WBM / GSB / moorum filling  -> Gravel bucket
+ * NOTE: dgbm/bc factors are mix densities, so the bitumen binder (~4.5%) is
+ * included in the MT figure (the template has no bitumen row).
+ */
+export const MT_PER_CUM = { wmm: 2.2, dgbm: 2.31, bc: 2.36, gravel: 1.68 } as const
+const GRAVEL_DENSITY_MT_PER_CUM = MT_PER_CUM.gravel
 
 // Dry volume of cement+sand+aggregate needed to produce 1 cum of *finished*
 // (wet, compacted) concrete or mortar — the standard CPWD/SSR constant that
@@ -86,7 +100,7 @@ function isKg(u: string): boolean {
   return /^kgs?$/.test(normUnit(u))
 }
 function isMt(u: string): boolean {
-  return /^(mt|tonn?es?|tons?)$/.test(normUnit(u))
+  return /^(mt|t|tonn?es?|tons?)$/.test(normUnit(u))
 }
 function isQuintal(u: string): boolean {
   return /^q(tl|uintal)/.test(normUnit(u))
@@ -116,7 +130,7 @@ const RATIO2_RE = /(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)(?!\s*:)/
 const GRADE_RE = /\bM[\s-]?(\d{1,2}(?:\.\d+)?)\b/i
 const THICKNESS_MM_RE = /(\d+(?:\.\d+)?)\s*mm/i
 
-const STEEL_RE = /\b(reinforce?ment|tmt|hysd|fe[\s-]?(415|500|550|550d)|mild\s+steel|structural\s+steel|steel\s+bars?|binding\s+wire)\b/i
+const STEEL_RE = /\b(reinforce?ment|tmt|hysd|fe[\s-]?(415|500|550|550d)|mild\s+steel|ms\s+bars?|structural\s+steel|steel\s+bars?|binding\s+wire)\b/i
 // Plain "concrete/PCC/RCC" (cement-bound) — checked after BITUMINOUS_RE so a
 // "bituminous concrete" road-surface item (bitumen-bound, no cement at all)
 // is routed there instead of here.
@@ -132,7 +146,7 @@ const PLASTER_RE = /\b(plaster(ing)?|pointing|rendering)\b/i
 const GRANITE_RE = /\bgranite\b/i
 // Napa/Kadapa/Shahabad slabs are regional names for the same limestone
 // flooring slab, commonly used interchangeably in Telangana estimates.
-const NAPA_RE = /\b(napa|kadapa|shahabad)\b/i
+const NAPA_RE = /\b(napa|kadapa|cuddapah|cudappah|shahabad|shabad)\b/i
 // WBM (water bound macadam) and WMM (wet mix macadam) are both graded-
 // aggregate road base/sub-base courses — bound with water/moisture only, no
 // cement or bitumen, matching the template's "Gravel" (base-course
@@ -140,7 +154,7 @@ const NAPA_RE = /\b(napa|kadapa|shahabad)\b/i
 const GRAVEL_RE =
   /\b(gravel|wbm|wmm|water\s*bound\s*macadam|wet\s*mix\s*macadam|g\.?s\.?b\.?|granular\s+sub[\s-]?base|moorum|murum)\b/i
 const AGGREGATE_SUPPLY_RE = /\b(stone\s+aggregate|coarse\s+aggregate|graded\s+aggregate|metal\s*(20|40|12)\s*mm)\b/i
-const SAND_RE = /\bsand\b/i
+const SAND_RE = /\b(sand|robo|msand|m-sand)\b/i
 const CEMENT_RE = /\bcement\b/i
 
 // Typical compacted density of a hot-mix bituminous layer (DBM/BC/SDBC),
@@ -149,6 +163,43 @@ const CEMENT_RE = /\bcement\b/i
 // the real figure depends on the specific mix design's binder content and
 // gradation.
 const BITUMINOUS_AGGREGATE_MT_PER_CUM = 2.35 * 0.95
+
+const WMM_RE = /\b(wmm|wet\s*mix(\s*macadam)?)\b/i
+const DGBM_RE = /\b(dgbm|dbm|dense\s+graded\s+bituminous(\s+macadam)?|bituminous\s+macadam)\b/i
+const BC_RE = /\b(sdbc|bituminous\s+concrete|semi[\s-]?dense\s+bituminous(\s+concrete)?)\b|\bBC\b/
+
+/** Road-layer items quoted in cum: apply the department's m3->MT factor (MT_PER_CUM) directly. Runs ahead of the Data Sheet breakdown path. */
+function classifyRoadLayer(item: EstimateWorkItem, totals: MaterialTotals): boolean {
+  const qty = toNumber(item.quantity)
+  if (qty <= 0 || !isCum(item.unit)) return false
+  const desc = item.description
+  if (BC_RE.test(desc)) totals.stoneAggregatesMt += qty * MT_PER_CUM.bc
+  else if (DGBM_RE.test(desc)) totals.stoneAggregatesMt += qty * MT_PER_CUM.dgbm
+  else if (WMM_RE.test(desc)) totals.gravelMt += qty * MT_PER_CUM.wmm
+  else return false
+  return true
+}
+
+/** Data Sheet blocks list material quantities for "Taking output = N unit", not per 1 unit. */
+function breakdownOutput(breakdown: string[][]): number {
+  for (const row of breakdown) {
+    const m = /taking\s+output\s*=\s*([\d,.]+)/i.exec(row.map((c) => String(c ?? '')).join(' '))
+    if (m) {
+      const n = Number(m[1].replace(/,/g, ''))
+      if (Number.isFinite(n) && n > 0) return n
+    }
+  }
+  // No "Taking output" line: the block's own "Unit = 10 sqm" / "Unit = 1cum"
+  // states the quantity the listed materials are for ("Unit = cum" alone means 1).
+  for (const row of breakdown) {
+    const m = /\bunit\s*=\s*([\d,.]+)\s*[a-z]/i.exec(row.map((c) => String(c ?? '')).join(' '))
+    if (m) {
+      const n = Number(m[1].replace(/,/g, ''))
+      if (Number.isFinite(n) && n > 0) return n
+    }
+  }
+  return 1
+}
 
 function addConcreteOrMortar(
   totals: MaterialTotals,
@@ -398,30 +449,83 @@ function addBreakdownMaterial(totals: MaterialTotals, material: MaterialKey, amo
  * skipped, as is any row naming a labour role (LABOUR_ROLE_RE) even if it
  * happens to mention a material word (e.g. "Cement Mason").
  */
-function applyBreakdownMaterials(itemQty: number, breakdown: string[][], totals: MaterialTotals): boolean {
-  let matched = false
+// Rows of a buildup that restate or add to a material rather than consume it:
+// seigniorage / royalty / carriage / loading charges re-quote a quantity
+// already listed on its own line (counting them would double it), and "labour
+// for …" rows are workmanship, not material.
+const NON_MATERIAL_ROW_RE =
+  /\b(seign?iorage|royalty|charges?|carriage|loading|unloading|labou?r\s+for|wages?)\b/i
+// A row that merely contains the word "cement" while naming a composite
+// (cement concrete, cement mortar, cement blocks/bricks/pipes/tiles, paint…) is
+// that composite, not loose cement.
+const CEMENT_COMPOSITE_RE =
+  /\b(concrete|mor(?:t|a)[ao]?r|blocks?|bricks?|pipes?|tiles?|paint|primer|putty|plaster|grout|admixture)\b/i
+
+/** One material line of a Data Sheet item: `amount` of `material`, in physical unit `unit`, per 1 unit of the item. */
+export interface MaterialLine {
+  material: MaterialKey
+  unit: string
+  amount: number
+}
+
+export type { MaterialKey }
+
+/**
+ * The material lines of one Data Sheet breakdown, normalised to "per 1 unit of
+ * the item" (each quantity divided by the block's "Taking output = N"). Only
+ * rows naming a recognized material with a recognized physical unit count;
+ * labour and machinery rows are skipped.
+ */
+export function breakdownMaterialLines(breakdown: string[][]): MaterialLine[] {
+  const lines: MaterialLine[] = []
+  const output = breakdownOutput(breakdown)
   for (const row of breakdown) {
     const cells = row.map((c) => String(c ?? '').trim())
     const rowText = cells.join(' ')
-    if (LABOUR_ROLE_RE.test(rowText)) continue
+    if (LABOUR_ROLE_RE.test(rowText) || NON_MATERIAL_ROW_RE.test(rowText)) continue
     const material = materialKeyFromText(rowText)
     if (!material) continue
+    if (material === 'cement' && CEMENT_COMPOSITE_RE.test(rowText)) continue
 
     const unitIdx = cells.findIndex(
       (c) => isCum(c) || isSqm(c) || isSqft(c) || isKg(c) || isMt(c) || isQuintal(c) || isBag(c)
     )
     if (unitIdx === -1) continue
+    // Data Sheet rows read "<material> | <unit> | <qty> | <rate> | <amount>":
+    // quantity is the first number AFTER the unit; fall back to before it.
     let qtyIdx = -1
-    for (let i = unitIdx - 1; i >= 0; i--) {
+    for (let i = unitIdx + 1; i < cells.length; i++) {
       if (isNumericCell(cells[i])) {
         qtyIdx = i
         break
       }
     }
+    if (qtyIdx === -1) {
+      for (let i = unitIdx - 1; i >= 0; i--) {
+        if (isNumericCell(cells[i])) {
+          qtyIdx = i
+          break
+        }
+      }
+    }
     if (qtyIdx === -1) continue
 
     const coefficient = Number(cells[qtyIdx].replace(/,/g, ''))
-    if (addBreakdownMaterial(totals, material, coefficient * itemQty, cells[unitIdx])) matched = true
+    if (!Number.isFinite(coefficient) || coefficient <= 0) continue
+    lines.push({ material, unit: cells[unitIdx], amount: coefficient / output })
+  }
+  return lines
+}
+
+/** Add one material line, scaled by the item's own quantity, to `totals`. Returns whether it made physical sense. */
+export function applyMaterialLine(totals: MaterialTotals, line: MaterialLine, itemQty: number): boolean {
+  return addBreakdownMaterial(totals, line.material, line.amount * itemQty, line.unit)
+}
+
+function applyBreakdownMaterials(itemQty: number, breakdown: string[][], totals: MaterialTotals): boolean {
+  let matched = false
+  for (const line of breakdownMaterialLines(breakdown)) {
+    if (applyMaterialLine(totals, line, itemQty)) matched = true
   }
   return matched
 }
@@ -429,7 +533,9 @@ function applyBreakdownMaterials(itemQty: number, breakdown: string[][], totals:
 export function computeMaterialTotals(
   items: EstimateWorkItem[],
   /** The Data Sheet's rate-analysis breakdown for each item that was resolved against it (see core/technicalSanction.ts's ItemMatch), same order/length as `items` — undefined entries (no Data Sheet, or that item wasn't resolved) fall back to classifyItem's own standard-coefficient rules. */
-  breakdowns?: (string[][] | undefined)[]
+  breakdowns?: (string[][] | undefined)[],
+  /** Per-item material lines from the bundled material-quantity index (core/materialQuantityRag.ts), same order/length as `items` — takes precedence over `breakdowns` and the standard rules, but not the road-layer factors. */
+  materialLines?: (MaterialLine[] | undefined)[]
 ): MaterialEstimateResult {
   const totals: MaterialTotals = {
     stoneAggregatesMt: 0,
@@ -443,9 +549,13 @@ export function computeMaterialTotals(
   let matchedItemCount = 0
   items.forEach((item, i) => {
     const breakdown = breakdowns?.[i]
+    const lines = materialLines?.[i]
+    const matchedRoad = classifyRoadLayer(item, totals)
+    const qty = toNumber(item.quantity)
+    const matchedFromRag = !matchedRoad && lines && lines.length > 0 ? lines.map((l) => applyMaterialLine(totals, l, qty)).some(Boolean) : false
     const matchedFromDataSheet =
-      breakdown && breakdown.length > 0 ? applyBreakdownMaterials(toNumber(item.quantity), breakdown, totals) : false
-    const matched = matchedFromDataSheet || classifyItem(item, totals)
+      !matchedRoad && !matchedFromRag && breakdown && breakdown.length > 0 ? applyBreakdownMaterials(toNumber(item.quantity), breakdown, totals) : false
+    const matched = matchedRoad || matchedFromRag || matchedFromDataSheet || classifyItem(item, totals)
     if (matched) matchedItemCount += 1
   })
   return { totals, matchedItemCount, totalItemCount: items.length }

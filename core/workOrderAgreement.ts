@@ -77,6 +77,8 @@ export interface WorkOrderAgreementFields {
   workOrderDate: string
   /** Agreement execution date, "dd.mm.yyyy". */
   agreementDate: string
+  /** Agreement number typed in the workspace (blank until entered) — fills the DB Note's "Agreement No and Date". */
+  agreementNo?: string
   /** "Note approved by the Zonal Commissioner Dt." reference date on the Work Order, "dd.mm.yyyy". */
   adminSanctionDate: string
   /** Corporation abbreviation for the Forwarding Slip (e.g. "CMC"), from the chosen office. */
@@ -544,6 +546,65 @@ export function qccIntimationPlaceholders(f: WorkOrderAgreementFields): Record<s
   }
 }
 
+/**
+ * The {{Label}} -> value map for the Work Bill Note — the Dy.EE's 30-point
+ * "work bill submitted for approval" proforma. Items 1-10 derive from the work
+ * (Works List row + uploads); everything bill-specific (serial of bill, status,
+ * completion date, MB / measurement details, checks, penalties, value of work
+ * done, the excess-quantity table) has no source and stays blank for the editor
+ * panel. Estimate Contract Value is never filled from the estimate.
+ */
+export function workBillNotePlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
+  const estLakhs = num(f.estimateLakhs)
+  const ecv = num(f.ecvRupees)
+  const pct = num(f.tenderPercent)
+  const contract = num(f.contractRupees)
+  const estimate = estLakhs != null ? `Rs.${estLakhs.toFixed(2)} lakhs` : ''
+  const dated = f.agreementDate.trim()
+  const agreementNo = (f.agreementNo ?? '').trim()
+  const out: Record<string, string> = {
+    Wincode: f.wincode,
+    Corporation: f.corporation,
+    CNO: f.cno,
+    'Name of the work': f.nameOfWork,
+    'Name of the agency': f.agencyName,
+    'Serial of bill': '',
+    'Estimate Amount': estimate,
+    // The administrative sanction is normally for the estimate amount; editable when it differs.
+    'Administrative Sanction Amount': estimate,
+    ECV: ecv != null ? groupedRupees(ecv) : '',
+    'Tender Percentage': pct == null ? '' : pct === 0 ? 'At par' : `-${formatPercent(pct)}% less`,
+    'Contract Amount': contract != null ? groupedRupees(contract) : '',
+    'Contract Amount Plain': contract != null ? groupedAmount(contract) : '',
+    'Agreement No and Date': dated || agreementNo ? `${agreementNo || '     '}/${f.financialYear}${dated ? `, Dt:${dated}` : ''}` : '',
+    'Period of Contract': f.completionMonths.trim() ? `${f.completionMonths.trim()} months` : '',
+    'Embedded Tax': '---',
+    'SE Super Check': '---',
+    'Price Escalation': '0.00',
+    'EOT Penalty': '0.00'
+  }
+  for (const label of [
+    'Status of Work', 'Date of Completion', 'EOT Details', 'AE Recording Dates', 'MB Details', 'DyEE Check Dates',
+    'EE Test Check', 'DC ZC Inspection', 'QC Officials Report', 'QCC Third Party Report', 'ATR Details',
+    'Seignorage Details', 'One Time Penalty Details', 'Value of Work Done'
+  ])
+    out[label] = ''
+  for (let i = 1; i <= 5; i++)
+    for (const k of ['Excess Item', 'Agreement Qty', 'Executed Qty', 'Exceed Qty']) out[`${k} ${i}`] = ''
+  return out
+}
+
+/**
+ * The header "Date:" of the Forwarding Slip (also page 1 of the Tender
+ * Document): the agreement date as dd/mm/yyyy once entered, otherwise the
+ * template's original blank "   /   /year" to be written in by hand.
+ */
+function slipHeaderDate(f: WorkOrderAgreementFields): string {
+  const p = parseDateParts(f.agreementDate)
+  if (p) return `${String(p.day).padStart(2, '0')}/${String(p.month).padStart(2, '0')}/${p.year}`
+  return `     /     /${new Date().getFullYear()}`
+}
+
 /** The {{Label}} -> value map for the Forwarding Slip template. */
 export function forwardingSlipPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
   const estLakhs = num(f.estimateLakhs)
@@ -560,6 +621,7 @@ export function forwardingSlipPlaceholders(f: WorkOrderAgreementFields): Record<
     Circle: f.circle,
     CNO: f.cno,
     Financialyear: f.financialYear,
+    'Slip Date': slipHeaderDate(f),
     'Name of the work': f.nameOfWork,
     'Amount of Estimation': estLakhs != null ? groupedRupees(estLakhs * 100000) : '',
     'Contractor Name and Address': contractor,
@@ -636,6 +698,10 @@ export function civilTenderPlaceholders(
     Circle: f.circle,
     CNO: f.cno,
     Zone: f.zone,
+    // First-page "A.B.No … Dt:" line — the Agreement Bond's own line.
+    ZoneAbbr: zoneAbbr(f.zone),
+    Financialyear: f.financialYear,
+    'Agreement Date': f.agreementDate.trim() || DATE_BLANK,
     // Price Bid page: the "I Sri/Smt/M/s …" agency, the estimated contract value
     // in figures + words, and the tender % in figures and words.
     'Agency Name': f.agencyName,

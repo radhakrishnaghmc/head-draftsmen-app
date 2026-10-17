@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
 import { indianDigitGroups } from '@core/worksAmounts'
@@ -19,26 +18,23 @@ import { extractEstimateItemsWithAi } from '../aiEstimateColumns'
 import { extractEstimateAmountLakhs } from '@core/deviation'
 import { computeEcvFromItems, buildBoqFromEstimate, boqToItems, extractWorkNameFromBoq } from '../boqTransform'
 import { formatRupees } from '@core/worksAmounts'
-import { metaFromWorksRow } from '@core/scheduleA'
+import { metaFromWorksRow, findWorksRowByName } from '@core/scheduleA'
 import type { WorksRowMatch } from '@core/scheduleA'
-import { computeMaterialTotals } from '@core/materialEstimate'
 import type { MaterialTotals } from '@core/materialEstimate'
 import {
-  matchWorksRow,
   matchWorksRowCached,
   buildWorksRowEmbeddingCache,
-  saveEcvToWorksList,
   downloadBoqFromItems,
   downloadScheduleAFromItems,
   downloadDeviationFromItems,
-  downloadMaterialFromItems
+  downloadMaterialFromItems,
+  materialTotalsForItems
 } from '../estimateDownloads'
 import { mismatchHint } from '../docClassify'
 import { IconFolder, IconDownload, IconWarn, IconTrash, IconTable } from './Icons'
 import type { ExcelTable } from '@core/types'
 import type { Office } from '../office'
 import { corporationByName } from '../zoneCircleDirectory'
-import { closeOnBackdropMouseDown } from '../overlayClose'
 
 type ActionKey = 'boq' | 'scheduleA' | 'deviation' | 'material'
 
@@ -190,7 +186,7 @@ function boqBaseName(e: Entry): string {
 function DocumentPreview({ entry }: { entry: Entry }) {
   const matchedRow = entry.worksMatch?.row
   const scheduleAMeta = useMemo(() => (matchedRow ? metaFromWorksRow(matchedRow) : undefined), [matchedRow])
-  const materialTotals = useMemo(() => computeMaterialTotals(entry.items).totals, [entry.items])
+  const materialTotals = useMemo(() => materialTotalsForItems(entry.items).totals, [entry.items])
   const total = itemsTotal(entry.items)
 
   // Estimate Amount fallback when this work isn't on the Works List: the
@@ -373,26 +369,13 @@ function DocumentPreview({ entry }: { entry: Entry }) {
   )
 }
 
-/**
- * Upload one or more estimates — each one's work items (extracted once) can
- * then generate its BOQ, Schedule A, Deviation Statement, and Material
- * Quantity independently, without re-uploading the same estimate for each.
- * Replaces the previously-separate Download BOQ / Get Deviation Statement /
- * Download Material Quantity tabs, and Schedule A's own upload-a-BOQ step
- * for the common case of a BOQ this app itself would generate anyway.
- */
-interface EcvConfirmState {
-  entryId: string
-  workName: string
-  ecvRupees: number
-  matchedName: string
-}
+// One embedding pass per Works List table object, shared by every upload.
+const worksEmbeddingCaches = new WeakMap<ExcelTable, ReturnType<typeof buildWorksRowEmbeddingCache>>()
 
 export default function EstimateUploadTab({ tables, onChange, office }: Props) {
   const [entries, setEntries] = useState<Entry[]>([])
   const deptDefault = defaultDepartmentName(office)
   const [pickError, setPickError] = useState<string | null>(null)
-  const [ecvConfirm, setEcvConfirm] = useState<EcvConfirmState | null>(null)
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
   const [downloadingAllBoqs, setDownloadingAllBoqs] = useState(false)
   const [allBoqsSavedDir, setAllBoqsSavedDir] = useState<string | null>(null)
@@ -428,31 +411,33 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
 
   async function uploadEstimates() {
     setPickError(null)
-    let grids = await api.pickExcelGrids()
-    if (grids.length === 0) return
+    const paths = await api.pickExcelPaths()
+    if (paths.length === 0) return
 
-    // Ignore blank sheets entirely — don't generate a BOQ (or a "no items"
-    // error) for a tab that has no data at all.
-    grids = grids.filter((g) => !isSheetEmpty(g.grid))
-    if (grids.length === 0) {
-      setPickError('No data found — every sheet in the selected workbook is empty.')
-      return
-    }
-
-    // A workbook may keep extra estimates on hidden sheets — never generate a
-    // BOQ for those, just quietly stick to the visible sheet(s). (Skip this
-    // when every sheet is hidden: there'd be nothing to fall back to, so use
-    // them all rather than reporting "no data".)
-    const visibleGrids = grids.filter((g) => !g.hidden)
-    if (visibleGrids.length > 0) grids = visibleGrids
+    // Show progress the moment the dialog closes: each workbook is read and
+    // processed one at a time below (rather than parsing the whole batch up
+    // front, which froze the window with no feedback until every file was read).
+    let filesDone = 0
+    const totalFiles = paths.length
+    setUploadProgress({ done: 0, total: totalFiles })
+    let nonEmptySheets = 0
 
     const worksTable = tables[0] ?? null
 
-    // Embed every Works List row name ONE time for this whole upload batch,
-    // not once per file — re-embedding the full list per file (via
-    // matchWorksRow) is what made uploading many estimates at once slow.
-    // Only the one work name per file still needs its own small embed call.
-    const worksEmbeddingCache = worksTable ? await buildWorksRowEmbeddingCache(worksTable) : null
+    // The Works List row-name embeddings (thousands of rows through the
+    // worker + a multi-MB IPC payload deserialized on the renderer thread) are
+    // only needed when a work name does NOT match a row exactly, so build them
+    // lazily — once per table, shared across uploads — instead of up front on
+    // every upload, which stalled the window for seconds before any BOQ showed.
+    const getEmbeddingCache = () => {
+      if (!worksTable) return Promise.resolve(null)
+      let p = worksEmbeddingCaches.get(worksTable)
+      if (!p) {
+        p = buildWorksRowEmbeddingCache(worksTable)
+        worksEmbeddingCaches.set(worksTable, p)
+      }
+      return p
+    }
 
     // Resolve a work to its Works List row once, up front — exact name match
     // first, then the same AI/embedding fallback the Schedule A tab uses, so a
@@ -462,23 +447,14 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
       workName: string | undefined
     ): Promise<{ match: WorksRowMatch | null; searched: boolean }> {
       if (!workName || !worksTable) return { match: null, searched: false }
-      const match = (await matchWorksRowCached(workName, worksTable, worksEmbeddingCache)) ?? null
+      const exact = findWorksRowByName(worksTable, workName)
+      if (exact) return { match: exact, searched: true }
+      const match = (await matchWorksRowCached(workName, worksTable, await getEmbeddingCache())) ?? null
       return { match, searched: true }
     }
 
-    // Group sheets by their source workbook so a General Abstract sheet only
-    // merges that workbook's own component sheets, not sheets from a
-    // different file picked in the same batch.
-    const gridsByFile = new Map<string, typeof grids>()
-    for (const g of grids) {
-      const list = gridsByFile.get(g.name) ?? []
-      list.push(g)
-      gridsByFile.set(g.name, list)
-    }
-
-    let filesDone = 0
-    const totalFiles = gridsByFile.size
-    setUploadProgress({ done: 0, total: totalFiles })
+    // Let the "Processing 0/N" state paint before any heavy extraction starts.
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
     // Append one file's entries right away and yield a tick, instead of
     // building one giant array and setting state only after every file in
@@ -496,8 +472,23 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
     }
 
     try {
-    for (const fileGrids of gridsByFile.values()) {
+    for (const filePath of paths) {
       const added: Entry[] = []
+      let fileGrids = await api.readWorkbookGrids(filePath)
+      // Ignore blank sheets entirely — don't generate a BOQ (or a "no items"
+      // error) for a tab that has no data at all.
+      fileGrids = fileGrids.filter((g) => !isSheetEmpty(g.grid))
+      nonEmptySheets += fileGrids.length
+      // A workbook may keep extra estimates on hidden sheets — never generate a
+      // BOQ for those, just quietly stick to the visible sheet(s). (Skip this
+      // when every sheet is hidden: there'd be nothing to fall back to, so use
+      // them all rather than reporting "no data".)
+      const visibleGrids = fileGrids.filter((g) => !g.hidden)
+      if (visibleGrids.length > 0) fileGrids = visibleGrids
+      if (fileGrids.length === 0) {
+        await commitFile(added)
+        continue
+      }
       const abstractGrid = fileGrids.find((g) => looksLikeGeneralAbstractSheet(g.grid))
 
       // A General Abstract sheet means the workbook's other detailed-estimate
@@ -668,6 +659,9 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
     } finally {
       setUploadProgress(null)
     }
+    if (nonEmptySheets === 0) {
+      setPickError('No data found — every sheet in the selected workbook is empty.')
+    }
   }
 
   function removeEntry(id: string) {
@@ -687,29 +681,9 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
   }
 
   async function downloadBoq(entry: Entry) {
-    const ok = await run(entry, 'boq', () =>
+    await run(entry, 'boq', () =>
       downloadBoqFromItems(entry.items, entry.workName, stripExt(entry.fileName), boqBaseName(entry))
     )
-    const worksTable = tables[0]
-    if (!ok || !entry.workName || !worksTable) return
-    const match = await matchWorksRow(entry.workName, worksTable)
-    if (match) {
-      setEcvConfirm({
-        entryId: entry.id,
-        workName: entry.workName,
-        ecvRupees: entry.ecvRupees,
-        matchedName: match.row['Name of the work'] || entry.workName
-      })
-    }
-  }
-
-  async function confirmEcvUpdate() {
-    const pending = ecvConfirm
-    setEcvConfirm(null)
-    const worksTable = tables[0]
-    if (!pending || !worksTable) return
-    const updated = await saveEcvToWorksList(pending.workName, pending.ecvRupees, worksTable)
-    if (updated) onChange(updated)
   }
 
   function downloadScheduleA(entry: Entry) {
@@ -771,6 +745,18 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
           {boqReadyEntries.length > 1 && (
             <button className="ghost upload-btn" onClick={downloadAllBoqs} disabled={downloadingAllBoqs}>
               <IconDownload /> {downloadingAllBoqs ? 'Saving…' : `Download all BOQs (${boqReadyEntries.length})`}
+            </button>
+          )}
+          {entries.length > 0 && (
+            <button
+              className="pdf-ws-clearbtn"
+              onClick={() => {
+                setEntries([])
+                setAllBoqsSavedDir(null)
+              }}
+              disabled={uploadProgress !== null}
+            >
+              <IconTrash /> Clear
             </button>
           )}
         </div>
@@ -905,28 +891,6 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
         </ul>
       )}
 
-      {ecvConfirm &&
-        createPortal(
-          <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setEcvConfirm(null))}>
-            <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(ev) => ev.stopPropagation()}>
-              <h3>Update ECV in the Works List?</h3>
-              <p className="confirm-warn">
-                "{ecvConfirm.matchedName}" is already in the Works List. Update its ECV to{' '}
-                <strong>{formatRupees(ecvConfirm.ecvRupees)}</strong>, computed from this BOQ?
-              </p>
-              <p className="confirm-hint">Every other field on that row stays untouched.</p>
-              <div className="confirm-actions">
-                <button className="ghost" onClick={() => setEcvConfirm(null)}>
-                  No, keep existing
-                </button>
-                <button className="primary" onClick={confirmEcvUpdate}>
-                  Update ECV
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
     </div>
   )
 }

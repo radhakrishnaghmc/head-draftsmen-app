@@ -206,10 +206,40 @@ export async function renderDocPreview(
   container.innerHTML = ''
   const renderOptions =
     options?.breakPages === false ? { ...DOCX_PREVIEW_OPTIONS, breakPages: false } : DOCX_PREVIEW_OPTIONS
+  if (options?.forSnapshot) {
+    // The snapshot is re-laid-out in the print window, a clean page. docx-preview's
+    // style rules are unscoped (`.docx p { text-indent: … }`), so another document's
+    // preview already on this page leaks into measurements made here — the baked
+    // tab widths (right-aligned "Date:" on the Work Order No line) then come out
+    // wider than the clean print page has room for, and the line wraps. Measure in
+    // a throwaway iframe instead, which has none of the app's other previews.
+    const frame = document.createElement('iframe')
+    frame.setAttribute('aria-hidden', 'true')
+    frame.style.cssText = `position:fixed;top:-99999px;left:-99999px;width:${PAGE_WIDTH}px;height:1200px;border:0`
+    document.body.appendChild(frame)
+    try {
+      const doc = frame.contentDocument!
+      doc.open()
+      doc.write(
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#fff}' +
+          '.docx-wrapper{background:#fff !important;padding:0 !important;margin:0 !important}' +
+          '.docx-wrapper>section.docx{box-shadow:none !important;margin:0 auto !important}</style></head><body><div id="snap"></div></body></html>'
+      )
+      doc.close()
+      const target = doc.getElementById('snap') as HTMLElement
+      await renderAsync(docxBytes, target, undefined, renderOptions)
+      normalizeDocxTextboxes(target)
+      await addFontFallbacks(target)
+      await settleTabStops(target)
+      container.innerHTML = target.innerHTML
+    } finally {
+      frame.remove()
+    }
+    return { pageCount: container.querySelectorAll('section.docx').length, accurate: false }
+  }
   await renderAsync(docxBytes, container, undefined, renderOptions)
   normalizeDocxTextboxes(container)
   await addFontFallbacks(container)
-  if (options?.forSnapshot) await settleTabStops(container)
   return { pageCount: container.querySelectorAll('section.docx').length, accurate: false }
 }
 

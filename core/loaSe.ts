@@ -15,7 +15,7 @@ const ZONE_ABBR: Record<string, string> = {
   serilingampally: 'SLP',
   // MMC zones.
   'lb nagar': 'LBNZ',
-  malkajgiri: 'MLKJ',
+  malkajgiri: 'MKJL',
   uppal: 'UPPZ'
   // Other CMC/GHMC/MMC zones' official codes are added here as they're confirmed.
 }

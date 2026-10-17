@@ -263,7 +263,7 @@ export function extractGrandTotalLakhs(grid: string[][], headerRowIndex: number)
 // token is just "N" for Number rather than the fuller "No"); unit header reads
 // "Unit"/"Units", "UOM", or "Per" across different templates.
 export const ESTIMATE_COLUMN_SPECS: ColumnSpec[] = [
-  { label: 'Serial Number', patterns: [/^s[lr]?\.?\s*(no?|num|number)\.?$|serial/i] },
+  { label: 'Serial Number', patterns: [/^s[lri]?\.?\s*(no?|num|number)\.?$|serial/i] },
   // A "Total Qty" column is the item's final quantity — preferred over an
   // intermediate "Qty per Day" / "Qty per unit" column that a day-rate estimate
   // also carries (and leaves blank on most rows), which the plain /qty/ pattern
@@ -634,7 +634,19 @@ function extractEstimateItemsFromColumns(
     // whose description itself starts with a rate-schedule code even without a
     // serial (a spec row the estimate left un-numbered), so it isn't folded
     // into the item above and given that item's description.
-    const opensNewItem = (sno !== '' && desc !== '') || STARTS_WITH_SCHEDULE_CODE_RE.test(desc)
+    // ...or an un-numbered, full-spec description with no quantity of its own, sitting after an item
+    // that already has its measurement/summary rows — descriptions precede their measurements, so
+    // this can only be the next item whose S.No was left blank (e.g. "Mechanical trowelling…" under
+    // the M30 item), which would otherwise be folded into the item above as a second "variant" of it
+    // and print that item's description against its quantity.
+    const startsUnnumberedItem =
+      sno === '' &&
+      desc.length >= 40 &&
+      norm(row[qtyCol]) === '' &&
+      block.length > 0 &&
+      block.some(({ row: br }) => norm(br[qtyCol]) !== '')
+    const opensNewItem =
+      (sno !== '' && desc !== '') || STARTS_WITH_SCHEDULE_CODE_RE.test(desc) || startsUnnumberedItem
     if (opensNewItem) {
       resolveBlock() // close whatever block was open
       block = [{ row, gridRow: r }]

@@ -1,15 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import { extractWorkName, extractEstimateItemsFromLines } from '@core/estimateExtract'
 import { extractEstimateAmountLakhs } from '@core/deviation'
 import { computeEcvFromItems } from '../boqTransform'
-import { formatRupees } from '@core/worksAmounts'
 import { pdfPagesToDataUrls } from '../pdfToImages'
 import { pdfPagesToTextLinesFromData } from '../pdfToText'
 import {
   matchWorksRow,
-  saveEcvToWorksList,
   downloadBoqFromItems,
   downloadScheduleAFromItems,
   downloadDeviationFromItems,
@@ -19,7 +16,6 @@ import { IconFolder, IconImage, IconTrash, IconDownload, IconWarn } from './Icon
 import ExcelInline from './ExcelInline'
 import type { ExcelTable } from '@core/types'
 import type { EstimateWorkItem } from '@core/estimateExtract'
-import { closeOnBackdropMouseDown } from '../overlayClose'
 
 interface Photo {
   id: string
@@ -210,9 +206,6 @@ export default function UploadPhotosTab({ tables, onChange, autoOpen = false, on
   const [actionBusy, setActionBusy] = useState<ActionKey | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
-  const [ecvConfirm, setEcvConfirm] = useState<{ workName: string; ecvRupees: number; matchedName: string } | null>(
-    null
-  )
 
   const worksTable = tables[0] ?? null
 
@@ -364,30 +357,11 @@ export default function UploadPhotosTab({ tables, onChange, autoOpen = false, on
       const base = estimateFileBase(workName, estimateLakhs, photos[0] ? stripExt(photos[0].name) : 'Estimate')
       const path = await downloadBoqFromItems(items, workName, base)
       if (path) setActionSaved(path)
-
-      if (workName && worksTable) {
-        const match = await matchWorksRow(workName, worksTable)
-        if (match) {
-          setEcvConfirm({
-            workName,
-            ecvRupees: computeEcvFromItems(items),
-            matchedName: match.row['Name of the work'] || workName
-          })
-        }
-      }
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
       setActionBusy(null)
     }
-  }
-
-  async function confirmEcvUpdate() {
-    const pending = ecvConfirm
-    setEcvConfirm(null)
-    if (!pending || !worksTable) return
-    const updated = await saveEcvToWorksList(pending.workName, pending.ecvRupees, worksTable)
-    if (updated) onChange(updated)
   }
 
   async function downloadScheduleA() {
@@ -596,28 +570,6 @@ export default function UploadPhotosTab({ tables, onChange, autoOpen = false, on
         </>
       )}
 
-      {ecvConfirm &&
-        createPortal(
-          <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setEcvConfirm(null))}>
-            <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-              <h3>Update ECV in the Works List?</h3>
-              <p className="confirm-warn">
-                "{ecvConfirm.matchedName}" is already in the Works List. Update its ECV to{' '}
-                <strong>{formatRupees(ecvConfirm.ecvRupees)}</strong>, computed from this BOQ?
-              </p>
-              <p className="confirm-hint">Every other field on that row stays untouched.</p>
-              <div className="confirm-actions">
-                <button className="ghost" onClick={() => setEcvConfirm(null)}>
-                  No, keep existing
-                </button>
-                <button className="primary" onClick={confirmEcvUpdate}>
-                  Update ECV
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
     </div>
   )
 }

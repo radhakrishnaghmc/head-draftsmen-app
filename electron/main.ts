@@ -21,6 +21,7 @@ import {
   agreementTemplateFileName,
   intimationTemplateFileName,
   fileBackerTemplateFileName,
+  zonalTemplateVariant,
   civilTenderTemplateFileName
 } from '../core/workOrderTemplateVariants'
 import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer, readSheetPreviews } from '../core/excel'
@@ -74,6 +75,7 @@ import type { CementSteelRate } from '../core/cementSteelRates'
 import { fetchWeather } from './weather'
 import type { WeatherSnapshot } from '../core/weather'
 import { sanitizeDocxForWord2007 } from '../core/word2007Compat'
+import { applyCorporationBranding, brandingFromRow } from '../core/corporationBranding'
 import {
   listParagraphs,
   applyParagraphEdits,
@@ -258,6 +260,22 @@ function registerHandlers(): void {
     // then splits any sheet that stacks several estimates. See
     // EstimateUploadTab's uploadEstimates and splitEstimateBlocks.
     return result.filePaths.flatMap((p) => readAllSheetGrids(p))
+  })
+
+  ipcMain.handle(IPC.pickExcelPaths, async (): Promise<string[]> => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Select Excel data files',
+      filters: [{ name: 'Excel workbooks', extensions: ['xlsx', 'xls'] }],
+      properties: ['openFile', 'multiSelections']
+    })
+    return result.canceled ? [] : result.filePaths
+  })
+
+  ipcMain.handle(IPC.readWorkbookGrids, async (_e, filePath: string): Promise<SheetGrid[]> => {
+    // Parsing a workbook is synchronous and blocks the main process; yielding first lets the
+    // previous file's result (and the progress count) reach the window before this one starts.
+    await new Promise((resolve) => setImmediate(resolve))
+    return readAllSheetGrids(filePath)
   })
 
   ipcMain.handle(IPC.pickEstimateGrid, async (): Promise<SheetGrid | null> => {
@@ -1264,7 +1282,15 @@ function registerHandlers(): void {
   ipcMain.handle(
     IPC.fillPlaceholdersInDocument,
     async (_e, docxBase64: string, resolved: PlaceholderMatch[], row: Record<string, string>): Promise<string> => {
-      const filled = fillPlaceholdersInAllParts(Buffer.from(docxBase64, 'base64'), resolved, row)
+      let filled = fillPlaceholdersInAllParts(Buffer.from(docxBase64, 'base64'), resolved, row)
+      // Templates carry Cyberabad's letterhead as fixed text/logo — retarget it to the chosen corporation.
+      const branding = brandingFromRow(row)
+      if (branding) {
+        filled = applyCorporationBranding(filled, branding, (file) => {
+          const p = bundledResourceFile(file)
+          return p ? fs.readFileSync(p) : undefined
+        })
+      }
       return filled.toString('base64')
     }
   )
@@ -1272,7 +1298,14 @@ function registerHandlers(): void {
   ipcMain.handle(
     IPC.bakeFixedPlaceholdersInDocument,
     async (_e, docxBase64: string, values: Record<string, string>): Promise<string> => {
-      const baked = bakeFixedPlaceholdersInDocx(Buffer.from(docxBase64, 'base64'), values)
+      let baked = bakeFixedPlaceholdersInDocx(Buffer.from(docxBase64, 'base64'), values)
+      const branding = brandingFromRow(values)
+      if (branding) {
+        baked = applyCorporationBranding(baked, branding, (file) => {
+          const p = bundledResourceFile(file)
+          return p ? fs.readFileSync(p) : undefined
+        })
+      }
       return baked.toString('base64')
     }
   )
@@ -1349,14 +1382,31 @@ function registerHandlers(): void {
     // a printed page margin instead. Detected by docx-preview's wrapper class.
     const isDocx = /docx-wrapper/.test(renderedHtml)
     const m = { top: 14, right: 16, bottom: 14, left: 16, ...pageMarginsMm }
-    const printStyle = isDocx
+    // Pre-paginated sheets (Note Submitted): each .note-sheet is already one A4
+    // page with its own margins, so the page itself has none and the screen view
+    // is the same sheets on a gray desk.
+    const isSheets = /class="note-a4"/.test(renderedHtml)
+    const printStyle = isSheets
+      ? `@page { size: A4; margin: 0 }
+         html, body { margin: 0; padding: 0 }
+         @media screen { html { background: #d8d8dc } body { padding: 20px 0 0 } .note-a4 { box-shadow: 0 0 0 1px rgba(16,24,40,.12), 0 2px 10px rgba(16,24,40,.18) } }
+         @media print { html, body { background: #fff } .note-a4 { margin: 0 !important; box-shadow: none !important } }`
+      : isDocx
       ? `@page { size: A4; margin: 0 }
          html, body { margin: 0; padding: 0; background: #fff }
          .docx-wrapper { background: #fff !important; padding: 0 !important; margin: 0 !important }
          .docx-wrapper > section.docx { box-shadow: none !important; margin: 0 auto !important }`
       : `@page { size: A4; margin: 0 }
          html, body { margin: 0; background: #fff }
-         body { padding: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm }`
+         body { padding: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm }
+         @media screen {
+           html { background: #d8d8dc }
+           body {
+             width: 210mm; margin: 0 auto; box-sizing: border-box; min-height: 297mm;
+             box-shadow: 0 0 0 1px rgba(16, 24, 40, 0.12);
+             background: repeating-linear-gradient(to bottom, #fff 0, #fff calc(297mm - 12px), #d8d8dc calc(297mm - 12px), #d8d8dc 297mm);
+           }
+         }`
     const head = `<head><meta charset="utf-8"><style>${printStyle}</style></head>`
     const body = /<html/i.test(renderedHtml)
       ? renderedHtml
@@ -1391,6 +1441,16 @@ function registerHandlers(): void {
     // two lines in the print output even though the on-screen preview (open
     // long enough for the font swap to already have happened) looks fine.
     await win.webContents.executeJavaScript('document.fonts.ready.then(() => undefined)').catch(() => {})
+    // Plain-HTML documents: round the on-screen sheet up to whole A4 pages so the
+    // preview shows the same page count the printer will produce (seams are
+    // drawn by the screen-only background above; print output is unaffected).
+    if (!isDocx && !isSheets) {
+      await win.webContents
+        .executeJavaScript(
+          `(() => { const mm = 96 / 25.4 * 297; const b = document.body; b.style.minHeight = (Math.max(1, Math.ceil(b.scrollHeight / mm)) * mm) + 'px' })()`
+        )
+        .catch(() => {})
+    }
     win.show()
     win.focus()
     // Deliberately not closing the window from the print() callback: on
@@ -1408,7 +1468,11 @@ function registerHandlers(): void {
 
   ipcMain.handle(
     IPC.noteSubmittedDocx,
-    async (_e, html: string, marginsTwips?: { top?: number; bottom?: number }): Promise<string> => {
+    async (
+      _e,
+      html: string,
+      marginsTwips?: { top?: number; bottom?: number; left?: number; right?: number }
+    ): Promise<string> => {
       const docxBuffer = await convertHtmlToDocx(html, marginsTwips)
       return docxBuffer.toString('base64')
     }
@@ -1476,6 +1540,12 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
+  ipcMain.handle(IPC.workBillNoteTemplate, async (): Promise<string> => {
+    const templatePath = bundledResourceFile('work-bill-note-template.docx')
+    if (!templatePath) throw new Error('Work Bill Note format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
   ipcMain.handle(IPC.civilTenderTemplate, async (_e, variantId?: string): Promise<string> => {
     const templatePath = bundledResourceFile(civilTenderTemplateFileName(variantId))
     if (!templatePath) throw new Error('Civil Tender Document format is missing from the app bundle.')
@@ -1488,20 +1558,26 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  ipcMain.handle(IPC.zonalWorkOrderTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('zonal-work-order-template.docx')
+  ipcMain.handle(IPC.zonalWorkOrderTemplate, async (_e, variantId?: string): Promise<string> => {
+    const templatePath = bundledResourceFile(
+      zonalTemplateVariant(variantId) ? `zonal-work-order-template-${zonalTemplateVariant(variantId)}.docx` : 'zonal-work-order-template.docx'
+    )
     if (!templatePath) throw new Error('SE Work Order format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  ipcMain.handle(IPC.zonalConcludingAgreementTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('zonal-concluding-agreement-template.docx')
+  ipcMain.handle(IPC.zonalConcludingAgreementTemplate, async (_e, variantId?: string): Promise<string> => {
+    const templatePath = bundledResourceFile(
+      zonalTemplateVariant(variantId) ? `zonal-concluding-agreement-template-${zonalTemplateVariant(variantId)}.docx` : 'zonal-concluding-agreement-template.docx'
+    )
     if (!templatePath) throw new Error('SE Concluding Agreement format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  ipcMain.handle(IPC.zonalMemoEeTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('zonal-memo-ee-template.docx')
+  ipcMain.handle(IPC.zonalMemoEeTemplate, async (_e, variantId?: string): Promise<string> => {
+    const templatePath = bundledResourceFile(
+      zonalTemplateVariant(variantId) ? `zonal-memo-ee-template-${zonalTemplateVariant(variantId)}.docx` : 'zonal-memo-ee-template.docx'
+    )
     if (!templatePath) throw new Error('SE Memo to EE format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
@@ -1715,6 +1791,7 @@ function registerHandlers(): void {
   // the batch loop, aborts after the first file so only one document saves.
   const sanitizeFileName = (name: string): string => {
     const cleaned = name
+      .replace(/\s*@\s*/g, ' at ') // "@" reads badly in a file name — spell it out
       .replace(/[/\\:*?"<>|\x00-\x1f]/g, '-') // path separators + OS-reserved chars
       .replace(/\s+/g, ' ')
       .replace(/[.\s]+$/g, '') // Windows disallows trailing dots/spaces

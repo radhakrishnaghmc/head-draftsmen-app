@@ -116,7 +116,9 @@ export const TEMPLATE_KEYS = {
   intimation: 'hda-template-intimation',
   fileBacker: 'hda-template-file-backer',
   civilTender: 'hda-template-civil-tender',
-  notice: 'hda-template-notice'
+  notice: 'hda-template-notice',
+  concludingAgreement: 'hda-template-concluding-agreement',
+  memoEe: 'hda-template-memo-ee'
 } as const
 
 // Fired on the window whenever a Document Templates variant choice above is

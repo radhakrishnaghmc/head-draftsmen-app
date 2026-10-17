@@ -173,6 +173,8 @@ export interface PendingNoticeItem {
   intimationDate: string
   /** Hand-typed/suggested fields the tile still shows for edit — LOA No is never derivable (hand-written on the physical register after printing), LOA Date and Notice Date start pre-filled but stay editable. */
   manual: IssueNoticeManualFields
+  /** Hand-typed overrides from the editable preview, keyed by placeholder label — merged over the derived values. */
+  edits?: Record<string, string>
   /** Agreement concluded / Notice handled — hides it from the active tile grid. */
   done: boolean
   /** Bin pattern, same as TodoItem/MBScrutinyItem — soft-deleted rather than dropped outright. */

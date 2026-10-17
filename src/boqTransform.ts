@@ -104,6 +104,9 @@ function isNumericLike(v: string): boolean {
   return s !== '' && Number.isFinite(Number(s))
 }
 
+// A cost-build-up row (Sub Total / Add GST / TOTAL) rather than a line item.
+const SUMMARY_ROW_RE = /^(sub\s*-?\s*total|grand\s*total|total|add\b|less\b)/i
+
 // A repeated column-header row: estimates/BOQs that span pages often reprint
 // their "Qty | Description of work | Rate | Per" header mid-sheet, and that row
 // would otherwise slip through as a bogus line item (a "Description of work"
@@ -142,6 +145,9 @@ export function boqToScheduleA(boq: ExcelTable, embeddings?: ColumnEmbeddings): 
     const desc = (row[descCol] ?? '').trim()
     if (desc === '') return false
     if (isHeaderLabel(desc)) return false // a reprinted column-header row, not a line item
+    // A cost-build-up row below the items ("Sub Total", "Add GST @ 18%", "TOTAL")
+    // has an amount but no quantity — never a line item.
+    if (!isNumericLike(row[qtyCol] ?? '') && SUMMARY_ROW_RE.test(desc)) return false
     return isNumericLike(row[qtyCol] ?? '') || isNumericLike(row[amountCol] ?? '')
   })
 

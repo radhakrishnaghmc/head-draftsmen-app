@@ -1,10 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { noteSubmittedSections, type NoteSubmittedData, type NoteBidder } from '@core/noteSubmitted'
 import { IconPlus } from './Icons'
+import {
+  DEFAULT_NOTE_MARGINS,
+  NOTE_SHEET,
+  paginateNotes,
+  type NoteMargins,
+} from '../notePagination'
 
 interface Props {
   data: NoteSubmittedData
   onChange: (data: NoteSubmittedData) => void
+  margins: NoteMargins
+  onMarginsChange: (m: NoteMargins) => void
 }
 
 /** Hand-writable blanks a note still prints — the ruled "______" lines the office fills in by pen. */
@@ -25,7 +33,7 @@ function blanksIn(html: string): number {
  * The numbers and the index are the app's own chrome: the exported .docx is
  * built from the same section HTML joined back together, unchanged.
  */
-export default function NoteSubmittedEditor({ data, onChange }: Props) {
+export default function NoteSubmittedEditor({ data, onChange, margins, onMarginsChange }: Props) {
   const sections = useMemo(() => noteSubmittedSections(data), [data])
   const blanks = useMemo(() => sections.map((s) => blanksIn(s.html)), [sections])
   const totalBlanks = blanks.reduce((a, b) => a + b, 0)
@@ -36,24 +44,53 @@ export default function NoteSubmittedEditor({ data, onChange }: Props) {
     return first < 0 ? 1 : first + 1
   })
   const paperRef = useRef<HTMLDivElement>(null)
-  const pageRef = useRef<HTMLDivElement>(null)
   const noteRefs = useRef<Record<number, HTMLElement | null>>({})
 
-  // A4 printable height in px (297mm minus the 6.35mm/1-line top+bottom
-  // margins that match the Word doc, at 96dpi) — same geometry
-  // printCreatedDocument prints this sheet at, so the count here matches
-  // the real page count on paper.
-  const A4_PAGE_PX = 1075
-  const [pageCount, setPageCount] = useState(1)
-  useEffect(() => {
-    const measure = () => {
-      const h = pageRef.current?.scrollHeight ?? 0
-      setPageCount(Math.max(1, Math.ceil(h / A4_PAGE_PX)))
+  // Pages come from the same routine the print window uses (notePagination.ts),
+  // so the sheets drawn here are exactly the sheets that print.
+  const pages = useMemo(() => paginateNotes(sections.map((s) => s.html), margins), [sections, margins])
+  const pageCount = pages.length
+  // The sheets are laid out at true A4 pixel size; this just shrinks them to fit.
+  const [zoom, setZoom] = useState(1)
+  useLayoutEffect(() => {
+    const paper = paperRef.current
+    if (!paper) return
+    const fit = () => {
+      // Panel width minus its padding (22 x 2) and the vertical scrollbar.
+      const w = paper.clientWidth - 44 - 2
+      if (w > 0) setZoom(Math.min(1, w / NOTE_SHEET.w))
     }
-    measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
-  }, [sections])
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(paper)
+    return () => ro.disconnect()
+  }, [])
+
+  // Dragging a guide sets a page margin, or — for the open note's own guides —
+  // that note's padding. Screen movement is converted back to sheet pixels
+  // (÷ zoom) and then to mm, so it tracks the pointer at any zoom level.
+  const [drag, setDrag] = useState<keyof NoteMargins | null>(null)
+  const dragRef = useRef<{ side: keyof NoteMargins; start: number; value: number } | null>(null)
+  function startDrag(e: React.PointerEvent, side: keyof NoteMargins) {
+    e.preventDefault()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    const horizontal = side === 'left' || side === 'right'
+    dragRef.current = { side, start: horizontal ? e.clientX : e.clientY, value: margins[side] }
+    setDrag(side)
+  }
+  function moveDrag(e: React.PointerEvent) {
+    const d = dragRef.current
+    if (!d) return
+    const horizontal = d.side === 'left' || d.side === 'right'
+    const deltaMm = ((horizontal ? e.clientX : e.clientY) - d.start) / zoom / (96 / 25.4)
+    const signed = d.side === 'top' || d.side === 'left' ? deltaMm : -deltaMm
+    const next = Math.round(Math.min(80, Math.max(0, d.value + signed)) * 10) / 10
+    if (next !== margins[d.side]) onMarginsChange({ ...margins, [d.side]: next })
+  }
+  function endDrag() {
+    dragRef.current = null
+    setDrag(null)
+  }
 
   function openAndScroll(n: number) {
     setOpenNote(n)
@@ -61,7 +98,8 @@ export default function NoteSubmittedEditor({ data, onChange }: Props) {
     const el = noteRefs.current[n]
     if (!paper || !el) return
     const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    paper.scrollTo({ top: Math.max(0, el.offsetTop - 16), behavior: smooth ? 'smooth' : 'auto' })
+    const top = el.getBoundingClientRect().top - paper.getBoundingClientRect().top + paper.scrollTop - 16
+    paper.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' })
   }
 
   function setField<K extends keyof NoteSubmittedData>(key: K, value: NoteSubmittedData[K]) {
@@ -252,24 +290,81 @@ export default function NoteSubmittedEditor({ data, onChange }: Props) {
       </div>
 
       <div className="note-paper" ref={paperRef}>
+        <div className="note-margins">
+          <span className="note-margins-label">Margins</span>
+          <span className="note-margins-hint">Drag the dashed guides on the sheet to adjust</span>
+          <span className="note-margins-read">
+            T {margins.top.toFixed(1)} · B {margins.bottom.toFixed(1)} · L {margins.left.toFixed(1)} · R{' '}
+            {margins.right.toFixed(1)} mm
+          </span>
+          <button
+            type="button"
+            className="ghost"
+            disabled={(Object.keys(DEFAULT_NOTE_MARGINS) as (keyof NoteMargins)[]).every((k) => margins[k] === DEFAULT_NOTE_MARGINS[k])}
+            onClick={() => onMarginsChange(DEFAULT_NOTE_MARGINS)}
+          >
+            Reset
+          </button>
+        </div>
         <div className="note-page-badge">
           A4 · {pageCount} page{pageCount === 1 ? '' : 's'}
         </div>
-        <div className="note-page" ref={pageRef}>
-          {sections.map((s) => (
-            <section
-              key={s.n}
-              ref={(el) => {
-                noteRefs.current[s.n] = el
+        <div className="note-a4s" style={{ zoom, fontFamily: "'Bookman Old Style', Georgia, serif" }}>
+          {pages.map((segs, pi) => (
+            <div
+              key={pi}
+              className="note-a4"
+              style={{
+                width: NOTE_SHEET.w,
+                minHeight: NOTE_SHEET.h,
+                padding: `${margins.top}mm ${margins.right}mm ${margins.bottom}mm ${margins.left}mm`
               }}
-              className={`note-block ${openNote === s.n ? 'active' : ''}`}
-              onClick={() => setOpenNote(s.n)}
             >
-              <span className="note-block-n" aria-hidden="true">
-                {s.n}
+              {segs.map((seg, si) => {
+                const sec = sections[seg.n]
+                return (
+                  <section
+                    key={`${sec.n}-${si}`}
+                    ref={
+                      seg.first
+                        ? (el) => {
+                            noteRefs.current[sec.n] = el
+                          }
+                        : undefined
+                    }
+                    className={`note-block ${openNote === sec.n ? 'active' : ''}`}
+                    onClick={() => setOpenNote(sec.n)}
+                  >
+                    {seg.first && (
+                      <span className="note-block-n" aria-hidden="true">
+                        {sec.n}
+                      </span>
+                    )}
+                    <div
+                      className="note-block-body"
+                      dangerouslySetInnerHTML={{ __html: seg.html }}
+                    />
+                  </section>
+                )
+              })}
+              {(['top', 'bottom', 'left', 'right'] as const).map((side) => (
+                <div
+                  key={side}
+                  className={`note-guide note-guide-${side}${drag === side ? ' dragging' : ''}`}
+                  style={{ [side]: `${margins[side]}mm` }}
+                  title={`${side} page margin — drag to adjust`}
+                  onPointerDown={(e) => startDrag(e, side)}
+                  onPointerMove={moveDrag}
+                  onPointerUp={endDrag}
+                  onPointerCancel={endDrag}
+                >
+                  {drag === side && <span className="note-guide-tip">{margins[side].toFixed(1)} mm</span>}
+                </div>
+              ))}
+              <span className="note-a4-no" aria-hidden="true">
+                {pi + 1} / {pageCount}
               </span>
-              <div className="note-block-body" dangerouslySetInnerHTML={{ __html: s.html }} />
-            </section>
+            </div>
           ))}
         </div>
       </div>

@@ -220,12 +220,57 @@ function computeParagraphEdits(paragraphs: Element[], fillFn: (text: string) => 
 
 export function transformPlaceholders(buffer: Buffer, part: string, fillFn: (text: string) => string): Buffer {
   const { zip, xml } = loadDoc(buffer, part)
-  const paragraphs = tag(xml, 'w:p')
-  const edits = computeParagraphEdits(paragraphs, fillFn)
   let changed = false
-  for (const edit of edits) {
-    const para = paragraphs[edit.index]
-    if (para && applyOneEdit(xml, para, edit.newText)) changed = true
+  for (const para of tag(xml, 'w:p')) {
+    const orig = paragraphCombinedText(para)
+    if (!orig.includes('{{')) continue
+    // One placeholder at a time, left to right: each value takes the formatting of the run its own
+    // {{ opened in (so a bold {{Agency Name}} beside plain text stays bold, and the plain text stays
+    // plain) instead of the whole first-to-last-placeholder span taking the first one's formatting.
+    const matches = [...orig.matchAll(new RegExp(PLACEHOLDER_RE.source, 'g'))]
+    let shift = 0
+    for (const m of matches) {
+      const value = fillFn(m[0])
+      if (value === m[0]) continue
+      const cur = paragraphCombinedText(para)
+      const at = (m.index ?? 0) + shift
+      if (applyOneEdit(xml, para, cur.slice(0, at) + value + cur.slice(at + m[0].length))) changed = true
+      shift += value.length - m[0].length
+    }
+  }
+  return changed ? save(zip, xml, part) : buffer
+}
+
+/**
+ * Literal / regex text replacements inside one part, paragraph by paragraph.
+ * Each match is its own edit (like transformPlaceholders), so a replacement
+ * takes the formatting of the run its match began in — e.g. the Latin and
+ * Telugu halves of a letterhead keep their own fonts. A regex replacement may
+ * use $1-style groups.
+ */
+export function replaceTextInPart(
+  buffer: Buffer,
+  part: string,
+  replacements: Array<[string | RegExp, string]>
+): Buffer {
+  const { zip, xml } = loadDoc(buffer, part)
+  let changed = false
+  for (const para of tag(xml, 'w:p')) {
+    for (const [find, to] of replacements) {
+      const re = typeof find === 'string' ? new RegExp(find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g') : new RegExp(find.source, find.flags.includes('g') ? find.flags : find.flags + 'g')
+      const orig = paragraphCombinedText(para)
+      const matches = [...orig.matchAll(re)]
+      if (matches.length === 0) continue
+      let shift = 0
+      for (const m of matches) {
+        const value = m[0].replace(new RegExp(re.source, re.flags.replace('g', '')), to)
+        if (value === m[0]) continue
+        const cur = paragraphCombinedText(para)
+        const at = (m.index ?? 0) + shift
+        if (applyOneEdit(xml, para, cur.slice(0, at) + value + cur.slice(at + m[0].length))) changed = true
+        shift += value.length - m[0].length
+      }
+    }
   }
   return changed ? save(zip, xml, part) : buffer
 }

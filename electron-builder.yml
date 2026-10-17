@@ -63,6 +63,12 @@ asarUnpack:
 extraResources:
   - from: resources/seed-state.json
     to: seed-state.json
+  - from: resources/corp-logos/cmc.png
+    to: corp-logos/cmc.png
+  - from: resources/corp-logos/ghmc.png
+    to: corp-logos/ghmc.png
+  - from: resources/corp-logos/mmc.png
+    to: corp-logos/mmc.png
   - from: resources/schedule-a-template.xlsx
     to: schedule-a-template.xlsx
   - from: resources/tender-notice-template.docx
@@ -87,10 +93,28 @@ extraResources:
     to: work-order-template-kompally.docx
   - from: resources/work-order-template-header2.docx
     to: work-order-template-header2.docx
+  - from: resources/work-order-template-mmc.docx
+    to: work-order-template-mmc.docx
+  - from: resources/work-order-template-cmc.docx
+    to: work-order-template-cmc.docx
+  - from: resources/work-order-template-ghmc.docx
+    to: work-order-template-ghmc.docx
+  - from: resources/zonal-work-order-template-mmc.docx
+    to: zonal-work-order-template-mmc.docx
+  - from: resources/zonal-work-order-template-cmc.docx
+    to: zonal-work-order-template-cmc.docx
+  - from: resources/zonal-work-order-template-ghmc.docx
+    to: zonal-work-order-template-ghmc.docx
   - from: resources/file-backer-template.docx
     to: file-backer-template.docx
   - from: resources/file-backer-template-header2.docx
     to: file-backer-template-header2.docx
+  - from: resources/file-backer-template-mmc.docx
+    to: file-backer-template-mmc.docx
+  - from: resources/file-backer-template-cmc.docx
+    to: file-backer-template-cmc.docx
+  - from: resources/file-backer-template-ghmc.docx
+    to: file-backer-template-ghmc.docx
   - from: resources/agreement-template.docx
     to: agreement-template.docx
   - from: resources/agreement-template-kompally.docx
@@ -105,6 +129,8 @@ extraResources:
     to: qcc-4th-party-template.docx
   - from: resources/forwarding-slip-template.docx
     to: forwarding-slip-template.docx
+  - from: resources/work-bill-note-template.docx
+    to: work-bill-note-template.docx
   - from: resources/civil-tender-template.docx
     to: civil-tender-template.docx
   - from: resources/civil-tender-template-header2.docx
@@ -113,10 +139,28 @@ extraResources:
     to: se-agreement-bond-template.docx
   - from: resources/zonal-work-order-template.docx
     to: zonal-work-order-template.docx
+  - from: resources/zonal-work-order-template-header2.docx
+    to: zonal-work-order-template-header2.docx
   - from: resources/zonal-concluding-agreement-template.docx
     to: zonal-concluding-agreement-template.docx
+  - from: resources/zonal-concluding-agreement-template-header2.docx
+    to: zonal-concluding-agreement-template-header2.docx
   - from: resources/zonal-memo-ee-template.docx
     to: zonal-memo-ee-template.docx
+  - from: resources/zonal-memo-ee-template-header2.docx
+    to: zonal-memo-ee-template-header2.docx
+  - from: resources/zonal-concluding-agreement-template-mmc.docx
+    to: zonal-concluding-agreement-template-mmc.docx
+  - from: resources/zonal-concluding-agreement-template-cmc.docx
+    to: zonal-concluding-agreement-template-cmc.docx
+  - from: resources/zonal-concluding-agreement-template-ghmc.docx
+    to: zonal-concluding-agreement-template-ghmc.docx
+  - from: resources/zonal-memo-ee-template-mmc.docx
+    to: zonal-memo-ee-template-mmc.docx
+  - from: resources/zonal-memo-ee-template-cmc.docx
+    to: zonal-memo-ee-template-cmc.docx
+  - from: resources/zonal-memo-ee-template-ghmc.docx
+    to: zonal-memo-ee-template-ghmc.docx
   - from: resources/se-agreement-note-template.docx
     to: se-agreement-note-template.docx
   - from: resources/contract-deed-template.docx

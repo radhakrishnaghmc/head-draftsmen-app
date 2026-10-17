@@ -39,9 +39,7 @@ export default function GoogleLinkImport({ onImport }: Props) {
 
   return (
     <div className="link-import">
-      <div className="card-head">
-        <h3>Works List Link</h3>
-      </div>
+      <p className="link-import-title">Replace the works database from a Google Sheets / Drive link</p>
       <div className="link-import-row">
         <IconLink />
         <input
@@ -59,7 +57,7 @@ export default function GoogleLinkImport({ onImport }: Props) {
           {loading ? 'Importing…' : 'Import'}
         </button>
       </div>
-      <p className="hint">Importing replaces the current works database with the data from the link.</p>
+      <p className="hint">Importing replaces every column and row in the current works database with the data from the link.</p>
       {error && (
         <div className="notice error">
           <IconWarn />

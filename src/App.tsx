@@ -71,7 +71,8 @@ import {
   IconSettings,
   IconWarn,
   IconChevronRight,
-  IconGrid
+  IconGrid,
+  IconUser
 } from './components/Icons'
 import type {
   ExcelTable,
@@ -305,7 +306,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   const [intimationInstanceKey, setIntimationInstanceKey] = useState(0)
   const [evaluationInstanceKey, setEvaluationInstanceKey] = useState(0)
   const [workOrderInstanceKey, setWorkOrderInstanceKey] = useState(0)
-  const [issueNoticesInstanceKey, setIssueNoticesInstanceKey] = useState(0)
+  const [issueNoticesWorkspaceOpen, setIssueNoticesWorkspaceOpen] = useState(false)
   // Sub-tabs within the Intimation workspace: the Intimation letter, or the
   // Bid Capacity Evaluation Sheet issued from a "View Bidders" PDF.
   const [intimationSubTab, setIntimationSubTab] = useState<'intimation' | 'evaluation'>('intimation')
@@ -830,7 +831,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     // field was added, so a session hydrated from an older save has the
     // totals (shown on the tile) but not the rows needed to export them —
     // silently re-fetch from the remembered link rather than doing nothing.
-    if (!works && currentOfficeKey) {
+    // An empty saved list is as unusable as a missing one (older/failed parse) — re-fetch it too.
+    if ((!works || works.length === 0) && currentOfficeKey) {
       const link = monitoringFormatLinks[currentOfficeKey]
       if (!link) return false
       try {
@@ -842,7 +844,20 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       }
     }
     if (!works) return false
-    const matches = filterMonitoringFormatWorksByStatus(works, key)
+    let matches = filterMonitoringFormatWorksByStatus(works, key)
+    // The tile promises works but the saved list has none for it — the list was saved by an
+    // older parse (e.g. before in-progress rows were recognised). Re-read it from the link once.
+    const tileCount = officeMonitoringFormat?.totals[key]?.no ?? 0
+    if (matches.length === 0 && tileCount > 0 && currentOfficeKey && monitoringFormatLinks[currentOfficeKey]) {
+      try {
+        const sheets = await api.importAllSheetsFromLink(monitoringFormatLinks[currentOfficeKey])
+        works = extractMonitoringFormatWorksForOffice(sheets, office)
+        setOfficeMonitoringFormat(extractMonitoringFormatForOffice(sheets, office), works)
+        matches = filterMonitoringFormatWorksByStatus(works, key)
+      } catch {
+        /* keep the (empty) saved result */
+      }
+    }
     const headers = [
       'Sl.No',
       'Circle',
@@ -878,7 +893,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     statusLabel?: string | null
   ): Promise<boolean> {
     let works = currentOfficeKey ? monitoringFormatWorksByOffice[currentOfficeKey] : undefined
-    if (!works && currentOfficeKey) {
+    // An empty saved list is as unusable as a missing one (older/failed parse) — re-fetch it too.
+    if ((!works || works.length === 0) && currentOfficeKey) {
       const link = monitoringFormatLinks[currentOfficeKey]
       if (!link) return false
       try {
@@ -1293,7 +1309,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     const item: TenderReminderItem = {
       workName: row[4] || undefined,
       tenderId: row[1] || undefined,
-      bidClosing: row[7] || undefined
+      bidClosing: row[8] || undefined
     }
     setTenderReminders((prev) => {
       const idx = prev.findIndex((r) => r.nitNo === nitNo && (r.officeKey ?? '') === currentOfficeKey)
@@ -1564,41 +1580,73 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
             )}
             {refreshError && <div className="notice error">{refreshError}</div>}
             {refreshSummary && <div className="notice ok">{refreshSummary}</div>}
-            {/* A single persistent header row of tabs that never reflows — clicking
-                a tab shows its content in the panel below, instead of the old
-                equal-width-tiles layout where opening one tile shifted the others. */}
-            <div className="worklist-tabs-wrap">
-              <div className="card-head worklist-tabs">
-                {office.circle && (
+            {/* Works List workspace: a summary strip, then one tab bar whose selected
+                tab owns the panel directly beneath it — so it is always clear which
+                section the content below belongs to. Tabs never reflow. */}
+            <div className="wl-workspace">
+              {currentTable && (
+                <div className="wl-stats" aria-label="Works List summary">
+                  <div className="wl-stat">
+                    <span className="wl-stat-label">Works</span>
+                    <span className="wl-stat-value">{currentTable.rows.length}</span>
+                  </div>
                   <button
                     type="button"
-                    className="settings-section-toggle mf-toggle"
-                    onClick={() => setWorklistOpenTile((t) => (t === 'qc' ? null : 'qc'))}
-                    aria-expanded={worklistOpenTile === 'qc'}
+                    className={`wl-stat wl-stat-action${worksListErrors.length > 0 ? ' warn' : ' ok'}`}
+                    onClick={() => setShowWincodeViolations(true)}
+                    title="Check the Works List for data problems"
                   >
-                    <IconChevronRight className={`settings-section-chevron ${worklistOpenTile === 'qc' ? 'open' : ''}`} />
-                    <h3>3rd / 4th-party QC agency details</h3>
+                    <span className="wl-stat-label">To verify</span>
+                    <span className="wl-stat-value">{worksListErrors.length}</span>
                   </button>
-                )}
-                <button
-                  type="button"
-                  className="settings-section-toggle mf-toggle"
-                  onClick={() => setWorklistOpenTile((t) => (t === 'mf' ? null : 'mf'))}
-                  aria-expanded={worklistOpenTile === 'mf'}
-                >
-                  <IconChevronRight className={`settings-section-chevron ${worklistOpenTile === 'mf' ? 'open' : ''}`} />
-                  <h3>Monitoring Format</h3>
-                </button>
-                <button
-                  type="button"
-                  className="settings-section-toggle mf-toggle"
-                  onClick={() => setWorklistOpenTile((t) => (t === 'wl' ? null : 'wl'))}
-                  aria-expanded={worklistOpenTile === 'wl'}
-                >
-                  <IconChevronRight className={`settings-section-chevron ${worklistOpenTile === 'wl' ? 'open' : ''}`} />
-                  <h3>Works List Database</h3>
-                </button>
+                </div>
+              )}
+              <div className="wl-shell">
+              <div className="wl-tabbar" role="tablist" aria-label="Works List sections">
+                {(
+                  [
+                    {
+                      key: 'wl' as const,
+                      label: 'Works List Database',
+                      Icon: IconTable,
+                      meta: currentTable ? `${currentTable.rows.length} works` : 'Not created'
+                    },
+                    {
+                      key: 'mf' as const,
+                      label: 'Monitoring Format',
+                      Icon: IconGrid,
+                      meta: officeMonitoringFormat ? 'Imported' : 'Not imported'
+                    },
+                    ...(office.circle
+                      ? [{ key: 'qc' as const, label: '3rd / 4th-party QC agencies', Icon: IconUser, meta: 'Enter once' }]
+                      : [])
+                  ]
+                ).map(({ key, label, Icon, meta }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    id={`wl-tab-${key}`}
+                    aria-selected={worklistOpenTile === key}
+                    aria-controls="wl-panel"
+                    className={`wl-tab${worklistOpenTile === key ? ' active' : ''}`}
+                    onClick={() => setWorklistOpenTile((t) => (t === key ? null : key))}
+                  >
+                    <Icon className="wl-tab-ic" />
+                    <span className="wl-tab-text">
+                      <span className="wl-tab-label">{label}</span>
+                      <span className="wl-tab-meta">{meta}</span>
+                    </span>
+                  </button>
+                ))}
               </div>
+              <div
+                className={`wl-panel${worklistOpenTile ? '' : ' empty'}`}
+                id="wl-panel"
+                role="tabpanel"
+                aria-labelledby={worklistOpenTile ? `wl-tab-${worklistOpenTile}` : undefined}
+              >
+                {!worklistOpenTile && <p className="wl-panel-hint">Select a section above to open it.</p>}
               {worklistOpenTile === 'qc' && (
                 <QcPartiesEditor
                   parties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
@@ -1641,6 +1689,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                     </div>
                   </div>
                 ))}
+              </div>
+              </div>
             </div>
             {circleMismatchConfirm &&
               createPortal(
@@ -1867,27 +1917,21 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
 
         <KeepAlive active={tab === 'issueNotices'} mounted={mountedTabs.has('issueNotices')}>
           <section className="page">
-            <div className="page-head">
-              <div className="page-ic">
-                <IconWarn />
+            {!issueNoticesWorkspaceOpen && (
+              <div className="page-head">
+                <div className="page-ic">
+                  <IconWarn />
+                </div>
+                <div className="page-head-text">
+                  <h1>Issue Notices</h1>
+                  <p>Choose the kind of notice to issue.</p>
+                </div>
               </div>
-              <div className="page-head-text">
-                <h1>Issue Notices</h1>
-                <p>Upload the Online Intimation and L1 sheet to fill the Notice for an L-1 bidder who hasn't concluded the agreement.</p>
-              </div>
-              <div className="page-head-action">
-                <button
-                  className="ghost"
-                  onClick={() => setIssueNoticesInstanceKey((k) => k + 1)}
-                  title="Clear the uploaded documents and filled fields to start a new work"
-                >
-                  <IconRefresh /> Clear
-                </button>
-              </div>
-            </div>
+            )}
             <IssueNoticesTab
-              key={issueNoticesInstanceKey}
+              onWorkspaceChange={setIssueNoticesWorkspaceOpen}
               office={office}
+              worksTable={tables[0] ?? null}
               items={officePendingNotices}
               onChange={setOfficePendingNotices}
             />

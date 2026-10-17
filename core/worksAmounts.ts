@@ -3,7 +3,7 @@
 // fills one of these placeholders (the Bid Document generator, and any
 // user-authored {{Placeholder}} template filled from a Works List row).
 import type { ExcelTable } from './types'
-import { rankByEmbedding, WORK_IDENTITY_MATCH_THRESHOLD } from './embeddingMatch'
+import { rankByEmbedding, workNamesConflict, WORK_IDENTITY_MATCH_THRESHOLD } from './embeddingMatch'
 import { normalizeWorkNameForMatch } from './tenderAgents/nameOfWork'
 
 /** "1" or ".30" (Lakhs) -> 100000 or 30000 (rupees). "Amount of estimate" is entered on the Works List in Lakhs. */
@@ -203,7 +203,11 @@ export function applyEcvFromBoq(
   let matchedViaAi = false
   if (idx === -1 && embeddings) {
     const [best] = rankByEmbedding(embeddings.workNameVector, embeddings.rowNameVectors)
-    if (best && best.score >= WORK_IDENTITY_MATCH_THRESHOLD) {
+    if (
+      best &&
+      best.score >= WORK_IDENTITY_MATCH_THRESHOLD &&
+      !workNamesConflict(workName, table.rows[best.index][nameHeader] ?? '')
+    ) {
       idx = best.index
       matchedViaAi = true
     }

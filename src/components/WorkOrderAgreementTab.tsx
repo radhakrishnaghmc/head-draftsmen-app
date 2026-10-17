@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
+import { PDFDocument } from 'pdf-lib'
 import { api } from '../ipc'
 import {
   parseIntimationNotice,
@@ -9,6 +10,7 @@ import {
 } from '@core/intimationNotice'
 import { detectTenderId } from '@core/tenderAgents'
 import { parseTenderEvaluation, parseAllBidders, type TenderEvaluation } from '@core/tenderEvaluationPdf'
+import { variantForCorporation, corporationDefaultVariant } from '@core/workOrderTemplateVariants'
 import { parseBalanceEmdReceipt } from '@core/balanceEmdReceipt'
 import { parseBankGuarantees, extractBankName } from '@core/bankGuaranteePdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
@@ -22,6 +24,7 @@ import {
   zonalDocsPlaceholders,
   qccIntimationPlaceholders,
   forwardingSlipPlaceholders,
+  workBillNotePlaceholders,
   civilTenderPlaceholders,
   standaloneRowFromSources,
   circleFromNit,
@@ -40,6 +43,7 @@ import { indianDigitGroups } from '@core/worksAmounts'
 import { compareWorkNames, workNameMismatchMessage, normWorkName } from '@core/workNameMatch'
 import {
   buildNoteSubmittedHtml,
+  noteSubmittedSections,
   noteSubmittedFromRow,
   summarizeNonResponsiveness,
   tenderPctMagnitude,
@@ -47,6 +51,16 @@ import {
   type NoteBidder
 } from '@core/noteSubmitted'
 import NoteSubmittedEditor from './NoteSubmittedEditor'
+import {
+  DEFAULT_NOTE_MARGINS,
+  noteDocxHtml,
+  noteMarginsTwips,
+  noteSheetsHtml,
+  paginateNotes,
+  type NoteMargins
+} from '../notePagination'
+import PageMarginGuides from './PageMarginGuides'
+import { applyPageMargins, type PageMargins } from '@core/docMargins'
 import DocFieldsEditor, { groupLabels, type DocFieldGroup } from './DocFieldsEditor'
 import { mismatchHint } from '../docClassify'
 import type { PlaceholderMatch } from '@core/createDocument'
@@ -171,6 +185,7 @@ type DocKind =
   | 'agreement'
   | 'qccIntimation'
   | 'forwardingSlip'
+  | 'workBillNote'
   | 'civilTender'
   | 'seAgreementBond'
   | 'zonalWorkOrder'
@@ -183,6 +198,7 @@ type Output = DocKind | 'scheduleA' | 'note'
 const DOC_LABEL: Record<Output, string> = {
   fileBacker: 'File Backer',
   forwardingSlip: 'Forwarding Slip',
+  workBillNote: 'DB Note',
   civilTender: 'Tender Document',
   workOrder: 'Work Order',
   agreement: 'Agreement Bond',
@@ -203,6 +219,7 @@ const DOC_KINDS: DocKind[] = [
   'agreement',
   'qccIntimation',
   'forwardingSlip',
+  'workBillNote',
   'civilTender',
   'seAgreementBond',
   'zonalWorkOrder',
@@ -228,9 +245,16 @@ const EDITABLE_DOCS: DocKind[] = [
   'workOrder',
   'agreement',
   'qccIntimation',
+  'forwardingSlip',
+  'workBillNote',
   'zonalWorkOrder',
   'seAgreementBond'
 ]
+
+// Documents whose preview has draggable page-margin guides.
+// Documents forced to a single-width A4 sheet in the preview, print and every export.
+const A4_DOCS: Output[] = ['fileBacker', 'agreement', 'seAgreementBond', 'workBillNote']
+const MARGIN_DOCS: Output[] = ['fileBacker', 'workOrder', 'agreement', 'seAgreementBond', 'forwardingSlip', 'workBillNote']
 
 function isEditableDoc(kind: Output | null): kind is DocKind {
   return isDocKind(kind) && EDITABLE_DOCS.includes(kind)
@@ -244,6 +268,72 @@ function isEditableDoc(kind: Output | null): kind is DocKind {
  * own labels, grouped by groupLabels().
  */
 const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
+  workBillNote: [
+    {
+      title: 'The work',
+      fields: [
+        { label: 'Wincode', title: 'Wincode' },
+        { label: 'Corporation', title: 'Corporation' },
+        { label: 'CNO', title: 'Circle No' },
+        { label: 'Name of the work', title: 'Name of the work', multiline: true },
+        { label: 'Name of the agency', title: 'Name of the agency' },
+        { label: 'Serial of bill', title: 'Serial of bill' }
+      ]
+    },
+    {
+      title: 'Amounts & agreement',
+      fields: [
+        { label: 'Estimate Amount', title: 'Estimate amount' },
+        { label: 'Administrative Sanction Amount', title: 'Administrative sanction' },
+        { label: 'ECV', title: 'ECV' },
+        { label: 'Tender Percentage', title: 'Tender percentage' },
+        { label: 'Contract Amount', title: 'Agreement value' },
+        { label: 'Contract Amount Plain', title: 'Agreement value (item 28)' },
+        { label: 'Agreement No and Date', title: 'Agreement no. & date' },
+        { label: 'Period of Contract', title: 'Period of contract' }
+      ]
+    },
+    {
+      title: 'Progress & measurements',
+      fields: [
+        { label: 'Status of Work', title: 'Status of work' },
+        { label: 'Date of Completion', title: 'Date of completion' },
+        { label: 'EOT Details', title: 'Extension of time' },
+        { label: 'AE Recording Dates', title: 'Recording dates (AE)', multiline: true },
+        { label: 'MB Details', title: 'M.B. details' },
+        { label: 'DyEE Check Dates', title: 'Dy.EE check measurement', multiline: true },
+        { label: 'EE Test Check', title: 'EE test check' },
+        { label: 'SE Super Check', title: 'SE super check' }
+      ]
+    },
+    {
+      title: 'Deductions & reports',
+      fields: [
+        { label: 'Embedded Tax', title: 'Embedded tax' },
+        { label: 'Price Escalation', title: 'Price escalation' },
+        { label: 'EOT Penalty', title: 'EOT penalty' },
+        { label: 'DC ZC Inspection', title: 'DC / ZC visual inspection' },
+        { label: 'QC Officials Report', title: 'QC officials report' },
+        { label: 'QCC Third Party Report', title: 'QCC third party report' },
+        { label: 'ATR Details', title: 'A.T.R. details' },
+        { label: 'Seignorage Details', title: 'Seignorage charges' },
+        { label: 'One Time Penalty Details', title: 'One time penalty / DMFT / SMET' }
+      ]
+    },
+    {
+      title: 'Value of work done',
+      fields: [{ label: 'Value of Work Done', title: 'Value of work done (item 28)' }]
+    },
+    {
+      title: 'Excess over agreement quantity',
+      fields: [1, 2, 3, 4, 5].flatMap((i) => [
+        { label: `Excess Item ${i}`, title: `Row ${i} - item`, multiline: true },
+        { label: `Agreement Qty ${i}`, title: `Row ${i} - agreement qty` },
+        { label: `Executed Qty ${i}`, title: `Row ${i} - executed qty` },
+        { label: `Exceed Qty ${i}`, title: `Row ${i} - exceed qty` }
+      ])
+    }
+  ],
   fileBacker: [
     {
       title: 'Header',
@@ -539,6 +629,7 @@ export default function WorkOrderAgreementTab({
   const [agreementB64, setAgreementB64] = useState<string | null>(null)
   const [qccIntimationB64, setQccIntimationB64] = useState<string | null>(null)
   const [forwardingSlipB64, setForwardingSlipB64] = useState<string | null>(null)
+  const [workBillNoteB64, setWorkBillNoteB64] = useState<string | null>(null)
   const [civilTenderB64, setCivilTenderB64] = useState<string | null>(null)
   const [seAgreementBondB64, setSeAgreementBondB64] = useState<string | null>(null)
   const [zonalWorkOrderB64, setZonalWorkOrderB64] = useState<string | null>(null)
@@ -551,6 +642,7 @@ export default function WorkOrderAgreementTab({
   const [agreementLabels, setAgreementLabels] = useState<string[]>([])
   const [qccIntimationLabels, setQccIntimationLabels] = useState<string[]>([])
   const [forwardingSlipLabels, setForwardingSlipLabels] = useState<string[]>([])
+  const [workBillNoteLabels, setWorkBillNoteLabels] = useState<string[]>([])
   const [civilTenderLabels, setCivilTenderLabels] = useState<string[]>([])
   const [seAgreementBondLabels, setSeAgreementBondLabels] = useState<string[]>([])
   const [zonalWorkOrderLabels, setZonalWorkOrderLabels] = useState<string[]>([])
@@ -660,6 +752,7 @@ export default function WorkOrderAgreementTab({
   // value; blank until the user sets it (via the field here or the prompt shown
   // when the Agreement Bond tile is opened).
   const [agreementDate, setAgreementDate] = useState('')
+  const [agreementNo, setAgreementNo] = useState('')
   const [datePromptOpen, setDatePromptOpen] = useState(false)
   const [promptDate, setPromptDate] = useState('')
   // Tools/standalone: when the uploaded L-1's name of work / NIT carries no Zone
@@ -680,6 +773,41 @@ export default function WorkOrderAgreementTab({
   // as the Intimation tab, shown here as a fourth output tile.
   const [allBidders, setAllBidders] = useState<NoteBidder[]>([])
   const [noteData, setNoteData] = useState<NoteSubmittedData | null>(null)
+  // Page margins (mm) of the Note Submitted preview and print; kept between sessions.
+  const [noteMargins, setNoteMargins] = useState<NoteMargins>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('noteSubmittedMargins') ?? 'null')
+      if (saved && (['top', 'bottom', 'left', 'right'] as const).every((k) => Number.isFinite(saved[k]))) return saved
+    } catch {
+      /* fall through to defaults */
+    }
+    return DEFAULT_NOTE_MARGINS
+  })
+  useEffect(() => {
+    localStorage.setItem('noteSubmittedMargins', JSON.stringify(noteMargins))
+  }, [noteMargins])
+  // Page margins (mm) dragged on the preview of File Backer, Work Order, Agreement Bond and Forwarding
+  // Slip; a document with no entry uses its template's own. Kept between sessions.
+  const [docMargins, setDocMargins] = useState<Partial<Record<DocKind, PageMargins>>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('docPageMargins') ?? 'null')
+      if (saved && typeof saved === 'object') return saved
+    } catch {
+      /* fall through to the templates' margins */
+    }
+    return {}
+  })
+  useEffect(() => {
+    localStorage.setItem('docPageMargins', JSON.stringify(docMargins))
+  }, [docMargins])
+  function setMarginsFor(kind: DocKind, m: PageMargins | null) {
+    setDocMargins((prev) => {
+      const next = { ...prev }
+      if (m) next[kind] = m
+      else delete next[kind]
+      return next
+    })
+  }
 
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const noticeInputRef = useRef<HTMLInputElement>(null)
@@ -691,6 +819,7 @@ export default function WorkOrderAgreementTab({
   const agTileRef = useRef<HTMLDivElement>(null)
   const qccIntTileRef = useRef<HTMLDivElement>(null)
   const fsTileRef = useRef<HTMLDivElement>(null)
+  const wbnTileRef = useRef<HTMLDivElement>(null)
   const ctTileRef = useRef<HTMLDivElement>(null)
   const seBondTileRef = useRef<HTMLDivElement>(null)
   const zwoTileRef = useRef<HTMLDivElement>(null)
@@ -764,6 +893,8 @@ export default function WorkOrderAgreementTab({
   const agreementVariantKey = officeScopedKey(TEMPLATE_KEYS.agreement, office)
   const fileBackerVariantKey = officeScopedKey(TEMPLATE_KEYS.fileBacker, office)
   const civilTenderVariantKey = officeScopedKey(TEMPLATE_KEYS.civilTender, office)
+  const concludingVariantKey = officeScopedKey(TEMPLATE_KEYS.concludingAgreement, office)
+  const memoEeVariantKey = officeScopedKey(TEMPLATE_KEYS.memoEe, office)
   useEffect(() => {
     let cancelled = false
 
@@ -778,23 +909,33 @@ export default function WorkOrderAgreementTab({
           // picked one.
           const workOrderVariant = localStorage.getItem(workOrderVariantKey) ?? undefined
           const agreementVariant = localStorage.getItem(agreementVariantKey) ?? undefined
-          const fileBackerVariant = localStorage.getItem(fileBackerVariantKey) ?? undefined
-          const civilTenderVariant = localStorage.getItem(civilTenderVariantKey) ?? undefined
-          const [woB64, fbB64, agB64, qiB64, fsB64, ctB64] = await Promise.all([
+          // Corporation logo headers (types 4-6) are per-corporation, and the default for MMC / CMC / GHMC when no pick is saved.
+          const corp = office?.corporation
+          const fileBackerVariant = variantForCorporation(
+            localStorage.getItem(fileBackerVariantKey) ?? corporationDefaultVariant(corp, undefined),
+            corp
+          )
+          const civilTenderVariant = variantForCorporation(
+            localStorage.getItem(civilTenderVariantKey) ?? corporationDefaultVariant(corp, undefined),
+            corp
+          )
+          const [woB64, fbB64, agB64, qiB64, fsB64, ctB64, wbB64] = await Promise.all([
             api.workOrderTemplate(workOrderVariant),
             api.fileBackerTemplate(fileBackerVariant),
             api.agreementTemplate(agreementVariant),
             api.qccIntimationTemplate(),
             api.forwardingSlipTemplate(),
-            api.civilTenderTemplate(civilTenderVariant)
+            api.civilTenderTemplate(civilTenderVariant),
+            api.workBillNoteTemplate()
           ])
-          const [woLabels, fbLabels, agLabels, qiLabels, fsLabels, ctLabels] = await Promise.all([
+          const [woLabels, fbLabels, agLabels, qiLabels, fsLabels, ctLabels, wbLabels] = await Promise.all([
             api.findPlaceholdersInDocument(woB64),
             api.findPlaceholdersInDocument(fbB64),
             api.findPlaceholdersInDocument(agB64),
             api.findPlaceholdersInDocument(qiB64),
             api.findPlaceholdersInDocument(fsB64),
-            api.findPlaceholdersInDocument(ctB64)
+            api.findPlaceholdersInDocument(ctB64),
+            api.findPlaceholdersInDocument(wbB64)
           ])
           if (cancelled) return
           setWorkOrderB64(woB64)
@@ -803,12 +944,14 @@ export default function WorkOrderAgreementTab({
           setQccIntimationB64(qiB64)
           setForwardingSlipB64(fsB64)
           setCivilTenderB64(ctB64)
+          setWorkBillNoteB64(wbB64)
           setWorkOrderLabels(woLabels)
           setFileBackerLabels(fbLabels)
           setAgreementLabels(agLabels)
           setQccIntimationLabels(qiLabels)
           setForwardingSlipLabels(fsLabels)
           setCivilTenderLabels(ctLabels)
+          setWorkBillNoteLabels(wbLabels)
         } catch (e) {
           if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
         }
@@ -842,13 +985,22 @@ export default function WorkOrderAgreementTab({
   useEffect(() => {
     if (!seMode) return
     let cancelled = false
-    void (async () => {
+    const load = () => void (async () => {
       try {
+        // The office's Work Order pick (Settings → Document Templates) applies here too:
+        // type 3 is the logo-header layout, anything else the default SE letterhead.
+        // Concluding Agreement / Memo to EE have their own picks of the same two.
+        // The corporation logo headers (types 4-6) are per-corporation — ignore a stale saved choice anywhere else.
+        const corp = office?.corporation
+        const workOrderVariant = variantForCorporation(localStorage.getItem(workOrderVariantKey) ?? undefined, corp)
+        // An MMC / CMC / GHMC office with no saved pick gets its own header on these two by default.
+        const concludingVariant = variantForCorporation(localStorage.getItem(concludingVariantKey) ?? corporationDefaultVariant(corp, undefined), corp)
+        const memoEeVariant = variantForCorporation(localStorage.getItem(memoEeVariantKey) ?? corporationDefaultVariant(corp, undefined), corp)
         const [bondB64, woB64, caB64, meB64, noteB64, deedB64] = await Promise.all([
           api.seAgreementBondTemplate(),
-          api.zonalWorkOrderTemplate(),
-          api.zonalConcludingAgreementTemplate(),
-          api.zonalMemoEeTemplate(),
+          api.zonalWorkOrderTemplate(workOrderVariant),
+          api.zonalConcludingAgreementTemplate(concludingVariant),
+          api.zonalMemoEeTemplate(memoEeVariant),
           api.seAgreementNoteTemplate(),
           api.contractDeedTemplate()
         ])
@@ -877,10 +1029,17 @@ export default function WorkOrderAgreementTab({
         if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
       }
     })()
+    load()
+    function onVariantChanged(e: Event) {
+      const key = (e as CustomEvent).detail?.storageKey
+      if (key === workOrderVariantKey || key === concludingVariantKey || key === memoEeVariantKey) load()
+    }
+    window.addEventListener(TEMPLATE_VARIANT_CHANGED_EVENT, onVariantChanged)
     return () => {
       cancelled = true
+      window.removeEventListener(TEMPLATE_VARIANT_CHANGED_EVENT, onVariantChanged)
     }
-  }, [seMode])
+  }, [seMode, workOrderVariantKey, concludingVariantKey, memoEeVariantKey])
 
   // Circle/CNO for the work, read off the NIT No ("…/EE/Gajularamaram
   // Circle-57/…") of either upload, falling back to a directory scan of the
@@ -924,6 +1083,7 @@ export default function WorkOrderAgreementTab({
     return {
       ...f,
       agreementDate: dmy,
+      agreementNo: agreementNo.trim(),
       workOrderDate: dmy,
       // Corporation / Circle / Zone come from the chosen office (Works List page)
       // when set, else the L-1/NIT-derived value, else the hand-entered fallback.
@@ -947,6 +1107,7 @@ export default function WorkOrderAgreementTab({
     pdfEval,
     selectedRow,
     agreementDate,
+    agreementNo,
     office,
     tsNoDate,
     ceLetterNoDate,
@@ -1299,6 +1460,8 @@ export default function WorkOrderAgreementTab({
         return qccIntimationPlaceholders(f)
       case 'forwardingSlip':
         return forwardingSlipPlaceholders(f)
+      case 'workBillNote':
+        return workBillNotePlaceholders(f)
       case 'seAgreementBond':
         return seAgreementBondPlaceholders(f)
       case 'zonalWorkOrder':
@@ -1319,12 +1482,12 @@ export default function WorkOrderAgreementTab({
   async function fillDoc(kind: DocKind, opts?: { blankDate?: boolean }): Promise<string> {
     const b64 =
       {
-        workOrder: workOrderB64, fileBacker: fileBackerB64, agreement: agreementB64, qccIntimation: qccIntimationB64, forwardingSlip: forwardingSlipB64, civilTender: civilTenderB64, seAgreementBond: seAgreementBondB64,
+        workOrder: workOrderB64, fileBacker: fileBackerB64, agreement: agreementB64, qccIntimation: qccIntimationB64, forwardingSlip: forwardingSlipB64, workBillNote: workBillNoteB64, civilTender: civilTenderB64, seAgreementBond: seAgreementBondB64,
         zonalWorkOrder: zonalWorkOrderB64, zonalConcludingAgreement: zonalConcludingAgreementB64, zonalMemoEe: zonalMemoEeB64, seAgreementNote: seAgreementNoteB64, contractDeed: contractDeedB64
       }[kind]
     const labels =
       {
-        workOrder: workOrderLabels, fileBacker: fileBackerLabels, agreement: agreementLabels, qccIntimation: qccIntimationLabels, forwardingSlip: forwardingSlipLabels, civilTender: civilTenderLabels, seAgreementBond: seAgreementBondLabels,
+        workOrder: workOrderLabels, fileBacker: fileBackerLabels, agreement: agreementLabels, qccIntimation: qccIntimationLabels, forwardingSlip: forwardingSlipLabels, workBillNote: workBillNoteLabels, civilTender: civilTenderLabels, seAgreementBond: seAgreementBondLabels,
         zonalWorkOrder: zonalWorkOrderLabels, zonalConcludingAgreement: zonalConcludingAgreementLabels, zonalMemoEe: zonalMemoEeLabels, seAgreementNote: seAgreementNoteLabels, contractDeed: contractDeedLabels
       }[kind] ?? []
     if (!b64) throw new Error('Format not loaded yet.')
@@ -1339,7 +1502,9 @@ export default function WorkOrderAgreementTab({
     // which is why they survive blankDate.
     const values = { ...derivedPlaceholders(kind, f), ...(docEdits[kind] ?? {}) }
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
-    return api.fillPlaceholdersInDocument(b64, resolved, values)
+    const filled = await api.fillPlaceholdersInDocument(b64, resolved, values)
+    // File Backer is a single A4 sheet (the templates are still US Letter).
+    return applyPageMargins(filled, docMargins[kind] ?? null, A4_DOCS.includes(kind))
   }
 
   // The full-size, accurate (LibreOffice-backed) render — used only for the
@@ -1357,9 +1522,11 @@ export default function WorkOrderAgreementTab({
     const listed = DOC_FIELDS[kind]
     if (listed) return listed
     const labels =
-      { seAgreementBond: seAgreementBondLabels, zonalWorkOrder: zonalWorkOrderLabels }[
-        kind as 'seAgreementBond' | 'zonalWorkOrder'
-      ] ?? []
+      {
+        seAgreementBond: seAgreementBondLabels,
+        zonalWorkOrder: zonalWorkOrderLabels,
+        forwardingSlip: forwardingSlipLabels
+      }[kind as 'seAgreementBond' | 'zonalWorkOrder' | 'forwardingSlip'] ?? []
     return groupLabels(labels)
   }
 
@@ -1450,6 +1617,7 @@ export default function WorkOrderAgreementTab({
       // Schedule A (the SE catalog's other remaining output) renders its own
       // JSX table below, not through this docx-preview effect.
       if (seMode) {
+        if (fbTileRef.current) void renderTileThumbnail('fileBacker', fbTileRef.current).catch(() => {})
         if (seBondTileRef.current) void renderTileThumbnail('seAgreementBond', seBondTileRef.current).catch(() => {})
         if (zwoTileRef.current) void renderTileThumbnail('zonalWorkOrder', zwoTileRef.current).catch(() => {})
         if (zcaTileRef.current) void renderTileThumbnail('zonalConcludingAgreement', zcaTileRef.current).catch(() => {})
@@ -1463,11 +1631,12 @@ export default function WorkOrderAgreementTab({
       if (agTileRef.current) void renderTileThumbnail('agreement', agTileRef.current).catch(() => {})
       if (qccIntTileRef.current) void renderTileThumbnail('qccIntimation', qccIntTileRef.current).catch(() => {})
       if (fsTileRef.current) void renderTileThumbnail('forwardingSlip', fsTileRef.current).catch(() => {})
+      if (wbnTileRef.current) void renderTileThumbnail('workBillNote', wbnTileRef.current).catch(() => {})
       if (ctTileRef.current) void renderTileThumbnail('civilTender', ctTileRef.current).catch(() => {})
     }, 600)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docsReady, seMode, fields, pagesOfAgreement, scheduleAItems, estimateCharges, docEdits])
+  }, [docsReady, seMode, fileBackerB64, fields, pagesOfAgreement, scheduleAItems, estimateCharges, docEdits])
 
   // The full-size preview inside the expanded modal (documents only — Schedule
   // A renders its table as JSX below).
@@ -1481,18 +1650,77 @@ export default function WorkOrderAgreementTab({
     // their editor panel — debounce so typing isn't one docx fill + render per
     // character. Every other document renders straight away.
     const delay = isEditableDoc(kind) ? 300 : 0
+    let cancelled = false
     const timer = setTimeout(() => {
       void renderDocInto(kind, container)
-        .then((pages) => setExpandedPages(pages))
+        .then(async (pages) => {
+          setExpandedPages(pages)
+          // The preview counts explicit page-break sections, which badly undercounts the
+          // 41-page Tender Document — take the real count from the LibreOffice PDF instead.
+          if (kind !== 'civilTender') return
+          const pdf = await PDFDocument.load(await api.docxToPdf(base64ToUint8(await fillDoc(kind))))
+          if (!cancelled) setExpandedPages(pdf.getPageCount())
+        })
         .catch((e) => setActionError(e instanceof Error ? e.message : String(e)))
     }, delay)
-    return () => clearTimeout(timer)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, fields, pagesOfAgreement, scheduleAItems, estimateCharges, docEdits])
+  }, [expanded, fields, pagesOfAgreement, scheduleAItems, estimateCharges, docEdits, docMargins])
 
   function docName(kind: DocKind): string {
     const agency = fields.agencyName ? ` - ${fields.agencyName}` : ''
     return `${DOC_LABEL[kind]}${agency}`
+  }
+
+  // Work Order / Tender Document print "Period of completion" — when it's still
+  // blank, ask for it first. The prompt is optional: "Continue without" runs the
+  // action as-is, × / clicking outside cancels it.
+  type PeriodGated =
+    | { type: 'download'; kind: DocKind; formats: ('docx' | 'pdf')[] }
+    | { type: 'print'; kind: DocKind }
+    | { type: 'all' }
+  const [periodPrompt, setPeriodPrompt] = useState<PeriodGated | null>(null)
+  const [periodDraft, setPeriodDraft] = useState('')
+  const [periodRun, setPeriodRun] = useState<PeriodGated | null>(null)
+  const PERIOD_DOCS: DocKind[] = ['workOrder', 'zonalWorkOrder', 'civilTender']
+
+  function needsPeriod(a: PeriodGated): boolean {
+    if (fields.completionMonths.trim()) return false
+    // A period typed into a document's preview editor is stored as that doc's edit, not in `fields`.
+    const typed = (k: DocKind) => !!docEdits[k]?.['Period of Completion']?.trim()
+    if (a.type === 'all') return !PERIOD_DOCS.some(typed)
+    return PERIOD_DOCS.includes(a.kind) && !typed(a.kind)
+  }
+  function runGated(a: PeriodGated) {
+    if (a.type === 'download') void download(a.kind, a.formats)
+    else if (a.type === 'print') void print(a.kind)
+    else void downloadAll()
+  }
+  function gated(a: PeriodGated) {
+    if (needsPeriod(a)) {
+      setPeriodDraft('')
+      setPeriodPrompt(a)
+    } else runGated(a)
+  }
+  // Runs after the typed period has re-rendered into `fields`, so the document
+  // is filled with it.
+  useEffect(() => {
+    if (!periodRun) return
+    runGated(periodRun)
+    setPeriodRun(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodRun])
+
+  function acceptPeriod() {
+    const v = periodDraft.trim()
+    if (!v || !periodPrompt) return
+    if (manualMode) setManual((p) => ({ ...p, completionMonths: v }))
+    else setCompletionMonths(v)
+    setPeriodRun(periodPrompt)
+    setPeriodPrompt(null)
   }
 
   async function download(kind: DocKind, formats: ('docx' | 'pdf')[]) {
@@ -1567,6 +1795,7 @@ export default function WorkOrderAgreementTab({
     }
 
     if (seMode) {
+      await add('fileBacker', fileBackerB64)
       await add('zonalWorkOrder', zonalWorkOrderB64)
       await add('seAgreementBond', seAgreementBondB64)
       await add('seAgreementNote', seAgreementNoteB64)
@@ -1595,10 +1824,10 @@ export default function WorkOrderAgreementTab({
     // A Zone-level (SE) office's 6 rebuilt documents — Schedule A (pushed
     // below, outside this count) is its other output.
     const totalPrep = seMode
-      ? [seAgreementBondB64, zonalWorkOrderB64, zonalConcludingAgreementB64, zonalMemoEeB64, seAgreementNoteB64, contractDeedB64].filter(
+      ? [fileBackerB64, seAgreementBondB64, zonalWorkOrderB64, zonalConcludingAgreementB64, zonalMemoEeB64, seAgreementNoteB64, contractDeedB64].filter(
           Boolean
         ).length
-      : [fileBackerB64, civilTenderB64, forwardingSlipB64, agreementB64, qccIntimationB64, workOrderB64, noteReady].filter(
+      : [fileBackerB64, workBillNoteB64, civilTenderB64, forwardingSlipB64, agreementB64, qccIntimationB64, workOrderB64, noteReady].filter(
           Boolean
         ).length
     let prepDone = 0
@@ -1621,8 +1850,9 @@ export default function WorkOrderAgreementTab({
         if (leftover.length > 0) unresolvedWarnings.push(`${name} (${leftover.join(', ')})`)
       }
       if (seMode) {
-        // File Backer-equivalent ordering: Work Order first, then the Agreement
+        // File Backer — the cover page — first, then the Work Order, then the Agreement
         // Bond, then its two forwarding memos and the put-up note.
+        if (fileBackerB64) await add(docName('fileBacker'), await fillDoc('fileBacker'))
         if (zonalWorkOrderB64) await add(docName('zonalWorkOrder'), await fillDoc('zonalWorkOrder'))
         // Same "blank, hand-writable date" policy as the EE Work Order / Agreement Bond bundle.
         if (seAgreementBondB64) await add(docName('seAgreementBond'), await fillDoc('seAgreementBond', { blankDate: true }))
@@ -1633,6 +1863,7 @@ export default function WorkOrderAgreementTab({
       } else {
         // File Backer — the cover page — first in the bundle.
         if (fileBackerB64) await add(docName('fileBacker'), await fillDoc('fileBacker'))
+        if (workBillNoteB64) await add(docName('workBillNote'), await fillDoc('workBillNote'))
         if (civilTenderB64) await add(docName('civilTender'), await fillDoc('civilTender'))
         if (forwardingSlipB64) await add(docName('forwardingSlip'), await fillDoc('forwardingSlip'))
         // Work Order & Agreement Bond print a blank, hand-writable date in the bundle.
@@ -1642,7 +1873,7 @@ export default function WorkOrderAgreementTab({
         if (noteReady)
           await add(
             noteSubmittedFileName(noteData?.workName),
-            await api.noteSubmittedDocx(notePreviewHtml, NOTE_DOCX_MARGINS_TWIPS)
+            await noteDocx()
           )
       }
       if (scheduleA)
@@ -1707,7 +1938,8 @@ export default function WorkOrderAgreementTab({
       selectedRow ?? {},
       pdfEval ?? {},
       effectiveNotice ?? {},
-      table?.rows[0]?.['Circle'] ?? ''
+      table?.rows[0]?.['Circle'] ?? '',
+      office?.corporation || fields.corporation || 'CMC'
     )
     if (allBidders.length > 0) {
       seed.bidders = allBidders
@@ -1734,12 +1966,15 @@ export default function WorkOrderAgreementTab({
   }, [rowIndex, table, allBidders, pdfEval, notice, effectiveNotice, deriveFromUploads, selectedRow, emdReceiptInfo])
 
   const notePreviewHtml = useMemo(() => (noteData ? buildNoteSubmittedHtml(noteData) : ''), [noteData])
-  // Note Submitted's top/bottom page margin is 1 line (at its own 12pt/1.5
-  // line-height), not a full inch — in each export's own unit. Sides keep
-  // html-to-docx's 1.25in default. Word doc, downloaded PDF (same docx via
-  // LibreOffice) and Print/print-to-PDF all stay in agreement.
-  const NOTE_DOCX_MARGINS_TWIPS = { top: 360, bottom: 360 }
-  const NOTE_PRINT_MARGINS_MM = { top: 6.35, right: 31.75, bottom: 6.35, left: 31.75 }
+  // The Word doc, the PDF (same docx via LibreOffice) and Print all take the
+  // margins set by dragging in the preview, and break pages where the preview
+  // does, so every output matches what was on screen.
+  async function noteDocx(): Promise<string> {
+    const raw = noteSubmittedSections(noteData!).map((sec) => sec.html)
+    // Pages are decided from the padded layout the preview shows; each piece is
+    // exported with the same padding in a form Word understands.
+    return api.noteSubmittedDocx(noteDocxHtml(paginateNotes(raw, noteMargins)), noteMarginsTwips(noteMargins))
+  }
   // Tile/preview visibility, matching the docx tiles (docsReady): the note shows
   // as soon as its data exists — blank framework included — and is editable and
   // downloadable on its own. noteReady below is the stricter gate for the
@@ -1789,7 +2024,7 @@ export default function WorkOrderAgreementTab({
     setActionError(null)
     setActionSaved(null)
     try {
-      const b64 = await api.noteSubmittedDocx(notePreviewHtml, NOTE_DOCX_MARGINS_TWIPS)
+      const b64 = await noteDocx()
       const name = noteSubmittedFileName(noteData.workName)
       const res = await api.exportCreatedDocument(b64, name, formats)
       setActionSaved(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
@@ -1805,7 +2040,10 @@ export default function WorkOrderAgreementTab({
     setBusy('print')
     setActionError(null)
     try {
-      await api.printCreatedDocument(notePreviewHtml, NOTE_PRINT_MARGINS_MM)
+      // Same sheets the editor shows (notePagination.ts), so the print window
+      // and the printed pages match the preview page for page.
+      const parts = noteSubmittedSections(noteData).map((sec) => sec.html)
+      await api.printCreatedDocument(noteSheetsHtml(paginateNotes(parts, noteMargins), noteMargins))
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -2082,7 +2320,7 @@ export default function WorkOrderAgreementTab({
       <button
         className="primary"
         disabled={busy === 'bundle'}
-        onClick={downloadAll}
+        onClick={() => gated({ type: 'all' })}
         title={`Every document as ${bundleFormat === 'pdf' ? 'PDF' : 'Word'}, into one folder you choose`}
       >
         <IconDownload /> {busy === 'bundle' ? bundleProgressLabel : 'Download all documents'}
@@ -2331,6 +2569,10 @@ export default function WorkOrderAgreementTab({
               <input type="date" value={agreementDate} onChange={(e) => setAgreementDate(e.target.value)} />
             </label>
             <label className="wo-date-field">
+              <span>Agreement number</span>
+              <input type="text" placeholder="12" value={agreementNo} onChange={(e) => setAgreementNo(e.target.value)} />
+            </label>
+            <label className="wo-date-field">
               <span>Technical Sanction No &amp; Date</span>
               <input
                 type="text"
@@ -2461,7 +2703,7 @@ export default function WorkOrderAgreementTab({
               Agreement Bond, Schedule A, Work Order, Tender Document, QCC
               Intimation. The Tools single-document panels (`only`) still show
               just their one tile via the `only ===` guards. */}
-          {docsReady && !only && !seMode && (
+          {docsReady && !only && fileBackerB64 && (
             <button className="wo-tile" onClick={() => openDoc('fileBacker')}>
               <div className="wo-tile-preview">
                 <div ref={fbTileRef} className="wo-tile-doc" />
@@ -2477,6 +2719,15 @@ export default function WorkOrderAgreementTab({
                 <span className="wo-tile-open">Click to preview</span>
               </div>
               <div className="wo-tile-foot">{DOC_LABEL.note}</div>
+            </button>
+          )}
+          {docsReady && !only && !seMode && workBillNoteB64 && (
+            <button className="wo-tile" onClick={() => openDoc('workBillNote')}>
+              <div className="wo-tile-preview">
+                <div ref={wbnTileRef} className="wo-tile-doc" />
+                <span className="wo-tile-open">Click to preview</span>
+              </div>
+              <div className="wo-tile-foot">{DOC_LABEL.workBillNote}</div>
             </button>
           )}
           {docsReady && !only && !seMode && (
@@ -2747,7 +2998,14 @@ export default function WorkOrderAgreementTab({
                   </table>
                 </div>
               ) : expanded === 'note' ? (
-                noteData && <NoteSubmittedEditor data={noteData} onChange={setNoteData} />
+                noteData && (
+                  <NoteSubmittedEditor
+                    data={noteData}
+                    onChange={setNoteData}
+                    margins={noteMargins}
+                    onMarginsChange={setNoteMargins}
+                  />
+                )
               ) : isEditableDoc(expanded) ? (
                 // Same split as Note Submitted's editor: the document's fields on
                 // the left, the live page on the right.
@@ -2762,7 +3020,30 @@ export default function WorkOrderAgreementTab({
                   />
                   <div className="ns-preview">
                     <div className="ns-preview-scroll">
-                      <div ref={expandedRef} className="intimation-docx-preview" />
+                      {MARGIN_DOCS.includes(expanded) ? (
+                        <div className="page-margin-host">
+                          <div
+                            ref={expandedRef}
+                            className={`intimation-docx-preview${A4_DOCS.includes(expanded) ? ' a4-sheet' : ''}`}
+                          />
+                          <PageMarginGuides
+                            containerRef={expandedRef}
+                            margins={docMargins[expanded] ?? null}
+                            onChange={(m) => setMarginsFor(expanded as DocKind, m)}
+                            renderKey={expandedPages}
+                          />
+                          <button
+                            type="button"
+                            className="ghost page-margin-reset"
+                            disabled={!docMargins[expanded]}
+                            onClick={() => setMarginsFor(expanded as DocKind, null)}
+                          >
+                            Reset margins
+                          </button>
+                        </div>
+                      ) : (
+                        <div ref={expandedRef} className="intimation-docx-preview" />
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2777,6 +3058,9 @@ export default function WorkOrderAgreementTab({
                   <IconWarn /> {actionError}
                 </div>
               )}
+              <button className="ghost wo-foot-close" onClick={() => setExpanded(null)}>
+                Close
+              </button>
               {expanded === 'scheduleA' ? (
                 <>
                   {!scheduleA && (
@@ -2805,19 +3089,72 @@ export default function WorkOrderAgreementTab({
                 </>
               ) : (
                 <>
-                  <button className="primary" onClick={() => download(expanded, ['docx'])} disabled={busy !== null}>
+                  <button className="primary" onClick={() => gated({ type: 'download', kind: expanded, formats: ['docx'] })} disabled={busy !== null}>
                     <IconDownload /> {busy === 'download' ? 'Saving…' : 'Word'}
                   </button>
-                  <button className="primary" onClick={() => download(expanded, ['pdf'])} disabled={busy !== null}>
+                  <button className="primary" onClick={() => gated({ type: 'download', kind: expanded, formats: ['pdf'] })} disabled={busy !== null}>
                     <IconDownload /> {busy === 'pdf' ? 'Saving…' : 'PDF'}
                   </button>
-                  <button className="primary" onClick={() => print(expanded)} disabled={busy !== null}>
+                  <button className="primary" onClick={() => gated({ type: 'print', kind: expanded })} disabled={busy !== null}>
                     <IconPrint /> {busy === 'print' ? 'Opening…' : 'Print'}
                   </button>
                 </>
               )}
             </div>
           </div>
+          </div>,
+          document.body
+        )}
+
+      {periodPrompt &&
+        createPortal(
+          <div className="wo-modal-overlay" onClick={() => setPeriodPrompt(null)}>
+            <div className="wo-modal wo-date-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="wo-modal-head">
+                <span className="wo-modal-title">Enter the period of completion</span>
+                <button className="wo-modal-close" onClick={() => setPeriodPrompt(null)} title="Cancel" aria-label="Cancel">
+                  ×
+                </button>
+              </div>
+              <div className="wo-modal-body wo-date-body">
+                <p>
+                  The period of completion isn’t filled in yet, so it would print blank on the Work Order and Tender
+                  Document. Enter it in months, or continue without it.
+                </p>
+                <label className="wo-date-field">
+                  <span>Period of completion (months)</span>
+                  <input
+                    type="text"
+                    placeholder="02"
+                    value={periodDraft}
+                    onChange={(e) => setPeriodDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && periodDraft.trim()) {
+                        e.preventDefault()
+                        acceptPeriod()
+                      }
+                    }}
+                    // eslint-disable-next-line jsx-a11y/no-autofocus
+                    autoFocus
+                  />
+                </label>
+              </div>
+              <div className="wo-modal-foot">
+                <button
+                  className="ghost"
+                  onClick={() => {
+                    const a = periodPrompt
+                    setPeriodPrompt(null)
+                    runGated(a)
+                  }}
+                >
+                  Continue without
+                </button>
+                <button className="primary" disabled={!periodDraft.trim()} onClick={acceptPeriod}>
+                  Use this period
+                </button>
+              </div>
+            </div>
           </div>,
           document.body
         )}

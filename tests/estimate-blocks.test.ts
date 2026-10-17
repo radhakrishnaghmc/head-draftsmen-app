@@ -148,3 +148,24 @@ describe('General Abstract rollup detection', () => {
     expect(extractAbstractTotalLakhs(abstractGrid, headerRow)).toBe(462)
   })
 })
+
+describe('extractEstimateItems — item whose S.No was left blank', () => {
+  it('reads an un-numbered, full-spec row after a costed item as its own item, not a variant of the item above', () => {
+    const m30 = 'Supply and placing of Ready Mix Concrete M 30 grade Standard Design Mix Concrete as per IS 4926'
+    const trowel = 'Mechanical trowelling, finishing with sound edges and corners, including hire and operational charges'
+    const grid = [
+      ['Sl. No', 'Description', 'No.s', '', '', 'L', 'B', 'D', 'Qty', 'Rate', 'Per', '', 'Amount'],
+      ['6', m30],
+      ['', '', '1', 'x', '1', '30', '5', '0.15', '22.5'],
+      ['', '', '', '', '', '', '', '', '22.50', '5421.89', 'Cum', '', '121992'],
+      ['', trowel],
+      ['', '', '1', 'x', '1', '30', '5', '', '150'],
+      ['', '', '', '', '', '', '', '', '150.00', '41.00', 'Sqm', '', '6150']
+    ]
+    const items = extractEstimateItems(grid, 0)
+    expect(items.map((i) => [i.description, i.quantity, i.rate])).toEqual([
+      [m30, '22.50', '5421.89'],
+      [trowel, '150.00', '41.00']
+    ])
+  })
+})

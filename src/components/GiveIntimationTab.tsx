@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
@@ -41,7 +41,7 @@ import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell, IconCheck } fr
 import type { ExcelTable } from '@core/types'
 import type { AgreementBundleFile, VerifyDocItem } from '../../electron/ipc-contract'
 import { VerifyButton } from './VerifyButton'
-import DocFieldsEditor, { groupLabels } from './DocFieldsEditor'
+import DocFieldsEditor, { groupLabels, type DocField, type DocFieldGroup } from './DocFieldsEditor'
 
 interface Props {
   tables: ExcelTable[]
@@ -155,13 +155,13 @@ function circleLine(row: Record<string, string>, workName: string, office: Offic
 }
 
 /** "Zonal Commissioner, QBZ, CMC" or "Commissioner, CMC" — the AS-approving authority, per the manual toggle. */
-function asAuthorityText(zoneAbbrCode: string, m: LoaManualFields): string {
-  return m.asAuthority === 'zonal' ? `Zonal Commissioner, ${zoneAbbrCode}, CMC` : 'Commissioner, CMC'
+function asAuthorityText(zoneAbbrCode: string, m: LoaManualFields, corp = 'CMC'): string {
+  return m.asAuthority === 'zonal' ? `Zonal Commissioner, ${zoneAbbrCode}, ${corp}` : `Commissioner, ${corp}`
 }
 
 /** The Ref-1 sentence tail: the authority, plus ", dated:DD.MM.YYYY" only for the Commissioner form — the zonal form's Ref line carries no date in the office's own samples. */
-function asRefLineText(zoneAbbrCode: string, m: LoaManualFields): string {
-  const authority = asAuthorityText(zoneAbbrCode, m)
+function asRefLineText(zoneAbbrCode: string, m: LoaManualFields, corp = 'CMC'): string {
+  const authority = asAuthorityText(zoneAbbrCode, m, corp)
   return m.asAuthority === 'zonal' ? authority : `${authority}, dated:${m.asDate.trim() || '__________'}`
 }
 
@@ -398,9 +398,9 @@ function resolveTsNoteValue(
     case 'period of completion':
       return manual.period.trim()
     case 'as authority':
-      return asAuthorityText(zoneAbbrCode, manual)
+      return asAuthorityText(zoneAbbrCode, manual, (office.corporation ?? '').trim() || 'CMC')
     case 'as ref line':
-      return asRefLineText(zoneAbbrCode, manual)
+      return asRefLineText(zoneAbbrCode, manual, (office.corporation ?? '').trim() || 'CMC')
     case 'ts no':
       return manual.tsNo.trim()
     case 'ts date':
@@ -432,14 +432,16 @@ function seRefsFor(
 ) {
   const work = reservedInfo(row, pdf)
   const zoneAbbrCode = zoneAbbr(office.zone)
+  const corp = (office.corporation ?? row['Corporation'] ?? '').trim() || 'CMC'
   const ecv = pdf.ecvRupees ?? computeWorkAmounts(row).ecv ?? null
   const rowEstimateLakhs = (row['Amount of estimate'] ?? '').replace(/,/g, '').trim()
   return {
     zoneAbbr: zoneAbbrCode,
+    corp,
     workName: work.name,
     estimateLakhs: rowEstimateLakhs || (ecv != null ? (ecv / 100000).toFixed(2) : ''),
-    asAuthority: asAuthorityText(zoneAbbrCode, manual),
-    asRefLine: asRefLineText(zoneAbbrCode, manual),
+    asAuthority: asAuthorityText(zoneAbbrCode, manual, corp),
+    asRefLine: asRefLineText(zoneAbbrCode, manual, corp),
     tsNo: manual.tsNo.trim(),
     tsDate: manual.tsDate.trim(),
     financialYear: financialYearFromDate(pdf.noticeDate),
@@ -1326,151 +1328,63 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   // of one big form for every document up front. Same `wo-date-row` /
   // `wo-date-field` markup as the Agreement page's own field rows, so fields
   // flow one after another (wrapping as needed) instead of a grid.
-  const itemNoField = (
-    <label className="wo-date-field">
-      <span>Item No</span>
-      <input type="text" placeholder="e.g. 01" value={manual.itemNo} onChange={(e) => setManual((m) => ({ ...m, itemNo: e.target.value }))} />
-    </label>
-  )
-  const periodField = (
-    <label className="wo-date-field">
-      <span>Period of Completion</span>
-      <input type="text" placeholder="e.g. 3 Months" value={manual.period} onChange={(e) => setManual((m) => ({ ...m, period: e.target.value }))} />
-    </label>
-  )
-  const asAuthorityFields = (
-    <>
-      <label className="wo-date-field">
-        <span>Admin Sanction Authority</span>
-        <select value={manual.asAuthority} onChange={(e) => setManual((m) => ({ ...m, asAuthority: e.target.value as 'zonal' | 'commissioner' }))}>
-          <option value="commissioner">Commissioner, CMC</option>
-          <option value="zonal">Zonal Commissioner</option>
-        </select>
-      </label>
-      {manual.asAuthority === 'commissioner' && (
-        <label className="wo-date-field">
-          <span>Admin Sanction Date</span>
-          <input type="text" placeholder="e.g. 21.07.2026" value={manual.asDate} onChange={(e) => setManual((m) => ({ ...m, asDate: e.target.value }))} />
-        </label>
-      )}
-    </>
-  )
-  const tsNoDateFields = (
-    <>
-      <label className="wo-date-field">
-        <span>TS No</span>
-        <input type="text" placeholder="e.g. 33" value={manual.tsNo} onChange={(e) => setManual((m) => ({ ...m, tsNo: e.target.value }))} />
-      </label>
-      <label className="wo-date-field">
-        <span>TS Date</span>
-        <input type="text" placeholder="e.g. 04.07.2026" value={manual.tsDate} onChange={(e) => setManual((m) => ({ ...m, tsDate: e.target.value }))} />
-      </label>
-    </>
-  )
-  const techBidOpenField = (
-    <label className="wo-date-field">
-      <span>Technical Bid Opened Date</span>
-      <input
-        type="text"
-        placeholder="e.g. 06.08.2026"
-        value={manual.techBidOpenDate}
-        onChange={(e) => setManual((m) => ({ ...m, techBidOpenDate: e.target.value }))}
-      />
-    </label>
-  )
-  const bidEvalApprovedField = (
-    <label className="wo-date-field">
-      <span>Bid Evaluation Approved Date</span>
-      <input
-        type="text"
-        placeholder="e.g. 06.08.2026"
-        value={manual.bidEvalApprovedDate}
-        onChange={(e) => setManual((m) => ({ ...m, bidEvalApprovedDate: e.target.value }))}
-      />
-    </label>
+  const M = 'manual:'
+  const mf = (key: keyof LoaManualFields, title: string, placeholder?: string): DocField => ({ label: M + key, title, placeholder })
+  const itemNoField = mf('itemNo', 'Item No', 'e.g. 01')
+  const periodField: DocField = { label: M + 'period', title: 'Period of Completion', periodUnit: true }
+  const corpAbbr = (office.corporation ?? '').trim() || 'CMC'
+  const asAuthorityFields: DocField[] = [
+    {
+      label: M + 'asAuthority',
+      title: 'Admin Sanction Authority',
+      options: [
+        { value: 'commissioner', label: `Commissioner, ${corpAbbr}` },
+        { value: 'zonal', label: 'Zonal Commissioner' }
+      ]
+    },
+    ...(manual.asAuthority === 'commissioner' ? [mf('asDate', 'Admin Sanction Date', 'e.g. 21.07.2026')] : [])
+  ]
+  const tsNoDateFields: DocField[] = [mf('tsNo', 'TS No', 'e.g. 33'), mf('tsDate', 'TS Date', 'e.g. 04.07.2026')]
+  const techBidOpenField = mf('techBidOpenDate', 'Technical Bid Opened Date', 'e.g. 06.08.2026')
+  const bidEvalApprovedField = mf('bidEvalApprovedDate', 'Bid Evaluation Approved Date', 'e.g. 06.08.2026')
+
+  // The SE fields no source can supply, grouped per document (matched to each
+  // template's own placeholder set) and shown in the same fields-left /
+  // live-page-right editor the Intimation letter uses. Labels carry the
+  // `manual:` prefix so edits route to `manual` rather than the letter's overrides.
+  const seManualGroups: Partial<Record<ExpandedDoc, DocFieldGroup[]>> = {
+    intimation: [
+      {
+        title: 'Letter of Acceptance details',
+        fields: [mf('adminSanction', 'Admin. Sanction Value', 'e.g. 16850000'), periodField, itemNoField, mf('loaDate', 'LOA Date', 'e.g. 20.03.2026')]
+      }
+    ],
+    tsNote: [
+      { title: 'References', fields: [...tsNoDateFields, ...asAuthorityFields] },
+      {
+        title: 'Rates',
+        fields: [
+          mf('cementRate', 'Cement Rate (Rs./MT)', 'e.g. 5,100'),
+          mf('steelRate', 'Steel TMT/HYSD Rate (Rs./MT)', 'e.g. 50,000'),
+          mf('msFlatsRate', 'M.S. Flats Rate (Rs./MT)', 'e.g. 55,000'),
+          mf('memoRef', 'Memo Ref', 'e.g. 146/Cement & Steel/T3/May/2025-26'),
+          mf('memoDate', 'Memo Date', 'e.g. 29.05.2026'),
+          mf('rateMonth', 'Rate Month', 'e.g. May-2026')
+        ]
+      }
+    ],
+    eligibility: [{ title: 'The work', fields: [itemNoField, periodField, ...asAuthorityFields, ...tsNoDateFields] }],
+    bidEval: [{ title: 'References and dates', fields: [...asAuthorityFields, ...tsNoDateFields, itemNoField, techBidOpenField] }],
+    agencyApproval: [
+      { title: 'References and dates', fields: [...asAuthorityFields, ...tsNoDateFields, itemNoField, techBidOpenField, bidEvalApprovedField] }
+    ]
+  }
+  const manualDerived: Record<string, string> = Object.fromEntries(
+    Object.entries(manual).map(([k, v]) => [M + k, String(v ?? '')])
   )
 
-  // Fields grouped per document, matched to each template's actual placeholder set.
-  const modalFields: Partial<Record<ExpandedDoc, ReactNode>> = {
-    intimation: (
-      <>
-        <label className="wo-date-field">
-          <span>Admin. Sanction Value</span>
-          <input
-            type="text"
-            placeholder="e.g. 16850000"
-            value={manual.adminSanction}
-            onChange={(e) => setManual((m) => ({ ...m, adminSanction: e.target.value }))}
-          />
-        </label>
-        {periodField}
-        {itemNoField}
-        <label className="wo-date-field">
-          <span>LOA Date</span>
-          <input type="text" placeholder="e.g. 20.03.2026" value={manual.loaDate} onChange={(e) => setManual((m) => ({ ...m, loaDate: e.target.value }))} />
-        </label>
-      </>
-    ),
-    tsNote: (
-      <>
-        {tsNoDateFields}
-        {asAuthorityFields}
-        <label className="wo-date-field">
-          <span>Cement Rate (Rs./MT)</span>
-          <input type="text" placeholder="e.g. 5,100" value={manual.cementRate} onChange={(e) => setManual((m) => ({ ...m, cementRate: e.target.value }))} />
-        </label>
-        <label className="wo-date-field">
-          <span>Steel TMT/HYSD Rate (Rs./MT)</span>
-          <input type="text" placeholder="e.g. 50,000" value={manual.steelRate} onChange={(e) => setManual((m) => ({ ...m, steelRate: e.target.value }))} />
-        </label>
-        <label className="wo-date-field">
-          <span>M.S. Flats Rate (Rs./MT)</span>
-          <input type="text" placeholder="e.g. 55,000" value={manual.msFlatsRate} onChange={(e) => setManual((m) => ({ ...m, msFlatsRate: e.target.value }))} />
-        </label>
-        <label className="wo-date-field">
-          <span>Memo Ref</span>
-          <input
-            type="text"
-            placeholder="e.g. 146/Cement & Steel/T3/May/2025-26"
-            value={manual.memoRef}
-            onChange={(e) => setManual((m) => ({ ...m, memoRef: e.target.value }))}
-          />
-        </label>
-        <label className="wo-date-field">
-          <span>Memo Date</span>
-          <input type="text" placeholder="e.g. 29.05.2026" value={manual.memoDate} onChange={(e) => setManual((m) => ({ ...m, memoDate: e.target.value }))} />
-        </label>
-        <label className="wo-date-field">
-          <span>Rate Month</span>
-          <input type="text" placeholder="e.g. May-2026" value={manual.rateMonth} onChange={(e) => setManual((m) => ({ ...m, rateMonth: e.target.value }))} />
-        </label>
-      </>
-    ),
-    eligibility: (
-      <>
-        {itemNoField}
-        {periodField}
-        {asAuthorityFields}
-        {tsNoDateFields}
-      </>
-    ),
-    bidEval: (
-      <>
-        {asAuthorityFields}
-        {tsNoDateFields}
-        {itemNoField}
-        {techBidOpenField}
-      </>
-    ),
-    agencyApproval: (
-      <>
-        {asAuthorityFields}
-        {tsNoDateFields}
-        {itemNoField}
-        {techBidOpenField}
-        {bidEvalApprovedField}
-      </>
-    )
+  function setManualField(label: string, value: string) {
+    setManual((m) => ({ ...m, [label.slice(M.length)]: value }) as LoaManualFields)
   }
 
   const bundleProgressLabel = bundleProgress
@@ -1778,9 +1692,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
         createPortal(
           <div className="wo-modal-overlay" onClick={() => setExpanded(null)}>
           <div
-            className={`wo-modal ${seMode && modalFields[expanded] ? 'has-sidebar' : ''} ${
-              expanded === 'intimation' ? 'wide doc-edit-modal' : ''
-            }`}
+            className="wo-modal wide doc-edit-modal"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="wo-modal-head">
@@ -1795,38 +1707,32 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
 
             <div className="wo-modal-main">
               <div className="wo-modal-body">
-                {expanded === 'intimation' ? (
-                  // The letter's own fields on the left, the live page on the
-                  // right — same editor split the Agreement page's documents use.
-                  <div className="ns-body">
-                    <DocFieldsEditor
-                      groups={intimationGroups}
-                      derived={values}
-                      edits={intimationEdits}
-                      onChange={(label, value) => setIntimationEdits((prev) => ({ ...prev, [label]: value }))}
-                      onRevert={(label) =>
-                        setIntimationEdits((prev) => {
-                          const next = { ...prev }
-                          delete next[label]
-                          return next
-                        })
-                      }
-                      onResetAll={() => setIntimationEdits({})}
-                    />
-                    <div className="ns-preview">
-                      <div className="ns-preview-scroll">
-                        <div ref={expandedRef} className="intimation-docx-preview" />
-                      </div>
+                {/* Every document: its fields on the left, the live page on the
+                    right — same editor split the Agreement page's documents use. */}
+                <div className="ns-body">
+                  <DocFieldsEditor
+                    groups={[...(expanded === 'intimation' ? intimationGroups : []), ...(seMode ? seManualGroups[expanded] ?? [] : [])]}
+                    derived={{ ...values, ...manualDerived }}
+                    edits={intimationEdits}
+                    onChange={(label, value) =>
+                      label.startsWith(M) ? setManualField(label, value) : setIntimationEdits((prev) => ({ ...prev, [label]: value }))
+                    }
+                    onRevert={(label) =>
+                      setIntimationEdits((prev) => {
+                        const next = { ...prev }
+                        delete next[label]
+                        return next
+                      })
+                    }
+                    onResetAll={() => setIntimationEdits({})}
+                  />
+                  <div className="ns-preview">
+                    <div className="ns-preview-scroll">
+                      <div ref={expandedRef} className="intimation-docx-preview" />
                     </div>
                   </div>
-                ) : (
-                  <div ref={expandedRef} className="intimation-docx-preview" />
-                )}
+                </div>
               </div>
-
-              {seMode && modalFields[expanded] && (
-                <div className="wo-modal-sidebar">{modalFields[expanded]}</div>
-              )}
             </div>
 
             <div className="wo-modal-foot">
@@ -1835,6 +1741,9 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
                   <IconWarn /> {actionError}
                 </div>
               )}
+              <button className="ghost wo-foot-close" onClick={() => setExpanded(null)}>
+                Close
+              </button>
               {expanded === 'intimation' ? (
                 <>
                   <button className="primary" onClick={() => downloadIntimation(['docx'])} disabled={busy !== null}>

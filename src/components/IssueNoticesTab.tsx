@@ -13,19 +13,28 @@ import {
   type IssueNoticeManualFields,
   type IssueNoticeOffice
 } from '@core/issueNotice'
-import type { PendingNoticeItem } from '@core/types'
+import type { PendingNoticeItem, ExcelTable } from '@core/types'
+import { computeWorkAmounts, tenderPercentFromRow, lakhsToRupees, formatRupees } from '@core/worksAmounts'
+import { findWorksRowByName } from '@core/scheduleA'
+import { agencyKey, canonicalAgencyNames } from '@core/agencyName'
+import { inferTypeOfWork } from '@core/workTypeClassifier'
+import { parsePct } from '@core/intimationFill'
+import { stripItemNoTag, extractItemNo } from '@core/bidDocument'
+import DocFieldsEditor, { groupLabels } from './DocFieldsEditor'
 import { CMC_ZONE_CIRCLES, resolveFromDirectory, corporationByName } from '../zoneCircleDirectory'
 import { isZoneOnlyOffice, officeScopedKey, TEMPLATE_KEYS, TEMPLATE_VARIANT_CHANGED_EVENT, type Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLinesOrOcr } from '../pdfToText'
 import { base64ToUint8, PAGE_WIDTH, renderDocPreview } from './docPage'
-import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell, IconTrash, IconCheck, IconRestore } from './Icons'
+import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell, IconTrash, IconCheck, IconRestore, IconChevronLeft } from './Icons'
 
 interface Props {
   /** chosen office — decides which bundled format the manual-upload path
    * defaults to (Zone-level SE vs. Circle-level EE), same rule every tile
    * uses for the work it belongs to. */
   office?: Office
+  /** Works List (tables[0]) — a third way to start a Notice: pick the work, its row fills the fields. */
+  worksTable?: ExcelTable | null
   /** This office's Notice tiles — one per work whose Intimation/LOA has been
    * issued (auto-added by Give Intimation) or manually uploaded here. */
   items: PendingNoticeItem[]
@@ -107,9 +116,46 @@ interface NoticeTileProps {
   onSave: (patch: Partial<PendingNoticeItem>) => void
   onRemove: () => void
   onRestore: () => void
+  /** The always-present "New Notice" tile: nothing is saved until Add to Issue Notices. */
+  draft?: boolean
+  onAddDraft?: () => void
+  /** What the tile's footer lists: agency, type of work and estimate amount. */
+  summary: NoticeSummary
 }
 
-function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore }: NoticeTileProps) {
+/** The three lines a Notice tile shows in place of the bare work name. */
+interface NoticeSummary {
+  agency: string
+  typeOfWork: string
+  /** Estimate amount in rupees (the Works List's "Amount of estimate" — not the ECV), when known. */
+  estimateRupees: number | null
+}
+
+/**
+ * Agency, type of work and estimate amount for a notice. The type and estimate
+ * come from the work's Works List row (found by name) when it has one; the type
+ * otherwise comes from the same work-type classifier the Issue Tender Notice
+ * document uses, and the estimate stays blank rather than borrowing the ECV.
+ */
+function noticeSummary(item: PendingNoticeItem, worksTable: ExcelTable | null | undefined): NoticeSummary {
+  const row = item.workName && worksTable ? findWorksRowByName(worksTable, item.workName)?.row : undefined
+  const listed = (row?.['Type of work'] ?? '').trim()
+  const estimate = row ? lakhsToRupees(row['Amount of estimate'] ?? '') : 0
+  return {
+    agency: (item.agencyName ?? '').trim(),
+    typeOfWork: listed || (item.workName ? (inferTypeOfWork(item.workName) ?? '') : ''),
+    estimateRupees: estimate > 0 ? estimate : null
+  }
+}
+
+const MANUAL_LABEL_KEYS: Record<string, keyof IssueNoticeManualFields> = {
+  'LOA No': 'loaNo',
+  'LOA Date': 'loaDate',
+  'Notice Date': 'noticeDate',
+  'agency phone number': 'agencyPhone'
+}
+
+function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore, draft, onAddDraft, summary }: NoticeTileProps) {
   const [expanded, setExpanded] = useState(false)
   const [busy, setBusy] = useState<'download' | 'pdf' | 'print' | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -120,7 +166,10 @@ function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore }: 
   const expandedRef = useRef<HTMLDivElement>(null)
   const printScratchRef = useRef<HTMLDivElement>(null)
 
-  const values = useMemo(() => placeholdersForItem(item), [item])
+  const derived = useMemo(() => placeholdersForItem(item), [item])
+  const edits = item.edits ?? {}
+  const values = useMemo(() => ({ ...derived, ...(item.edits ?? {}) }), [derived, item.edits])
+  const groups = useMemo(() => groupLabels(labels), [labels])
   const ready = !!templateB64 && labels.length > 0
 
   async function fillTemplate(): Promise<string> {
@@ -157,8 +206,16 @@ function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded, templateB64, values, ready])
 
-  function setManualField<K extends keyof IssueNoticeManualFields>(key: K, v: string) {
-    onSave({ manual: { ...item.manual, [key]: v } })
+  // LOA No / LOA Date / Notice Date / phone live in `manual` (the overdue blink reads Notice Date); everything else is a plain override.
+  function changeField(label: string, value: string) {
+    const key = MANUAL_LABEL_KEYS[label]
+    if (key) onSave({ manual: { ...item.manual, [key]: value } })
+    else onSave({ edits: { ...edits, [label]: value } })
+  }
+  function revertField(label: string) {
+    const next = { ...edits }
+    delete next[label]
+    onSave({ edits: next })
   }
 
   async function downloadNotice(formats: ('docx' | 'pdf')[]) {
@@ -217,6 +274,7 @@ function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore }: 
         }}
         title="Notice for Non-conclusion of Agreement"
       >
+        {draft && <span className="notice-draft-badge">New notice</span>}
         <div className="wo-tile-preview">
           {tileFailed ? (
             <div className="settings-tile-error">
@@ -227,10 +285,25 @@ function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore }: 
           )}
           <span className="wo-tile-open">Click to preview</span>
         </div>
-        <div className="wo-tile-foot">
-          {item.agencyName || item.workName || 'Notice for Non-conclusion of Agreement'}
-          {item.done && ' · Resolved'}
+        <div className="wo-tile-foot notice-tile-foot">
+          {!summary.agency && !summary.typeOfWork && !item.workName ? (
+            <div>{draft ? 'New Notice — click to fill in' : 'Notice for Non-conclusion of Agreement'}</div>
+          ) : (
+            <>
+              <div>
+                <span>Name of the agency:</span> {summary.agency || '—'}
+              </div>
+              <div>
+                <span>Type of work:</span> {summary.typeOfWork || '—'}
+              </div>
+              <div>
+                <span>Estimate amount:</span> {summary.estimateRupees != null ? formatRupees(summary.estimateRupees) : '—'}
+              </div>
+            </>
+          )}
+          {item.done && <div className="notice-tile-resolved">Resolved</div>}
         </div>
+        {!draft && (
         <div className="wo-tile-actions" onClick={(e) => e.stopPropagation()}>
           {item.done ? (
             <button className="ghost small" onClick={onRestore} title="Mark active again">
@@ -245,12 +318,13 @@ function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore }: 
             <IconTrash />
           </button>
         </div>
+        )}
       </div>
 
       {expanded &&
         createPortal(
           <div className="wo-modal-overlay" onClick={() => setExpanded(false)}>
-            <div className="wo-modal has-sidebar" onClick={(e) => e.stopPropagation()}>
+            <div className="wo-modal wide doc-edit-modal" onClick={(e) => e.stopPropagation()}>
               <div className="wo-modal-head">
                 <span className="wo-modal-title">
                   Notice for Non-conclusion of Agreement{previewPages > 1 ? ` — ${previewPages} pages` : ''}
@@ -261,46 +335,21 @@ function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore }: 
               </div>
               <div className="wo-modal-main">
                 <div className="wo-modal-body">
-                  <div ref={expandedRef} className="intimation-docx-preview" />
-                </div>
-                <div className="wo-modal-sidebar">
-                  <span className="estimate-preview-title">LOA details (hand-recorded — type in)</span>
-                  <label className="wo-date-field">
-                    <span>LOA No</span>
-                    <input
-                      type="text"
-                      value={item.manual.loaNo}
-                      onChange={(e) => setManualField('loaNo', e.target.value)}
-                      placeholder="e.g. 27"
+                  <div className="ns-body">
+                    <DocFieldsEditor
+                      groups={groups}
+                      derived={derived}
+                      edits={edits}
+                      onChange={changeField}
+                      onRevert={revertField}
+                      onResetAll={() => onSave({ edits: {} })}
                     />
-                  </label>
-                  <label className="wo-date-field">
-                    <span>LOA Date</span>
-                    <input
-                      type="text"
-                      value={item.manual.loaDate}
-                      onChange={(e) => setManualField('loaDate', e.target.value)}
-                      placeholder="dd.mm.yyyy"
-                    />
-                  </label>
-                  <label className="wo-date-field">
-                    <span>Notice Date</span>
-                    <input
-                      type="text"
-                      value={item.manual.noticeDate}
-                      onChange={(e) => setManualField('noticeDate', e.target.value)}
-                      placeholder="dd.mm.yyyy"
-                    />
-                  </label>
-                  <label className="wo-date-field">
-                    <span>Agency phone (optional)</span>
-                    <input
-                      type="text"
-                      value={item.manual.agencyPhone}
-                      onChange={(e) => setManualField('agencyPhone', e.target.value)}
-                      placeholder="10-digit"
-                    />
-                  </label>
+                    <div className="ns-preview">
+                      <div className="ns-preview-scroll">
+                        <div ref={expandedRef} className="intimation-docx-preview" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="wo-modal-foot">
@@ -310,6 +359,22 @@ function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore }: 
                   </div>
                 )}
                 {actionSaved && <span className="estimate-hint">{actionSaved}</span>}
+                {draft && (
+                  <button
+                    className="primary"
+                    onClick={() => {
+                      onAddDraft?.()
+                      setExpanded(false)
+                    }}
+                    disabled={!item.workName && !item.agencyName}
+                    title="Keep this Notice in your Issue Notices list"
+                  >
+                    <IconCheck /> Add to Issue Notices
+                  </button>
+                )}
+                <button className="ghost wo-foot-close" onClick={() => setExpanded(false)}>
+                  Close
+                </button>
                 <button className="primary" onClick={() => downloadNotice(['docx'])} disabled={busy !== null}>
                   <IconDownload /> {busy === 'download' ? 'Saving…' : 'Word'}
                 </button>
@@ -336,7 +401,8 @@ function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore }: 
  * manual fallback (e.g. a Notice needed for a work issued before this
  * existed) and simply appends another tile the same way.
  */
-export default function IssueNoticesTab({ office, items, onChange }: Props) {
+function AgreementNotConcludedWorkspace({ office, worksTable, items, onChange, view }: Props & { view: 'issue' | 'reminders' }) {
+  const issueView = view === 'issue'
   const entries = useMemo(
     () =>
       corporationByName(office?.corporation)?.entries?.length
@@ -521,7 +587,105 @@ export default function IssueNoticesTab({ office, items, onChange }: Props) {
     setPlaceOverride({})
   }
 
+  // ── Works List path ────────────────────────────────────────────────────
+  // A third way in: pick a work from the (office-scoped) Works List and its
+  // row fills the Notice; whatever the row doesn't carry stays editable in the
+  // preview. Also doubles as the always-visible "New Notice" tile's draft.
+  const blankDraft = (): PendingNoticeItem => ({
+    id: `notice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    officeKey: undefined,
+    seMode: !ee,
+    zone: !ee ? office?.zone : undefined,
+    circle: ee ? office?.circle : undefined,
+    cno: ee ? office?.circleNumber : undefined,
+    corporation: corporationName,
+    intimationDate: new Date().toISOString().slice(0, 10),
+    manual: { ...EMPTY_ISSUE_NOTICE_MANUAL_FIELDS },
+    done: false
+  })
+  const [draft, setDraft] = useState<PendingNoticeItem>(blankDraft)
+  const [workQuery, setWorkQuery] = useState('')
+  const [workPickerOpen, setWorkPickerOpen] = useState(false)
+  const [pickedRow, setPickedRow] = useState<number | null>(null)
+  const nameHeader = worksTable?.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
+  // Spelling variants of one contractor ("M/S AHR Constructions" / "AHR CONSTRUCTIONS")
+  // share one display name, so a search for the agency finds all its works together.
+  const canonicalAgency = useMemo(
+    () => canonicalAgencyNames((worksTable?.rows ?? []).map((r) => r['Name of the Agency'])),
+    [worksTable]
+  )
+  const workOptions = useMemo(() => {
+    if (!worksTable || !nameHeader) return []
+    const q = workQuery.trim().toLowerCase()
+    const qKey = agencyKey(workQuery)
+    const out: { index: number; name: string; agency: string }[] = []
+    worksTable.rows.forEach((row, index) => {
+      const name = (row[nameHeader] ?? '').trim()
+      if (!name) return
+      const raw = (row['Name of the Agency'] ?? '').trim()
+      const agency = canonicalAgency.get(agencyKey(raw)) ?? raw
+      const agencyHit = !!q && (agency.toLowerCase().includes(q) || raw.toLowerCase().includes(q) || (qKey !== '' && agencyKey(raw).includes(qKey)))
+      if (q && !name.toLowerCase().includes(q) && !agencyHit && !(row['Wincode'] ?? '').toLowerCase().includes(q)) return
+      out.push({ index, name, agency })
+    })
+    return out
+  }, [worksTable, nameHeader, workQuery, canonicalAgency])
+  // When the search text names an agency, the distinct agencies it matches: the
+  // list is then every work of that agency (uncapped), headed by a summary.
+  const matchedAgencies = useMemo(() => {
+    const q = workQuery.trim().toLowerCase()
+    const qKey = agencyKey(workQuery)
+    if (!q) return []
+    const hit = (a: string) => a.toLowerCase().includes(q) || (qKey !== '' && agencyKey(a).includes(qKey))
+    return Array.from(new Set(workOptions.map((o) => o.agency).filter((a) => a && hit(a))))
+  }, [workOptions, workQuery])
+
+  function pickWork(index: number) {
+    const row = worksTable?.rows[index]
+    if (!row) return
+    const amounts = computeWorkAmounts(row)
+    const tenderPercentage = parsePct(tenderPercentFromRow(row))
+    const ecv = amounts.ecv ?? undefined
+    const rawName = row[nameHeader ?? ''] ?? ''
+    const base = blankDraft()
+    const zone = !ee ? office?.zone || row['Zone'] || undefined : undefined
+    const circle = ee ? office?.circle || row['Circle'] || undefined : undefined
+    const cno = ee ? office?.circleNumber || row['CNO'] || undefined : undefined
+    const loaDate = ''
+    setDraft({
+      ...base,
+      zone,
+      circle,
+      cno,
+      agencyName: canonicalAgency.get(agencyKey(row['Name of the Agency'])) || row['Name of the Agency'] || undefined,
+      address: row['Address of the agency'] || undefined,
+      workName: stripItemNoTag(rawName),
+      nitNo: row['Tender Notice No'] || undefined,
+      itemNo: extractItemNo(rawName) ?? undefined,
+      ecvRupees: ecv,
+      contractRupees: amounts.contractAmount ?? undefined,
+      tenderPercentage,
+      manual: {
+        ...EMPTY_ISSUE_NOTICE_MANUAL_FIELDS,
+        loaDate,
+        loaNo: defaultLoaNo({ zone, circle, cno, corporation: corporationName }, loaDate)
+      }
+    })
+    setPickedRow(index)
+    setWorkQuery('')
+    setWorkPickerOpen(false)
+  }
+
+  function addDraftTile() {
+    onChange([...items, draft])
+    setDraft(blankDraft())
+    setPickedRow(null)
+  }
+
   const activeItems = items.filter((it) => !it.deletedAt)
+  const activeCount = activeItems.filter((it) => !it.done).length
+  const resolvedCount = activeItems.length - activeCount
+  const overdueCount = activeItems.filter((it) => isNoticeOverdue(it.manual.noticeDate, it.done)).length
 
   // Group tiles by NIT No — a NIT can carry several items (e.g. multiple
   // agencies), each work with no NIT falls into its own "No NIT No." group.
@@ -548,9 +712,77 @@ export default function IssueNoticesTab({ office, items, onChange }: Props) {
   }
 
   return (
-    <div className="intimation-tool">
-      <div className="intimation-tool-uploads">
-        <div className="boq-actions">
+    <div className="intimation-tool ntc-workspace">
+      {issueView && (
+      <aside className="ntc-side">
+      <section className="ntc-compose" aria-label="Create a notice">
+        <header className="ntc-compose-head">
+          <h3>Create a notice</h3>
+          <p>Start from a work in the Works List, or read the details from the tender documents.</p>
+        </header>
+        <div className="ntc-sources">
+        {worksTable && nameHeader && (
+          <div className="ntc-source notice-work-picker">
+            <span className="ntc-source-title">
+              <span className="ntc-step">1</span> Issue from the Works List
+            </span>
+            <div className={`notice-work-combo${workPickerOpen ? ' open' : ''}`}>
+              <input
+                type="text"
+                value={workQuery}
+                placeholder={pickedRow != null ? `${draft.workName ?? ''}` : 'Search by work name, agency or Win Code…'}
+                onFocus={() => setWorkPickerOpen(true)}
+                onChange={(e) => {
+                  setWorkQuery(e.target.value)
+                  setWorkPickerOpen(true)
+                }}
+                onBlur={() => setTimeout(() => setWorkPickerOpen(false), 150)}
+              />
+              {workPickerOpen && (
+                <div className="notice-work-list" role="listbox">
+                  <div className="notice-work-source">
+                    <span>Works List</span>
+                    <span>
+                      {workOptions.length} work{workOptions.length === 1 ? '' : 's'}
+                      {!matchedAgencies.length && workOptions.length > 80 ? ' · showing first 80' : ''}
+                    </span>
+                  </div>
+                  {matchedAgencies.length > 0 && (
+                    <div className="notice-work-agency-head">
+                      {matchedAgencies.length === 1 ? matchedAgencies[0] : `${matchedAgencies.length} agencies`} —{' '}
+                      {workOptions.length} work{workOptions.length === 1 ? '' : 's'}
+                    </div>
+                  )}
+                  {workOptions.length === 0 ? (
+                    <div className="notice-work-empty">No matching work in this office's Works List.</div>
+                  ) : (
+                    (matchedAgencies.length > 0 ? workOptions : workOptions.slice(0, 80)).map((o) => (
+                      <button
+                        key={o.index}
+                        type="button"
+                        role="option"
+                        className="notice-work-option"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => pickWork(o.index)}
+                      >
+                        <span className="notice-work-name">{o.name}</span>
+                        {o.agency && <span className="notice-work-agency">{o.agency}</span>}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+            <p className="estimate-hint">
+              Fills the New Notice tile below from that work's row — then open the tile to edit anything else.
+            </p>
+          </div>
+        )}
+        <div className="ntc-source">
+          <span className="ntc-source-title">
+            <span className="ntc-step">{worksTable && nameHeader ? 2 : 1}</span> Upload L1 sheet &amp; Intimation
+          </span>
+        <div className="boq-actions boq-actions--start ntc-actions">
           <button
             className="primary upload-btn"
             onClick={() => pdfInputRef.current?.click()}
@@ -615,7 +847,7 @@ export default function IssueNoticesTab({ office, items, onChange }: Props) {
           </div>
         )}
         {pdfEval && (
-          <div className="loa-manual-fields">
+          <div className="loa-manual-fields ntc-office">
             <span className="estimate-preview-title">Office (letterhead name)</span>
             <div className="loa-manual-grid">
               {ee ? (
@@ -646,7 +878,30 @@ export default function IssueNoticesTab({ office, items, onChange }: Props) {
             </div>
           </div>
         )}
+        </div>
+        </div>
+      </section>
+      </aside>
+      )}
+
+      <div className="ntc-board">
+      {!issueView && (
+      <div className="ntc-summary" aria-label="Reminders summary">
+        <div className="ntc-chip">
+          <span className="ntc-chip-label">Active</span>
+          <span className="ntc-chip-value">{activeCount}</span>
+        </div>
+        <div className={`ntc-chip${overdueCount > 0 ? ' ntc-chip-warn' : ''}`}>
+          <span className="ntc-chip-label">Overdue</span>
+          <span className="ntc-chip-value">{overdueCount}</span>
+        </div>
+        <div className="ntc-chip">
+          <span className="ntc-chip-label">Resolved</span>
+          <span className="ntc-chip-value">{resolvedCount}</span>
+        </div>
       </div>
+      )}
+
 
       {loadError && (
         <div className="notice error">
@@ -654,9 +909,44 @@ export default function IssueNoticesTab({ office, items, onChange }: Props) {
         </div>
       )}
 
-      {groups.map(([nitNo, groupItems]) => (
+      {issueView && (
+      <div className="notice-nit-group">
+        <div className="ntc-group-head">
+          <span className="ntc-group-title">New Notice</span>
+        </div>
+        <div className="wo-tiles">
+          <NoticeTile
+            key={draft.id}
+            item={draft}
+            draft
+            templateB64={templateFor(draft).b64}
+            labels={templateFor(draft).labels}
+            onSave={(patch) => setDraft((d) => ({ ...d, ...patch }))}
+            onRemove={() => {}}
+            onRestore={() => {}}
+            onAddDraft={addDraftTile}
+            summary={noticeSummary(draft, worksTable)}
+          />
+        </div>
+        <p className="estimate-hint">
+          Notices you issue here are tracked as reminders under “Agreement not Concluded — Reminders”.
+        </p>
+      </div>
+      )}
+
+      {!issueView && groups.length === 0 && (
+        <div className="empty">
+          <IconBell />
+          <p>No reminders yet. A notice reminder is added here automatically when an Intimation is issued.</p>
+        </div>
+      )}
+
+      {!issueView && groups.map(([nitNo, groupItems]) => (
         <div key={nitNo} className="notice-nit-group">
-          <span className="estimate-preview-title">NIT No. {nitNo}</span>
+          <div className="ntc-group-head">
+            <span className="ntc-group-title">NIT No. {nitNo}</span>
+            <span className="ntc-group-count">{groupItems.length}</span>
+          </div>
           <div className="wo-tiles">
             {groupItems.map((item) => (
               <NoticeTile
@@ -667,11 +957,108 @@ export default function IssueNoticesTab({ office, items, onChange }: Props) {
                 onSave={(patch) => saveItem(item.id, patch)}
                 onRemove={() => removeItem(item.id)}
                 onRestore={() => restoreItem(item.id)}
+                summary={noticeSummary(item, worksTable)}
               />
             ))}
           </div>
         </div>
       ))}
+      </div>
     </div>
+  )
+}
+
+/**
+ * Issue Notices landing page: one tile per kind of notice. Only "Agreement not
+ * Concluded" exists today — add further kinds to NOTICE_KINDS and render their
+ * workspace below. The opened workspace stays mounted (hidden) on Back so an
+ * in-progress draft / uploaded documents aren't lost.
+ */
+const NOTICE_KINDS = [
+  {
+    key: 'agreementNotConcluded' as const,
+    name: 'Agreement not Concluded',
+    meta: 'Issue the Notice for non-conclusion of the Agreement — from the Works List, or by uploading the L1 sheet and Intimation',
+    view: 'issue' as const
+  },
+  {
+    key: 'agreementNotConcludedReminders' as const,
+    name: 'Agreement not Concluded — Reminders',
+    meta: 'Notices prepared automatically when an Intimation is issued, with their due dates',
+    view: 'reminders' as const
+  }
+]
+type NoticeKind = (typeof NOTICE_KINDS)[number]['key']
+
+export default function IssueNoticesTab(props: Props & { onWorkspaceChange?: (open: boolean) => void }) {
+  const { onWorkspaceChange, ...workspaceProps } = props
+  const [kind, setKind] = useState<NoticeKind | null>(null)
+  const [opened, setOpened] = useState<Set<NoticeKind>>(new Set())
+  // Bumping this remounts the issue workspace, clearing uploads and typed fields.
+  const [resetKey, setResetKey] = useState(0)
+  useEffect(() => {
+    onWorkspaceChange?.(kind !== null)
+  }, [kind, onWorkspaceChange])
+
+  const active = props.items.filter((it) => !it.deletedAt && !it.done)
+  const overdue = active.filter((it) => isNoticeOverdue(it.manual.noticeDate, it.done)).length
+
+  function open(k: NoticeKind) {
+    setOpened((prev) => new Set(prev).add(k))
+    setKind(k)
+  }
+
+  return (
+    <>
+      {kind === null && (
+        <div className="card">
+          <div className="doc-tile-grid tools-grid notice-kind-grid">
+            {NOTICE_KINDS.map((k) => (
+              <button key={k.key} className="doc-tile-card tone-green tool-card" onClick={() => open(k.key)}>
+                <span className="tool-card-ic">
+                  <IconBell />
+                </span>
+                <span className="doc-tile-card-name">{k.name}</span>
+                <span className="doc-tile-card-meta">
+                  {k.meta}
+                  {k.view === 'reminders' && ` · ${active.length} active${overdue ? `, ${overdue} overdue` : ''}`}
+                </span>
+                <span className="tool-card-cta">
+                  <IconFolder /> Open workspace
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {NOTICE_KINDS.filter((k) => opened.has(k.key)).map((k) => (
+        <div key={k.key} hidden={kind !== k.key}>
+          <div className="pdf-ws-topbar">
+            <div className="pdf-ws-title">
+              <IconBell /> <span className="pdf-ws-title-label">Notice:</span> {k.name}
+            </div>
+            {k.view === 'issue' && (
+              <button
+                className="ghost"
+                onClick={() => setResetKey((n) => n + 1)}
+                title="Clear the uploaded documents and filled fields to start a new work"
+              >
+                <IconRestore /> Clear
+              </button>
+            )}
+            <button className="ghost pdf-ws-back" onClick={() => setKind(null)}>
+              <IconChevronLeft /> Back
+            </button>
+          </div>
+          <div className="card pdf-workspace">
+            <AgreementNotConcludedWorkspace
+              key={k.view === 'issue' ? resetKey : 'reminders'}
+              {...workspaceProps}
+              view={k.view}
+            />
+          </div>
+        </div>
+      ))}
+    </>
   )
 }

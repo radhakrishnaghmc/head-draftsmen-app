@@ -109,10 +109,28 @@ export default function TodoList({ todos, onChange }: Props) {
     onChange(todos.map((t) => (t.id === id ? { ...t, deletedAt: undefined } : t)))
   }
 
+  // Presentation-only grouping of the (unchanged) pending list by deadline.
+  const pendingGroups = useMemo(() => {
+    const groups: { key: string; label: string; tone: string; items: TodoItem[] }[] = [
+      { key: 'overdue', label: 'Overdue', tone: 'overdue', items: [] },
+      { key: 'today', label: 'Due today', tone: 'today', items: [] },
+      { key: 'upcoming', label: 'Upcoming', tone: 'upcoming', items: [] },
+      { key: 'none', label: 'No target date', tone: 'none', items: [] }
+    ]
+    for (const t of pendingItems) {
+      if (!t.targetDate) groups[3].items.push(t)
+      else if (t.targetDate < today) groups[0].items.push(t)
+      else if (t.targetDate === today) groups[1].items.push(t)
+      else groups[2].items.push(t)
+    }
+    return groups.filter((g) => g.items.length > 0)
+  }, [pendingItems, today])
+
   function renderRow(t: TodoItem) {
     const overdue = !t.done && !!t.targetDate && t.targetDate < today
+    const dueToday = !t.done && t.targetDate === today
     return (
-      <li key={t.id} className={`todo-item mb-item ${t.done ? 'done' : ''}`}>
+      <li key={t.id} className={`todo-item mb-item ${t.done ? 'done' : ''} ${overdue ? 'is-overdue' : ''}`}>
         <input
           type="checkbox"
           className="todo-checkbox"
@@ -137,14 +155,21 @@ export default function TodoList({ todos, onChange }: Props) {
             <span className="todo-text">{t.text}</span>
           )}
           <span className="todo-dates">
-            Added {formatDDMMYYYY(t.createdDate)}
-            {t.targetDate && ` · Target ${formatDDMMYYYY(t.targetDate)}`}
-            {t.done && t.completedDate && ` · Completed ${formatDDMMYYYY(t.completedDate)}`}
+            <span className="todo-chip">Added {formatDDMMYYYY(t.createdDate)}</span>
+            {t.targetDate && (
+              <span className={`todo-chip ${overdue ? 'chip-overdue' : dueToday ? 'chip-today' : 'chip-target'}`}>
+                Target {formatDDMMYYYY(t.targetDate)}
+              </span>
+            )}
+            {t.done && t.completedDate && (
+              <span className="todo-chip chip-done">Completed {formatDDMMYYYY(t.completedDate)}</span>
+            )}
             {overdue && (
               <span className="badge err">
                 <IconWarn /> Overdue
               </span>
             )}
+            {dueToday && <span className="badge info">Due today</span>}
           </span>
         </div>
         {!t.done && (
@@ -177,8 +202,8 @@ export default function TodoList({ todos, onChange }: Props) {
   }
 
   return (
-    <div className="card mb-card">
-      <div className="mb-add">
+    <div className="card mb-card todo-card">
+      <div className="mb-add todo-composer">
         <label className="mb-field mb-field-grow">
           <span>Task</span>
           <input
@@ -203,7 +228,7 @@ export default function TodoList({ todos, onChange }: Props) {
       </div>
 
       {todos.length === 0 ? (
-        <div className="empty">
+        <div className="empty todo-empty">
           <IconCheck />
           <p>Nothing to do — add a task above.</p>
         </div>
@@ -249,7 +274,16 @@ export default function TodoList({ todos, onChange }: Props) {
             (pendingItems.length === 0 ? (
               <p className="mb-section-empty">Nothing pending — every task is done.</p>
             ) : (
-              <ul className="todo-list mb-section">{pendingItems.map(renderRow)}</ul>
+              <div className="todo-groups">
+                {pendingGroups.map((g) => (
+                  <section key={g.key} className={`todo-group tone-${g.tone}`}>
+                    <h4 className="todo-group-head">
+                      {g.label} <span className="mb-section-count">{g.items.length}</span>
+                    </h4>
+                    <ul className="todo-list mb-section">{g.items.map(renderRow)}</ul>
+                  </section>
+                ))}
+              </div>
             ))}
 
           {activeTab === 'done' &&

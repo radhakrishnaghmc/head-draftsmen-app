@@ -11,8 +11,8 @@ const COLUMNS = [
   { key: 0, label: 'Organisation', cls: 'tk-org' },
   { key: 4, label: 'Work', cls: 'tk-work' },
   { key: 5, label: 'Value', cls: 'tk-val' },
-  { key: 7, label: 'Bid closing', cls: 'tk-date' },
-  { key: 8, label: 'Opens', cls: 'tk-date' }
+  { key: 7, label: 'Bid start', cls: 'tk-date' },
+  { key: 8, label: 'Bid closing', cls: 'tk-date' }
 ] as const
 
 const inr = new Intl.NumberFormat('en-IN', {

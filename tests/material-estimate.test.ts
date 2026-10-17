@@ -60,7 +60,7 @@ describe('computeMaterialTotals', () => {
 
   it('routes WBM/gravel filling to Gravel, not Stone Aggregates, even though it names "aggregate"', () => {
     const { totals } = computeMaterialTotals([item('Water bound macadam using crushable aggregates', '8', 'Cum')])
-    expect(totals.gravelMt).toBeCloseTo(8 * 1.75, 5)
+    expect(totals.gravelMt).toBeCloseTo(8 * 1.68, 5)
     expect(totals.stoneAggregatesMt).toBe(0)
   })
 
@@ -72,7 +72,7 @@ describe('computeMaterialTotals', () => {
         'cum'
       )
     ])
-    expect(totals.gravelMt).toBeCloseTo(36 * 1.75, 5)
+    expect(totals.gravelMt).toBeCloseTo(36 * 2.2, 5)
     expect(totals.stoneAggregatesMt).toBe(0)
     expect(matchedItemCount).toBe(1)
   })
@@ -85,7 +85,7 @@ describe('computeMaterialTotals', () => {
         'cum'
       )
     ])
-    expect(totals.stoneAggregatesMt).toBeGreaterThan(0)
+    expect(totals.stoneAggregatesMt).toBeCloseTo(186 * 2.31, 5)
     expect(totals.cementMt).toBe(0)
     expect(totals.sandMt).toBe(0)
   })
@@ -98,7 +98,7 @@ describe('computeMaterialTotals', () => {
         'cum'
       )
     ])
-    expect(totals.stoneAggregatesMt).toBeCloseTo(111.6 * 2.35 * 0.95, 2)
+    expect(totals.stoneAggregatesMt).toBeCloseTo(111.6 * 2.36, 5)
     expect(totals.cementMt).toBe(0)
   })
 
@@ -118,10 +118,10 @@ describe('computeMaterialTotals', () => {
   it('applies a Data Sheet breakdown coefficient (per-unit) scaled by the item quantity, skipping labour rows', () => {
     const items = [item('PCC 1:2:4 for foundation', '10', 'Cum')]
     const breakdown = [
-      ['Cement', '0.22', 'Cum', '350', '77'],
-      ['Sand', '0.44', 'Cum', '900', '396'],
-      ['Coarse Aggregate', '0.88', 'Cum', '850', '748'],
-      ['Cement Mason', '0.5', 'Day', '700', '350']
+      ['Cement', 'Cum', '0.22', '350', '77'],
+      ['Sand', 'Cum', '0.44', '900', '396'],
+      ['Coarse Aggregate', 'Cum', '0.88', '850', '748'],
+      ['Cement Mason', 'day', '0.5', '700', '350']
     ]
     const { totals, matchedItemCount } = computeMaterialTotals(items, [breakdown])
     expect(totals.cementMt).toBeCloseTo(10 * 0.22 * 1.44, 5)
@@ -135,5 +135,18 @@ describe('computeMaterialTotals', () => {
     const breakdown = [['Mason', '0.5', 'Day', '700', '350']]
     const { totals } = computeMaterialTotals(items, [breakdown])
     expect(totals.cementMt).toBeGreaterThan(0) // came from the generic ratio rule instead
+  })
+
+  it('divides Data Sheet breakdown quantities by the block\'s "Taking output" so they are per 1 unit', () => {
+    const { totals } = computeMaterialTotals(
+      [item('Some gravel filling item', '50', 'cum')],
+      [[['Unit = cum'], ['Taking output = 10 cum'], ['Gravel as per lead chart', 'cum', '6', '441.35', '2648.1']]]
+    )
+    expect(totals.gravelMt).toBeCloseTo((6 / 10) * 50 * 1.68, 5)
+  })
+
+  it('converts steel kg to MT', () => {
+    const { totals } = computeMaterialTotals([item('Supply and fixing TMT Fe 500 reinforcement', '2500', 'kg')])
+    expect(totals.steelMt).toBeCloseTo(2.5, 5)
   })
 })
