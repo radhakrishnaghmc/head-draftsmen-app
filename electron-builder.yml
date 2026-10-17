@@ -135,6 +135,8 @@ extraResources:
     to: civil-tender-template.docx
   - from: resources/civil-tender-template-header2.docx
     to: civil-tender-template-header2.docx
+  - from: resources/civil-tender-template-cmc.docx
+    to: civil-tender-template-cmc.docx
   - from: resources/se-agreement-bond-template.docx
     to: se-agreement-bond-template.docx
   - from: resources/zonal-work-order-template.docx

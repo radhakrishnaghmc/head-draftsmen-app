@@ -16,6 +16,17 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.40.0',
+    changes: [
+      'Cyberabad (CMC), Greater Hyderabad (GHMC) and Malkajgiri (MMC) offices now get their own logo header on the File Backer, Work Order, Tender Document and the zonal Work Order, Concluding Agreement and Memo to EE.',
+      'New Work Bill Note document.',
+      'Material estimates now suggest quantities from a built-in reference of past estimates.',
+      'Page margin guides and better page breaks when editing the Note Submitted and other document previews.',
+      'Agency names are now cleaned up consistently across documents.',
+      'Issue Documents, Work Order / Agreement, Give Intimation, To Do and Settings screen improvements.'
+    ]
+  },
+  {
     version: '1.39.0',
     changes: [
       'Search Tender: a new Action column with a View button opens the tender\'s full details from the portal inside the app.',
