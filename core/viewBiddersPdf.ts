@@ -27,8 +27,9 @@ export interface ParticipatingBidder {
 // the taller name cell) — e.g. "BOBBA RAVI CHANDRA CIVIL" / "1339995-1 …
 // 106.222.233.188" / "CONTRACTOR". So when the number row carries no name
 // prefix, take the name from the line above plus the line below when that's a
-// name continuation.
-const ROW_CORE = /(\d{5,8}-\d)\s+(\d{1,2}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}\s*[AP]M)\s+\d{1,3}(?:\.\d{1,3}){3}/i
+// name continuation. The gap between the date and the time is `\s*`: OCR of a
+// printed page can glue them ("18/10/202609:29AM").
+const ROW_CORE = /(\d{5,8}-\d)\s+(\d{1,2}\/\d{1,2}\/\d{4}\s*\d{1,2}:\d{2}\s*[AP]M)\s+\d{1,3}(?:\.\d{1,3}){3}/i
 
 /**
  * Every participating bidder from the "Supplier List" table, in the page's

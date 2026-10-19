@@ -42,6 +42,7 @@ import type { ExcelTable } from '@core/types'
 import type { AgreementBundleFile, VerifyDocItem } from '../../electron/ipc-contract'
 import { VerifyButton } from './VerifyButton'
 import DocFieldsEditor, { groupLabels, type DocField, type DocFieldGroup } from './DocFieldsEditor'
+import { variantForCorporation, corporationDefaultVariant } from '@core/workOrderTemplateVariants'
 
 interface Props {
   tables: ExcelTable[]
@@ -609,7 +610,10 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     setLabels([])
     void (async () => {
       try {
-        const intimationVariant = localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.intimation, office)) ?? undefined
+        const intimationVariant = variantForCorporation(
+          localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.intimation, office)) ?? corporationDefaultVariant(office.corporation, undefined),
+          office.corporation
+        )
         const b64 = seMode
           ? await api.loaSeTemplate(seReserved, office.corporation)
           : await api.intimationTemplate(intimationVariant)

@@ -203,10 +203,10 @@ export async function renderDocPreview(
     breakPages?: boolean
   }
 ): Promise<{ pageCount: number; accurate: boolean }> {
-  container.innerHTML = ''
   const renderOptions =
     options?.breakPages === false ? { ...DOCX_PREVIEW_OPTIONS, breakPages: false } : DOCX_PREVIEW_OPTIONS
   if (options?.forSnapshot) {
+    container.innerHTML = ''
     // The snapshot is re-laid-out in the print window, a clean page. docx-preview's
     // style rules are unscoped (`.docx p { text-indent: … }`), so another document's
     // preview already on this page leaks into measurements made here — the baked
@@ -237,11 +237,30 @@ export async function renderDocPreview(
     }
     return { pageCount: container.querySelectorAll('section.docx').length, accurate: false }
   }
-  await renderAsync(docxBytes, container, undefined, renderOptions)
-  normalizeDocxTextboxes(container)
-  await addFontFallbacks(container)
-  return { pageCount: container.querySelectorAll('section.docx').length, accurate: false }
+  // Live previews re-render on every keystroke. Rendering straight into `container` empties it first and
+  // then waits on the async layout, so the page flashed blank on each edit (and two overlapping renders
+  // could interleave). Render into an offscreen stage instead and swap the finished pages in; a render
+  // that was overtaken by a newer one for the same container is dropped, not painted over it.
+  const seq = (latestRender.get(container) ?? 0) + 1
+  latestRender.set(container, seq)
+  const stage = document.createElement('div')
+  stage.className = container.className
+  stage.style.cssText = `position:absolute;left:-99999px;top:0;visibility:hidden;width:${container.clientWidth || PAGE_WIDTH}px`
+  ;(container.parentElement ?? document.body).appendChild(stage)
+  try {
+    await renderAsync(docxBytes, stage, undefined, renderOptions)
+    normalizeDocxTextboxes(stage)
+    await addFontFallbacks(stage)
+    const pageCount = stage.querySelectorAll('section.docx').length
+    if (latestRender.get(container) === seq) container.replaceChildren(...Array.from(stage.childNodes))
+    return { pageCount, accurate: false }
+  } finally {
+    stage.remove()
+  }
 }
+
+/** Newest render started per preview container — see renderDocPreview. */
+const latestRender = new WeakMap<HTMLElement, number>()
 
 export function pageShellStyle(): string {
   return `

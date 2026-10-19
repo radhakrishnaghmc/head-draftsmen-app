@@ -3444,7 +3444,7 @@ button.upload-btn {
 }
 /* Field panel (360px) + the page at its native 794px width + padding — .wide's
    1180px would clip the page's right edge. */
-.wo-modal.doc-edit-modal {
+.wo-modal.wide.doc-edit-modal {
   width: min(1280px, 100%);
 }
 .doc-edit textarea {
@@ -3469,7 +3469,7 @@ button.upload-btn {
   padding: 0;
 }
 .ns-preview-scroll .intimation-docx-preview .docx-wrapper {
-  padding: 16px;
+  padding: 16px 0;
 }
 .doc-sheet-title {
   position: sticky;
@@ -5646,7 +5646,7 @@ body.theme-cyan .gen-output-modes .seg.active {
 }
 .qcp-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   padding: 4px 14px 16px;
 }
@@ -9579,9 +9579,9 @@ tr.on .rp-box span {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: #ececed;
-  padding: 20px;
+  padding: 20px 8px;
   display: flex;
-  justify-content: center;
+  justify-content: safe center;
 }
 .ns-doc {
   background: #fff;
@@ -10035,27 +10035,28 @@ tr.on .rp-box span {
   flex-direction: column;
   align-items: stretch;
   text-align: left;
-  gap: 5px;
+  gap: 6px;
   max-width: none;
 }
 .wo-manual-form .wo-date-field > span {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--text-2);
 }
-/* Matches .tender-field input's look (Issue Tender Notice) exactly — same
-   fixed height, border, background and focus treatment — so this form and
-   that one read as the same design instead of two slightly different ones. */
+/* Same look as the document preview editor's fields (.doc-edit-field input / .ns-form input) so the
+   Agreement / Work Order page's own inputs and the editor beside a preview read as one design. */
 .wo-manual-form input,
 .wo-manual-form select,
 .wo-manual-form textarea {
-  height: 38px;
-  padding: 0 12px;
+  height: 34px;
+  padding: 8px 10px;
+  line-height: normal;
   border-radius: var(--radius-sm);
-  border: 1px solid #c9ccd3;
+  border: 1.5px solid #c9ccd3;
   background: #fff;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 400;
   font-family: inherit;
   width: 100%;
 }
@@ -10071,6 +10072,7 @@ tr.on .rp-box span {
   outline: none;
   border-color: var(--indigo-500);
   background: #fff;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--chakra) 22%, transparent);
 }
 .wo-manual-wide {
   grid-column: 1 / -1;

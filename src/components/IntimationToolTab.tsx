@@ -12,6 +12,7 @@ import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLinesOrOcr } from '../pdfToText'
 import { base64ToUint8, PAGE_WIDTH, renderDocPreview, DOCX_PREVIEW_OPTIONS, normalizeDocxTextboxes } from './docPage'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell } from './Icons'
+import { variantForCorporation, corporationDefaultVariant } from '@core/workOrderTemplateVariants'
 
 interface Props {
   /** The chosen office — only its Corporation decides which zone/circle directory
@@ -135,7 +136,10 @@ export default function IntimationToolTab({ office }: Props) {
     let cancelled = false
     void (async () => {
       try {
-        const intimationVariant = localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.intimation, office)) ?? undefined
+        const intimationVariant = variantForCorporation(
+          localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.intimation, office)) ?? corporationDefaultVariant(office?.corporation, undefined),
+          office?.corporation
+        )
         const b64 = await api.intimationTemplate(intimationVariant)
         const found = await api.findPlaceholdersInDocument(b64)
         if (cancelled) return

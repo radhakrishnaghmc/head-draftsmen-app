@@ -190,6 +190,7 @@ export const IPC = {
   qccIntimationTemplate: 'doc:qccIntimationTemplate',
   forwardingSlipTemplate: 'doc:forwardingSlipTemplate',
   workBillNoteTemplate: 'doc:workBillNoteTemplate',
+  aeDyeeForwardingTemplate: 'doc:aeDyeeForwardingTemplate',
   civilTenderTemplate: 'doc:civilTenderTemplate',
   seAgreementBondTemplate: 'doc:seAgreementBondTemplate',
   zonalWorkOrderTemplate: 'doc:zonalWorkOrderTemplate',
@@ -433,10 +434,11 @@ export interface DocuGenApi {
   /** Reads the bundled Agreement format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */
   agreementTemplate(variantId?: string): Promise<string>
   /** Reads the bundled QCC Intimation letter (.docx) — the Dy.EE's request to Quality Control to inspect a starting work — base64-encoded for filling its {{placeholders}}. */
-  qccIntimationTemplate(): Promise<string>
+  qccIntimationTemplate(variantId?: string): Promise<string>
   /** Reads the bundled Forwarding Slip format (.docx) and returns it base64-encoded, for filling its {{placeholders}} via fillPlaceholdersInDocument. */
-  forwardingSlipTemplate(): Promise<string>
+  forwardingSlipTemplate(variantId?: string): Promise<string>
   workBillNoteTemplate(): Promise<string>
+  aeDyeeForwardingTemplate(variantId?: string): Promise<string>
   /** Reads the bundled full Civil Tender Document (.docx) — the 41-page NIT/tender document whose page 1 is the Forwarding Slip — returns it base64-encoded for filling its {{placeholders}}. `variantId` picks which bundled circle-specific variant to read (see core/workOrderTemplateVariants.ts) — omitted or unrecognized falls back to the original default. */
   civilTenderTemplate(variantId?: string): Promise<string>
   /** Reads the bundled Zone-level (SE office) Agreement Bond paper (.docx) — the "A G R E E M E N T" cover page signed by the Superintending Engineer. Base64-encoded, for filling its {{placeholders}}. */
@@ -461,7 +463,7 @@ export interface DocuGenApi {
   /** Reads the bundled Zone-level (SE office) Eligibility Criteria note (.docx) — issued alongside the LOA. Base64-encoded, for filling its {{placeholders}}. */
   eligibilityCriteriaTemplate(): Promise<string>
   /** Reads the bundled Notice format (.docx) — issued to an L-1 bidder who hasn't concluded the agreement within the stipulated time after the LOA. `ee` picks the Circle-level (EE office) variant over the default Zone-level (SE office) one. `version` 2 picks the alternate format that also prints the Intimation/LOA's own Lr.No/Date near the "To" block (same {{LOA No}}/{{LOA Date}} values as Ref 2) plus a "Gentleman," salutation; defaults to 1, the original format. Base64-encoded, for filling its {{placeholders}}. */
-  issueNoticeTemplate(ee: boolean, version?: 1 | 2): Promise<string>
+  issueNoticeTemplate(ee: boolean, variantId?: string): Promise<string>
   loadState(): Promise<PersistedState | null>
   /** Persist the workspace. `skipCloud` writes only to local disk and does NOT push to the cloud — used when the change being saved *came from* a remote sync, so it isn't echoed straight back and made to ping-pong between concurrent sessions. */
   saveState(state: PersistedState, skipCloud?: boolean): Promise<void>

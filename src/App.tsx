@@ -1,3 +1,4 @@
+import { markEvaluationGenerated, normalizeTenderConditions, purgeExpiredTenderConditions } from '@core/tenderConditions'
 import { useEffect, useMemo, useRef, useState, Fragment, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from './ipc'
@@ -86,7 +87,8 @@ import type {
   BidDocumentBatch,
   BidDocumentWork,
   QcOfficeParties,
-  PendingNoticeItem
+  PendingNoticeItem,
+  TenderConditionsEntry
 } from '@core/types'
 import type { CalendarData } from '@core/calendar'
 import { nthWorkingDay, dmyToIso } from '@core/calendar'
@@ -346,9 +348,10 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // Works List link remembered per office (key: officeKey) — synced, so a
   // circle's database reloads on return and follows the user across systems.
   const [worksListLinks, setWorksListLinks] = useState<Record<string, string>>({})
-  // 3rd/4th-party QC agencies remembered per office (key: officeKey) — entered
+  // Department QC and 3rd/4th-party QC agencies remembered per office (key: officeKey) — entered
   // once on the Works List page and reused by the 3rd/4th-party QC letters.
   const [qcParties, setQcParties] = useState<Record<string, QcOfficeParties>>({})
+  const [tenderConditions, setTenderConditions] = useState<Record<string, TenderConditionsEntry>>({})
   const [monitoringFormatByOffice, setMonitoringFormatByOffice] = useState<Record<string, MonitoringFormatSummary>>({})
   const [monitoringFormatLinks, setMonitoringFormatLinks] = useState<Record<string, string>>({})
   // Detail rows behind the Abstract's per-status counts — persisted/synced
@@ -374,6 +377,11 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // created/updated the moment an Intimation/LOA is issued (see
   // handleIntimationIssued below), so Issue Notices never needs a re-upload.
   const [pendingNotices, setPendingNotices] = useState<PendingNoticeItem[]>([])
+  // Saved tender conditions expire a week after their evaluation sheet is made; sweep hourly while the app stays open.
+  useEffect(() => {
+    const id = window.setInterval(() => setTenderConditions((prev) => purgeExpiredTenderConditions(prev, Date.now())), 60 * 60 * 1000)
+    return () => window.clearInterval(id)
+  }, [])
   // The raw, unbaked templates (office placeholders like {{circle}} still intact)
   // — the source of truth that persists. `bakedDocuments` derives from these with
   // the *current* office stamped in, recomputed whenever the office changes so a
@@ -599,6 +607,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
           setLastGoogleLink(s.lastGoogleLink ?? null)
           setWorksListLinks(s.worksListLinks ?? {})
           setQcParties(s.qcParties ?? {})
+          setTenderConditions(purgeExpiredTenderConditions(normalizeTenderConditions(s.tenderConditions), Date.now()))
           setMonitoringFormatByOffice(s.monitoringFormatByOffice ?? {})
           setMonitoringFormatWorksByOffice(s.monitoringFormatWorksByOffice ?? {})
           setMonitoringFormatLinks(s.monitoringFormatLinks ?? {})
@@ -658,6 +667,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       if (partial.lastGoogleLink !== undefined) setLastGoogleLink(partial.lastGoogleLink ?? null)
       if (partial.worksListLinks) setWorksListLinks(partial.worksListLinks)
       if (partial.qcParties) setQcParties(partial.qcParties)
+      if (partial.tenderConditions) setTenderConditions((prev) => purgeExpiredTenderConditions({ ...prev, ...normalizeTenderConditions(partial.tenderConditions) }, Date.now()))
       if (partial.monitoringFormatByOffice) setMonitoringFormatByOffice((prev) => ({ ...prev, ...partial.monitoringFormatByOffice }))
       if (partial.monitoringFormatWorksByOffice)
         setMonitoringFormatWorksByOffice((prev) => ({ ...prev, ...partial.monitoringFormatWorksByOffice }))
@@ -716,6 +726,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
           lastGoogleLink: lastGoogleLink ?? undefined,
           worksListLinks,
           qcParties,
+          tenderConditions,
           monitoringFormatByOffice,
           monitoringFormatWorksByOffice,
           monitoringFormatLinks,
@@ -747,6 +758,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     lastGoogleLink,
     worksListLinks,
     qcParties,
+    tenderConditions,
     monitoringFormatByOffice,
     monitoringFormatWorksByOffice,
     monitoringFormatLinks,
@@ -1618,7 +1630,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                       meta: officeMonitoringFormat ? 'Imported' : 'Not imported'
                     },
                     ...(office.circle
-                      ? [{ key: 'qc' as const, label: '3rd / 4th-party QC agencies', Icon: IconUser, meta: 'Enter once' }]
+                      ? [{ key: 'qc' as const, label: 'Department QC / 3rd / 4th party', Icon: IconUser, meta: 'Enter once' }]
                       : [])
                   ]
                 ).map(({ key, label, Icon, meta }) => (
@@ -1878,7 +1890,14 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                 onIntimationIssued={handleIntimationIssued}
               />
             ) : (
-              <EvaluationSheetTab key={evaluationInstanceKey} office={office} tables={tables} />
+              <EvaluationSheetTab
+                key={evaluationInstanceKey}
+                office={office}
+                tables={tables}
+                savedConditions={tenderConditions}
+                onSaveConditions={(id, conditions) => setTenderConditions((prev) => ({ ...prev, [id]: { conditions } }))}
+                onEvaluationGenerated={(ids) => setTenderConditions((prev) => markEvaluationGenerated(prev, ids, Date.now()))}
+              />
             )}
           </section>
         </KeepAlive>
@@ -1910,6 +1929,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
               onChange={updateTable}
               zoneLogin={!!loginZone && !loginCircle}
               office={office}
+              qcParties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
               headerActionRef={workOrderHeaderActionRef}
             />
           </section>

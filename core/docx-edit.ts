@@ -95,6 +95,9 @@ function setRunText(run: Element, value: string): void {
   if (texts.length === 0) return
   const first = texts[0]
   for (let i = 1; i < texts.length; i++) texts[i].parentNode?.removeChild(texts[i])
+  // runText read the run's <w:tab/>s into `value` as "\t", so drop them here — otherwise each fill
+  // re-adds them on top of the originals and a paragraph with several placeholders grows hundreds of tabs.
+  for (const t of tag(run, 'w:tab')) t.parentNode?.removeChild(t)
   const doc = run.ownerDocument as unknown as Document
   // Tokenise on newlines and tabs, keeping the separators: text -> <w:t>,
   // "\n" -> <w:br/> (a hard line break), "\t" -> <w:tab/> (jumps to the next

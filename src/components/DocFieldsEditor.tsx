@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 export interface DocField {
   /** The template's {{Placeholder}} name. */
@@ -44,6 +44,8 @@ interface Props {
   onChange: (label: string, value: string) => void
   onRevert: (label: string) => void
   onResetAll: () => void
+  /** Scroll the panel to the fields of the page in view as the preview is scrolled (multi-page documents). */
+  followPages?: boolean
 }
 
 /** Turns a raw token ("NIT_No", "agencyName", "Corp Full Caps") into plain words for the panel. */
@@ -110,6 +112,86 @@ export function groupLabels(labels: string[]): DocFieldGroup[] {
     .map((t) => ({ title: t, fields: byTitle.get(t) as DocField[] }))
 }
 
+const normSpace = (t: string): string => t.replace(/\s+/g, ' ').trim()
+
+/**
+ * Tracks which rendered page (section.docx) is in view in the preview beside the panel,
+ * and which pages print each field's current value, so the panel can list just that
+ * page's fields. Blank fields can't be located and report no pages.
+ */
+function usePageFollow(
+  enabled: boolean,
+  groups: DocFieldGroup[],
+  derived: Record<string, string>,
+  edits: Record<string, string>
+): { page: number; pagesByLabel: Record<string, number[]> } {
+  const [page, setPage] = useState(0)
+  const [pagesByLabel, setPagesByLabel] = useState<Record<string, number[]>>({})
+  const valuesRef = useRef<Record<string, string>>({})
+  const values: Record<string, string> = {}
+  for (const g of groups) for (const f of g.fields) values[f.label] = edits[f.label] ?? derived[f.label] ?? ''
+  valuesRef.current = values
+  const signature = enabled ? JSON.stringify(values) : ''
+  const recomputeRef = useRef<() => void>(() => {})
+
+  useEffect(() => {
+    if (!enabled) return
+    const scroller = document.querySelector<HTMLElement>('.ns-preview-scroll')
+    if (!scroller) return
+    const pages = (): HTMLElement[] => Array.from(scroller.querySelectorAll<HTMLElement>('section.docx'))
+    const locate = (): void => {
+      const texts = pages().map((p) => normSpace(p.textContent ?? ''))
+      const next: Record<string, number[]> = {}
+      for (const [label, v] of Object.entries(valuesRef.current)) {
+        const needle = normSpace(v)
+        next[label] = needle ? texts.flatMap((t, i) => (t.includes(needle) ? [i] : [])) : []
+      }
+      setPagesByLabel((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
+    }
+    const track = (): void => {
+      const box = scroller.getBoundingClientRect()
+      let best = 0
+      let bestOverlap = -1
+      pages().forEach((p, i) => {
+        const r = p.getBoundingClientRect()
+        const overlap = Math.min(r.bottom, box.bottom) - Math.max(r.top, box.top)
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap
+          best = i
+        }
+      })
+      setPage(best)
+    }
+    recomputeRef.current = locate
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const observer = new MutationObserver((records) => {
+      // Only a re-render (pages swapped into the container) matters — the highlight marks
+      // inserted inside a page would otherwise retrigger this on every field click.
+      if (records.every((r) => r.target instanceof Element && r.target.closest('section.docx'))) return
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        locate()
+        track()
+      }, 150)
+    })
+    observer.observe(scroller, { childList: true, subtree: true })
+    scroller.addEventListener('scroll', track, { passive: true })
+    locate()
+    track()
+    return () => {
+      clearTimeout(timer)
+      observer.disconnect()
+      scroller.removeEventListener('scroll', track)
+    }
+  }, [enabled])
+
+  useEffect(() => {
+    if (enabled) recomputeRef.current()
+  }, [enabled, signature])
+
+  return { page, pagesByLabel }
+}
+
 /**
  * The fields pane of an editable document preview: every value the template
  * prints, grouped in the order the page prints them, beside the live page.
@@ -119,8 +201,31 @@ export function groupLabels(labels: string[]): DocFieldGroup[] {
  * its own. That distinction is the point of the panel — an office needs to see
  * at a glance which lines it has overruled before sending a document out.
  */
-export default function DocFieldsEditor({ groups, derived, edits, onChange, onRevert, onResetAll }: Props) {
+export default function DocFieldsEditor({ groups, derived, edits, onChange, onRevert, onResetAll, followPages }: Props) {
   const [onlyEmpty, setOnlyEmpty] = useState(false)
+  const [focusedLabel, setFocusedLabel] = useState<string | null>(null)
+  const { page, pagesByLabel } = usePageFollow(!!followPages, groups, derived, edits)
+  const formRef = useRef<HTMLDivElement>(null)
+  const focusedRef = useRef<string | null>(null)
+  focusedRef.current = focusedLabel
+  // Scrolling the page scrolls the panel to the first field that page prints for the first time.
+  // Not while a field is being typed in — the panel must hold still under the cursor.
+  useEffect(() => {
+    if (!followPages || focusedRef.current) return
+    const form = formRef.current
+    if (!form) return
+    const target = groups
+      .flatMap((g) => g.fields)
+      .find((f) => {
+        const on = pagesByLabel[f.label]
+        return on && on.length > 0 && on[0] === page
+      })
+    if (!target) return
+    const el = Array.from(form.querySelectorAll<HTMLElement>('[data-field]')).find((n) => n.dataset.field === target.label)
+    if (!el) return
+    const top = el.getBoundingClientRect().top - form.getBoundingClientRect().top + form.scrollTop - 90
+    form.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+  }, [followPages, page, pagesByLabel, groups])
   const stats = useMemo(() => {
     let edited = 0
     let auto = 0
@@ -136,7 +241,7 @@ export default function DocFieldsEditor({ groups, derived, edits, onChange, onRe
   const editedCount = stats.edited
 
   return (
-    <div className="ns-form doc-edit">
+    <div className="ns-form doc-edit" ref={formRef}>
       <div className="doc-edit-head">
         <div className="doc-edit-title">Fill in the document</div>
         <span className="doc-edit-hint">
@@ -162,7 +267,8 @@ export default function DocFieldsEditor({ groups, derived, edits, onChange, onRe
       </div>
       {groups.map((g) => {
         const edited = g.fields.filter((f) => edits[f.label] !== undefined).length
-        const visible = onlyEmpty ? g.fields.filter((f) => !(edits[f.label] ?? derived[f.label] ?? '').trim()) : g.fields
+        const fieldsHere = g.fields
+        const visible = onlyEmpty ? fieldsHere.filter((f) => !(edits[f.label] ?? derived[f.label] ?? '').trim()) : fieldsHere
         if (visible.length === 0) return null
         return (
           <section className="doc-edit-group" key={g.title}>
@@ -180,7 +286,12 @@ export default function DocFieldsEditor({ groups, derived, edits, onChange, onRe
                     isEdited ? 'edited' : ''
                   } state-${state}`}
                   key={f.label}
-                  onFocus={() => highlightInPreview(value)}
+                  data-field={f.label}
+                  onFocus={() => {
+                    setFocusedLabel(f.label)
+                    highlightInPreview(value)
+                  }}
+                  onBlur={() => setFocusedLabel(null)}
                 >
                   <span className="doc-edit-label">
                     <span className="doc-edit-name">

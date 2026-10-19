@@ -130,7 +130,11 @@ export function agreementTemplateFileName(variantId: string | undefined): string
  */
 export const INTIMATION_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
   { id: 'default', label: 'Intimation template 1' },
-  { id: '2', label: 'Intimation template 2' }
+  { id: '2', label: 'Intimation template 2' },
+  // Corporation-only: template 2's body with that corporation's horizontal logo as the whole header (Work Order types 4-6).
+  { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Intimation template 3 (MMC)' },
+  { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Intimation template 4 (CMC)' },
+  { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Intimation template 5 (GHMC)' }
 ]
 
 export const DEFAULT_INTIMATION_TEMPLATE_VARIANT = 'default'
@@ -140,6 +144,48 @@ export function intimationTemplateFileName(variantId: string | undefined): strin
   const found = INTIMATION_TEMPLATE_VARIANTS.find((v) => v.id === variantId)
   if (!found || found.id === DEFAULT_INTIMATION_TEMPLATE_VARIANT) return 'intimation-template.docx'
   return `intimation-template-${found.id}.docx`
+}
+
+/**
+ * Same variant-picker shape, for the Notice for Non-conclusion of Agreement
+ * (Issue Notices tab). "2" is a second wording; the corporation variants carry
+ * that corporation's logo header over the original wording.
+ */
+export const NOTICE_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
+  { id: 'default', label: 'Notice template 1' },
+  { id: '2', label: 'Notice template 2' },
+  { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Notice template 3 (MMC)' },
+  { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Notice template 4 (CMC)' },
+  { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Notice template 5 (GHMC)' }
+]
+
+export const DEFAULT_NOTICE_TEMPLATE_VARIANT = 'default'
+
+/** Filename suffix for issue-notice[-ee]-template*.docx: '' for the default, else '-<variant id>'. */
+export function noticeTemplateSuffix(variantId: string | undefined): string {
+  const found = NOTICE_TEMPLATE_VARIANTS.find((v) => v.id === variantId)
+  return !found || found.id === DEFAULT_NOTICE_TEMPLATE_VARIANT ? '' : `-${found.id}`
+}
+
+/**
+ * Same variant-picker shape, for the five-letter QC Intimation/Completion set.
+ * Type 1 is the plain-text letterhead; type 2 swaps the corporation-name heading for that
+ * corporation's horizontal logo header (Work Order types 4-6) — corporation-only, like the others.
+ */
+export const QC_INTIMATION_COMPLETION_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
+  { id: 'default', label: 'QC Intimation/Completion type 1' },
+  { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'QC Intimation/Completion type 2 (MMC)' },
+  { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'QC Intimation/Completion type 2 (CMC)' },
+  { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'QC Intimation/Completion type 2 (GHMC)' }
+]
+
+export const DEFAULT_QC_INTIMATION_COMPLETION_TEMPLATE_VARIANT = 'default'
+
+/** Same naming convention as workOrderTemplateFileName, for qc-intimation-completion-template*.docx. */
+export function qcIntimationCompletionTemplateFileName(variantId: string | undefined): string {
+  const found = QC_INTIMATION_COMPLETION_TEMPLATE_VARIANTS.find((v) => v.id === variantId)
+  if (!found || found.id === DEFAULT_QC_INTIMATION_COMPLETION_TEMPLATE_VARIANT) return 'qc-intimation-completion-template.docx'
+  return `qc-intimation-completion-template-${found.id}.docx`
 }
 
 /**
@@ -177,7 +223,9 @@ export const CIVIL_TENDER_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
   { id: 'default', label: 'Tender Document type 1' },
   { id: 'header2', label: 'Tender Document type 2' },
   // CMC-only: the horizontal CMC logo header (Work Order type 5) on the Forwarding Slip and NIT pages.
-  { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Tender Document type 3 (CMC)' }
+  { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Tender Document type 3 (CMC)' },
+  { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Tender Document type 4 (MMC)' },
+  { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Tender Document type 5 (GHMC)' }
 ]
 
 export const DEFAULT_CIVIL_TENDER_TEMPLATE_VARIANT = 'default'

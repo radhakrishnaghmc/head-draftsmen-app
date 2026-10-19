@@ -57,7 +57,7 @@ function isFieldLabelLine(line: string): boolean {
   return (
     t === '' ||
     /^number$/i.test(t) ||
-    /^(notice number|tender id|enquiry|ifb|current tender|commercial evaluation|preliminary responsiveness|name of work)\b/i.test(t)
+    /^(notice number|tender id|enquiry|ifb|current tender|commercial evaluation|preliminary responsiveness|name\s*of\s*work)\b/i.test(t)
   )
 }
 
@@ -86,11 +86,11 @@ function isFieldLabelLine(line: string): boolean {
  * above it, then append the following lines until the next field label.
  */
 function extractFromLabelBlock(lines: string[]): string | undefined {
-  const li = lines.findIndex((l) => /name of work/i.test(l))
+  const li = lines.findIndex((l) => /name\s*of\s*work/i.test(l))
   if (li < 0) return undefined
 
   const parts: string[] = []
-  const after = lines[li].replace(/^.*?name of work\s*/i, '').trim()
+  const after = lines[li].replace(/^.*?name\s*of\s*work\s*/i, '').trim()
   // A lowercase first letter means `after` is mid-sentence — the value's
   // opening words wrapped onto the line ABOVE the label (the third layout
   // above), not a fresh title starting right at the label. A real work name
@@ -152,7 +152,7 @@ export function detectNameOfWork(lines: string[]): string | undefined {
   // that extractFromLabelBlock's line-array walk didn't anchor on for some
   // reason — scan the whole joined page text instead.
   const joined = joinLines(lines)
-  const work = /Name of Work\s+(.+?)\s+(?:Tender Category|Tender Type|Estimated Contract)\b/i.exec(joined)
+  const work = /Name\s*of\s*Work\s*(.+?)\s+(?:Tender\s*Category|Tender\s*Type|Estimated\s*Contract)\b/i.exec(joined)
   return work ? work[1].replace(/\s+/g, ' ').trim() : undefined
 }
 

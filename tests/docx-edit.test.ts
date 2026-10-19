@@ -166,6 +166,18 @@ describe('fillPlaceholdersInDocx', () => {
     expect(isRunBold(out, 'IMPORTANT')).toBe(true)
   })
 
+  it('does not multiply the tabs of a run that holds several placeholders', () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>No. {{A}}/{{B}}</w:t><w:tab/><w:tab/><w:t xml:space="preserve">  Date: {{C}}</w:t></w:r></w:p></w:body></w:document>`
+    const zip = new PizZip()
+    zip.file('word/document.xml', xml)
+    const buffer = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' })
+    const resolved: PlaceholderMatch[] = ['A', 'B', 'C'].map((label) => ({ label, column: label, score: 1 }))
+    const out = fillPlaceholdersInDocx(buffer, resolved, { A: 'x', B: 'y', C: 'z' })
+    const filled = new PizZip(out).file('word/document.xml')!.asText()
+    expect(filled.match(/<w:tab\/>/g)).toHaveLength(2)
+    expect(listParagraphs(out)).toEqual(['No. x/y\t\t  Date: z'])
+  })
+
   it('leaves paragraphs with no placeholder untouched', () => {
     const resolved: PlaceholderMatch[] = [{ label: 'Name', column: 'Name', score: 0.9 }]
     const buffer = buildDocx([[{ text: '{{Name}}' }], [{ text: 'Plain paragraph, no braces.' }]])

@@ -26,19 +26,36 @@ export default function PageMarginGuides({ containerRef, margins, onChange, rend
   const dragRef = useRef<{ side: (typeof SIDES)[number]; start: number; value: number } | null>(null)
 
   useLayoutEffect(() => {
-    const sec = containerRef.current?.querySelector<HTMLElement>('section.docx')
-    const parent = sec?.closest<HTMLElement>('.page-margin-host')
-    if (!sec || !parent) {
-      setBox(null)
-      return
+    const measure = (): void => {
+      const sec = containerRef.current?.querySelector<HTMLElement>('section.docx')
+      const parent = sec?.closest<HTMLElement>('.page-margin-host')
+      if (!sec || !parent) {
+        setBox(null)
+        return
+      }
+      const s = sec.getBoundingClientRect()
+      const p = parent.getBoundingClientRect()
+      const scale = sec.offsetWidth ? s.width / sec.offsetWidth : 1
+      const next = { left: s.left - p.left + parent.scrollLeft, top: s.top - p.top + parent.scrollTop, width: s.width, height: s.height, scale }
+      setBox((prev) => (prev && Object.keys(next).every((k) => Math.abs(prev[k as keyof typeof next] - next[k as keyof typeof next]) < 0.5) ? prev : next))
+      const cs = getComputedStyle(sec)
+      const mm = (v: string): number => Math.round((parseFloat(v) / PX_PER_MM) * 10) / 10
+      const m = { top: mm(cs.paddingTop), bottom: mm(cs.paddingBottom), left: mm(cs.paddingLeft), right: mm(cs.paddingRight) }
+      setMeasured((prev) => (prev && SIDES.every((k) => prev[k] === m[k]) ? prev : m))
     }
-    const s = sec.getBoundingClientRect()
-    const p = parent.getBoundingClientRect()
-    const scale = sec.offsetWidth ? s.width / sec.offsetWidth : 1
-    setBox({ left: s.left - p.left + parent.scrollLeft, top: s.top - p.top + parent.scrollTop, width: s.width, height: s.height, scale })
-    const cs = getComputedStyle(sec)
-    const mm = (v: string): number => Math.round((parseFloat(v) / PX_PER_MM) * 10) / 10
-    setMeasured({ top: mm(cs.paddingTop), bottom: mm(cs.paddingBottom), left: mm(cs.paddingLeft), right: mm(cs.paddingRight) })
+    measure()
+    // The page is swapped in after an offscreen render (and the modal can resize), often without the
+    // page count changing — so re-measure on any DOM swap or size change, not just on renderKey.
+    const container = containerRef.current
+    if (!container) return
+    const mo = new MutationObserver(measure)
+    mo.observe(container, { childList: true })
+    const ro = new ResizeObserver(measure)
+    ro.observe(container)
+    return () => {
+      mo.disconnect()
+      ro.disconnect()
+    }
   }, [renderKey, containerRef])
 
   const eff = margins ?? measured

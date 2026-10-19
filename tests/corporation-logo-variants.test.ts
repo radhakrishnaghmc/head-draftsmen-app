@@ -9,12 +9,15 @@ import {
   zonalTemplateVariant,
   workOrderTemplateFileName,
   fileBackerTemplateFileName,
+  intimationTemplateFileName,
+  noticeTemplateSuffix,
+  NOTICE_TEMPLATE_VARIANTS,
   WORK_ORDER_TEMPLATE_VARIANTS
 } from '../core/workOrderTemplateVariants'
 import { findPlaceholdersInAllParts } from '../core/docx-edit'
 
 const res = (f: string) => path.resolve(__dirname, '../resources', f)
-const BASES = ['work-order', 'zonal-work-order', 'file-backer', 'zonal-concluding-agreement', 'zonal-memo-ee']
+const BASES = ['work-order', 'zonal-work-order', 'file-backer', 'intimation', 'zonal-concluding-agreement', 'zonal-memo-ee']
 
 describe('corporation logo-header templates (CMC / GHMC)', () => {
   for (const corp of ['cmc', 'ghmc']) {
@@ -40,6 +43,7 @@ describe('corporation logo-header templates (CMC / GHMC)', () => {
     for (const v of ['cmc', 'ghmc']) {
       expect(fs.existsSync(res(workOrderTemplateFileName(v)))).toBe(true)
       expect(fs.existsSync(res(fileBackerTemplateFileName(v)))).toBe(true)
+      expect(fs.existsSync(res(intimationTemplateFileName(v)))).toBe(true)
       expect(zonalTemplateVariant(v)).toBe(v)
     }
     expect(zonalTemplateVariant('kompally')).toBeUndefined()
@@ -62,5 +66,41 @@ describe('corporation logo-header templates (CMC / GHMC)', () => {
     expect(corporationDefaultVariant('CMC', 'default')).toBe('cmc')
     expect(corporationDefaultVariant('XYZ', 'default')).toBe('default')
     expect(corporationDefaultVariant(undefined, 'default')).toBe('default')
+  })
+})
+
+describe('Notice logo-header templates', () => {
+  for (const corp of ['cmc', 'ghmc', 'mmc']) {
+    for (const base of ['issue-notice-template', 'issue-notice-ee-template']) {
+      it(`${base}-${corp}: logo header over the original body, header image at true aspect`, () => {
+        const orig = findPlaceholdersInAllParts(fs.readFileSync(res(`${base}.docx`)))
+        const buf = fs.readFileSync(res(`${base}-${corp}.docx`))
+        const got = findPlaceholdersInAllParts(buf)
+        // Only the old text letterhead's corporation-name placeholder goes away.
+        expect(got.filter((l) => !orig.includes(l))).toEqual([])
+        expect(orig.filter((l) => !got.includes(l)).every((l) => l === 'Corp Full Caps')).toBe(true)
+        expect(got).toContain('Agency Name')
+        const zip = new PizZip(buf)
+        expect(zip.file('word/_rels/document.xml.rels')!.asText()).toContain(`media/${corp}_header.png`)
+        expect(zip.file('[Content_Types].xml')!.asText()).toContain('Extension="png" ContentType="image/png"')
+        const xml = zip.file('word/document.xml')!.asText()
+        // Stretched edge to edge across the body text (page width minus both margins), no table indent or cell padding.
+        const pg = /<w:pgSz w:w="(\d+)"/.exec(xml)![1]
+        const mar = /<w:pgMar [^>]*w:right="(\d+)"[^>]*w:left="(\d+)"/.exec(xml)!
+        const textW = Number(pg) - Number(mar[1]) - Number(mar[2])
+        expect(Number(/<wp:extent cx="(\d+)"/.exec(xml)![1])).toBe(textW * 635)
+        expect(xml).toContain(`<w:tblW w:w="${textW}" w:type="dxa"/>`)
+        expect(xml).toContain('<w:tblInd w:w="0" w:type="dxa"/>')
+      })
+    }
+  }
+
+  it('maps notice variant ids to bundled files that exist and offers each office only its own logo', () => {
+    for (const v of ['cmc', 'ghmc', 'mmc', '2', 'default']) {
+      expect(fs.existsSync(res(`issue-notice-template${noticeTemplateSuffix(v)}.docx`))).toBe(true)
+      expect(fs.existsSync(res(`issue-notice-ee-template${noticeTemplateSuffix(v)}.docx`))).toBe(true)
+    }
+    expect(variantsForCorporation(NOTICE_TEMPLATE_VARIANTS, 'GHMC').map((v) => v.id)).toEqual(['default', '2', 'ghmc'])
+    expect(noticeTemplateSuffix('bogus')).toBe('')
   })
 })

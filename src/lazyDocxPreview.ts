@@ -11,5 +11,50 @@
  */
 type RenderAsync = typeof import('docx-preview')['renderAsync']
 
-export const renderAsync: RenderAsync = ((...args: Parameters<RenderAsync>) =>
-  import('docx-preview').then((m) => m.renderAsync(...args))) as RenderAsync
+let scopeCounter = 0
+
+/**
+ * docx-preview writes each document's styles as page-global rules (`.docx p { text-indent… }`,
+ * `.docx-wrapper { … }`) in a <style> next to the pages — so whichever document was rendered last
+ * restyles every other preview on screen (a tile thumbnail's hanging-indent Normal style was
+ * indenting and shifting the File Backer letterhead cells, for instance). Rewrite this render's
+ * rules to apply only inside its own wrapper, tagged with a unique `data-dp`. `:where()` keeps the
+ * specificity unchanged, so the app's own preview overrides still win exactly as before.
+ */
+function scopeDocxStyles(bodyContainer: HTMLElement, styleContainer: HTMLElement): void {
+  const wrappers = bodyContainer.querySelectorAll<HTMLElement>('.docx-wrapper')
+  const wrapper = wrappers[wrappers.length - 1]
+  if (!wrapper) return
+  const id = String(++scopeCounter)
+  wrapper.setAttribute('data-dp', id)
+  const scope = `:where(.docx-wrapper[data-dp="${id}"])`
+  for (const style of Array.from(styleContainer.querySelectorAll('style'))) {
+    if (style.hasAttribute('data-dp-scoped')) continue
+    const rules = style.sheet?.cssRules
+    if (!rules) continue
+    const scoped = Array.from(rules)
+      .map((rule) => {
+        const styleRule = rule as CSSStyleRule // (duck-typed: the print snapshot's iframe has its own CSSStyleRule class)
+        if (typeof styleRule.selectorText !== 'string' || !styleRule.style) return rule.cssText
+        const selector = styleRule.selectorText
+          .split(',')
+          .map((s) => {
+            const sel = s.trim()
+            return sel.startsWith('.docx-wrapper') ? `.docx-wrapper:where([data-dp="${id}"])${sel.slice('.docx-wrapper'.length)}` : `${scope} ${sel}`
+          })
+          .join(', ')
+        return `${selector} { ${styleRule.style.cssText} }`
+      })
+      .join('\n')
+    style.textContent = scoped
+    style.setAttribute('data-dp-scoped', id)
+  }
+}
+
+export const renderAsync: RenderAsync = (async (...args: Parameters<RenderAsync>) => {
+  const m = await import('docx-preview')
+  const result = await m.renderAsync(...args)
+  const body = args[1] as HTMLElement
+  scopeDocxStyles(body, (args[2] as HTMLElement | undefined) ?? body)
+  return result
+}) as RenderAsync

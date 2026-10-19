@@ -16,6 +16,17 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.41.0',
+    changes: [
+      'Evaluation Sheet: the tender conditions now show on screen under each uploaded tender — add, remove or reword them before downloading.',
+      'Evaluation Sheet: type a Tender ID to save that tender\'s conditions in the app while the tender is still open; they are reused when you evaluate it after bidding closes, and removed a week after the sheet is made.',
+      'Evaluation Sheet: the caste-certificate and one-work-per-agency conditions appear only for reserved works (SC, ST, Waddera or any other category).',
+      'Evaluation Sheet: when the ECV is below ₹5 lakhs you are asked whether the estimate is too — Yes removes the 3AN-B conditions and rows.',
+      'Evaluation Sheet: the file is named "Evaluation Sheet <Tender ID>", rows now fit long work names and conditions, and the Tender ID, work name and bidders are read more reliably from printed portal pages.',
+      'CMC, GHMC and MMC logo-header versions of the Issue Notice, Intimation, Forwarding Slip, QC Intimation/Completion and AE/Dy.EE forwarding documents.'
+    ]
+  },
+  {
     version: '1.40.0',
     changes: [
       'Cyberabad (CMC), Greater Hyderabad (GHMC) and Malkajgiri (MMC) offices now get their own logo header on the File Backer, Work Order, Tender Document and the zonal Work Order, Concluding Agreement and Memo to EE.',

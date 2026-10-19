@@ -98,7 +98,7 @@ export function detectNitNoAndDate(lines: string[]): NitNoAndDate {
   // it. Stripped here first, same as the "Tender ID" label form, so it never
   // reaches the NIT capture at all.
   const cleaned = joined
-    .replace(/Tender ID\s*\d{5,8}\b|\b\d{5,8}\s+Tender ID/gi, ' ')
+    .replace(/Tender\s*ID\s*\d{5,8}\b|\b\d{5,8}\s+Tender\s*ID/gi, ' ')
     .replace(/Enquiry\/IFB\/Tender\s*\d{5,8}\b|\b\d{5,8}\s+Enquiry\/IFB\/Tender/gi, ' ')
     .replace(/Notice Number/gi, ' ')
   // Capture through to the tail (or the line's end), then cleanNit drops any

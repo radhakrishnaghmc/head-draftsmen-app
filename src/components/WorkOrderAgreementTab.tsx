@@ -22,9 +22,11 @@ import {
   agreementPlaceholders,
   seAgreementBondPlaceholders,
   zonalDocsPlaceholders,
-  qccIntimationPlaceholders,
+  qcIntimationCompletionPlaceholders,
+  qcPartyToBlock,
   forwardingSlipPlaceholders,
   workBillNotePlaceholders,
+  aeDyeeForwardingPlaceholders,
   civilTenderPlaceholders,
   standaloneRowFromSources,
   circleFromNit,
@@ -66,7 +68,7 @@ import { mismatchHint } from '../docClassify'
 import type { PlaceholderMatch } from '@core/createDocument'
 import type { ScheduleAMeta, AgreementBundleFile, VerifyDocItem } from '../../electron/ipc-contract'
 import { VerifyButton } from './VerifyButton'
-import type { ExcelTable } from '@core/types'
+import type { ExcelTable, QcOfficeParties } from '@core/types'
 import { pdfToTextLinesOrOcr, pdfToPositionedLines } from '../pdfToText'
 import {
   base64ToUint8,
@@ -124,6 +126,8 @@ interface Props {
   zoneLogin?: boolean
   /** The chosen office (Works List page) — supplies Corporation/Circle/CNO for the Forwarding Slip. */
   office?: Office
+  /** The office's 3rd/4th-party QC agencies (Works List page) — the "To" blocks of the QC Intimation/Completion letters. */
+  qcParties?: QcOfficeParties
   /**
    * DOM node (rendered by the page header, App.tsx) to portal the "Download
    * all documents" button into — puts it in the page-head-action slot next
@@ -186,6 +190,7 @@ type DocKind =
   | 'qccIntimation'
   | 'forwardingSlip'
   | 'workBillNote'
+  | 'aeDyeeForwarding'
   | 'civilTender'
   | 'seAgreementBond'
   | 'zonalWorkOrder'
@@ -199,10 +204,11 @@ const DOC_LABEL: Record<Output, string> = {
   fileBacker: 'File Backer',
   forwardingSlip: 'Forwarding Slip',
   workBillNote: 'DB Note',
+  aeDyeeForwarding: 'AE/Dy.EE Forwarding Letters',
   civilTender: 'Tender Document',
   workOrder: 'Work Order',
   agreement: 'Agreement Bond',
-  qccIntimation: 'QCC Intimation',
+  qccIntimation: 'QC Intimation/Completion',
   seAgreementBond: 'Agreement Bond',
   zonalWorkOrder: 'Work Order',
   zonalConcludingAgreement: 'Concluding Agreement',
@@ -220,6 +226,7 @@ const DOC_KINDS: DocKind[] = [
   'qccIntimation',
   'forwardingSlip',
   'workBillNote',
+  'aeDyeeForwarding',
   'civilTender',
   'seAgreementBond',
   'zonalWorkOrder',
@@ -247,14 +254,56 @@ const EDITABLE_DOCS: DocKind[] = [
   'qccIntimation',
   'forwardingSlip',
   'workBillNote',
+  'aeDyeeForwarding',
   'zonalWorkOrder',
   'seAgreementBond'
 ]
 
 // Documents whose preview has draggable page-margin guides.
 // Documents forced to a single-width A4 sheet in the preview, print and every export.
-const A4_DOCS: Output[] = ['fileBacker', 'agreement', 'seAgreementBond', 'workBillNote']
-const MARGIN_DOCS: Output[] = ['fileBacker', 'workOrder', 'agreement', 'seAgreementBond', 'forwardingSlip', 'workBillNote']
+const A4_DOCS: Output[] = ['fileBacker', 'agreement', 'seAgreementBond', 'workBillNote', 'forwardingSlip']
+/**
+ * The File Backer's tables (and the logo banner inside them) are wider than the A4 page's text area
+ * (template written for Letter, page forced to A4) and its paragraphs carry an uneven outdent, so the
+ * print window shows the whole page shifted to one side. Centre them on the page there; the Word file
+ * and the on-screen preview are left as they are.
+ */
+function centerFileBackerForPrint(root: HTMLElement): void {
+  const pt = (v: string | undefined): number | null => {
+    const m = /^(-?[\d.]+)pt$/.exec((v ?? '').trim())
+    return m ? parseFloat(m[1]) : null
+  }
+  for (const sec of Array.from(root.querySelectorAll<HTMLElement>('section.docx'))) {
+    const pageW = pt(sec.style.width)
+    const padL = pt(sec.style.paddingLeft)
+    const padR = pt(sec.style.paddingRight)
+    if (pageW == null || padL == null || padR == null) continue
+    const article = sec.querySelector(':scope > article')
+    if (!article) continue
+    for (const el of Array.from(article.children) as HTMLElement[]) {
+      if (el.tagName === 'TABLE') {
+        const w = pt(el.style.width)
+        if (w == null) continue
+        el.style.marginLeft = `${(pageW - w) / 2 - padL}pt`
+        el.style.marginRight = '0'
+      } else if (el.tagName === 'P') {
+        el.style.marginLeft = '0'
+        el.style.marginRight = '0'
+      }
+    }
+  }
+}
+
+const MARGIN_DOCS: Output[] = [
+  'fileBacker',
+  'workOrder',
+  'agreement',
+  'seAgreementBond',
+  'forwardingSlip',
+  'workBillNote',
+  'aeDyeeForwarding',
+  'qccIntimation'
+]
 
 function isEditableDoc(kind: Output | null): kind is DocKind {
   return isDocKind(kind) && EDITABLE_DOCS.includes(kind)
@@ -268,6 +317,39 @@ function isEditableDoc(kind: Output | null): kind is DocKind {
  * own labels, grouped by groupLabels().
  */
 const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
+  aeDyeeForwarding: [
+    {
+      title: 'Office',
+      fields: [
+        { label: 'Corporation Full Name', title: 'Corporation (full name)' },
+        { label: 'Corp Full Caps', title: 'Corporation (letterhead)' },
+        { label: 'Corporation', title: 'Corporation (abbr.)' },
+        { label: 'Zone', title: 'Zone' },
+        { label: 'Circle', title: 'Circle' },
+        { label: 'CNO', title: 'Circle No' }
+      ]
+    },
+    {
+      title: 'The work',
+      fields: [
+        { label: 'Wincode', title: 'Wincode' },
+        { label: 'Name of the work', title: 'Name of the work', multiline: true },
+        { label: 'Name of the Agency', title: 'Name of the agency' }
+      ]
+    },
+    {
+      title: 'Amounts & agreement',
+      fields: [
+        { label: 'Amount of estimate', title: 'Estimate amount' },
+        { label: 'TS No and Date', title: 'Technical sanction no. & date' },
+        { label: 'Contract Amount', title: 'Contract amount' },
+        { label: 'Tender Percentage', title: 'Tender percentage' },
+        { label: 'Agreement No', title: 'Agreement no.' },
+        { label: 'Agmt Date', title: 'Agreement date' },
+        { label: 'Completion Period', title: 'Period of completion', periodUnit: true }
+      ]
+    }
+  ],
   workBillNote: [
     {
       title: 'The work',
@@ -471,8 +553,17 @@ const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
       fields: [
         { label: 'Corporation Full Name', title: 'Corporation (letterhead)', wide: true },
         { label: 'Corporation', title: 'Corporation (short)' },
+        { label: 'Zone', title: 'Zone' },
         { label: 'Circle', title: 'Circle' },
-        { label: 'CNO', title: 'Circle No' }
+        { label: 'CNO', title: 'Circle No' },
+        { label: 'Financialyear', title: 'Financial year' }
+      ]
+    },
+    {
+      title: 'Letter reference (Lr.No. / date — same on all five letters)',
+      fields: [
+        { label: 'Lr No', title: 'Lr.No. (number before /EE/…)' },
+        { label: 'Letter Date', title: 'Dt: (e.g. 17/10/2026)' }
       ]
     },
     {
@@ -486,12 +577,20 @@ const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
     {
       title: 'Amounts',
       fields: [
-        { label: 'Amount of estimate', title: 'Amount of estimate' },
-        { label: 'ECV', title: 'ECV' },
+        { label: 'Estimate Amount', title: 'Estimate amount' },
+        { label: 'ECV Amount', title: 'ECV' },
         { label: 'Contract Amount', title: 'Contract amount' }
       ]
     },
-    { title: 'The agency', fields: [{ label: 'Name of the Agency', title: 'Name of the agency' }] }
+    { title: 'The agency', fields: [{ label: 'Name of the Agency', title: 'Name of the agency' }] },
+    {
+      title: 'Department QC / 3rd / 4th party (from the Works List agency panel)',
+      fields: [
+        { label: 'Department QC To', title: 'Department QC — To block', multiline: true },
+        { label: 'Third Party To', title: '3rd party (QC college) — To block', multiline: true },
+        { label: 'Fourth Party To', title: '4th party (testing lab) — To block', multiline: true }
+      ]
+    }
   ]
 }
 
@@ -598,6 +697,7 @@ export default function WorkOrderAgreementTab({
   onContent,
   zoneLogin = false,
   office,
+  qcParties,
   headerActionRef
 }: Props) {
   const standalone = standaloneProp || scheduleAOnly || !!only
@@ -630,6 +730,7 @@ export default function WorkOrderAgreementTab({
   const [qccIntimationB64, setQccIntimationB64] = useState<string | null>(null)
   const [forwardingSlipB64, setForwardingSlipB64] = useState<string | null>(null)
   const [workBillNoteB64, setWorkBillNoteB64] = useState<string | null>(null)
+  const [aeDyeeB64, setAeDyeeB64] = useState<string | null>(null)
   const [civilTenderB64, setCivilTenderB64] = useState<string | null>(null)
   const [seAgreementBondB64, setSeAgreementBondB64] = useState<string | null>(null)
   const [zonalWorkOrderB64, setZonalWorkOrderB64] = useState<string | null>(null)
@@ -643,6 +744,7 @@ export default function WorkOrderAgreementTab({
   const [qccIntimationLabels, setQccIntimationLabels] = useState<string[]>([])
   const [forwardingSlipLabels, setForwardingSlipLabels] = useState<string[]>([])
   const [workBillNoteLabels, setWorkBillNoteLabels] = useState<string[]>([])
+  const [aeDyeeLabels, setAeDyeeLabels] = useState<string[]>([])
   const [civilTenderLabels, setCivilTenderLabels] = useState<string[]>([])
   const [seAgreementBondLabels, setSeAgreementBondLabels] = useState<string[]>([])
   const [zonalWorkOrderLabels, setZonalWorkOrderLabels] = useState<string[]>([])
@@ -820,6 +922,7 @@ export default function WorkOrderAgreementTab({
   const qccIntTileRef = useRef<HTMLDivElement>(null)
   const fsTileRef = useRef<HTMLDivElement>(null)
   const wbnTileRef = useRef<HTMLDivElement>(null)
+  const aeTileRef = useRef<HTMLDivElement>(null)
   const ctTileRef = useRef<HTMLDivElement>(null)
   const seBondTileRef = useRef<HTMLDivElement>(null)
   const zwoTileRef = useRef<HTMLDivElement>(null)
@@ -828,6 +931,8 @@ export default function WorkOrderAgreementTab({
   const seNoteTileRef = useRef<HTMLDivElement>(null)
   const contractDeedTileRef = useRef<HTMLDivElement>(null)
   const expandedRef = useRef<HTMLDivElement>(null)
+  // Bumped per full-size preview render, so a slow render that finishes late can't overwrite a newer one.
+  const renderSeqRef = useRef(0)
   const printScratchRef = useRef<HTMLDivElement>(null)
 
   // Schedule-A-only Tools tile: open the estimate/BOQ picker on mount so the
@@ -892,6 +997,7 @@ export default function WorkOrderAgreementTab({
   const workOrderVariantKey = officeScopedKey(TEMPLATE_KEYS.workOrder, office)
   const agreementVariantKey = officeScopedKey(TEMPLATE_KEYS.agreement, office)
   const fileBackerVariantKey = officeScopedKey(TEMPLATE_KEYS.fileBacker, office)
+  const qcVariantKey = officeScopedKey(TEMPLATE_KEYS.qcIntimationCompletion, office)
   const civilTenderVariantKey = officeScopedKey(TEMPLATE_KEYS.civilTender, office)
   const concludingVariantKey = officeScopedKey(TEMPLATE_KEYS.concludingAgreement, office)
   const memoEeVariantKey = officeScopedKey(TEMPLATE_KEYS.memoEe, office)
@@ -907,35 +1013,44 @@ export default function WorkOrderAgreementTab({
           // same way the office's other per-office settings (CONTACT_KEYS)
           // already are — falls back to the default when this office hasn't
           // picked one.
-          const workOrderVariant = localStorage.getItem(workOrderVariantKey) ?? undefined
           const agreementVariant = localStorage.getItem(agreementVariantKey) ?? undefined
           // Corporation logo headers (types 4-6) are per-corporation, and the default for MMC / CMC / GHMC when no pick is saved.
           const corp = office?.corporation
+          const workOrderVariant = variantForCorporation(
+            localStorage.getItem(workOrderVariantKey) ?? corporationDefaultVariant(corp, undefined),
+            corp
+          )
           const fileBackerVariant = variantForCorporation(
             localStorage.getItem(fileBackerVariantKey) ?? corporationDefaultVariant(corp, undefined),
+            corp
+          )
+          const qcVariant = variantForCorporation(
+            localStorage.getItem(qcVariantKey) ?? corporationDefaultVariant(corp, undefined),
             corp
           )
           const civilTenderVariant = variantForCorporation(
             localStorage.getItem(civilTenderVariantKey) ?? corporationDefaultVariant(corp, undefined),
             corp
           )
-          const [woB64, fbB64, agB64, qiB64, fsB64, ctB64, wbB64] = await Promise.all([
+          const [woB64, fbB64, agB64, qiB64, fsB64, ctB64, wbB64, aeB64] = await Promise.all([
             api.workOrderTemplate(workOrderVariant),
             api.fileBackerTemplate(fileBackerVariant),
             api.agreementTemplate(agreementVariant),
-            api.qccIntimationTemplate(),
-            api.forwardingSlipTemplate(),
+            api.qccIntimationTemplate(qcVariant),
+            api.forwardingSlipTemplate(corporationDefaultVariant(corp, undefined)),
             api.civilTenderTemplate(civilTenderVariant),
-            api.workBillNoteTemplate()
+            api.workBillNoteTemplate(),
+            api.aeDyeeForwardingTemplate(corporationDefaultVariant(corp, undefined))
           ])
-          const [woLabels, fbLabels, agLabels, qiLabels, fsLabels, ctLabels, wbLabels] = await Promise.all([
+          const [woLabels, fbLabels, agLabels, qiLabels, fsLabels, ctLabels, wbLabels, aeLabels] = await Promise.all([
             api.findPlaceholdersInDocument(woB64),
             api.findPlaceholdersInDocument(fbB64),
             api.findPlaceholdersInDocument(agB64),
             api.findPlaceholdersInDocument(qiB64),
             api.findPlaceholdersInDocument(fsB64),
             api.findPlaceholdersInDocument(ctB64),
-            api.findPlaceholdersInDocument(wbB64)
+            api.findPlaceholdersInDocument(wbB64),
+            api.findPlaceholdersInDocument(aeB64)
           ])
           if (cancelled) return
           setWorkOrderB64(woB64)
@@ -945,6 +1060,7 @@ export default function WorkOrderAgreementTab({
           setForwardingSlipB64(fsB64)
           setCivilTenderB64(ctB64)
           setWorkBillNoteB64(wbB64)
+          setAeDyeeB64(aeB64)
           setWorkOrderLabels(woLabels)
           setFileBackerLabels(fbLabels)
           setAgreementLabels(agLabels)
@@ -952,6 +1068,7 @@ export default function WorkOrderAgreementTab({
           setForwardingSlipLabels(fsLabels)
           setCivilTenderLabels(ctLabels)
           setWorkBillNoteLabels(wbLabels)
+          setAeDyeeLabels(aeLabels)
         } catch (e) {
           if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
         }
@@ -968,6 +1085,7 @@ export default function WorkOrderAgreementTab({
         key === workOrderVariantKey ||
         key === agreementVariantKey ||
         key === fileBackerVariantKey ||
+        key === qcVariantKey ||
         key === civilTenderVariantKey
       ) {
         load()
@@ -978,7 +1096,7 @@ export default function WorkOrderAgreementTab({
       cancelled = true
       window.removeEventListener(TEMPLATE_VARIANT_CHANGED_EVENT, onVariantChanged)
     }
-  }, [workOrderVariantKey, agreementVariantKey, fileBackerVariantKey, civilTenderVariantKey])
+  }, [workOrderVariantKey, agreementVariantKey, fileBackerVariantKey, qcVariantKey, civilTenderVariantKey])
 
   // Zone-level (SE office) templates: loaded separately, only when relevant,
   // since a Circle office never needs them.
@@ -992,7 +1110,7 @@ export default function WorkOrderAgreementTab({
         // Concluding Agreement / Memo to EE have their own picks of the same two.
         // The corporation logo headers (types 4-6) are per-corporation — ignore a stale saved choice anywhere else.
         const corp = office?.corporation
-        const workOrderVariant = variantForCorporation(localStorage.getItem(workOrderVariantKey) ?? undefined, corp)
+        const workOrderVariant = variantForCorporation(localStorage.getItem(workOrderVariantKey) ?? corporationDefaultVariant(corp, undefined), corp)
         // An MMC / CMC / GHMC office with no saved pick gets its own header on these two by default.
         const concludingVariant = variantForCorporation(localStorage.getItem(concludingVariantKey) ?? corporationDefaultVariant(corp, undefined), corp)
         const memoEeVariant = variantForCorporation(localStorage.getItem(memoEeVariantKey) ?? corporationDefaultVariant(corp, undefined), corp)
@@ -1098,9 +1216,13 @@ export default function WorkOrderAgreementTab({
       tsNoDate,
       ceLetterNoDate,
       completionMonths,
-      emdDetails
+      emdDetails,
+      qcDepartmentTo: qcPartyToBlock(qcParties?.department),
+      qcThirdTo: qcPartyToBlock(qcParties?.third),
+      qcFourthTo: qcPartyToBlock(qcParties?.fourth)
     }
   }, [
+    qcParties,
     manualMode,
     manual,
     effectiveNotice,
@@ -1457,11 +1579,13 @@ export default function WorkOrderAgreementTab({
       case 'agreement':
         return agreementPlaceholders(f)
       case 'qccIntimation':
-        return qccIntimationPlaceholders(f)
+        return qcIntimationCompletionPlaceholders(f)
       case 'forwardingSlip':
         return forwardingSlipPlaceholders(f)
       case 'workBillNote':
         return workBillNotePlaceholders(f)
+      case 'aeDyeeForwarding':
+        return aeDyeeForwardingPlaceholders(f)
       case 'seAgreementBond':
         return seAgreementBondPlaceholders(f)
       case 'zonalWorkOrder':
@@ -1482,12 +1606,12 @@ export default function WorkOrderAgreementTab({
   async function fillDoc(kind: DocKind, opts?: { blankDate?: boolean }): Promise<string> {
     const b64 =
       {
-        workOrder: workOrderB64, fileBacker: fileBackerB64, agreement: agreementB64, qccIntimation: qccIntimationB64, forwardingSlip: forwardingSlipB64, workBillNote: workBillNoteB64, civilTender: civilTenderB64, seAgreementBond: seAgreementBondB64,
+        workOrder: workOrderB64, fileBacker: fileBackerB64, agreement: agreementB64, qccIntimation: qccIntimationB64, forwardingSlip: forwardingSlipB64, workBillNote: workBillNoteB64, aeDyeeForwarding: aeDyeeB64, civilTender: civilTenderB64, seAgreementBond: seAgreementBondB64,
         zonalWorkOrder: zonalWorkOrderB64, zonalConcludingAgreement: zonalConcludingAgreementB64, zonalMemoEe: zonalMemoEeB64, seAgreementNote: seAgreementNoteB64, contractDeed: contractDeedB64
       }[kind]
     const labels =
       {
-        workOrder: workOrderLabels, fileBacker: fileBackerLabels, agreement: agreementLabels, qccIntimation: qccIntimationLabels, forwardingSlip: forwardingSlipLabels, workBillNote: workBillNoteLabels, civilTender: civilTenderLabels, seAgreementBond: seAgreementBondLabels,
+        workOrder: workOrderLabels, fileBacker: fileBackerLabels, agreement: agreementLabels, qccIntimation: qccIntimationLabels, forwardingSlip: forwardingSlipLabels, workBillNote: workBillNoteLabels, aeDyeeForwarding: aeDyeeLabels, civilTender: civilTenderLabels, seAgreementBond: seAgreementBondLabels,
         zonalWorkOrder: zonalWorkOrderLabels, zonalConcludingAgreement: zonalConcludingAgreementLabels, zonalMemoEe: zonalMemoEeLabels, seAgreementNote: seAgreementNoteLabels, contractDeed: contractDeedLabels
       }[kind] ?? []
     if (!b64) throw new Error('Format not loaded yet.')
@@ -1501,6 +1625,13 @@ export default function WorkOrderAgreementTab({
     // saw in that panel's preview — including a date they typed in themselves,
     // which is why they survive blankDate.
     const values = { ...derivedPlaceholders(kind, f), ...(docEdits[kind] ?? {}) }
+    if (kind === 'workBillNote') {
+      // Typed amounts print as "Rs: 5,000 /-"; a blank stays blank, and a value already carrying Rs / "/-" is left alone.
+      for (const label of ['Price Escalation', 'EOT Penalty']) {
+        const v = (values[label] ?? '').trim()
+        if (v && !/^rs\b/i.test(v)) values[label] = `Rs: ${v.replace(/\s*\/-\s*$/, '')} /-`
+      }
+    }
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
     const filled = await api.fillPlaceholdersInDocument(b64, resolved, values)
     // File Backer is a single A4 sheet (the templates are still US Letter).
@@ -1511,10 +1642,31 @@ export default function WorkOrderAgreementTab({
   // expanded preview modal and for print, where a user is actually looking
   // at (or about to print) one specific document.
   async function renderDocInto(kind: DocKind, container: HTMLElement): Promise<number> {
+    const seq = ++renderSeqRef.current
     const filled = await fillDoc(kind)
-    const { pageCount } = await renderDocPreview(base64ToUint8(filled), container)
-    normalizeDocxTextboxes(container)
-    return pageCount
+    // Render offscreen and swap the finished pages in: rendering straight into `container` empties it
+    // first, so every keystroke in the editor flashed a blank page until the async render finished.
+    const host = container.parentElement
+    if (!host || container.childElementCount === 0) {
+      if (seq !== renderSeqRef.current) return 0
+      const { pageCount } = await renderDocPreview(base64ToUint8(filled), container)
+      normalizeDocxTextboxes(container)
+      return pageCount
+    }
+    const stage = document.createElement('div')
+    stage.className = container.className
+    stage.style.cssText = `position:absolute;left:-99999px;top:0;visibility:hidden;width:${container.clientWidth}px`
+    host.appendChild(stage)
+    try {
+      const { pageCount } = await renderDocPreview(base64ToUint8(filled), stage)
+      // A newer render started while this one was busy — drop this result instead of overwriting it.
+      if (seq !== renderSeqRef.current) return pageCount
+      container.replaceChildren(...Array.from(stage.childNodes))
+      normalizeDocxTextboxes(container)
+      return pageCount
+    } finally {
+      stage.remove()
+    }
   }
 
   /** Field groups the editor panel shows for a document — hand-written where there is a list, else the template's own labels. */
@@ -1632,6 +1784,7 @@ export default function WorkOrderAgreementTab({
       if (qccIntTileRef.current) void renderTileThumbnail('qccIntimation', qccIntTileRef.current).catch(() => {})
       if (fsTileRef.current) void renderTileThumbnail('forwardingSlip', fsTileRef.current).catch(() => {})
       if (wbnTileRef.current) void renderTileThumbnail('workBillNote', wbnTileRef.current).catch(() => {})
+      if (aeTileRef.current) void renderTileThumbnail('aeDyeeForwarding', aeTileRef.current).catch(() => {})
       if (ctTileRef.current) void renderTileThumbnail('civilTender', ctTileRef.current).catch(() => {})
     }, 600)
     return () => clearTimeout(timer)
@@ -1672,6 +1825,14 @@ export default function WorkOrderAgreementTab({
 
   function docName(kind: DocKind): string {
     const agency = fields.agencyName ? ` - ${fields.agencyName}` : ''
+    if (kind === 'qccIntimation') {
+      // "QC Inti-Comp - <agency> - <estimate> Lakhs" ("/" isn't allowed in a file name)
+      const est = Number(fields.estimateLakhs)
+      const estimate = fields.estimateLakhs.trim() && Number.isFinite(est) ? ` - ${est.toFixed(2)} Lakhs` : ''
+      return `QC Inti-Comp${agency}${estimate}`
+    }
+    // "/" isn't allowed in a file name.
+    if (kind === 'aeDyeeForwarding') return `AE-Dy.EE Forwarding Letters${agency}`
     return `${DOC_LABEL[kind]}${agency}`
   }
 
@@ -1746,6 +1907,7 @@ export default function WorkOrderAgreementTab({
       const container = printScratchRef.current
       if (!container) throw new Error('Print failed to initialize.')
       await renderDocPreview(base64ToUint8(filled), container, { forSnapshot: true })
+      if (kind === 'fileBacker') centerFileBackerForPrint(container)
       normalizeDocxTextboxes(container)
       const __fo = container.querySelector('foreignObject')
       const __span = __fo?.firstElementChild?.firstElementChild as HTMLElement | undefined
@@ -1827,7 +1989,7 @@ export default function WorkOrderAgreementTab({
       ? [fileBackerB64, seAgreementBondB64, zonalWorkOrderB64, zonalConcludingAgreementB64, zonalMemoEeB64, seAgreementNoteB64, contractDeedB64].filter(
           Boolean
         ).length
-      : [fileBackerB64, workBillNoteB64, civilTenderB64, forwardingSlipB64, agreementB64, qccIntimationB64, workOrderB64, noteReady].filter(
+      : [fileBackerB64, workBillNoteB64, aeDyeeB64, civilTenderB64, forwardingSlipB64, agreementB64, qccIntimationB64, workOrderB64, noteReady].filter(
           Boolean
         ).length
     let prepDone = 0
@@ -1864,6 +2026,7 @@ export default function WorkOrderAgreementTab({
         // File Backer — the cover page — first in the bundle.
         if (fileBackerB64) await add(docName('fileBacker'), await fillDoc('fileBacker'))
         if (workBillNoteB64) await add(docName('workBillNote'), await fillDoc('workBillNote'))
+        if (aeDyeeB64) await add(docName('aeDyeeForwarding'), await fillDoc('aeDyeeForwarding'))
         if (civilTenderB64) await add(docName('civilTender'), await fillDoc('civilTender'))
         if (forwardingSlipB64) await add(docName('forwardingSlip'), await fillDoc('forwardingSlip'))
         // Work Order & Agreement Bond print a blank, hand-writable date in the bundle.
@@ -2730,6 +2893,15 @@ export default function WorkOrderAgreementTab({
               <div className="wo-tile-foot">{DOC_LABEL.workBillNote}</div>
             </button>
           )}
+          {docsReady && !only && !seMode && aeDyeeB64 && (
+            <button className="wo-tile" onClick={() => openDoc('aeDyeeForwarding')}>
+              <div className="wo-tile-preview">
+                <div ref={aeTileRef} className="wo-tile-doc" />
+                <span className="wo-tile-open">Click to preview</span>
+              </div>
+              <div className="wo-tile-foot">{DOC_LABEL.aeDyeeForwarding}</div>
+            </button>
+          )}
           {docsReady && !only && !seMode && (
             <button className="wo-tile" onClick={() => openDoc('forwardingSlip')}>
               <div className="wo-tile-preview">
@@ -3017,6 +3189,7 @@ export default function WorkOrderAgreementTab({
                     onChange={(label, value) => setDocEdit(expanded as DocKind, label, value)}
                     onRevert={(label) => revertDocEdit(expanded as DocKind, label)}
                     onResetAll={() => setDocEdits((prev) => ({ ...prev, [expanded as DocKind]: {} }))}
+                    followPages={expanded === 'aeDyeeForwarding'}
                   />
                   <div className="ns-preview">
                     <div className="ns-preview-scroll">

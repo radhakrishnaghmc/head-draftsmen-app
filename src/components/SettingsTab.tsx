@@ -13,8 +13,12 @@ import {
   AGREEMENT_TEMPLATE_VARIANTS,
   DEFAULT_AGREEMENT_TEMPLATE_VARIANT,
   INTIMATION_TEMPLATE_VARIANTS,
+  NOTICE_TEMPLATE_VARIANTS,
+  DEFAULT_NOTICE_TEMPLATE_VARIANT,
   DEFAULT_INTIMATION_TEMPLATE_VARIANT,
   FILE_BACKER_TEMPLATE_VARIANTS,
+  QC_INTIMATION_COMPLETION_TEMPLATE_VARIANTS,
+  DEFAULT_QC_INTIMATION_COMPLETION_TEMPLATE_VARIANT,
   DEFAULT_FILE_BACKER_TEMPLATE_VARIANT,
   CIVIL_TENDER_TEMPLATE_VARIANTS,
   DEFAULT_CIVIL_TENDER_TEMPLATE_VARIANT,
@@ -25,6 +29,7 @@ import {
   zonalDocsPlaceholders,
   agreementPlaceholders,
   fileBackerPlaceholders,
+  qcIntimationCompletionPlaceholders,
   civilTenderPlaceholders,
   type WorkOrderAgreementFields
 } from '@core/workOrderAgreement'
@@ -103,11 +108,6 @@ function civilTenderSettingsPlaceholders(f: WorkOrderAgreementFields): Record<st
 // notice/pdf/manual/office 4-way split — none of which is
 // WorkOrderAgreementFields — so this adapts the same sample fields every
 // other preview tile already uses into that shape.
-const NOTICE_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
-  { id: 'default', label: 'Notice template 1' },
-  { id: '2', label: 'Notice template 2' }
-]
-const DEFAULT_NOTICE_TEMPLATE_VARIANT = 'default'
 
 function noticeSettingsPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
   const notice: IntimationNotice = {
@@ -598,7 +598,7 @@ export default function SettingsTab({ office, theme, onThemeChange }: Props) {
           variants={variantsForCorporation(WORK_ORDER_TEMPLATE_VARIANTS, office.corporation).filter(
             (v) => !isZoneOnlyOffice(office) || v.id !== 'kompally'
           )}
-          defaultVariant={DEFAULT_WORK_ORDER_TEMPLATE_VARIANT}
+          defaultVariant={corporationDefaultVariant(office.corporation, DEFAULT_WORK_ORDER_TEMPLATE_VARIANT)}
           fields={fields}
           fetchTemplate={isZoneOnlyOffice(office) ? api.zonalWorkOrderTemplate : api.workOrderTemplate}
           placeholders={isZoneOnlyOffice(office) ? (f) => zonalDocsPlaceholders(f, {}, {}) : workOrderPlaceholders}
@@ -645,21 +645,32 @@ export default function SettingsTab({ office, theme, onThemeChange }: Props) {
           title="Intimation"
           subtitle="Some circles word and lay out their own Intimation letter differently."
           storageKey={officeScopedKey(TEMPLATE_KEYS.intimation, office)}
-          variants={INTIMATION_TEMPLATE_VARIANTS}
-          defaultVariant={DEFAULT_INTIMATION_TEMPLATE_VARIANT}
+          variants={variantsForCorporation(INTIMATION_TEMPLATE_VARIANTS, office.corporation)}
+          defaultVariant={corporationDefaultVariant(office.corporation, DEFAULT_INTIMATION_TEMPLATE_VARIANT)}
           fields={fields}
           fetchTemplate={api.intimationTemplate}
           placeholders={intimationPlaceholders}
         />
 
         <TemplateSection
-          title="Notice"
-          subtitle="Some circles word and lay out their own Notice for Non-conclusion of Agreement differently."
-          storageKey={officeScopedKey(TEMPLATE_KEYS.notice, office)}
-          variants={NOTICE_TEMPLATE_VARIANTS}
-          defaultVariant={DEFAULT_NOTICE_TEMPLATE_VARIANT}
+          title="QC Intimation/Completion"
+          subtitle="The five-letter QC Intimation/Completion set on the Agreement and Work Order page, with a plain heading or the corporation's logo header."
+          storageKey={officeScopedKey(TEMPLATE_KEYS.qcIntimationCompletion, office)}
+          variants={variantsForCorporation(QC_INTIMATION_COMPLETION_TEMPLATE_VARIANTS, office.corporation)}
+          defaultVariant={corporationDefaultVariant(office.corporation, DEFAULT_QC_INTIMATION_COMPLETION_TEMPLATE_VARIANT)}
           fields={fields}
-          fetchTemplate={(variantId) => api.issueNoticeTemplate(!isZoneOnlyOffice(office), variantId === '2' ? 2 : 1)}
+          fetchTemplate={api.qccIntimationTemplate}
+          placeholders={qcIntimationCompletionPlaceholders}
+        />
+
+        <TemplateSection
+          title="Notice"
+          subtitle="Some circles word and lay out their own Notice for Non-conclusion of Agreement differently; corporations also have a logo-header version."
+          storageKey={officeScopedKey(TEMPLATE_KEYS.notice, office)}
+          variants={variantsForCorporation(NOTICE_TEMPLATE_VARIANTS, office.corporation)}
+          defaultVariant={corporationDefaultVariant(office.corporation, DEFAULT_NOTICE_TEMPLATE_VARIANT)}
+          fields={fields}
+          fetchTemplate={(variantId) => api.issueNoticeTemplate(!isZoneOnlyOffice(office), variantId)}
           placeholders={noticeSettingsPlaceholders}
         />
       </div>

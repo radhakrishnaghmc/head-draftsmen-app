@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseTenderEvaluation, parseAllBidders } from '../core/tenderEvaluationPdf'
+import { parseParticipatingBidders } from '../core/viewBiddersPdf'
+import { readEvaluationSheetPage } from '../core/tenderAgents/evaluationSheetAgent'
 
 // pdf.js reconstructs these lines from the portal's Commercial Evaluation
 // page — the header's two-column layout interleaves "Tender ID …" into the
@@ -508,5 +510,63 @@ describe('Contract Amount / Tender Percentage from an OCR-read (rasterized, no t
   it('also reads the NIT date when OCR wraps it mid-date, with the Tender ID/Notice Number labels landing in the gap ("Dt.27- Tender ID722274 Notice Number 07-2026")', () => {
     const r = parseTenderEvaluation(OCR_LINES)
     expect(r.noticeDate).toBe('27-07-2026')
+  })
+})
+
+describe('parseTenderEvaluation — View Bidders page OCR at 2x render scale', () => {
+  // Real OCR of a "View Bidders" print-to-PDF page: the label's own gap is
+  // dropped too ("TenderID 741286", "Enquiry/IFB/TenderNIT No.…").
+  const LINES = [
+    'Current Tender Details',
+    'Enquiry/IFB/TenderNIT No.27/1/DB/EE/Gajularamaram Circle-',
+    'TenderID 741286',
+    'Notice Number 57/CMC/2026-27,Dated:09.10.2026',
+    'Tender Type eOPEN-NCB Estimated Contract Value 4323989.00'
+  ]
+
+  it('reads the Tender ID when OCR drops the space inside the label ("TenderID 741286")', () => {
+    const r = parseTenderEvaluation(LINES)
+    expect(r.tenderId).toBe('741286')
+    expect(r.noticeNo).not.toContain('741286')
+  })
+})
+
+describe('View Bidders page OCR with glued labels and times', () => {
+  const LINES = [
+    'Current Tender Details',
+    'Enquiry/IFB/TenderNIT No. 27/4/DB/EE/Gajularamaram Circle-',
+    'TenderID 741333',
+    'Notice Number 57/CMC/2026-27,Dated:09.10.2026',
+    'NameofWorkRepairstopark constructionof toilets inShapur marketParkinShapurWard 291,Gajularamaram Circle57,QBZ,CMC',
+    'Tender Category Works Tender Evaluation TypePercentage',
+    'Tender Type OPEN - NCB Estimated Contract Value1199453.00',
+    'Supplier Bid Number- Bid Submitted Date& Bid Submitted IP',
+    'M Arjun 1384628-0 18/10/202609:29AM 103.52.38.78',
+    'BONTHARANGARAJU 1384914-0 19/10/2026 10:53AM 49.43.216.130'
+  ]
+
+  it('reads the Name of Work when OCR drops the spaces in the label', () => {
+    const r = parseTenderEvaluation(LINES)
+    expect(r.nameOfWork).toMatch(/^Repairstopark constructionof toilets/)
+    expect(r.nameOfWork).toMatch(/QBZ,CMC$/)
+    expect(r.nameOfWork).not.toMatch(/Tender Category/)
+  })
+
+  it('keeps a bidder whose date and time were glued together', () => {
+    expect(parseParticipatingBidders(LINES).map((b) => b.name)).toEqual(['M Arjun', 'BONTHARANGARAJU'])
+  })
+})
+
+describe('Evaluation Sheet agent', () => {
+  it('reads the header and the bidders of a View Bidders page in one call', () => {
+    const r = readEvaluationSheetPage([
+      'TenderID 741333',
+      'Notice Number 57/CMC/2026-27,Dated:09.10.2026',
+      'Tender Type OPEN - NCB Estimated Contract Value1199453.00',
+      'M Arjun 1384628-0 18/10/202609:29AM 103.52.38.78'
+    ])
+    expect(r.header.tenderId).toBe('741333')
+    expect(r.header.ecvRupees).toBe(1199453)
+    expect(r.bidders.map((b) => b.name)).toEqual(['M Arjun'])
   })
 })

@@ -5,6 +5,7 @@ import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice
 import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { circleFromNit } from '@core/workOrderAgreement'
+import { variantForCorporation, corporationDefaultVariant } from '@core/workOrderTemplateVariants'
 import {
   issueNoticePlaceholders,
   isNoticeOverdue,
@@ -435,10 +436,13 @@ function AgreementNotConcludedWorkspace({ office, worksTable, items, onChange, v
             ['se', false],
             ['ee', true]
           ]
-          const version = localStorage.getItem(noticeVariantKey) === '2' ? 2 : 1
+          const variant = variantForCorporation(
+            localStorage.getItem(noticeVariantKey) ?? corporationDefaultVariant(office?.corporation, undefined),
+            office?.corporation
+          )
           const slots = await Promise.all(
             keys.map(async ([, isEe]) => {
-              const b64 = await api.issueNoticeTemplate(isEe, version)
+              const b64 = await api.issueNoticeTemplate(isEe, variant)
               const labels = await api.findPlaceholdersInDocument(b64)
               return { b64, labels }
             })
@@ -463,7 +467,7 @@ function AgreementNotConcludedWorkspace({ office, worksTable, items, onChange, v
       cancelled = true
       window.removeEventListener(TEMPLATE_VARIANT_CHANGED_EVENT, onVariantChanged)
     }
-  }, [noticeVariantKey])
+  }, [noticeVariantKey, office?.corporation])
 
   function templateFor(item: PendingNoticeItem): TemplateSlot {
     return templates[item.seMode ? 'se' : 'ee'] ?? EMPTY_SLOT

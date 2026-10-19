@@ -46,3 +46,4 @@ export { detectSupplierAddressPhone, type SupplierAddressPhone } from './supplie
 export { linesFromOcr, linesFromExcelRows, type OcrLikeLine } from './inputAdapters'
 export { extractEstimateFromTitle } from './estimateInTitle'
 export { runTenderAgents, sameTender, type TenderFields } from './crossCheck'
+export { readEvaluationSheetPage, type EvaluationSheetReading } from './evaluationSheetAgent'

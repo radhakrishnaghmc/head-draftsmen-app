@@ -20,7 +20,9 @@ import {
   workOrderTemplateFileName,
   agreementTemplateFileName,
   intimationTemplateFileName,
+  noticeTemplateSuffix,
   fileBackerTemplateFileName,
+  qcIntimationCompletionTemplateFileName,
   zonalTemplateVariant,
   civilTenderTemplateFileName
 } from '../core/workOrderTemplateVariants'
@@ -99,6 +101,7 @@ import type {
   PersistedState
 } from '../core/types'
 import { pruneLegacyDocuments } from '../core/types'
+import { mergeQcParties } from '../core/mergeQcParties'
 import type { SheetGrid } from '../core/sheet'
 
 let mainWindow: BrowserWindow | null = null
@@ -529,7 +532,9 @@ function registerHandlers(): void {
             ...remoteState,
             todos: unionById(remoteState.todos, existing.todos),
             mbScrutiny: unionById(remoteState.mbScrutiny, existing.mbScrutiny),
-            createdDocuments: unionById(remoteState.createdDocuments, existing.createdDocuments)
+            createdDocuments: unionById(remoteState.createdDocuments, existing.createdDocuments),
+            // Agencies entered just before logout/quit may not have reached the cloud yet — keep them.
+            qcParties: mergeQcParties(remoteState.qcParties, existing.qcParties)
           }
         } catch {
           // No readable existing cache for this login (fresh machine/first
@@ -1528,14 +1533,18 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  ipcMain.handle(IPC.qccIntimationTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('qcc-intimation-template.docx')
-    if (!templatePath) throw new Error('QCC Intimation format is missing from the app bundle.')
+  ipcMain.handle(IPC.qccIntimationTemplate, async (_e, variantId?: string): Promise<string> => {
+    // The Work Order/Agreement tab's five-letter QC Intimation/Completion set (not the single-letter
+    // qcc-intimation-template.docx that Issue Documents still seeds).
+    const templatePath = bundledResourceFile(qcIntimationCompletionTemplateFileName(variantId))
+    if (!templatePath) throw new Error('QC Intimation/Completion format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  ipcMain.handle(IPC.forwardingSlipTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('forwarding-slip-template.docx')
+  ipcMain.handle(IPC.forwardingSlipTemplate, async (_e, variantId?: string): Promise<string> => {
+    // Corporation logo-header variant (cmc / ghmc / mmc); anything else gets the CMC banner.
+    const suffix = variantId === 'ghmc' || variantId === 'mmc' ? `-${variantId}` : '-cmc'
+    const templatePath = bundledResourceFile(`forwarding-slip-template${suffix}.docx`)
     if (!templatePath) throw new Error('Forwarding Slip format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
@@ -1543,6 +1552,14 @@ function registerHandlers(): void {
   ipcMain.handle(IPC.workBillNoteTemplate, async (): Promise<string> => {
     const templatePath = bundledResourceFile('work-bill-note-template.docx')
     if (!templatePath) throw new Error('Work Bill Note format is missing from the app bundle.')
+    return fs.readFileSync(templatePath).toString('base64')
+  })
+
+  ipcMain.handle(IPC.aeDyeeForwardingTemplate, async (_e, variantId?: string): Promise<string> => {
+    // Corporation logo-header variant (cmc / ghmc / mmc); anything else gets the CMC banner.
+    const suffix = variantId === 'ghmc' || variantId === 'mmc' ? `-${variantId}` : ''
+    const templatePath = bundledResourceFile(`ae-dyee-forwarding-template${suffix}.docx`)
+    if (!templatePath) throw new Error('AE/Dy.EE Forwarding Letters format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
 
@@ -1620,8 +1637,8 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  ipcMain.handle(IPC.issueNoticeTemplate, async (_e, ee: boolean, version?: 1 | 2): Promise<string> => {
-    const suffix = version === 2 ? '-2' : ''
+  ipcMain.handle(IPC.issueNoticeTemplate, async (_e, ee: boolean, variantId?: string): Promise<string> => {
+    const suffix = noticeTemplateSuffix(variantId)
     const file = ee ? `issue-notice-ee-template${suffix}.docx` : `issue-notice-template${suffix}.docx`
     const templatePath = bundledResourceFile(file)
     if (!templatePath) throw new Error('Notice format is missing from the app bundle.')

@@ -114,6 +114,12 @@ export interface WorkOrderAgreementFields {
    * Same source as Note Submitted's own intimationDate (the L1 sheet's Server
    * Time footer, falling back to the Works List's own column). */
   intimationDate: string
+  /** The 3rd-party QC college's full "To" block from the Works List agency panel (see qcPartyToBlock), "" when none entered. */
+  qcThirdTo?: string
+  /** The 4th-party testing lab's full "To" block, "" when none entered. */
+  qcFourthTo?: string
+  /** The Department QC unit's full "To" block, "" when none entered (the letters then print the stock Executive Engineer, Quality Control lines). */
+  qcDepartmentTo?: string
 }
 
 /**
@@ -547,6 +553,83 @@ export function qccIntimationPlaceholders(f: WorkOrderAgreementFields): Record<s
 }
 
 /**
+ * A QC agency's full "To" block as the letters print it, one line per row. The
+ * Works List agency panel's address box holds the whole block (designation,
+ * department, institute, address); the name is only prepended when the address
+ * doesn't already start with / mention it, so a block typed either way prints once.
+ */
+export function qcPartyToBlock(party: { name?: string; address?: string } | undefined): string {
+  const name = (party?.name ?? '').trim().replace(/,\s*$/, '')
+  const lines = (party?.address ?? '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+  const key = name.toLowerCase().slice(0, 12)
+  const mentioned = key !== '' && lines.some((l) => l.toLowerCase().includes(key))
+  return [...(name && !mentioned ? [name] : []), ...lines].join('\n')
+}
+
+/** "Rs 39,72,882.00" — the QC letters' amount style (no dot after Rs). */
+function qcRupees(n: number): string {
+  const [whole, frac] = n.toFixed(2).split('.')
+  return `Rs ${indianDigitGroups(Number(whole))}.${frac}`
+}
+
+/**
+ * The {{Label}} -> value map for the five-letter "QC Intimation / Completion"
+ * set: Intimation to the 3rd-party college and to the zone QC office, Completion
+ * to the zone QC office, the 4th-party lab and the 3rd-party college. Work
+ * fields come from the same sources as the Agreement; the two agency "To"
+ * blocks come from the 3rd/4th-party panel on the Works List page. The Lr.No
+ * number and "Dt:" date default to blank gaps (typed over in the editor panel);
+ * GST No., Date of Mark Out and the Ref lines carry no placeholder — hand-filled.
+ */
+const QC_LR_BLANK = '    '
+// trailing non-breaking spaces (plain ones are dropped at the line end) leave underlined room for the year
+const QC_DATE_BLANK = '      /      /' + '\u00a0'.repeat(10)
+
+export function qcIntimationCompletionPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
+  const estLakhs = num(f.estimateLakhs)
+  const ecv = num(f.ecvRupees)
+  const contract = num(f.contractRupees)
+  return {
+    'Corporation Full Name': f.corporationFullName.toUpperCase(),
+    Corporation: f.corporation,
+    Zone: f.zone,
+    Circle: f.circle,
+    CNO: f.cno,
+    Financialyear: f.financialYear,
+    'Name of the work': f.nameOfWork,
+    'Estimate Amount': estLakhs != null ? `Rs ${estLakhs.toFixed(2)} Lakhs` : '',
+    'ECV Amount': ecv != null ? qcRupees(ecv) : '',
+    'Contract Amount': contract != null ? qcRupees(contract) : '',
+    Wincode: f.wincode,
+    'Name of the Agency': f.agencyName,
+    'Completion Period': f.completionMonths.trim() ? `${f.completionMonths.trim()} Months` : '',
+    'Third Party To': f.qcThirdTo ?? '',
+    'Fourth Party To': f.qcFourthTo ?? '',
+    'Department QC To':
+      f.qcDepartmentTo ||
+      `The Executive Engineer,\nQuality Control,\n${f.zone} Zone, ${f.corporation}.`,
+    // the "Lr.No." number and the "Dt:" date are hand-written on the printed letters, so they default to the
+    // blank gap / "   /   /" and are typed over in the editor panel (one value shared by all five letters)
+    'Lr No': QC_LR_BLANK,
+    'Letter Date': QC_DATE_BLANK
+  }
+}
+
+/**
+ * The Agreement Bond's A.B.No line — number, circle/zone/corporation path and date — quoted by
+ * the AE/Dy.EE Forwarding Letters' Ref line and the Work Bill Note's "Agreement No and Date".
+ * An unentered number or date prints as a blank rule to be written in by hand.
+ */
+function agreementBondNoDate(f: WorkOrderAgreementFields): string {
+  const no = (f.agreementNo ?? '').trim() || '________'
+  const dt = f.agreementDate.trim() || '__________'
+  return `${no}/ EE/${f.circle}/CIRCLE-${f.cno}/${zoneAbbr(f.zone)}/${f.corporation}/${f.financialYear} Dt: ${dt}`
+}
+
+/**
  * The {{Label}} -> value map for the Work Bill Note — the Dy.EE's 30-point
  * "work bill submitted for approval" proforma. Items 1-10 derive from the work
  * (Works List row + uploads); everything bill-specific (serial of bill, status,
@@ -560,8 +643,6 @@ export function workBillNotePlaceholders(f: WorkOrderAgreementFields): Record<st
   const pct = num(f.tenderPercent)
   const contract = num(f.contractRupees)
   const estimate = estLakhs != null ? `Rs.${estLakhs.toFixed(2)} lakhs` : ''
-  const dated = f.agreementDate.trim()
-  const agreementNo = (f.agreementNo ?? '').trim()
   const out: Record<string, string> = {
     Wincode: f.wincode,
     Corporation: f.corporation,
@@ -576,12 +657,12 @@ export function workBillNotePlaceholders(f: WorkOrderAgreementFields): Record<st
     'Tender Percentage': pct == null ? '' : pct === 0 ? 'At par' : `-${formatPercent(pct)}% less`,
     'Contract Amount': contract != null ? groupedRupees(contract) : '',
     'Contract Amount Plain': contract != null ? groupedAmount(contract) : '',
-    'Agreement No and Date': dated || agreementNo ? `${agreementNo || '     '}/${f.financialYear}${dated ? `, Dt:${dated}` : ''}` : '',
+    'Agreement No and Date': agreementBondNoDate(f),
     'Period of Contract': f.completionMonths.trim() ? `${f.completionMonths.trim()} months` : '',
     'Embedded Tax': '---',
     'SE Super Check': '---',
-    'Price Escalation': '0.00',
-    'EOT Penalty': '0.00'
+    'Price Escalation': '',
+    'EOT Penalty': ''
   }
   for (const label of [
     'Status of Work', 'Date of Completion', 'EOT Details', 'AE Recording Dates', 'MB Details', 'DyEE Check Dates',
@@ -592,6 +673,38 @@ export function workBillNotePlaceholders(f: WorkOrderAgreementFields): Record<st
   for (let i = 1; i <= 5; i++)
     for (const k of ['Excess Item', 'Agreement Qty', 'Executed Qty', 'Exceed Qty']) out[`${k} ${i}`] = ''
   return out
+}
+
+/**
+ * {{Label}} -> value map for the AE / Dy.EE forwarding letters — five documents
+ * clubbed into one file (Dy.EE Forwarding Note, Action Taken Report, Completion
+ * Report, EOT Proposal, Public Participation Log Book). Work fields come from the
+ * Works List row + uploads; remarks and the bill reference left blank are typed in
+ * the editor panel. Estimate and ECV stay distinct (blank ECV is never the estimate).
+ */
+export function aeDyeeForwardingPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
+  const estLakhs = num(f.estimateLakhs)
+  const pct = num(f.tenderPercent)
+  const contract = num(f.contractRupees)
+  return {
+    'Corporation Full Name': f.corporationFullName.toUpperCase(),
+    'Corp Full Caps': (f.corporationFullName ?? '').toUpperCase(),
+    Corporation: f.corporation,
+    Zone: f.zone,
+    Circle: f.circle,
+    CNO: f.cno,
+    Wincode: f.wincode,
+    'Name of the work': f.nameOfWork,
+    'Name of the Agency': f.agencyName,
+    'Amount of estimate': estLakhs != null ? formatRupees(estLakhs * 100000) : '',
+    'TS No and Date': f.tsNoDate,
+    'Contract Amount': contract != null ? formatRupees(contract) : '',
+    'Tender Percentage': pct == null ? '' : pct === 0 ? 'At par' : `${formatPercent(pct)} % Less`,
+    // The Ref line quotes the Agreement Bond's own A.B.No line, number and date included.
+    'Agreement No': agreementBondNoDate(f),
+    'Agmt Date': f.agreementDate.trim(),
+    'Completion Period': f.completionMonths.trim() ? `${f.completionMonths.trim()} Months` : ''
+  }
 }
 
 /**

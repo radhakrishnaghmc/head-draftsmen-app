@@ -331,6 +331,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       qcParties: m.qcParties ?? undefined,
       monitoringFormatByOffice: m.monitoringFormatByOffice ?? undefined,
       monitoringFormatLinks: m.monitoringFormatLinks ?? {},
+      tenderConditions: m.tenderConditions ?? undefined,
       tenderReminders: m.tenderReminders ?? [],
       pendingNotices: m.pendingNotices ?? [],
       createdDocuments,
@@ -396,6 +397,7 @@ function subscribeRemote(
         qcParties: data.qcParties ?? undefined,
         monitoringFormatByOffice: data.monitoringFormatByOffice ?? undefined,
         monitoringFormatLinks: data.monitoringFormatLinks ?? {},
+        tenderConditions: data.tenderConditions ?? undefined,
         tenderReminders: data.tenderReminders ?? [],
         pendingNotices: data.pendingNotices ?? [],
         bidDocumentBatches: data.bidDocumentBatches ?? []
@@ -515,6 +517,7 @@ export async function pushState(state: PersistedState): Promise<void> {
         qcParties: state.qcParties ?? {},
         monitoringFormatByOffice: state.monitoringFormatByOffice ?? {},
         monitoringFormatLinks: state.monitoringFormatLinks ?? {},
+        tenderConditions: state.tenderConditions ?? {},
         tenderReminders: state.tenderReminders ?? [],
         pendingNotices: state.pendingNotices ?? [],
         bidDocumentBatches: state.bidDocumentBatches ?? [],

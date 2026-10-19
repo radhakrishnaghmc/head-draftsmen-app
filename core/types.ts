@@ -235,11 +235,13 @@ export interface QcPartyDetails {
 }
 
 /**
- * The 3rd-party (QC college) and 4th-party (testing lab) agencies for one
+ * The department QC, 3rd-party (QC college) and 4th-party (testing lab) agencies for one
  * office. Entered once on the Works List page and reused by the 3rd/4th-party
  * QC letters, since these agencies change year to year but not work to work.
  */
 export interface QcOfficeParties {
+  /** The department's own QC unit — optional: offices saved before it was added have none. */
+  department?: QcPartyDetails
   third: QcPartyDetails
   fourth: QcPartyDetails
 }
@@ -292,6 +294,12 @@ export interface BidDocumentBatch {
 }
 
 /** Snapshot of the workspace persisted to disk so it survives app restarts. */
+/** Conditions saved for a tender; `expiresAt` (epoch ms) is set once its evaluation sheet is generated. */
+export interface TenderConditionsEntry {
+  conditions: string[]
+  expiresAt?: number
+}
+
 export interface PersistedState {
   version: number
   tables: ExcelTable[]
@@ -330,6 +338,12 @@ export interface PersistedState {
    * install, a cleared cache, or a different machine).
    */
   office?: { corporation?: string; zone?: string; circle?: string; circleNumber?: string }
+  /**
+   * Tender conditions (required-document names) saved by tender ID. The portal
+   * drops a tender once bidding closes, but the evaluation sheet is made after
+   * that, so conditions are saved while the tender is still listed and reused.
+   */
+  tenderConditions?: Record<string, TenderConditionsEntry>
   tenderReminders?: TenderReminder[]
   createdDocuments?: CreatedDocument[]
   /**

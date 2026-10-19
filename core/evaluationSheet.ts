@@ -1,4 +1,5 @@
 import * as ExcelJS from 'exceljs'
+import { isReservedWork } from './tenderAgents/nameOfWork'
 
 // Builds the "Evaluation Sheet" — the Bid Capacity evaluation the office runs on
 // every participating bidder. One column per bidder, eleven fixed eligibility
@@ -29,6 +30,54 @@ export const EVALUATION_CRITERIA: readonly string[] = [
   'The bidder shall submit litigation history.'
 ]
 
+/** Conditions that exist only for the 3AN−B bid-capacity check (commitments, the 3AN−B rule, CA turnover). */
+export const isBidCapacityCondition = (c: string) =>
+  /existing\s+commitments|administrative\s+sanction\s+amount|maximum\s+value\s+of\s+civil\s+engineering/i.test(c)
+
+const RESERVATION_CRITERIA = [EVALUATION_CRITERIA[7], EVALUATION_CRITERIA[8]]
+const isReservationCondition = (c: string) => /caste\s*certificate|reservation\s+work/i.test(c)
+
+/**
+ * The caste-certificate and one-work-per-agency conditions apply only to a work
+ * reserved for a category (SC, ST, Waddera, … — see isReservedWork). Dropped
+ * from the list for an open work; added (after the last condition before the
+ * self-declaration, else at the end) when a reserved work's list lacks them,
+ * e.g. a portal list fetched for it that doesn't carry them.
+ */
+export function applyReservationConditions(conditions: string[], reserved: boolean): string[] {
+  if (!reserved) return conditions.filter((c) => !isReservationCondition(c))
+  const out = [...conditions]
+  const hasCaste = out.some((c) => /caste\s*certificate/i.test(c))
+  const hasOneWork = out.some((c) => /reservation\s+work/i.test(c))
+  const missing = [hasCaste ? null : RESERVATION_CRITERIA[0], hasOneWork ? null : RESERVATION_CRITERIA[1]].filter((c): c is string => c != null)
+  if (missing.length === 0) return out
+  const at = out.findIndex((c) => /self-?\s*declaration/i.test(c))
+  out.splice(at >= 0 ? at : out.length, 0, ...missing)
+  return out
+}
+
+/** Whether the 3AN−B bid-capacity block applies: estimate above 5 lakhs, or unknown (the ECV is never used in its place). */
+export function needsBidCapacityFor(estimate: number | null | undefined): boolean {
+  return estimate == null || estimate > BID_CAPACITY_THRESHOLD
+}
+
+/**
+ * The conditions an evaluation sheet starts from: the tender's own list (portal
+ * or saved) or the standard eleven, minus the bid-capacity conditions for a small
+ * work, with the reservation conditions following the work name. The Evaluation
+ * Sheet tab shows this list for the office to add to, remove from or reword.
+ */
+export function defaultConditions(tenderList: string[] | null | undefined, workLine: string, estimate: number | null | undefined): string[] {
+  const needsBidCapacity = needsBidCapacityFor(estimate)
+  const list = (tenderList ?? []).map((c) => c.trim()).filter(Boolean)
+  const base = list.length > 0 ? list : needsBidCapacity ? [...EVALUATION_CRITERIA] : EVALUATION_CRITERIA.filter((_, i) => !BID_CAPACITY_CRITERIA.includes(i))
+  return applyReservationConditions(
+    // A portal list is filtered by wording too: it isn't in the standard order.
+    base.filter((c) => needsBidCapacity || !isBidCapacityCondition(c)),
+    isReservedWork(workLine)
+  )
+}
+
 export interface EvaluationSheetInput {
   /** Full NIT line for row 2, e.g. "NIT No: 16/DB/EE/…/CMC/2026-27,Dt:25.07.2026,Tender ID:722231". */
   nitLine: string
@@ -49,6 +98,12 @@ export interface EvaluationSheetInput {
    * the eleven standard conditions in EVALUATION_CRITERIA are used.
    */
   conditions?: string[]
+  /**
+   * The conditions were already settled (see defaultConditions) and possibly edited
+   * by the office: print them exactly as given, applying no reservation / small-work
+   * filtering of their own.
+   */
+  conditionsFinal?: boolean
   /** Signature block for the bottom-right, e.g. "Executive Engineer,\nGajularamaram circle,CMC". */
   signature: string
 }
@@ -84,13 +139,33 @@ const ALL_BORDERS = { top: THIN, left: THIN, bottom: THIN, right: THIN }
 // wrappedRowHeight, since exceljs never auto-fits a merged, wrapped cell's
 // row height (and neither does every consuming spreadsheet application, e.g.
 // Google Sheets), so it has to be computed and set explicitly here.
-const CHARS_PER_WIDTH_UNIT = 1.6
-const LINE_HEIGHT_POINTS = 14
+// Measured against a rendered sheet: 1.6 clipped the bold 11pt banner rows, so
+// the estimates err on the tall side — a little spare space beats cut-off text.
+const BANNER_CHARS_PER_WIDTH_UNIT = 1.0 // bold Book Antiqua 11pt
+const CELL_CHARS_PER_WIDTH_UNIT = 1.05 // Times New Roman 10pt
+const BANNER_LINE_POINTS = 15
+const CELL_LINE_POINTS = 13
 
-function wrappedRowHeight(text: string, mergedWidthUnits: number): number {
-  const charsPerLine = Math.max(10, Math.floor(mergedWidthUnits * CHARS_PER_WIDTH_UNIT))
-  const lines = Math.max(1, Math.ceil(text.length / charsPerLine))
-  return lines * LINE_HEIGHT_POINTS + 4
+function wrappedRowHeight(text: string, widthUnits: number, charsPerUnit = BANNER_CHARS_PER_WIDTH_UNIT, linePoints = BANNER_LINE_POINTS): number {
+  const charsPerLine = Math.max(10, Math.floor(widthUnits * charsPerUnit))
+  // Wrap on words, as the spreadsheet does, instead of dividing the length — a
+  // long word pushed to the next line costs a line the plain division misses.
+  let lines = 1
+  let used = 0
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const w = word.length
+    if (used > 0 && used + 1 + w > charsPerLine) {
+      lines += 1
+      used = w
+    } else {
+      used += (used > 0 ? 1 : 0) + w
+    }
+    while (used > charsPerLine) {
+      lines += 1
+      used -= charsPerLine
+    }
+  }
+  return lines * linePoints + 4
 }
 
 /**
@@ -103,13 +178,11 @@ export async function buildEvaluationSheet(input: EvaluationSheetInput): Promise
   // Works with an estimate above 5 lakhs are evaluated on bid capacity (3AN−B); at
   // or below it the A / N / B / 3AN−B / surplus rows are dropped. With no estimate
   // the rows are kept (the ECV is never used in its place).
-  const needsBidCapacity = input.estimate == null || input.estimate > BID_CAPACITY_THRESHOLD
-  // The standard list carries three bid-capacity conditions (existing commitments,
-  // the 3AN−B rule, the CA turnover certificate) that also drop for small works.
-  const standard = needsBidCapacity
-    ? [...EVALUATION_CRITERIA]
-    : EVALUATION_CRITERIA.filter((_, i) => !BID_CAPACITY_CRITERIA.includes(i))
-  const criteria = conditions.length > 0 ? conditions : standard
+  const needsBidCapacity = needsBidCapacityFor(input.estimate)
+  const reserved = isReservedWork(input.workLine)
+  // Reservation is read from the work's name ("… (Reserved for SC)"), so the caste
+  // certificate / one-work-per-agency conditions follow it unless already settled.
+  const criteria = input.conditionsFinal ? conditions : defaultConditions(conditions, input.workLine, input.estimate)
   const nCrit = criteria.length
   // Rows after the criteria, in order; the bid-capacity ones only when needed.
   let next = R_CRITERIA_START + nCrit
@@ -149,6 +222,7 @@ export async function buildEvaluationSheet(input: EvaluationSheetInput): Promise
   // to fit it instead of leaving exceljs's default height, which clips it.
   const tableWidthUnits = 5 + 58 + (nCols - 2) * 20
   ws.getRow(R_WORK).height = wrappedRowHeight(input.workLine, tableWidthUnits)
+  ws.getRow(R_NIT).height = wrappedRowHeight(input.nitLine, tableWidthUnits)
 
   // Header row: Sl. No | Requirements | <bidder names>.
   const headerCells = ['Sl. No.', 'Requirements as per Tender conditions', ...bidders]
@@ -193,7 +267,14 @@ export async function buildEvaluationSheet(input: EvaluationSheetInput): Promise
   }
 
   // Eligibility criteria — bidder cells blank for the office to fill.
-  criteria.forEach((text, i) => dataRow(R_CRITERIA_START + i, i + 1, text, () => null))
+  criteria.forEach((text, i) => {
+    dataRow(R_CRITERIA_START + i, i + 1, text, () => null)
+    // A long condition wraps inside column B; size its row to show every line.
+    ws.getRow(R_CRITERIA_START + i).height = Math.max(
+      18,
+      wrappedRowHeight(text, 58, CELL_CHARS_PER_WIDTH_UNIT, CELL_LINE_POINTS)
+    )
+  })
 
   // Bid-capacity block. A / N / B are blank inputs; 3AN−B, Remarks and the
   // surplus are formulas that reference this bidder's own column.
