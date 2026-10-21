@@ -1,4 +1,4 @@
-import { markEvaluationGenerated, normalizeTenderConditions, purgeExpiredTenderConditions } from '@core/tenderConditions'
+import { markEvaluationGenerated, mergeRemoteTenderConditions, normalizeTenderConditions, purgeExpiredTenderConditions } from '@core/tenderConditions'
 import { useEffect, useMemo, useRef, useState, Fragment, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from './ipc'
@@ -667,7 +667,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       if (partial.lastGoogleLink !== undefined) setLastGoogleLink(partial.lastGoogleLink ?? null)
       if (partial.worksListLinks) setWorksListLinks(partial.worksListLinks)
       if (partial.qcParties) setQcParties(partial.qcParties)
-      if (partial.tenderConditions) setTenderConditions((prev) => purgeExpiredTenderConditions({ ...prev, ...normalizeTenderConditions(partial.tenderConditions) }, Date.now()))
+      if (partial.tenderConditions)
+        setTenderConditions((prev) => purgeExpiredTenderConditions(mergeRemoteTenderConditions(prev, normalizeTenderConditions(partial.tenderConditions), Date.now()), Date.now()))
       if (partial.monitoringFormatByOffice) setMonitoringFormatByOffice((prev) => ({ ...prev, ...partial.monitoringFormatByOffice }))
       if (partial.monitoringFormatWorksByOffice)
         setMonitoringFormatWorksByOffice((prev) => ({ ...prev, ...partial.monitoringFormatWorksByOffice }))
@@ -1895,7 +1896,14 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                 office={office}
                 tables={tables}
                 savedConditions={tenderConditions}
-                onSaveConditions={(id, conditions) => setTenderConditions((prev) => ({ ...prev, [id]: { conditions } }))}
+                onSaveConditions={(id, conditions, details) => setTenderConditions((prev) => ({ ...prev, [id]: { ...prev[id], conditions, ...details, savedAt: Date.now() } }))}
+                onDeleteConditions={(id) =>
+                  setTenderConditions((prev) => {
+                    const next = { ...prev }
+                    delete next[id]
+                    return next
+                  })
+                }
                 onEvaluationGenerated={(ids) => setTenderConditions((prev) => markEvaluationGenerated(prev, ids, Date.now()))}
               />
             )}

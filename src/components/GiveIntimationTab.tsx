@@ -14,7 +14,8 @@ import { detectTenderId } from '@core/tenderAgents'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
 import { computeWorkAmounts, tenderPercentFromRow, corpusFundFromEcv } from '@core/worksAmounts'
 import { wrapAgencyAddress } from '@core/workOrderAgreement'
-import { stripItemNoTag } from '@core/bidDocument'
+import { extractItemNo, stripItemNoTag } from '@core/bidDocument'
+import { DROP_PARAGRAPH_MARKER } from '@core/dropMarker'
 import {
   zoneAbbr,
   financialYearFromDate,
@@ -41,7 +42,9 @@ import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell, IconCheck } fr
 import type { ExcelTable } from '@core/types'
 import type { AgreementBundleFile, VerifyDocItem } from '../../electron/ipc-contract'
 import { VerifyButton } from './VerifyButton'
-import DocFieldsEditor, { groupLabels, type DocField, type DocFieldGroup } from './DocFieldsEditor'
+import PageMarginGuides from './PageMarginGuides'
+import { applyPageMargins, type PageMargins } from '@core/docMargins'
+import DocFieldsEditor, { groupLabels, humanizeLabel, type DocField, type DocFieldGroup } from './DocFieldsEditor'
 import { variantForCorporation, corporationDefaultVariant } from '@core/workOrderTemplateVariants'
 
 interface Props {
@@ -107,9 +110,11 @@ interface LoaManualFields {
   itemNo: string
   loaDate: string
   /** Which authority approved Administrative Sanction — varies per work; the TS Note / Eligibility Criteria / Bid Evaluation / Agency Approval notes all cite it. */
-  asAuthority: 'zonal' | 'commissioner'
+  asAuthority: 'zonal' | 'commissioner' | 'resolution'
   /** Only used when asAuthority is 'commissioner' — the zonal form's Ref line carries no date in the office's own samples. */
   asDate: string
+  /** SSR (Schedule of Rates) year the TS Note cites, e.g. "2026-27" — defaults to the current financial year. */
+  ssrYear: string
   tsNo: string
   tsDate: string
   techBidOpenDate: string
@@ -121,6 +126,16 @@ interface LoaManualFields {
   memoRef: string
   memoDate: string
   rateMonth: string
+  /** Eligibility Criteria — clauses that vary per work; defaults match the office's usual wording. */
+  classOfRegistration: string
+  emdValidity: string
+  solvencyValidity: string
+  graduateEngineers: string
+  diplomaEngineers: string
+  equipment1: string
+  equipment2: string
+  equipment3: string
+  goMsNo: string
 }
 
 const LOA_MANUAL_DEFAULTS: LoaManualFields = {
@@ -130,6 +145,7 @@ const LOA_MANUAL_DEFAULTS: LoaManualFields = {
   loaDate: '',
   asAuthority: 'commissioner',
   asDate: '',
+  ssrYear: financialYearFromDate(undefined),
   tsNo: '',
   tsDate: '',
   techBidOpenDate: '',
@@ -139,7 +155,21 @@ const LOA_MANUAL_DEFAULTS: LoaManualFields = {
   msFlatsRate: '',
   memoRef: '',
   memoDate: '',
-  rateMonth: ''
+  rateMonth: '',
+  classOfRegistration: 'Appropriate class of registration as per existing G.O.s in Telangana State.',
+  emdValidity: '6 Months',
+  solvencyValidity: '1 year',
+  graduateEngineers: '1 No.',
+  diplomaEngineers: '2 Nos.',
+  equipment1: 'Tipper',
+  equipment2: 'Hydraulic Excavator',
+  equipment3: 'Water tanker',
+  goMsNo: '66'
+}
+
+/** A staffing count typed as 0 ("0", "0 No.", "Nil") means the post isn't required — its line is left out of the document. */
+function isZeroCount(v: string): boolean {
+  return /^\s*(0+(\s|\.|$)|nil\b|none\b)/i.test(v)
 }
 
 /** "<Circle> Circle-<CNO>" from the Works List row, falling back to parsing it out of the name of the work (a Zone login issuing a work from an unmatched circle still needs this — same directory lookup the Work Order/Agreement page uses). */
@@ -157,6 +187,7 @@ function circleLine(row: Record<string, string>, workName: string, office: Offic
 
 /** "Zonal Commissioner, QBZ, CMC" or "Commissioner, CMC" — the AS-approving authority, per the manual toggle. */
 function asAuthorityText(zoneAbbrCode: string, m: LoaManualFields, corp = 'CMC'): string {
+  if (m.asAuthority === 'resolution') return `Standing Committee, ${corp}`
   return m.asAuthority === 'zonal' ? `Zonal Commissioner, ${zoneAbbrCode}, ${corp}` : `Commissioner, ${corp}`
 }
 
@@ -279,6 +310,14 @@ function resolveLoaValue(
       return notice.phone ?? row['Phone number of the agency'] ?? ''
     case 'item no':
       return manual.itemNo
+    case 'intimation lr no': {
+      // "<Item No>/SE/<Zone Abbr>/<Corp>/<FY>" (MMC: "SE(M)" and "<Zone Abbr> ZONE"). One editable
+      // field, so the whole number can be retyped when the office's numbering differs.
+      const corp = office.corporation ?? row['Corporation'] ?? ''
+      const abbr = zoneAbbr(office.zone)
+      const fy = financialYearFromDate(pdf.noticeDate)
+      return corp === 'MMC' ? `${manual.itemNo}/SE(M)/${abbr} ZONE/${corp}/${fy}` : `${manual.itemNo}/SE/${abbr}/${corp}/${fy}`
+    }
     case 'name of the work':
       return work.name
     case 'reserved tag':
@@ -382,6 +421,8 @@ function resolveTsNoteValue(
       return office.corporation ?? ''
     case 'financial year':
       return financialYearFromDate(pdf.noticeDate)
+    case 'ssr year':
+      return manual.ssrYear.trim() || financialYearFromDate(undefined)
     case 'name of the work':
       return work.name
     case 'item no':
@@ -418,6 +459,24 @@ function resolveTsNoteValue(
       return manual.memoDate.trim()
     case 'rate month':
       return manual.rateMonth.trim()
+    case 'class of registration':
+      return manual.classOfRegistration.trim()
+    case 'emd validity':
+      return manual.emdValidity.trim()
+    case 'solvency validity':
+      return manual.solvencyValidity.trim()
+    case 'graduate engineers':
+      return isZeroCount(manual.graduateEngineers) ? DROP_PARAGRAPH_MARKER : manual.graduateEngineers.trim()
+    case 'diploma engineers':
+      return isZeroCount(manual.diplomaEngineers) ? DROP_PARAGRAPH_MARKER : manual.diplomaEngineers.trim()
+    case 'equipment 1':
+      return manual.equipment1.trim()
+    case 'equipment 2':
+      return manual.equipment2.trim()
+    case 'equipment 3':
+      return manual.equipment3.trim()
+    case 'go ms no':
+      return manual.goMsNo.trim()
     default:
       return ''
   }
@@ -540,6 +599,28 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   // preview inline at once.
   const [expanded, setExpanded] = useState<ExpandedDoc | null>(null)
   const [expandedPages, setExpandedPages] = useState(0)
+  // Page margins (mm) dragged on a document's preview; a document with no entry uses its template's own.
+  // Kept between sessions, like the Agreement page's.
+  const [docMargins, setDocMargins] = useState<Partial<Record<ExpandedDoc, PageMargins>>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('intimationDocPageMargins') ?? 'null')
+      if (saved && typeof saved === 'object') return saved
+    } catch {
+      /* fall through to the templates' margins */
+    }
+    return {}
+  })
+  useEffect(() => {
+    localStorage.setItem('intimationDocPageMargins', JSON.stringify(docMargins))
+  }, [docMargins])
+  function setMarginsFor(kind: ExpandedDoc, m: PageMargins | null) {
+    setDocMargins((prev) => {
+      const next = { ...prev }
+      if (m) next[kind] = m
+      else delete next[kind]
+      return next
+    })
+  }
 
   // SE-only: 4 companion documents issued alongside the LOA. TS Note and
   // Eligibility Criteria are docx templates (like the LOA itself, keyed by
@@ -750,6 +831,11 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       }
       setPdfEval(ev)
       setPdfName(file.name)
+      // The sheet's own "(Item No.13)" tag (NIT line, or tagged onto the Name of Work) is
+      // this work's item number — a newly uploaded L1 describes a different work, so it
+      // replaces whatever was there; with no tag on the sheet, the typed value stays.
+      const itemFromSheet = ev.itemNo ?? extractItemNo(ev.nameOfWork ?? '')
+      if (itemFromSheet) setManual((m) => ({ ...m, itemNo: itemFromSheet }))
       // Every bidder on the sheet (not just L-1) — feeds the SE Bid Evaluation /
       // Agency Approval notes' tables.
       setAllBidders(parseAllBidders(lines))
@@ -810,7 +896,8 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
     // Hand edits win over the resolved values, so the tile, the expanded page,
     // Word, PDF, Print and the bundle all carry what the editor panel shows.
-    return api.fillPlaceholdersInDocument(templateB64, resolved, { ...values, ...intimationEdits })
+    const filled = await api.fillPlaceholdersInDocument(templateB64, resolved, { ...values, ...intimationEdits })
+    return applyPageMargins(filled, docMargins.intimation ?? null)
   }
 
   // A different work (another upload / Works List row) invalidates those
@@ -820,7 +907,15 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     setIntimationEdits({})
   }, [intimationWorkKey])
 
-  const intimationGroups = useMemo(() => groupLabels(labels), [labels])
+  // The letter number and date lead the panel (they head the letter), ahead of the
+  // bucketed office / work / amount groups.
+  const intimationGroups = useMemo(() => {
+    const top: DocField[] = []
+    if (labels.includes('Intimation Lr No')) top.push({ label: 'Intimation Lr No', title: 'Intimation Lr. No', wide: true })
+    if (labels.includes('LOA Date')) top.push({ label: 'LOA Date', title: 'Intimation Date' })
+    const rest = groupLabels(labels.filter((l) => !top.some((f) => f.label === l)))
+    return top.length > 0 ? [{ title: 'Intimation', fields: top }, ...rest] : rest
+  }, [labels])
 
   /**
    * Snapshots everything the Non-conclusion Notice needs, straight off the
@@ -947,13 +1042,15 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   )
 
   async function fillSeDoc(kind: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval'): Promise<string> {
-    if (kind === 'bidEval') return api.noteSubmittedDocx(buildBidEvaluationHtml(bidEvalData))
-    if (kind === 'agencyApproval') return api.noteSubmittedDocx(buildAgencyApprovalHtml(agencyApprovalData))
+    if (kind === 'bidEval') return applyPageMargins(await api.noteSubmittedDocx(buildBidEvaluationHtml(bidEvalData)), docMargins.bidEval ?? null)
+    if (kind === 'agencyApproval')
+      return applyPageMargins(await api.noteSubmittedDocx(buildAgencyApprovalHtml(agencyApprovalData)), docMargins.agencyApproval ?? null)
     const b64 = seDocB64[kind]
     if (!b64) throw new Error('Format not loaded yet.')
     const kindLabels = seDocLabels[kind] ?? []
     const resolved: PlaceholderMatch[] = kindLabels.map((label) => ({ label, column: label, score: 1 }))
-    return api.fillPlaceholdersInDocument(b64, resolved, seDocValues[kind] ?? {})
+    const filled = await api.fillPlaceholdersInDocument(b64, resolved, seDocValues[kind] ?? {})
+    return applyPageMargins(filled, docMargins[kind] ?? null)
   }
 
   // The full-size, accurate (LibreOffice-backed) render — used only for the
@@ -1029,7 +1126,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     }, delay)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, values, intimationEdits, seDocValues, bidEvalData, agencyApprovalData])
+  }, [expanded, values, intimationEdits, seDocValues, bidEvalData, agencyApprovalData, docMargins])
 
   async function downloadSeDoc(kind: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval', formats: ('docx' | 'pdf')[]) {
     setBusy(formats[0] === 'pdf' ? 'pdf' : 'download')
@@ -1343,10 +1440,11 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       title: 'Admin Sanction Authority',
       options: [
         { value: 'commissioner', label: `Commissioner, ${corpAbbr}` },
-        { value: 'zonal', label: 'Zonal Commissioner' }
+        { value: 'zonal', label: 'Zonal Commissioner' },
+        { value: 'resolution', label: 'Standing committee / resolution' }
       ]
     },
-    ...(manual.asAuthority === 'commissioner' ? [mf('asDate', 'Admin Sanction Date', 'e.g. 21.07.2026')] : [])
+    ...(manual.asAuthority !== 'zonal' ? [mf('asDate', 'Admin Sanction Date', 'e.g. 21.07.2026')] : [])
   ]
   const tsNoDateFields: DocField[] = [mf('tsNo', 'TS No', 'e.g. 33'), mf('tsDate', 'TS Date', 'e.g. 04.07.2026')]
   const techBidOpenField = mf('techBidOpenDate', 'Technical Bid Opened Date', 'e.g. 06.08.2026')
@@ -1357,14 +1455,8 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   // live-page-right editor the Intimation letter uses. Labels carry the
   // `manual:` prefix so edits route to `manual` rather than the letter's overrides.
   const seManualGroups: Partial<Record<ExpandedDoc, DocFieldGroup[]>> = {
-    intimation: [
-      {
-        title: 'Letter of Acceptance details',
-        fields: [mf('adminSanction', 'Admin. Sanction Value', 'e.g. 16850000'), periodField, itemNoField, mf('loaDate', 'LOA Date', 'e.g. 20.03.2026')]
-      }
-    ],
     tsNote: [
-      { title: 'References', fields: [...tsNoDateFields, ...asAuthorityFields] },
+      { title: 'References', fields: [...tsNoDateFields, mf('ssrYear', 'SSR Year', 'e.g. 2026-27'), ...asAuthorityFields] },
       {
         title: 'Rates',
         fields: [
@@ -1377,12 +1469,93 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
         ]
       }
     ],
-    eligibility: [{ title: 'The work', fields: [itemNoField, periodField, ...asAuthorityFields, ...tsNoDateFields] }],
+    eligibility: [
+      { title: 'The work', fields: [itemNoField, periodField, ...asAuthorityFields, ...tsNoDateFields] },
+      {
+        title: 'Eligibility clauses',
+        fields: [
+          mf('classOfRegistration', 'Class of Registration'),
+          mf('emdValidity', 'EMD Validity', 'e.g. 6 Months'),
+          mf('solvencyValidity', 'Solvency Certificate Validity', 'e.g. 1 year'),
+          mf('graduateEngineers', 'Graduate Engineers (Civil)', 'e.g. 1 No.'),
+          mf('diplomaEngineers', 'Diploma Engineers (Civil)', 'e.g. 2 Nos.'),
+          mf('equipment1', 'Critical Equipment 1'),
+          mf('equipment2', 'Critical Equipment 2'),
+          mf('equipment3', 'Critical Equipment 3'),
+          mf('goMsNo', 'G.O. MS No.', 'e.g. 66')
+        ]
+      }
+    ],
     bidEval: [{ title: 'References and dates', fields: [...asAuthorityFields, ...tsNoDateFields, itemNoField, techBidOpenField] }],
     agencyApproval: [
       { title: 'References and dates', fields: [...asAuthorityFields, ...tsNoDateFields, itemNoField, techBidOpenField, bidEvalApprovedField] }
     ]
   }
+  // The SE Letter of Acceptance's fields in the order the letter reads, with plain
+  // names — instead of the generic bucketing the EE letter gets. Item No and Period
+  // are the hand-typed `manual` fields (so they also feed the companion notes), not
+  // the template's own copies of those placeholders, which would only edit this letter.
+  const seIntimationGroups: DocFieldGroup[] = (() => {
+    const shown = new Set<string>()
+    const pick = (label: string, title: string, extra: Partial<DocField> = {}): DocField[] => {
+      if (!labels.includes(label)) return []
+      shown.add(label)
+      return [{ label, title, ...extra }]
+    }
+    const hidden = ['Item No', 'Period of Completion', 'Period Completion']
+    hidden.forEach((l) => shown.add(l))
+    const groups: DocFieldGroup[] = [
+      {
+        title: 'Intimation',
+        fields: [
+          ...pick('Intimation Lr No', 'Intimation Lr. No', { wide: true }),
+          ...pick('LOA Date', 'Intimation Date'),
+          itemNoField,
+          periodField
+        ]
+      },
+      {
+        title: 'Agency',
+        fields: [
+          ...pick('Agency Name', 'Agency name', { wide: true }),
+          ...pick('Address of the agency', 'Address', { multiline: true }),
+          ...pick('agency phone number', 'Phone number')
+        ]
+      },
+      {
+        title: 'The work',
+        fields: [
+          ...pick('Name of the work', 'Name of the work', { multiline: true }),
+          ...pick('Reserved Tag', 'Reservation tag', { placeholder: 'e.g. (Reserved for SC category)' }),
+          ...pick('Circle Line', 'Circle'),
+          ...pick('Nit No', 'NIT No'),
+          ...pick('Price Bid opening date', 'Price bid opened on'),
+          mf('adminSanction', 'Admin. Sanction Value (Rs.)', 'e.g. 16850000')
+        ]
+      },
+      {
+        title: 'Amounts',
+        fields: [
+          ...pick('ECV', 'Estimate Contract Value (Rs.)'),
+          ...pick('Tender Percentage', 'Tender percentage (% below)'),
+          ...pick('Contract Amount', 'Contract amount (Rs.)'),
+          ...pick('Contract In Words', 'Contract amount in words', { multiline: true }),
+          ...pick('MMC Emd Clause', 'EMD clause', { multiline: true }),
+          ...pick('MMC Reserved Emd Clause', 'EMD clause', { multiline: true }),
+          ...pick('BG Validity Months', 'BG validity (months)'),
+          ...pick('Period Number', 'Period (number only)')
+        ]
+      },
+      {
+        title: 'Office',
+        fields: [...pick('Zone', 'Zone'), ...pick('Corporation', 'Corporation')]
+      }
+    ]
+    // Anything the template carries that isn't listed above still gets a field.
+    const rest = labels.filter((l) => !shown.has(l))
+    if (rest.length > 0) groups.push({ title: 'Other', fields: rest.map((l) => ({ label: l, title: humanizeLabel(l) })) })
+    return groups.filter((g) => g.fields.length > 0)
+  })()
   const manualDerived: Record<string, string> = Object.fromEntries(
     Object.entries(manual).map(([k, v]) => [M + k, String(v ?? '')])
   )
@@ -1715,7 +1888,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
                     right — same editor split the Agreement page's documents use. */}
                 <div className="ns-body">
                   <DocFieldsEditor
-                    groups={[...(expanded === 'intimation' ? intimationGroups : []), ...(seMode ? seManualGroups[expanded] ?? [] : [])]}
+                    groups={seMode && expanded === 'intimation' ? seIntimationGroups : [...(expanded === 'intimation' ? intimationGroups : []), ...(seMode ? seManualGroups[expanded] ?? [] : [])]}
                     derived={{ ...values, ...manualDerived }}
                     edits={intimationEdits}
                     onChange={(label, value) =>
@@ -1732,7 +1905,23 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
                   />
                   <div className="ns-preview">
                     <div className="ns-preview-scroll">
-                      <div ref={expandedRef} className="intimation-docx-preview" />
+                      <div className="page-margin-host">
+                        <div ref={expandedRef} className="intimation-docx-preview" />
+                        <PageMarginGuides
+                          containerRef={expandedRef}
+                          margins={docMargins[expanded] ?? null}
+                          onChange={(m) => setMarginsFor(expanded, m)}
+                          renderKey={expandedPages}
+                        />
+                        <button
+                          type="button"
+                          className="ghost page-margin-reset"
+                          disabled={!docMargins[expanded]}
+                          onClick={() => setMarginsFor(expanded, null)}
+                        >
+                          Reset margins
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

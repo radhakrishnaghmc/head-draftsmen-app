@@ -659,6 +659,8 @@ export function workBillNotePlaceholders(f: WorkOrderAgreementFields): Record<st
     'Contract Amount Plain': contract != null ? groupedAmount(contract) : '',
     'Agreement No and Date': agreementBondNoDate(f),
     'Period of Contract': f.completionMonths.trim() ? `${f.completionMonths.trim()} months` : '',
+    // Item 28's "recommended for payment" amount — typed per bill; a blank rule until entered.
+    'Recommended Amount': '_____________',
     'Embedded Tax': '---',
     'SE Super Check': '---',
     'Price Escalation': '',
@@ -702,6 +704,14 @@ export function aeDyeeForwardingPlaceholders(f: WorkOrderAgreementFields): Recor
     'Tender Percentage': pct == null ? '' : pct === 0 ? 'At par' : `${formatPercent(pct)} % Less`,
     // The Ref line quotes the Agreement Bond's own A.B.No line, number and date included.
     'Agreement No': agreementBondNoDate(f),
+    // The Ref list's Administrative / Technical Sanction lines: the e-Office file number and TS number
+    // are typed per work in the editor (nothing upstream carries them); the amount is the estimate.
+    // The Work Order's own number line (see work-order-template*.docx: "<no>/<Corp>/<ZoneAbbr>/<Circle>/CIR-<CNO>/EE/<FY>"),
+    // quoted by the EOT proposal; the serial is typed per work, so it shows as a blank rule until entered.
+    'Work Order No': `________/${f.corporation}/${zoneAbbr(f.zone)}/${f.circle}/CIR-${f.cno}/EE/${f.financialYear}${f.workOrderDate.trim() ? ` Dt: ${f.workOrderDate.trim()}` : ''}`,
+    'AS File No': '',
+    'TS No': '',
+    'Financial year': f.financialYear,
     'Agmt Date': f.agreementDate.trim(),
     'Completion Period': f.completionMonths.trim() ? `${f.completionMonths.trim()} Months` : ''
   }

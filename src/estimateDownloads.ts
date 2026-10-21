@@ -79,6 +79,12 @@ export async function matchWorksRowCached(
   }
 }
 
+/** The circle a work name states ("... Nizampet Circle-58, Quthbullapur Zone, CMC") — the BOQ workspace's fallback when the work isn't on the Works List. */
+export function circleFromWorkName(workName: string | undefined): { name: string; display: string } | undefined {
+  const m = /([A-Za-z][A-Za-z .]*?)\s+Circle\s*[-–]?\s*(\d+)/i.exec(workName ?? '')
+  return m ? { name: m[1].trim(), display: `${m[1].trim()} Circle-${m[2]}` } : undefined
+}
+
 export function downloadBoqFromItems(
   items: EstimateWorkItem[],
   workName: string | undefined,
@@ -95,11 +101,15 @@ export async function downloadScheduleAFromItems(
   items: EstimateWorkItem[],
   workName: string | undefined,
   worksTable: ExcelTable | null,
-  suggestedNameBase: string
+  suggestedNameBase: string,
+  // BOQ workspace: the estimate's own work name is authoritative; the Works List row only supplies the other details.
+  estimateNameWins = false
 ): Promise<string | null> {
   const scheduleARows = boqToScheduleA(buildBoqFromEstimate(items))
   const match = workName && worksTable ? await matchWorksRow(workName, worksTable) : undefined
-  const meta = match ? metaFromWorksRow(match.row) : undefined
+  const meta = match ? { ...metaFromWorksRow(match.row) } : estimateNameWins && workName ? {} : undefined
+  if (meta && estimateNameWins && !meta.circle) meta.circle = circleFromWorkName(workName)?.display
+  if (meta && estimateNameWins && workName?.trim()) meta.nameOfWork = workName.trim()
   return api.exportScheduleA(scheduleARows, `${suggestedNameBase} Schedule A`, meta)
 }
 
@@ -109,7 +119,9 @@ export async function downloadDeviationFromItems(
   agencyName: string,
   estimateAmountLakhs: number,
   worksTable: ExcelTable | null,
-  suggestedNameBase: string
+  suggestedNameBase: string,
+  // BOQ workspace: with no Works List match, take the circle the work name states.
+  circleFromName = false
 ): Promise<string | null> {
   const deviationItems: DeviationItem[] = items.map((it) => ({
     description: it.description,
@@ -120,7 +132,7 @@ export async function downloadDeviationFromItems(
   const match = workName && worksTable ? await matchWorksRow(workName, worksTable) : undefined
   return api.exportDeviation(
     deviationItems,
-    { circle: match?.row['Circle'], nameOfWork: workName, agencyName: agencyName.trim(), estimateAmountLakhs },
+    { circle: match?.row['Circle'] || (circleFromName ? circleFromWorkName(workName)?.name : undefined), nameOfWork: workName, agencyName: agencyName.trim(), estimateAmountLakhs },
     `${suggestedNameBase} Deviation`
   )
 }

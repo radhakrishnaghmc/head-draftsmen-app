@@ -97,6 +97,7 @@ export function correctHeaderTypos(cell: string): string {
 
 // Matches a "Name of Work" / "Name of the Work" label cell, capturing any
 // text already inline after it (e.g. "Name of Work: Road from A to B").
+const ESTIMATE_TITLE_RE = /^(?:detailed\s+|abstract\s+)?estimate\s+(?:for|of)\s+(?:the\s+)?(?:work\s+of\s+)?(\S.*)$/i
 const WORK_NAME_LABEL_RE = /^name\s+of\s+(?:the\s+)?work\b\s*:?\s*(.*)$/i
 
 // Explicit "Description"/"Particulars"/"Item of Work" header — used only to
@@ -153,8 +154,32 @@ export function extractLabeledField(grid: string[][], headerRowIndex: number, la
  * (e.g. "Detailed Estimate for ..." / "Name of Work: ..."). See
  * extractLabeledField for the matching rules.
  */
-export function extractWorkName(grid: string[][], headerRowIndex: number): string | undefined {
-  return extractLabeledField(grid, headerRowIndex, WORK_NAME_LABEL_RE)
+export function extractWorkName(
+  grid: string[][],
+  headerRowIndex: number,
+  /** The BOQ workspace also reads an estimate with no "Name of Work:" row — from its "Detailed Estimate for <work>" title line, or a bare name line above the banner. */
+  opts?: { lenient?: boolean }
+): string | undefined {
+  const labelled = extractLabeledField(grid, headerRowIndex, WORK_NAME_LABEL_RE)
+  if (labelled || !opts?.lenient) return labelled
+  return extractLabeledField(grid, headerRowIndex, ESTIMATE_TITLE_RE) ?? unlabelledWorkName(grid, headerRowIndex)
+}
+
+/**
+ * Some estimates open with the work's name as a bare line above the table (no "Name of Work:" label), followed
+ * by a generic banner like "DETAILED & ABSTRACT ESTIMATION OF ..."; that line is taken as the name.
+ */
+function unlabelledWorkName(grid: string[][], headerRowIndex: number): string | undefined {
+  const lines: string[] = []
+  for (let r = 0; r < headerRowIndex; r++) {
+    const cell = (grid[r] ?? []).map(norm).find(Boolean)
+    if (cell) lines.push(cell)
+  }
+  // Only the shape "<name line>" directly followed by the estimate banner counts — anything looser would read stray titles as names.
+  for (let i = 0; i + 1 < lines.length; i++) {
+    if (lines[i].length >= 15 && !/estimat|abstract/i.test(lines[i]) && /estimat|abstract/i.test(lines[i + 1])) return lines[i]
+  }
+  return undefined
 }
 
 /**

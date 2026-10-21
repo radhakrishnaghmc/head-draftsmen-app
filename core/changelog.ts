@@ -16,6 +16,17 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.42.0',
+    changes: [
+      'Evaluation Sheet: saved tender conditions now keep the Tender ID, work name, ECV and office, so a sheet can be made after the tender closes.',
+      'CMC versions of the SE Letter of Acceptance (reserved and non-reserved); the Malkajgiri zone code is corrected to MKJZ.',
+      'Bid Document: the AS authority can now be a Resolution, besides Zonal and Commissioner.',
+      'Note Submitted / evaluation notes: the Ref rows are spaced tighter and line up properly.',
+      'Documents: A4 margins and paragraph spacing fixes across the corporation templates, and more reliable document verification of EMD.',
+      'Reminders and saved tender conditions no longer get overwritten by an older cloud copy when you edit them on another device.'
+    ]
+  },
+  {
     version: '1.41.0',
     changes: [
       'Evaluation Sheet: the tender conditions now show on screen under each uploaded tender — add, remove or reword them before downloading.',

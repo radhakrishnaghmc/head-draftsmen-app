@@ -1,6 +1,7 @@
 import * as ExcelJS from 'exceljs'
 import type { ScheduleAItem, ScheduleAMeta } from './scheduleA'
 import { indianDigitGroups } from './worksAmounts'
+import { amountToWords } from './numberToWords'
 import { stripDataValidations } from './templateWorkbook'
 
 // Fixed column layout of the bundled Schedule-A template's item table.
@@ -186,8 +187,14 @@ function fillScheduleAWorksheet(ws: ExcelJS.Worksheet, items: ScheduleAItem[], m
         tenderPct != null
           ? `Less:                       ( -${tenderPct} )% Less`
           : 'Less:                       (        )% Less'
-    } else if (/in figures/i.test(c1)) {
+    }
+    // Not an else-branch: the label shares its row with "Tender Quoted".
+    if (/^in figures/i.test(c1)) {
       inFiguresRow = r
+      // The contract amount spelled out beside the label: "In Figures (One Hundred Rupees Only)".
+      const contract = Number((meta?.contractAmount ?? '').replace(/[^\d.]/g, ''))
+      const words = contract > 0 ? amountToWords(contract) : ''
+      if (words) ws.getCell(r, 1).value = `In Figures (${words})`
     }
   }
   // Row insertion/removal above shifted the total and tender-quoted rows —

@@ -1,13 +1,16 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../ipc'
+import { fetchTenders } from '../tenderCache'
 import { pdfToTextLinesOrOcr } from '../pdfToText'
 import { readEvaluationSheetPage } from '@core/tenderAgents/evaluationSheetAgent'
 import { BID_CAPACITY_THRESHOLD, defaultConditions, isBidCapacityCondition, type EvaluationSheetInput } from '@core/evaluationSheet'
-import type { Office } from '../office'
+import { officeKey, type Office } from '../office'
+import { tenderConditionsInOffice } from '@core/tenderConditions'
 import type { ExcelTable, TenderConditionsEntry } from '@core/types'
 import { matchWorksRow } from '../estimateDownloads'
 import { lakhsToRupees } from '@core/worksAmounts'
-import { IconFolder, IconTable, IconPlus, IconTrash, IconChecklist, IconWarn, IconDownload } from './Icons'
+import { IconFolder, IconTable, IconPlus, IconTrash, IconChecklist, IconWarn, IconDownload, IconSearch, IconEye } from './Icons'
 
 interface Props {
   office: Office
@@ -15,9 +18,10 @@ interface Props {
   tables: ExcelTable[]
   /** Tender conditions saved in the app by tender ID (the portal drops a tender once bidding closes). */
   savedConditions: Record<string, TenderConditionsEntry>
-  onSaveConditions: (tenderId: string, conditions: string[]) => void
+  onSaveConditions: (tenderId: string, conditions: string[], details?: { nitNo?: string; workName?: string; ecv?: number; officeKey?: string }) => void
   /** Called once sheets are saved, so those tenders' conditions can be dropped a week later. */
   onEvaluationGenerated: (tenderIds: string[]) => void
+  onDeleteConditions: (tenderId: string) => void
 }
 
 interface SheetEntry {
@@ -70,7 +74,7 @@ function suggestedName(e: SheetEntry): string {
  * office to key in from each bidder's documents. Several tenders can be
  * loaded at once and their sheets downloaded together into one folder.
  */
-export default function EvaluationSheetTab({ office, tables, savedConditions, onSaveConditions, onEvaluationGenerated }: Props) {
+export default function EvaluationSheetTab({ office, tables, savedConditions, onSaveConditions, onEvaluationGenerated, onDeleteConditions }: Props) {
   const [entries, setEntries] = useState<SheetEntry[]>([])
   const [busy, setBusy] = useState<null | 'reading' | 'downloadAll'>(null)
   // Upload progress shown inside the upload button: file `index` of `total`, in `phase`.
@@ -79,27 +83,240 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
   const [savedAllDir, setSavedAllDir] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Manual tender ID: fetch that tender's conditions from the portal and save them by ID.
-  const [manualId, setManualId] = useState('')
   const [manualBusy, setManualBusy] = useState(false)
-  const [manualMsg, setManualMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  // Which tender is being saved / how its last save ended, shown on that tender's own row.
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const [rowResult, setRowResult] = useState<{ id: string; ok: boolean; text: string } | null>(null)
+  const [manualMsg, setManualMsg] = useState<{
+    ok: boolean
+    text: string
+  } | null>(null)
 
-  async function saveManualConditions() {
-    const id = manualId.trim()
-    if (!id) return
+  // Saved tenders are per office: an SE (zone) office's tenders stay out of an EE (circle) office and vice versa.
+  const currentOfficeKey = officeKey(office) ?? ''
+  const zoneLevel = !(office.circle ?? '').trim()
+  const inOffice = (id: string) => !!savedConditions[id] && tenderConditionsInOffice(savedConditions[id], currentOfficeKey, zoneLevel)
+  const mineIds = Object.keys(savedConditions).filter(inOffice)
+
+  // Keyword search of live portal tenders, so the ID needn't be typed.
+  const [viewId, setViewId] = useState<string | null>(null)
+  // Download of an evaluation sheet straight from a saved tender: ask about agencies first.
+  const [dlId, setDlId] = useState<string | null>(null)
+  // Saved tender awaiting delete confirmation (a closed tender can't be re-fetched).
+  const [confirmDelId, setConfirmDelId] = useState<string | null>(null)
+  const [confirmDelAll, setConfirmDelAll] = useState(false)
+  const [dlAgencies, setDlAgencies] = useState<string[] | null>(null)
+  const [dlMsg, setDlMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  // NIT / work / ECV for the sheet: prefilled from the saved tender (or the portal while it is live), editable.
+  const [dlDetails, setDlDetails] = useState({ nit: '', work: '', ecv: '' })
+  useEffect(() => {
+    if (!dlId) return
+    const saved = savedConditions[dlId]
+    setDlDetails({ nit: saved?.nitNo ?? '', work: saved?.workName ?? '', ecv: saved?.ecv != null ? String(saved.ecv) : '' })
+    if (saved?.nitNo && saved?.workName && saved?.ecv != null) return
+    let stale = false
+    void fetchTenders({ start: 0, length: 10, type: 'current', search: dlId })
+      .then((res) => {
+        const r = res.data.find((x) => (x[1] ?? '').trim() === dlId)
+        if (!r || stale) return
+        const n = Number(r[5])
+        setDlDetails((d) => ({
+          nit: d.nit || (r[2] ?? '').trim(),
+          work: d.work || (r[4] ?? '').trim(),
+          ecv: d.ecv || (Number.isFinite(n) && n > 0 ? String(n) : '')
+        }))
+      })
+      .catch(() => {})
+    return () => {
+      stale = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dlId])
+
+  async function downloadSavedSheet(id: string, agencies: string[]) {
+    const saved = savedConditions[id]
+    if (!saved) return
+    const workName = dlDetails.work.trim()
+    const nitNo = dlDetails.nit.replace(/^\s*NIT\s*No\.?:?\s*/i, '').trim()
+    const ecvNum = Number(dlDetails.ecv.replace(/,/g, '')) || 0
+    const workLine = `Name of the work: ${workName}${ecvNum > 0 ? `. ecv: ${ecvNum.toFixed(2)}` : ''}`
+    const entry: SheetEntry = {
+      id: newId(),
+      sourceName: `Tender ${id}`,
+      tenderId: id,
+      nitLine: `NIT No: ${nitNo},Tender ID:${id}`,
+      workLine,
+      ecv: ecvNum > 0 ? String(ecvNum) : '',
+      estimate: '',
+      estimateNote: null,
+      signature: defaultSignature(),
+      bidders: agencies,
+      conditions: defaultConditions(saved.conditions, `Name of the work: ${workName}`, null),
+      conditionsNote: null,
+      error: null,
+      saved: null,
+      askedEcv: null
+    }
+    // Remember what was typed so the next download is already filled in.
+    onSaveConditions(id, saved.conditions, { nitNo: nitNo || undefined, workName: workName || undefined, ecv: ecvNum > 0 ? ecvNum : undefined, officeKey: currentOfficeKey })
+    setDlId(null)
+    setDlAgencies(null)
+    const e = await confirmSmallWork(entry)
+    const input = toInput(e)
+    if (!input) return
+    try {
+      const path = await api.exportEvaluationSheet(input, suggestedName(e))
+      setDlMsg(path ? { ok: true, text: `Saved to ${path}` } : null)
+      if (path) onEvaluationGenerated([id])
+    } catch (err) {
+      setDlMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+    }
+  }
+  const [tq, setTq] = useState('')
+  const [tResults, setTResults] = useState<string[][] | null>(null)
+  const [tTotal, setTTotal] = useState(-1)
+  const [tBusy, setTBusy] = useState(false)
+  const [tErr, setTErr] = useState<string | null>(null)
+  useEffect(() => {
+    const term = tq.trim()
+    if (!term) {
+      setTResults(null)
+      setTErr(null)
+      return
+    }
+    let stale = false
+    const t = setTimeout(async () => {
+      setTBusy(true)
+      setTErr(null)
+      try {
+        const res = await fetchTenders({
+          start: 0,
+          length: 100,
+          type: 'current',
+          search: term
+        })
+        if (!stale) {
+          setTResults(res.data)
+          setTTotal(res.total)
+        }
+      } catch (e) {
+        if (!stale) {
+          setTResults([])
+          setTErr(e instanceof Error ? e.message : String(e))
+        }
+      } finally {
+        if (!stale) setTBusy(false)
+      }
+    }, 600)
+    return () => {
+      stale = true
+      clearTimeout(t)
+    }
+  }, [tq])
+
+  // Tenders saved before their details were kept: fill the work name / ECV in from the portal while they are still live.
+  const backfilled = useRef(new Set<string>())
+  useEffect(() => {
+    const missing = mineIds.filter((id) => !savedConditions[id].workName && !backfilled.current.has(id))
+    if (missing.length === 0) return
+    missing.forEach((id) => backfilled.current.add(id))
+    void (async () => {
+      for (const id of missing) {
+        try {
+          const res = await fetchTenders({ start: 0, length: 10, type: 'current', search: id })
+          const r = res.data.find((x) => (x[1] ?? '').trim() === id)
+          if (!r) continue
+          const n = Number(r[5])
+          onSaveConditions(id, savedConditions[id].conditions, {
+            nitNo: r[2]?.trim() || undefined,
+            workName: r[4]?.trim() || undefined,
+            ecv: Number.isFinite(n) && n > 0 ? n : undefined
+          })
+        } catch {
+          /* portal unreachable — try again next launch */
+        }
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedConditions])
+
+  // "Save all" for the tenders listed by the current search: one portal fetch at a time, skipping those already saved here.
+  const [batch, setBatch] = useState<{ done: number; total: number } | null>(null)
+  const cancelBatch = useRef(false)
+  async function saveAllListed() {
+    const todo = (tResults ?? []).filter((r) => /^\d+$/.test((r[1] ?? '').trim()) && !(inOffice((r[1] ?? '').trim()) && savedConditions[(r[1] ?? '').trim()]?.conditions.length))
+    if (todo.length === 0 || batch) return
+    cancelBatch.current = false
+    let saved = 0
+    let failed = 0
+    setBatch({ done: 0, total: todo.length })
+    for (let i = 0; i < todo.length; i += 1) {
+      if (cancelBatch.current) break
+      const tid = (todo[i][1] ?? '').trim()
+      // A tender the portal won't open must not block the rest: give each 45s, mark it failed and move on.
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const ok = await Promise.race([
+        saveManualConditions(tid, todo[i]),
+        new Promise<boolean>((resolve) => {
+          timer = setTimeout(() => {
+            setRowResult({ id: tid, ok: false, text: 'Timed out waiting for the portal. Try again.' })
+            resolve(false)
+          }, 45000)
+        })
+      ])
+      clearTimeout(timer)
+      if (ok) saved += 1
+      else failed += 1
+      setBatch({ done: i + 1, total: todo.length })
+    }
+    setBatch(null)
+    const left = todo.length - saved - failed
+    setManualMsg({
+      ok: failed === 0,
+      text: `Saved ${saved} of ${todo.length} tender${todo.length === 1 ? '' : 's'}${failed ? `, ${failed} failed — use Save conditions on those rows to retry` : ''}${left > 0 ? `; stopped with ${left} not tried` : ''}.`
+    })
+  }
+
+  async function saveManualConditions(idArg: string, row?: string[]): Promise<boolean> {
+    const id = idArg.trim()
+    if (!id) return false
     if (!/^\d+$/.test(id)) {
       setManualMsg({ ok: false, text: 'Enter the numeric tender ID.' })
-      return
+      return false
     }
-    if (savedConditions[id]?.conditions.length) {
-      setManualMsg({ ok: true, text: `Tender ${id} conditions are already saved (${savedConditions[id].conditions.length}).` })
-      return
+    if (inOffice(id) && savedConditions[id]?.conditions.length) {
+      setManualMsg({
+        ok: true,
+        text: `Tender ${id} conditions are already saved (${savedConditions[id].conditions.length}).`
+      })
+      return true
     }
+    let ok = false
     setManualBusy(true)
+    setSavingId(id)
+    setRowResult(null)
     setManualMsg(null)
     try {
       const conditions = await api.fetchTenderConditions(id)
-      onSaveConditions(id, conditions)
+      // Keep the portal's NIT / work / ECV with the conditions: the tender vanishes once bidding closes.
+      let r = row
+      if (!r) {
+        try {
+          r = (await fetchTenders({ start: 0, length: 10, type: 'current', search: id })).data.find((x) => (x[1] ?? '').trim() === id)
+        } catch {
+          r = undefined
+        }
+      }
+      const ecvNum = Number(r?.[5])
+      onSaveConditions(id, conditions, {
+        nitNo: r?.[2]?.trim() || undefined,
+        workName: r?.[4]?.trim() || undefined,
+        ecv: Number.isFinite(ecvNum) && ecvNum > 0 ? ecvNum : undefined,
+        officeKey: currentOfficeKey
+      })
       setManualMsg({ ok: true, text: `Saved ${conditions.length} tender conditions for tender ${id}. Its evaluation sheet will use them.` })
+      setRowResult({ id, ok: true, text: `Saved ${conditions.length} conditions.` })
+      ok = true
       // Sheets already loaded for this tender switch to the saved conditions.
       setEntries((prev) =>
         prev.map((x) =>
@@ -114,10 +331,13 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
       )
     } catch (err) {
       const why = err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(err)
+      setRowResult({ id, ok: false, text: `Could not save (${why}). Try again.` })
       setManualMsg({ ok: false, text: `Could not save the conditions (${why}). Standard conditions are used unless some were saved earlier.` })
     } finally {
       setManualBusy(false)
+      setSavingId(null)
     }
+    return ok
   }
   // Pop-up asking whether a work missing from the Works List has an estimate of 5 lakhs or below.
   const [estimateAsk, setEstimateAsk] = useState<{ work: string; why: string; answer: (below: boolean) => void } | null>(null)
@@ -200,7 +420,7 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
             } else {
               try {
                 fetched = await api.fetchTenderConditions(ev.tenderId)
-                onSaveConditions(ev.tenderId, fetched)
+                onSaveConditions(ev.tenderId, fetched, { officeKey: currentOfficeKey })
               } catch (err) {
                 const why = err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(err)
                 conditionsNote = `Could not fetch the tender conditions from the portal (${why}); using the standard conditions. Enter this tender ID above while the tender is still open to save its conditions.`
@@ -372,6 +592,109 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
 
   return (
     <div className="card">
+      {dlId &&
+        createPortal(
+          <div className="wo-modal-overlay" onClick={() => { setDlId(null); setDlAgencies(null) }}>
+            <div
+              className="wo-modal tender-conditions-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Download evaluation sheet for tender ${dlId}`}
+              onClick={(ev) => ev.stopPropagation()}
+              onKeyDown={(ev) => ev.key === 'Escape' && (setDlId(null), setDlAgencies(null))}
+            >
+              <h3>Evaluation sheet — tender {dlId}</h3>
+              {dlAgencies === null ? (
+                <>
+                  <div className="dl-fields">
+                    <label>
+                      NIT number
+                      <input type="text" value={dlDetails.nit} onChange={(ev) => setDlDetails((d) => ({ ...d, nit: ev.target.value }))} />
+                    </label>
+                    <label>
+                      ECV (₹)
+                      <input type="text" inputMode="decimal" value={dlDetails.ecv} onChange={(ev) => setDlDetails((d) => ({ ...d, ecv: ev.target.value }))} />
+                    </label>
+                    <label className="dl-fields__wide">
+                      Name of the work
+                      <input type="text" value={dlDetails.work} onChange={(ev) => setDlDetails((d) => ({ ...d, work: ev.target.value }))} />
+                    </label>
+                  </div>
+                  <p className="tender-conditions__hint">
+                    These fill the sheet along with the tender ID and conditions. Download it without agencies (columns named Agency 1, Agency 2), or add the agency names first?
+                  </p>
+                  <div className="boq-actions">
+                    <button className="primary" autoFocus onClick={() => void downloadSavedSheet(dlId, ['Agency 1', 'Agency 2'])}>
+                      Yes, download without agencies
+                    </button>
+                    <button className="ghost" onClick={() => setDlAgencies([''])}>
+                      Add agencies
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <ul className="todo-list tender-conditions__list">
+                    {dlAgencies.map((a, i) => (
+                      <li key={i} className="todo-item">
+                        <input
+                          type="text"
+                          style={{ flex: 1 }}
+                          autoFocus={i === dlAgencies.length - 1}
+                          placeholder={`Agency ${i + 1} name`}
+                          value={a}
+                          onChange={(ev) => setDlAgencies((prev) => (prev ?? []).map((x, j) => (j === i ? ev.target.value : x)))}
+                        />
+                        <button className="danger-ghost" title="Remove" onClick={() => setDlAgencies((prev) => (prev ?? []).filter((_, j) => j !== i))}>
+                          <IconTrash />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="boq-actions">
+                    <button className="ghost" onClick={() => setDlAgencies((prev) => [...(prev ?? []), ''])}>
+                      <IconPlus /> Add another agency
+                    </button>
+                    <button className="primary" disabled={!dlAgencies.some((a) => a.trim())} onClick={() => void downloadSavedSheet(dlId, dlAgencies.map((a) => a.trim()).filter(Boolean))}>
+                      <IconDownload /> Download sheet
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
+      {viewId &&
+        createPortal(
+          <div className="wo-modal-overlay" onClick={() => setViewId(null)}>
+            <div
+              className="wo-modal tender-conditions-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Conditions for tender ${viewId}`}
+              onClick={(ev) => ev.stopPropagation()}
+              onKeyDown={(ev) => ev.key === 'Escape' && setViewId(null)}
+            >
+              <h3>Tender {viewId} — saved conditions</h3>
+              {savedConditions[viewId]?.conditions.length ? (
+                <ol className="tender-conditions-list">
+                  {savedConditions[viewId].conditions.map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="tender-id-card__hint">No conditions saved for this tender.</p>
+              )}
+              <div className="boq-actions">
+                <button className="primary" autoFocus onClick={() => setViewId(null)}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
       {estimateAsk && (
         <div className="wo-modal-overlay">
           <div className="wo-modal office-modal" role="dialog" aria-modal="true" style={{ padding: 20 }}>
@@ -430,26 +753,6 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
             </button>
           )}
         </div>
-        <div className="boq-actions">
-          <input
-            value={manualId}
-            onChange={(ev) => setManualId(ev.target.value)}
-            onKeyDown={(ev) => {
-              if (ev.key === 'Enter') void saveManualConditions()
-            }}
-            onBlur={() => void saveManualConditions()}
-            disabled={manualBusy}
-            placeholder={manualBusy ? 'Saving conditions…' : 'Tender ID — press Enter to save its conditions'}
-            inputMode="numeric"
-            aria-label="Tender ID"
-            style={{ maxWidth: 360 }}
-          />
-        </div>
-        {manualMsg && (
-          <div className={`notice ${manualMsg.ok ? 'ok' : 'error'}`}>
-            {manualMsg.ok ? <IconTable /> : <IconWarn />} {manualMsg.text}
-          </div>
-        )}
         {pickError && (
           <div className="notice error">
             <IconWarn /> {pickError}
@@ -461,6 +764,199 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
           </div>
         )}
       </div>
+
+      <section className="tender-conditions">
+        <div className="card-head">
+          <div className="head-ic">
+            <IconChecklist />
+          </div>
+          <div className="titles">
+            <h2>Tender Conditions</h2>
+            <p className="sub">The portal drops a tender once bidding closes — save its conditions while it is live and the sheet will use them.</p>
+          </div>
+        </div>
+        <div className="tsearch">
+          <IconSearch />
+          <input
+            type="text"
+            placeholder="Search by Tender ID or name of work…"
+            value={tq}
+            onChange={(ev) => setTq(ev.target.value)}
+            aria-label="Search live tenders"
+          />
+          {(tBusy || manualBusy) && <span className="tsearch-spin">{manualBusy ? 'Saving…' : 'Searching…'}</span>}
+          {tq && (
+            <button className="tsearch-clear" onClick={() => setTq('')}>
+              Clear
+            </button>
+          )}
+        </div>
+        {tErr && <p className="tender-conditions__hint">Search failed: {tErr}</p>}
+        {tResults && !tBusy && !tErr && tResults.length === 0 && !/^\d{5,}$/.test(tq.trim()) && (
+          <p className="tender-conditions__hint">No live tenders match.</p>
+        )}
+        {tResults && tResults.length > 0 && (
+          <div className="tender-conditions__bar">
+            <p className="tender-conditions__hint">
+              {tTotal > tResults.length ? `Showing the first ${tResults.length} of ${tTotal} tenders — refine the search to narrow them.` : `${tResults.length} tender${tResults.length === 1 ? '' : 's'} found.`}
+            </p>
+            {(() => {
+              const pending = tResults.filter((r) => /^\d+$/.test((r[1] ?? '').trim()) && !(inOffice((r[1] ?? '').trim()) && savedConditions[(r[1] ?? '').trim()]?.conditions.length)).length
+              return batch ? (
+                <>
+                  <span className="tender-conditions__progress" role="status">
+                    Saving {batch.done + 1 > batch.total ? batch.total : batch.done + 1} of {batch.total}…
+                  </span>
+                  <button className="ghost" onClick={() => (cancelBatch.current = true)}>
+                    Stop
+                  </button>
+                </>
+              ) : (
+                <button className="primary" disabled={manualBusy || pending === 0} onClick={() => void saveAllListed()}>
+                  <IconDownload /> {pending === 0 ? 'All saved' : `Save all (${pending})`}
+                </button>
+              )
+            })()}
+          </div>
+        )}
+        {(tResults?.length || /^\d{5,}$/.test(tq.trim())) && (
+          <ul className="todo-list tender-conditions__list tender-conditions__results">
+            {/^\d{5,}$/.test(tq.trim()) && !(tResults ?? []).some((r) => (r[1] ?? '').trim() === tq.trim()) && (
+              <li className="todo-item">
+                <div className="todo-body">
+                  <span className="todo-text">Tender ID {tq.trim()}</span>
+                  <span className="todo-dates">Fetch this tender's conditions straight from the portal</span>
+                </div>
+                <button className="ghost" disabled={manualBusy || (inOffice(tq.trim()) && !!savedConditions[tq.trim()]?.conditions.length)} onClick={() => void saveManualConditions(tq.trim())}>
+                  {inOffice(tq.trim()) && savedConditions[tq.trim()]?.conditions.length ? 'Saved' : 'Fetch & save'}
+                </button>
+              </li>
+            )}
+            {(tResults ?? []).map((r, idx) => {
+              const id = (r[1] ?? '').trim()
+              const saved = inOffice(id) && !!savedConditions[id]?.conditions.length
+              return (
+                <li key={id || r[2]} className="todo-item">
+                  <span className="list-serial" aria-label={`Number ${idx + 1}`}>
+                    {idx + 1}
+                  </span>
+                  <div className="todo-body">
+                    <span className="todo-text tender-conditions__work" title={r[4]}>{r[4] || '—'}</span>
+                    <span className="todo-dates">ID {id || '—'} · {r[2] || '—'} · closes {r[8] || '—'}</span>
+                  </div>
+                  <button className="ghost" disabled={manualBusy || !/^\d+$/.test(id) || saved} onClick={() => void saveManualConditions(id, r)}>
+                    {savingId === id ? 'Saving…' : saved ? 'Saved' : 'Save conditions'}
+                  </button>
+                  {rowResult?.id === id && (
+                    <span className={`tender-conditions__rowresult ${rowResult.ok ? 'ok' : 'error'}`} role="status">
+                      {rowResult.text}
+                    </span>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+        {mineIds.length > 0 && (
+          <>
+            <div className="tender-conditions__subbar">
+              <h3 className="tender-conditions__sub">Saved tenders ({mineIds.length})</h3>
+              {confirmDelAll ? (
+                <div className="saved-tender__actions">
+                  <span className="saved-tender__confirm">Delete all {mineIds.length} saved tenders?</span>
+                  <button
+                    className="danger-ghost"
+                    onClick={() => {
+                      mineIds.forEach((id) => onDeleteConditions(id))
+                      setConfirmDelAll(false)
+                      setConfirmDelId(null)
+                    }}
+                  >
+                    Delete all
+                  </button>
+                  <button className="ghost" autoFocus onClick={() => setConfirmDelAll(false)}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button className="danger-ghost" onClick={() => setConfirmDelAll(true)}>
+                  <IconTrash /> Delete all
+                </button>
+              )}
+            </div>
+            <ul className="todo-list tender-conditions__list">
+              {mineIds.map((id, idx) => {
+                const t = savedConditions[id]
+                return (
+                  <li key={id} className="saved-tender">
+                    <span className="list-serial" aria-label={`Number ${idx + 1}`}>
+                      {idx + 1}
+                    </span>
+                    <div className="saved-tender__main">
+                      <div className="saved-tender__top">
+                        <span className="saved-tender__id">ID {id}</span>
+                        {t.ecv != null && <span className="badge saved-tender__ecv">ECV ₹{t.ecv.toLocaleString('en-IN')}</span>}
+                      </div>
+                      <p className="saved-tender__work">{t.workName || 'Work name not available — tender no longer on the portal'}</p>
+                      <p className="saved-tender__meta">
+                        {t.nitNo ? `${t.nitNo} · ` : ''}
+                        {t.conditions.length} conditions saved
+                      </p>
+                    </div>
+                    <div className="saved-tender__actions">
+                      {confirmDelId === id ? (
+                        <>
+                          <span className="saved-tender__confirm">Delete this saved tender?</span>
+                          <button
+                            className="danger-ghost"
+                            onClick={() => {
+                              onDeleteConditions(id)
+                              setConfirmDelId(null)
+                            }}
+                          >
+                            Delete
+                          </button>
+                          <button className="ghost" autoFocus onClick={() => setConfirmDelId(null)}>
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            className="primary"
+                            onClick={() => {
+                              setDlMsg(null)
+                              setDlId(id)
+                            }}
+                          >
+                            <IconDownload /> Download sheet
+                          </button>
+                          <button className="ghost saved-tender__icon" title="View conditions" aria-label={`View conditions for tender ${id}`} onClick={() => setViewId(id)}>
+                            <IconEye />
+                          </button>
+                          <button className="danger-ghost saved-tender__icon" title="Delete saved tender" aria-label={`Delete saved tender ${id}`} onClick={() => setConfirmDelId(id)}>
+                            <IconTrash />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </>
+        )}
+        {dlMsg && (
+          <div className={`notice ${dlMsg.ok ? 'ok' : 'error'}`}>
+            {dlMsg.ok ? <IconTable /> : <IconWarn />} {dlMsg.text}
+          </div>
+        )}
+      </section>
+      {manualMsg && (
+        <div className={`notice tender-id-notice ${manualMsg.ok ? 'ok' : 'error'}`}>
+          {manualMsg.ok ? <IconTable /> : <IconWarn />} {manualMsg.text}
+        </div>
+      )}
 
       {entries.length > 0 && (
         <ul className="estimate-list">

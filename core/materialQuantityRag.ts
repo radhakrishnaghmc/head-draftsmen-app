@@ -72,6 +72,8 @@ const entryKey = (e: { code?: string; description: string }): string => (e.code 
  */
 export const MATERIAL_MATCH_THRESHOLD = 0.4
 
+const STONE_WORD_RE = /granite|cuddapah|cudappa|shabad|shahabad|napa|\bstone\b|marble|kota/i
+
 /**
  * Look each estimate item up in the index (exact Data Sheet code first, then
  * keyword similarity — the same matcher Give Technical Sanction uses, which
@@ -91,8 +93,13 @@ export function matchMaterialRag(items: EstimateWorkItem[], rag: MaterialRag): (
     unit: e.unit,
     code: e.code
   }))
-  return matchEstimateItems(items, index).map((m) => {
+  return matchEstimateItems(items, index).map((m, i) => {
     if (m.candidates.length !== 1 || m.semanticOnly || m.bestScore < MATERIAL_MATCH_THRESHOLD) return undefined
-    return byKey.get(entryKey(m.candidates[0]))?.materials
+    const lines = byKey.get(entryKey(m.candidates[0]))?.materials
+    // Granite / Cuddapah-Shabad slabs are finishing stone — a match that brings them in for an item that never
+    // mentions stone (a "Separation membrane ... thick" sheet matching a granite-flooring entry on shared
+    // boilerplate words) is a false match, so drop it rather than book slabs the work doesn't use.
+    if (lines?.some((l) => l.material === 'granite' || l.material === 'napa') && !STONE_WORD_RE.test(items[i].description)) return undefined
+    return lines
   })
 }

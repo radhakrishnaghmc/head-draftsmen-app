@@ -72,7 +72,11 @@ export function verifyAmountMath(opts: {
   }
   if (ecv != null && emdPct != null) {
     const emd = Math.round(ecv * emdPct)
-    if (!haystack.includes(rupeeGroup(emd))) {
+    // Documents print the EMD either rounded or with paise ("23,046.50"), so accept both spellings.
+    const exact = ecv * emdPct
+    const [whole, paise] = exact.toFixed(2).split('.')
+    const withPaise = `${Number(whole).toLocaleString('en-IN')}.${paise}`
+    if (!haystack.includes(rupeeGroup(emd)) && !haystack.includes(withPaise)) {
       issues.push({ field: 'EMD', message: `Expected EMD Rs.${rupeeGroup(emd)} (${emdPct * 100}% of ECV) not found in the document` })
     }
     if (tenderPct != null && tenderPct > 25) {

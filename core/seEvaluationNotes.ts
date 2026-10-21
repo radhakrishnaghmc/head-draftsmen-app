@@ -89,11 +89,14 @@ export interface BidEvaluationData extends SeEvaluationRefs {
 const REF_LABEL_WIDTH = '30pt'
 const REF_NUM_WIDTH = '26pt'
 const REF_TEXT_WIDTH = '376pt'
+// Each cell's text sits in a zero-margin <p>: a bare cell inherits the document's 6pt
+// after-paragraph default, which (on top of the cell padding) spaced the Ref rows far apart.
+const refCell = (inner: string): string => `<p style="margin:0;line-height:1.15">${inner}</p>`
 const refRow = (n: string, html: string, label = ''): string =>
   '<tr>' +
-  `<td style="border:none;vertical-align:top;white-space:nowrap;width:${REF_LABEL_WIDTH};padding:0 0 4px 0">${label ? `<b>${esc(label)}</b>` : ''}</td>` +
-  `<td style="border:none;vertical-align:top;width:${REF_NUM_WIDTH};padding:0 0 4px 0">${esc(n)}</td>` +
-  `<td style="border:none;vertical-align:top;width:${REF_TEXT_WIDTH};text-align:justify;padding:0 0 4px 0">${html}</td>` +
+  `<td style="border:none;vertical-align:top;white-space:nowrap;width:${REF_LABEL_WIDTH};padding:0">${refCell(label ? `<b>${esc(label)}</b>` : '')}</td>` +
+  `<td style="border:none;vertical-align:top;width:${REF_NUM_WIDTH};padding:0">${refCell(esc(n))}</td>` +
+  `<td style="border:none;vertical-align:top;width:${REF_TEXT_WIDTH};text-align:justify;padding:0">${refCell(html)}</td>` +
   '</tr>'
 
 /** The shared 4-item Ref block ("Ref: 1) … 2) … 3) … 4) …"). `extraItem` appends a 5th row (Agency Approval only) into the SAME table so it aligns too, instead of a separate paragraph below it. */

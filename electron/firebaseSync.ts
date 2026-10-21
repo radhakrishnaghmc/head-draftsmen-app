@@ -11,6 +11,7 @@ import {
   getDoc,
   getDocs,
   setDoc,
+  deleteField,
   deleteDoc,
   runTransaction,
   collection,
@@ -21,6 +22,7 @@ import {
 } from 'firebase/firestore'
 import { canClaimSlot, claimSlot, releaseSlot, touchSlot, clearSlots, liveSlots, type SessionSlot } from '../core/sessionSlots'
 import type { PersistedState, CreatedDocument, TodoItem, MBScrutinyItem } from '../core/types'
+import { cleanTenderConditionsForCloud } from '../core/tenderConditions'
 import { LEGACY_SEED_DOC_IDS, pruneLegacyDocuments } from '../core/types'
 
 const firebaseConfig = {
@@ -85,6 +87,8 @@ interface ActiveSession {
 }
 
 let active: ActiveSession | null = null
+/** Saved-tender IDs the cloud is known to hold. The misc write merges maps, so a removed ID must be deleted explicitly. */
+let knownCloudTenderIds = new Set<string>()
 
 /**
  * Call after a successful password check. Claims one of the session slots
@@ -275,6 +279,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
 
     const t = tablesSnap.exists() ? tablesSnap.data() : {}
     const m = miscSnap.exists() ? miscSnap.data() : {}
+    knownCloudTenderIds = new Set(Object.keys((m.tenderConditions as Record<string, unknown> | undefined) ?? {}))
     // Prefer the per-item todos collection; fall back to the legacy misc.todos
     // blob for a workspace that predates per-item sync (migrated up on next push).
     const todosFromCollection: TodoItem[] = todosSnap.docs
@@ -390,6 +395,7 @@ function subscribeRemote(
       // NOTE: todos and mbScrutiny are intentionally NOT read from the misc blob
       // here — they sync via their own per-item collections below, so a stale
       // whole-blob misc write can't clobber either list.
+      knownCloudTenderIds = new Set(Object.keys((data.tenderConditions as Record<string, unknown> | undefined) ?? {}))
       safeUpdate({
         resolution: data.resolution ?? {},
         lastGoogleLink: data.lastGoogleLink ?? undefined,
@@ -397,7 +403,8 @@ function subscribeRemote(
         qcParties: data.qcParties ?? undefined,
         monitoringFormatByOffice: data.monitoringFormatByOffice ?? undefined,
         monitoringFormatLinks: data.monitoringFormatLinks ?? {},
-        tenderConditions: data.tenderConditions ?? undefined,
+        // An explicit {} (not undefined) so a tender deleted on the other device is removed here too.
+        tenderConditions: data.tenderConditions ?? {},
         tenderReminders: data.tenderReminders ?? [],
         pendingNotices: data.pendingNotices ?? [],
         bidDocumentBatches: data.bidDocumentBatches ?? []
@@ -504,6 +511,10 @@ export async function pushState(state: PersistedState): Promise<void> {
       },
       { merge: true }
     )
+    // `merge: true` merges the saved-tenders map, so an ID deleted here must be removed with deleteField().
+    const cleanedTenders = cleanTenderConditionsForCloud(state.tenderConditions)
+    const tenderConditionsForPush: Record<string, unknown> = { ...cleanedTenders }
+    for (const id of knownCloudTenderIds) if (!(id in cleanedTenders)) tenderConditionsForPush[id] = deleteField()
     await setDoc(
       doc(db!, 'users', loginId, 'meta', 'misc'),
       {
@@ -517,7 +528,7 @@ export async function pushState(state: PersistedState): Promise<void> {
         qcParties: state.qcParties ?? {},
         monitoringFormatByOffice: state.monitoringFormatByOffice ?? {},
         monitoringFormatLinks: state.monitoringFormatLinks ?? {},
-        tenderConditions: state.tenderConditions ?? {},
+        tenderConditions: tenderConditionsForPush,
         tenderReminders: state.tenderReminders ?? [],
         pendingNotices: state.pendingNotices ?? [],
         bidDocumentBatches: state.bidDocumentBatches ?? [],
@@ -534,6 +545,7 @@ export async function pushState(state: PersistedState): Promise<void> {
       },
       { merge: true }
     )
+    knownCloudTenderIds = new Set(Object.keys(cleanedTenders))
 
     const currentIds = new Set((state.createdDocuments ?? []).map((d) => d.id))
     const orderedDocs = state.createdDocuments ?? []

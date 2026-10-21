@@ -255,8 +255,13 @@ const EDITABLE_DOCS: DocKind[] = [
   'forwardingSlip',
   'workBillNote',
   'aeDyeeForwarding',
+  'civilTender',
   'zonalWorkOrder',
-  'seAgreementBond'
+  'seAgreementBond',
+  'zonalConcludingAgreement',
+  'zonalMemoEe',
+  'seAgreementNote',
+  'contractDeed'
 ]
 
 // Documents whose preview has draggable page-margin guides.
@@ -294,6 +299,10 @@ function centerFileBackerForPrint(root: HTMLElement): void {
   }
 }
 
+// Documents that simply flow onto a second page (no explicit page break), which the preview would
+// otherwise show as one tall sheet — see paginateFlowSections.
+const FLOW_PAGE_DOCS: Output[] = ['workBillNote']
+
 const MARGIN_DOCS: Output[] = [
   'fileBacker',
   'workOrder',
@@ -302,7 +311,12 @@ const MARGIN_DOCS: Output[] = [
   'forwardingSlip',
   'workBillNote',
   'aeDyeeForwarding',
-  'qccIntimation'
+  'qccIntimation',
+  'zonalWorkOrder',
+  'zonalConcludingAgreement',
+  'zonalMemoEe',
+  'seAgreementNote',
+  'contractDeed'
 ]
 
 function isEditableDoc(kind: Output | null): kind is DocKind {
@@ -341,6 +355,10 @@ const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
       title: 'Amounts & agreement',
       fields: [
         { label: 'Amount of estimate', title: 'Estimate amount' },
+        { label: 'Work Order No', title: 'Work order no.', wide: true },
+        { label: 'AS File No', title: 'Admin sanction — e-Office reference no.', placeholder: 'e.g. 1234567', wide: true },
+        { label: 'TS No', title: 'Technical sanction — TS no.', placeholder: 'e.g. 33/SE/QBZ/CMC' },
+        { label: 'Financial year', title: 'Financial year' },
         { label: 'TS No and Date', title: 'Technical sanction no. & date' },
         { label: 'Contract Amount', title: 'Contract amount' },
         { label: 'Tender Percentage', title: 'Tender percentage' },
@@ -357,63 +375,52 @@ const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
         { label: 'Wincode', title: 'Wincode' },
         { label: 'Corporation', title: 'Corporation' },
         { label: 'CNO', title: 'Circle No' },
-        { label: 'Name of the work', title: 'Name of the work', multiline: true },
-        { label: 'Name of the agency', title: 'Name of the agency' },
-        { label: 'Serial of bill', title: 'Serial of bill' }
+        { label: 'Name of the work', title: '1. Name of the work', multiline: true },
+        { label: 'Name of the agency', title: '2. Name of the agency' },
+        { label: 'Serial of bill', title: '3. Serial of bill' }
       ]
     },
     {
       title: 'Amounts & agreement',
       fields: [
-        { label: 'Estimate Amount', title: 'Estimate amount' },
-        { label: 'Administrative Sanction Amount', title: 'Administrative sanction' },
-        { label: 'ECV', title: 'ECV' },
-        { label: 'Tender Percentage', title: 'Tender percentage' },
-        { label: 'Contract Amount', title: 'Agreement value' },
-        { label: 'Contract Amount Plain', title: 'Agreement value (item 28)' },
-        { label: 'Agreement No and Date', title: 'Agreement no. & date' },
-        { label: 'Period of Contract', title: 'Period of contract' }
+        { label: 'Estimate Amount', title: '4. Estimate amount' },
+        { label: 'Administrative Sanction Amount', title: '5. Administrative sanction' },
+        { label: 'ECV', title: '6. ECV' },
+        { label: 'Tender Percentage', title: '7. Tender percentage' },
+        { label: 'Contract Amount', title: '8. Agreement value' },
+        { label: 'Agreement No and Date', title: '9. Agreement no. & date' },
+        { label: 'Period of Contract', title: '10. Period of contract', periodUnit: true }
       ]
     },
     {
       title: 'Progress & measurements',
       fields: [
-        { label: 'Status of Work', title: 'Status of work' },
-        { label: 'Date of Completion', title: 'Date of completion' },
-        { label: 'EOT Details', title: 'Extension of time' },
-        { label: 'AE Recording Dates', title: 'Recording dates (AE)', multiline: true },
-        { label: 'MB Details', title: 'M.B. details' },
-        { label: 'DyEE Check Dates', title: 'Dy.EE check measurement', multiline: true },
-        { label: 'EE Test Check', title: 'EE test check' },
-        { label: 'SE Super Check', title: 'SE super check' }
+        { label: 'Date of Completion', title: '12. Date of completion' },
+        { label: 'EOT Details', title: '13. Extension of time' },
+        { label: 'AE Recording Dates', title: '14. Recording dates (AE)', multiline: true },
+        { label: 'MB Details', title: '15. M.B. details' },
+        { label: 'DyEE Check Dates', title: '16. Dy.EE check measurement', multiline: true },
+        { label: 'EE Test Check', title: '17. EE test check' },
+        { label: 'SE Super Check', title: '18. SE super check' }
       ]
     },
     {
       title: 'Deductions & reports',
       fields: [
-        { label: 'Embedded Tax', title: 'Embedded tax' },
-        { label: 'Price Escalation', title: 'Price escalation' },
-        { label: 'EOT Penalty', title: 'EOT penalty' },
-        { label: 'DC ZC Inspection', title: 'DC / ZC visual inspection' },
-        { label: 'QC Officials Report', title: 'QC officials report' },
-        { label: 'QCC Third Party Report', title: 'QCC third party report' },
-        { label: 'ATR Details', title: 'A.T.R. details' },
-        { label: 'Seignorage Details', title: 'Seignorage charges' },
-        { label: 'One Time Penalty Details', title: 'One time penalty / DMFT / SMET' }
+        { label: 'Embedded Tax', title: '19. Embedded tax' },
+        { label: 'Price Escalation', title: '20. Price escalation' },
+        { label: 'EOT Penalty', title: '21. EOT penalty' },
+        { label: 'DC ZC Inspection', title: '22. DC / ZC visual inspection' },
+        { label: 'QC Officials Report', title: '23. QC officials report' },
+        { label: 'QCC Third Party Report', title: '24. QCC third party report' },
+        { label: 'ATR Details', title: '25. A.T.R. details' },
+        { label: 'Seignorage Details', title: '26. Seignorage charges' },
+        { label: 'One Time Penalty Details', title: '27. One time penalty / DMFT / SMET' }
       ]
     },
     {
-      title: 'Value of work done',
-      fields: [{ label: 'Value of Work Done', title: 'Value of work done (item 28)' }]
-    },
-    {
-      title: 'Excess over agreement quantity',
-      fields: [1, 2, 3, 4, 5].flatMap((i) => [
-        { label: `Excess Item ${i}`, title: `Row ${i} - item`, multiline: true },
-        { label: `Agreement Qty ${i}`, title: `Row ${i} - agreement qty` },
-        { label: `Executed Qty ${i}`, title: `Row ${i} - executed qty` },
-        { label: `Exceed Qty ${i}`, title: `Row ${i} - exceed qty` }
-      ])
+      title: 'Recommended payment',
+      fields: [{ label: 'Recommended Amount', title: '28. Recommended for payment (Rs.)' }]
     }
   ],
   fileBacker: [
@@ -571,7 +578,7 @@ const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
       fields: [
         { label: 'Name of the work', title: 'Name of the work', multiline: true },
         { label: 'Wincode', title: 'Wincode' },
-        { label: 'Completion Period', title: 'Completion period' }
+        { label: 'Completion Period', title: 'Completion period', periodUnit: true }
       ]
     },
     {
@@ -1649,7 +1656,7 @@ export default function WorkOrderAgreementTab({
     const host = container.parentElement
     if (!host || container.childElementCount === 0) {
       if (seq !== renderSeqRef.current) return 0
-      const { pageCount } = await renderDocPreview(base64ToUint8(filled), container)
+      const { pageCount } = await renderDocPreview(base64ToUint8(filled), container, { flowPages: FLOW_PAGE_DOCS.includes(kind) })
       normalizeDocxTextboxes(container)
       return pageCount
     }
@@ -1658,7 +1665,7 @@ export default function WorkOrderAgreementTab({
     stage.style.cssText = `position:absolute;left:-99999px;top:0;visibility:hidden;width:${container.clientWidth}px`
     host.appendChild(stage)
     try {
-      const { pageCount } = await renderDocPreview(base64ToUint8(filled), stage)
+      const { pageCount } = await renderDocPreview(base64ToUint8(filled), stage, { flowPages: FLOW_PAGE_DOCS.includes(kind) })
       // A newer render started while this one was busy — drop this result instead of overwriting it.
       if (seq !== renderSeqRef.current) return pageCount
       container.replaceChildren(...Array.from(stage.childNodes))
@@ -1677,8 +1684,13 @@ export default function WorkOrderAgreementTab({
       {
         seAgreementBond: seAgreementBondLabels,
         zonalWorkOrder: zonalWorkOrderLabels,
-        forwardingSlip: forwardingSlipLabels
-      }[kind as 'seAgreementBond' | 'zonalWorkOrder' | 'forwardingSlip'] ?? []
+        forwardingSlip: forwardingSlipLabels,
+        civilTender: civilTenderLabels,
+        zonalConcludingAgreement: zonalConcludingAgreementLabels,
+        zonalMemoEe: zonalMemoEeLabels,
+        seAgreementNote: seAgreementNoteLabels,
+        contractDeed: contractDeedLabels
+      }[kind as 'seAgreementBond' | 'zonalWorkOrder' | 'forwardingSlip' | 'civilTender' | 'zonalConcludingAgreement' | 'zonalMemoEe' | 'seAgreementNote' | 'contractDeed'] ?? []
     return groupLabels(labels)
   }
 
@@ -1823,17 +1835,21 @@ export default function WorkOrderAgreementTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded, fields, pagesOfAgreement, scheduleAItems, estimateCharges, docEdits, docMargins])
 
+  // " - <estimate> Lakhs" file-name suffix ("/" isn't allowed in a file name);
+  // blank when there is no estimate — it never falls back to another amount.
+  function estimateSuffix(lakhs: string | undefined): string {
+    const est = Number(lakhs)
+    return lakhs?.trim() && Number.isFinite(est) ? ` - ${est.toFixed(2)} Lakhs` : ''
+  }
+
+  // Every saved document: "<Document name> - <agency name> - <estimate> Lakhs".
   function docName(kind: DocKind): string {
     const agency = fields.agencyName ? ` - ${fields.agencyName}` : ''
-    if (kind === 'qccIntimation') {
-      // "QC Inti-Comp - <agency> - <estimate> Lakhs" ("/" isn't allowed in a file name)
-      const est = Number(fields.estimateLakhs)
-      const estimate = fields.estimateLakhs.trim() && Number.isFinite(est) ? ` - ${est.toFixed(2)} Lakhs` : ''
-      return `QC Inti-Comp${agency}${estimate}`
-    }
+    const estimate = estimateSuffix(fields.estimateLakhs)
+    if (kind === 'qccIntimation') return `QC Inti-Comp${agency}${estimate}`
     // "/" isn't allowed in a file name.
-    if (kind === 'aeDyeeForwarding') return `AE-Dy.EE Forwarding Letters${agency}`
-    return `${DOC_LABEL[kind]}${agency}`
+    if (kind === 'aeDyeeForwarding') return `AE-Dy.EE Forwarding Letters${agency}${estimate}`
+    return `${DOC_LABEL[kind]}${agency}${estimate}`
   }
 
   // Work Order / Tender Document print "Period of completion" — when it's still
@@ -1906,7 +1922,7 @@ export default function WorkOrderAgreementTab({
       const filled = await fillDoc(kind)
       const container = printScratchRef.current
       if (!container) throw new Error('Print failed to initialize.')
-      await renderDocPreview(base64ToUint8(filled), container, { forSnapshot: true })
+      await renderDocPreview(base64ToUint8(filled), container, { forSnapshot: true, flowPages: FLOW_PAGE_DOCS.includes(kind) })
       if (kind === 'fileBacker') centerFileBackerForPrint(container)
       normalizeDocxTextboxes(container)
       const __fo = container.querySelector('foreignObject')
@@ -2035,13 +2051,13 @@ export default function WorkOrderAgreementTab({
         if (workOrderB64) await add(docName('workOrder'), await fillDoc('workOrder', { blankDate: true }))
         if (noteReady)
           await add(
-            noteSubmittedFileName(noteData?.workName),
+            `${noteSubmittedFileName(noteData?.workName)}${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`,
             await noteDocx()
           )
       }
       if (scheduleA)
         files.push({
-          name: `Schedule A${fields.agencyName ? ` - ${fields.agencyName}` : ''}`,
+          name: `Schedule A${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`,
           format: 'xlsx',
           scheduleATable: scheduleA,
           scheduleAMeta,
@@ -2188,7 +2204,7 @@ export default function WorkOrderAgreementTab({
     setActionSaved(null)
     try {
       const b64 = await noteDocx()
-      const name = noteSubmittedFileName(noteData.workName)
+      const name = `${noteSubmittedFileName(noteData.workName)}${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`
       const res = await api.exportCreatedDocument(b64, name, formats)
       setActionSaved(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
     } catch (e) {
@@ -2397,8 +2413,7 @@ export default function WorkOrderAgreementTab({
     setScheduleABusy(true)
     setScheduleAError(null)
     try {
-      const base = boq ? stripBoqWord(stripExt(boq.name)) : ''
-      const suggestedName = base ? `${base} Schedule A` : 'Schedule A'
+      const suggestedName = `Schedule A${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`
       // A Zone-level (SE) office must never save the EE-signed Schedule A — its
       // own template names the Superintending Engineer's Zone, not the work's
       // Executive Engineer / Circle.
@@ -3219,6 +3234,24 @@ export default function WorkOrderAgreementTab({
                       )}
                     </div>
                   </div>
+                </div>
+              ) : MARGIN_DOCS.includes(expanded) ? (
+                <div className="page-margin-host">
+                  <div ref={expandedRef} className={`intimation-docx-preview${A4_DOCS.includes(expanded) ? ' a4-sheet' : ''}`} />
+                  <PageMarginGuides
+                    containerRef={expandedRef}
+                    margins={docMargins[expanded as DocKind] ?? null}
+                    onChange={(m) => setMarginsFor(expanded as DocKind, m)}
+                    renderKey={expandedPages}
+                  />
+                  <button
+                    type="button"
+                    className="ghost page-margin-reset"
+                    disabled={!docMargins[expanded as DocKind]}
+                    onClick={() => setMarginsFor(expanded as DocKind, null)}
+                  >
+                    Reset margins
+                  </button>
                 </div>
               ) : (
                 <div ref={expandedRef} className="intimation-docx-preview" />

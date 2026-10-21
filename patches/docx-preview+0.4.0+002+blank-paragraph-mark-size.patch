@@ -1,0 +1,34 @@
+diff --git a/node_modules/docx-preview/dist/docx-preview.js b/node_modules/docx-preview/dist/docx-preview.js
+index 5cbabf1..6b8f14f 100644
+--- a/node_modules/docx-preview/dist/docx-preview.js
++++ b/node_modules/docx-preview/dist/docx-preview.js
+@@ -3652,6 +3652,12 @@ section.${c}>footer { z-index: 1; }
+             if (numbering) {
+                 result.classList.add(this.numberingClass(numbering.id, numbering.level));
+             }
++            // A blank spacer paragraph's height comes from its paragraph-mark size (<w:pPr><w:rPr><w:sz>),
++            // as in Word/LibreOffice — otherwise `.docx p { min-height: 1em }` makes every one a full line.
++            const markSize = elem.runProps?.fontSize;
++            if (markSize && (elem.children ?? []).every(c => c.type === "run" && (c.children ?? []).length === 0)) {
++                result.style.fontSize = result.style.minHeight = markSize;
++            }
+             return result;
+         }
+         renderHyperlink(elem) {
+diff --git a/node_modules/docx-preview/dist/docx-preview.mjs b/node_modules/docx-preview/dist/docx-preview.mjs
+index b3ee197..bd7c796 100644
+--- a/node_modules/docx-preview/dist/docx-preview.mjs
++++ b/node_modules/docx-preview/dist/docx-preview.mjs
+@@ -3648,6 +3648,12 @@ section.${c}>footer { z-index: 1; }
+         if (numbering) {
+             result.classList.add(this.numberingClass(numbering.id, numbering.level));
+         }
++        // A blank spacer paragraph's height comes from its paragraph-mark size (<w:pPr><w:rPr><w:sz>),
++        // as in Word/LibreOffice — otherwise `.docx p { min-height: 1em }` makes every one a full line.
++        const markSize = elem.runProps?.fontSize;
++        if (markSize && (elem.children ?? []).every(c => c.type === "run" && (c.children ?? []).length === 0)) {
++            result.style.fontSize = result.style.minHeight = markSize;
++        }
+         return result;
+     }
+     renderHyperlink(elem) {

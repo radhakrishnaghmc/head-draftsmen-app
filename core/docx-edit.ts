@@ -3,6 +3,7 @@ import { DOMParser, XMLSerializer } from '@xmldom/xmldom'
 import type { Document, Element } from '@xmldom/xmldom'
 import { PLACEHOLDER_RE } from './createDocument'
 import type { PlaceholderMatch } from './createDocument'
+import { DROP_PARAGRAPH_MARKER } from './dropMarker'
 
 const DOC_XML = 'word/document.xml'
 const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
@@ -335,6 +336,22 @@ export function fillPlaceholdersInAllParts(buffer: Buffer, resolved: Placeholder
   for (const part of fillableParts(buffer)) {
     if (part !== DOC_XML && findPlaceholdersInDocx(buffer, part).length === 0) continue
     buf = fillPlaceholdersInDocx(buf, resolved, row, part)
+  }
+  return removeDropMarkedParagraphs(buf)
+}
+
+function removeDropMarkedParagraphs(buffer: Buffer): Buffer {
+  let buf = buffer
+  for (const part of fillableParts(buffer)) {
+    if (!new PizZip(buf).file(part)?.asText().includes(DROP_PARAGRAPH_MARKER)) continue
+    const { zip, xml } = loadDoc(buf, part)
+    let changed = false
+    for (const para of tag(xml, 'w:p')) {
+      if (!paragraphCombinedText(para).includes(DROP_PARAGRAPH_MARKER)) continue
+      para.parentNode?.removeChild(para)
+      changed = true
+    }
+    if (changed) buf = save(zip, xml, part)
   }
   return buf
 }

@@ -18,6 +18,9 @@ export interface DocField {
 
 const PERIOD_UNITS = ['Months', 'Days'] as const
 
+/** Labels that hold a duration — they get the Months / Days toggle wherever the editor builds fields from a template's own placeholders. */
+const PERIOD_LABEL = /^(period of (completion|contract)|completion period|period completion)$/i
+
 /** Splits a "<n> Months"/"<n> Days" (or bare "<n>") value into its number and unit, defaulting to Months when the value carries no unit yet. */
 function parsePeriod(value: string): { amount: string; unit: (typeof PERIOD_UNITS)[number] } {
   const m = value.trim().match(/^(\d+)\s*(Months?|Days?)?$/i)
@@ -104,7 +107,7 @@ export function groupLabels(labels: string[]): DocFieldGroup[] {
   for (const label of labels) {
     const title = bucket(label)
     const fields = byTitle.get(title) ?? []
-    fields.push({ label, title: humanizeLabel(label), multiline: /address|words|name of the work/i.test(label) })
+    fields.push({ label, title: humanizeLabel(label), multiline: /address|words|name (of )?(the )?work/i.test(label), periodUnit: PERIOD_LABEL.test(label) || undefined })
     byTitle.set(title, fields)
   }
   return order

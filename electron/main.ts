@@ -1617,9 +1617,13 @@ function registerHandlers(): void {
       ? reserved
         ? 'loa-se-mmc-reserved-template.docx'
         : 'loa-se-mmc-template.docx'
-      : reserved
-        ? 'loa-se-reserved-template.docx'
-        : 'loa-se-template.docx'
+      : corporation === 'CMC'
+        ? reserved
+          ? 'loa-se-cmc-reserved-template.docx'
+          : 'loa-se-cmc-template.docx'
+        : reserved
+          ? 'loa-se-reserved-template.docx'
+          : 'loa-se-template.docx'
     const templatePath = bundledResourceFile(file)
     if (!templatePath) throw new Error('Superintending Engineer LOA format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
@@ -2258,7 +2262,8 @@ async function openTenderDetailsWindow(
   indentId: string,
   category: string,
   procurementId: string,
-  visible: boolean
+  visible: boolean,
+  popupTimeoutMs = 30000
 ): Promise<BrowserWindow> {
   const ids = [indentId, category, procurementId]
   if (!ids.every((v) => /^\d+$/.test(v))) throw new Error('Invalid tender reference.')
@@ -2287,7 +2292,7 @@ async function openTenderDetailsWindow(
       })
       resolve(child)
     })
-    setTimeout(() => reject(new Error('The tender details page did not open.')), 30000)
+    setTimeout(() => reject(new Error('The tender details page did not open.')), popupTimeoutMs)
   })
   popup.catch(() => {})
   try {
@@ -2351,9 +2356,7 @@ async function fetchTenderConditions(tenderId: string): Promise<string[]> {
   const args = row ? parseViewArgs(row[9]) : null
   if (!args) throw new Error(`Tender ${id} was not found on the tender portal.`)
 
-  const popup = await openTenderDetailsWindow(args[0], args[1], args[2], false)
-  try {
-    const read = `(function () {
+  const read = `(function () {
          var t = document.getElementById('VTMSBodyContent_TenderDetailsGridView');
          if (!t) return null;
          return Array.prototype.map.call(t.querySelectorAll('tbody tr'), function (tr) {
@@ -2361,18 +2364,36 @@ async function fetchTenderConditions(tenderId: string): Promise<string[]> {
            return td.length > 1 ? td[1].textContent.replace(/\\s+/g, ' ').trim() : '';
          });
        })()`
-    let names: string[] | null = null
-    for (let i = 0; i < 100 && !names; i += 1) {
-      names = await popup.webContents.executeJavaScript(read).catch(() => null)
-      if (!names) await new Promise((resolve) => setTimeout(resolve, 200))
+  // The details page sometimes never finishes loading: give each window ~8s, then retry once with a fresh one
+  // instead of hanging for 20s. A list is only accepted once it reads the same twice, so a table still
+  // rendering row by row isn't saved half-empty.
+  let lastErr: unknown = null
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    // The portal sometimes ignores the "view" click, so the page never opens: give up after 8s and try again.
+    let popup: BrowserWindow
+    try {
+      popup = await openTenderDetailsWindow(args[0], args[1], args[2], false, 8000)
+    } catch (err) {
+      lastErr = err
+      continue
     }
-    if (!names) throw new Error(`Could not read the tender page for tender ${id}.`)
-    const cleaned = names.map((n) => n.replace(/^\d+\s*[.)]\s*/, '').trim()).filter(Boolean)
-    if (cleaned.length === 0) throw new Error(`No tender conditions listed for tender ${id}.`)
-    return cleaned
-  } finally {
-    if (!popup.isDestroyed()) popup.destroy()
+    try {
+      let last: string[] | null = null
+      for (let i = 0; i < 40; i += 1) {
+        const names: string[] | null = await popup.webContents.executeJavaScript(read).catch(() => null)
+        if (names && names.length > 0 && last && names.length === last.length && names.join('\n') === last.join('\n')) {
+          const cleaned = names.map((n) => n.replace(/^\d+\s*[.)]\s*/, '').trim()).filter(Boolean)
+          if (cleaned.length === 0) throw new Error(`No tender conditions listed for tender ${id}.`)
+          return cleaned
+        }
+        last = names
+        await new Promise((resolve) => setTimeout(resolve, 250))
+      }
+    } finally {
+      if (!popup.isDestroyed()) popup.destroy()
+    }
   }
+  throw new Error(lastErr instanceof Error ? `${lastErr.message} (tender ${id})` : `Could not read the tender page for tender ${id}.`)
 }
 
 async function fetchTenders(query: TenderQuery): Promise<string> {

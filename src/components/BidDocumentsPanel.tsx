@@ -248,10 +248,11 @@ export default function BidDocumentsPanel({ batches, onRemove, onUpdateWork }: P
                           <span>AS Authority</span>
                           <select
                             value={work.asAuthority ?? 'commissioner'}
-                            onChange={(e) => set({ asAuthority: e.target.value as 'zonal' | 'commissioner' })}
+                            onChange={(e) => set({ asAuthority: e.target.value as 'zonal' | 'commissioner' | 'resolution' })}
                           >
                             <option value="commissioner">Commissioner, CMC</option>
                             <option value="zonal">Zonal Commissioner</option>
+                            <option value="resolution">Standing committee / resolution</option>
                           </select>
                         </label>
                         <label className="tender-field">

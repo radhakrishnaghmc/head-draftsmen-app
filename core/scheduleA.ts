@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx'
 import type { ExcelTable } from './types'
 import { computeWorkAmounts, indianDigitGroups, tenderPercentFromRow } from './worksAmounts'
+import { amountToWords } from './numberToWords'
 import { rankByEmbedding, workNamesConflict, WORK_IDENTITY_MATCH_THRESHOLD } from './embeddingMatch'
 import { normalizeWorkNameForMatch } from './tenderAgents/nameOfWork'
 
@@ -146,6 +147,9 @@ export function buildScheduleARows(
   // Never used to paper over a matched row's genuinely blank ECV — that
   // stays blank rather than being shown as if it were a real figure.
   const totalDisplay = meta ? '' : `${indianDigitGroups(total)}/-`
+  // The contract amount spelled out for the "In Figures" line ("One Hundred Rupees Only").
+  const contract = Number((meta?.contractAmount ?? '').replace(/[^\d.]/g, ''))
+  const contractWords = contract > 0 ? amountToWords(contract) : ''
 
   return [
     ['SCHEDULE-A'],
@@ -192,6 +196,7 @@ export function buildScheduleARows(
     ['', '', 'Tender Quoted', numOrStr(meta?.tenderPercentage ?? ''), meta?.tenderPercentage ? '%' : '', 'Less'],
     ['', '', 'Excess:'],
     ['', '', 'Less:'],
+    ...(contractWords ? [[`In Figures (${contractWords})`]] : []),
     ['', '', '', signatoryTitle]
   ]
 }

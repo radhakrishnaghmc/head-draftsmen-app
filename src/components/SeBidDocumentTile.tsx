@@ -56,7 +56,7 @@ interface FormState {
   completionPeriod: string
   itemNo: string
   tsDate: string
-  asAuthority: 'zonal' | 'commissioner'
+  asAuthority: 'zonal' | 'commissioner' | 'resolution'
   asDate: string
 }
 
@@ -363,9 +363,10 @@ export default function SeBidDocumentTile({ tables, office }: Props) {
                   </label>
                   <label className="tender-field">
                     <span>AS Authority</span>
-                    <select value={form.asAuthority} onChange={(e) => set('asAuthority', e.target.value as 'zonal' | 'commissioner')}>
+                    <select value={form.asAuthority} onChange={(e) => set('asAuthority', e.target.value as 'zonal' | 'commissioner' | 'resolution')}>
                       <option value="commissioner">Commissioner, CMC</option>
                       <option value="zonal">Zonal Commissioner</option>
+                      <option value="resolution">Standing committee / resolution</option>
                     </select>
                   </label>
                 </div>

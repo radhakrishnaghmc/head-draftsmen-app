@@ -138,6 +138,8 @@ export interface TenderReminder {
   createdDate: string
   /** The office (key: "Corporation|Zone|Circle") this reminder was added under — like the Works List/To Do, so switching offices doesn't show another office's reminders. Absent on reminders created before per-office scoping. */
   officeKey?: string
+  /** When this device last saved the entry (ms) — protects a fresh local save from a cloud update that predates it. */
+  savedAt?: number
 }
 
 /**
@@ -270,7 +272,7 @@ export interface BidDocumentWork {
   itemNo?: string
   tsNo?: string
   tsDate?: string
-  asAuthority?: 'zonal' | 'commissioner'
+  asAuthority?: 'zonal' | 'commissioner' | 'resolution'
   asDate?: string
 }
 
@@ -297,7 +299,15 @@ export interface BidDocumentBatch {
 /** Conditions saved for a tender; `expiresAt` (epoch ms) is set once its evaluation sheet is generated. */
 export interface TenderConditionsEntry {
   conditions: string[]
+  /** Portal details kept with the conditions so a sheet can be made after the tender closes. */
+  nitNo?: string
+  workName?: string
+  ecv?: number
+  /** Office the tender was saved from (officeKey); older entries have none. */
+  officeKey?: string
   expiresAt?: number
+  /** When this device last saved the entry (ms): protects a fresh local save from a cloud update that predates it. */
+  savedAt?: number
 }
 
 export interface PersistedState {

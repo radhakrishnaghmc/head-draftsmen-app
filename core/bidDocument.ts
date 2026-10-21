@@ -36,7 +36,7 @@ export interface BidDocumentWorkItem {
   /** SE template only — DD-MM-YYYY, the Technical Sanction date. */
   tsDate?: string
   /** SE template only — which authority approved Administrative Sanction; the Bid Document's own AS line reads differently for each. Defaults to 'commissioner'. */
-  asAuthority?: 'zonal' | 'commissioner'
+  asAuthority?: 'zonal' | 'commissioner' | 'resolution'
   /** SE template only — DD.MM.YYYY (or DD-MM-YYYY), the Administrative Sanction date. Left out of the AS line entirely when blank, matching the office's own samples. */
   asDate?: string
 }
@@ -144,10 +144,13 @@ export function extractItemNo(name: string): string | undefined {
  * clause entirely when the date isn't available yet, matching how the
  * office's own documents look before the AS date is filled in.
  */
-function adminSanctionLine(authority: 'zonal' | 'commissioner', zoneAbbrCode: string, asDate: string | undefined, corp = 'CMC'): string {
+function adminSanctionLine(authority: 'zonal' | 'commissioner' | 'resolution', zoneAbbrCode: string, asDate: string | undefined, corp = 'CMC'): string {
   const date = (asDate ?? '').trim()
   if (authority === 'zonal') {
     return `Administrative Sanction approved by the Zonal Commissioner, ${zoneAbbrCode}, ${corp}` + (date ? ` vide Dt. ${date}.` : '')
+  }
+  if (authority === 'resolution') {
+    return `Administrative Sanction approved by the Standing Committee vide Resolution, ${corp}` + (date ? ` Dt:${date}` : '')
   }
   return `Administrative Sanction approved by the Commissioner, ${corp}` + (date ? ` Dt:${date}` : '')
 }

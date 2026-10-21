@@ -28,6 +28,7 @@ import {
   downloadScheduleAFromItems,
   downloadDeviationFromItems,
   downloadMaterialFromItems,
+  circleFromWorkName,
   materialTotalsForItems
 } from '../estimateDownloads'
 import { mismatchHint } from '../docClassify'
@@ -291,7 +292,7 @@ function DocumentPreview({ entry }: { entry: Entry }) {
         <div className="doc-sheet-meta">
           <div>
             <span>Circle</span>
-            <strong>{matchedRow?.['Circle'] || '—'}</strong>
+            <strong>{matchedRow?.['Circle'] || circleFromWorkName(entry.workName)?.name || '—'}</strong>
           </div>
           <div>
             <span>Name of Work</span>
@@ -572,7 +573,7 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
         try {
           const { items, aiAssisted } = await extractEstimateItemsWithAi(grid, headerRow)
           if (items.length > 0) {
-            const workName = extractWorkName(grid, headerRow)
+            const workName = extractWorkName(grid, headerRow, { lenient: true })
             const { match, searched } = await resolveWorksMatch(workName)
             added.push({
               id: nextId(),
@@ -688,7 +689,7 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
 
   function downloadScheduleA(entry: Entry) {
     return run(entry, 'scheduleA', () =>
-      downloadScheduleAFromItems(entry.items, entry.workName, tables[0] ?? null, stripExt(entry.fileName))
+      downloadScheduleAFromItems(entry.items, entry.workName, tables[0] ?? null, stripExt(entry.fileName), true)
     )
   }
 
@@ -704,7 +705,8 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
         entry.agencyName,
         entry.estimateAmountLakhs,
         tables[0] ?? null,
-        stripExt(entry.fileName)
+        stripExt(entry.fileName),
+        true
       )
     )
   }

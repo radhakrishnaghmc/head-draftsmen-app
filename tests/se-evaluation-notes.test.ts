@@ -30,7 +30,7 @@ describe('Agency Approval / Bid Evaluation Ref block alignment', () => {
   it('gives every Ref point (1 through 5) the same number-column width, in Agency Approval', () => {
     const data: AgencyApprovalData = { ...baseRefs, zone: 'Quthbullapur', bidEvalApprovedDate: '06.08.2026', bidders: [bidder] }
     const html = buildAgencyApprovalHtml(data)
-    const numCellWidths = [...html.matchAll(/width:26pt;[^"]*">(\d\))/g)].map((m) => m[1])
+    const numCellWidths = [...html.matchAll(/width:26pt;[^"]*"><p[^>]*>(\d\))/g)].map((m) => m[1])
     expect(numCellWidths).toEqual(['1)', '2)', '3)', '4)', '5)'])
     // Only the first row carries the "Ref:" label.
     expect(html.match(/<b>Ref:<\/b>/g)?.length).toBe(1)
@@ -39,7 +39,7 @@ describe('Agency Approval / Bid Evaluation Ref block alignment', () => {
   it('gives every Ref point (1 through 4) the same number-column width, in Bid Evaluation (no 5th item)', () => {
     const data: BidEvaluationData = { ...baseRefs, bidders: [bidder] }
     const html = buildBidEvaluationHtml(data)
-    const numCellWidths = [...html.matchAll(/width:26pt;[^"]*">(\d\))/g)].map((m) => m[1])
+    const numCellWidths = [...html.matchAll(/width:26pt;[^"]*"><p[^>]*>(\d\))/g)].map((m) => m[1])
     expect(numCellWidths).toEqual(['1)', '2)', '3)', '4)'])
     expect(html.match(/<b>Ref:<\/b>/g)?.length).toBe(1)
   })
@@ -58,5 +58,30 @@ describe('Agency Approval / Bid Evaluation Ref block alignment', () => {
     const bidEvalData: BidEvaluationData = { ...baseRefs, bidders: [bidder] }
     await expect(convertHtmlToDocx(buildAgencyApprovalHtml(agencyData))).resolves.toBeInstanceOf(Buffer)
     await expect(convertHtmlToDocx(buildBidEvaluationHtml(bidEvalData))).resolves.toBeInstanceOf(Buffer)
+  })
+})
+
+describe('Ref block table grid', () => {
+  it('sizes the grid columns to the cell widths, not equal thirds', async () => {
+    const { convertHtmlToDocx } = await import('../core/htmlToDocx')
+    const { buildBidEvaluationHtml } = await import('../core/seEvaluationNotes')
+    const PizZip = (await import('pizzip')).default
+    const d: any = { zoneAbbr: 'QBZ', corp: 'CMC', workName: 'W', estimateLakhs: '1', asAuthority: 'x', asRefLine: 'x', tsNo: '1', tsDate: 'd', financialYear: '2026-27', nitNo: 'n', nitDate: 'd', itemNo: '1', techBidOpenDate: 'd', bidders: [] }
+    const xml = new PizZip(await convertHtmlToDocx(buildBidEvaluationHtml(d))).file('word/document.xml')!.asText()
+    const grid = /<w:tblGrid>([\s\S]*?)<\/w:tblGrid>/.exec(xml)![1]
+    expect([...grid.matchAll(/w:w="(\d+)"/g)].map((m) => m[1])).toEqual(['600', '520', '7520'])
+  })
+})
+
+describe('Ref block spacing', () => {
+  it('has no cell padding and only a small gap between rows', async () => {
+    const { convertHtmlToDocx } = await import('../core/htmlToDocx')
+    const { buildAgencyApprovalHtml } = await import('../core/seEvaluationNotes')
+    const PizZip = (await import('pizzip')).default
+    const d: any = { zoneAbbr: 'QBZ', corp: 'CMC', workName: 'W', estimateLakhs: '1', asAuthority: 'x', asRefLine: 'x', tsNo: '1', tsDate: 'd', financialYear: '2026-27', nitNo: 'n', nitDate: 'd', itemNo: '1', techBidOpenDate: 'd', bidders: [], bidEvalApprovedDate: 'd' }
+    const xml = new PizZip(await convertHtmlToDocx(buildAgencyApprovalHtml(d))).file('word/document.xml')!.asText()
+    const tbl = /<w:tbl>[\s\S]*?<\/w:tbl>/.exec(xml)![0]
+    expect(tbl).toContain('<w:top w:type="dxa" w:w="0"/>')
+    expect(tbl).toContain('w:after="40"')
   })
 })
