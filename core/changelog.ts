@@ -16,6 +16,13 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.42.1',
+    changes: [
+      'AE/Dy.EE Forwarding Letters: the Ref lines (Agreement No with date, Administrative and Technical Sanction) now line up neatly, and "Rs." is no longer printed twice in the amounts.',
+      'AE/Dy.EE Forwarding Letters: the name of the work in the Completion Report and the Public Participation Log Book no longer shows with a broken indent.'
+    ]
+  },
+  {
     version: '1.42.0',
     changes: [
       'Evaluation Sheet: saved tender conditions now keep the Tender ID, work name, ECV and office, so a sheet can be made after the tender closes.',
