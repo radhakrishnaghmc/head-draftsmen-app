@@ -16,6 +16,14 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.43.0',
+    changes: [
+      'New "Sync across devices" button in the profile menu (below Log out): click it to save your data online straight away.',
+      'Every logout now syncs your data online first, so your other devices see your latest work.',
+      'You are logged out automatically after 10 minutes without using the app (your data is synced first).'
+    ]
+  },
+  {
     version: '1.42.1',
     changes: [
       'AE/Dy.EE Forwarding Letters: the Ref lines (Agreement No with date, Administrative and Technical Sanction) now line up neatly, and "Rs." is no longer printed twice in the amounts.',

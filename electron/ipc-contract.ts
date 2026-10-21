@@ -205,6 +205,7 @@ export const IPC = {
   issueNoticeTemplate: 'doc:issueNoticeTemplate',
   loadState: 'state:load',
   saveState: 'state:save',
+  syncNow: 'state:syncNow',
   remoteStateUpdate: 'state:remoteUpdate',
   updateDownloaded: 'update:downloaded',
   updateProgress: 'update:progress',
@@ -467,6 +468,8 @@ export interface DocuGenApi {
   loadState(): Promise<PersistedState | null>
   /** Persist the workspace. `skipCloud` writes only to local disk and does NOT push to the cloud — used when the change being saved *came from* a remote sync, so it isn't echoed straight back and made to ping-pong between concurrent sessions. */
   saveState(state: PersistedState, skipCloud?: boolean): Promise<void>
+  /** Saves locally and pushes the whole workspace to the cloud right now (the profile menu's Sync button); true when the cloud write succeeded. */
+  syncNow(state: PersistedState): Promise<boolean>
   /** Fires when the other signed-in device changes the workspace, so this one can merge it in live. Returns an unsubscribe function. */
   onRemoteStateUpdate(callback: (partial: Partial<PersistedState>) => void): () => void
   /** Fires once a new version has finished downloading in the background and is ready to install. Returns an unsubscribe function. */

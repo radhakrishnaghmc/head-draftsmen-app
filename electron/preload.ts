@@ -148,6 +148,7 @@ const api: DocuGenApi = {
   issueNoticeTemplate: (ee, variantId) => ipcRenderer.invoke(IPC.issueNoticeTemplate, ee, variantId),
   loadState: () => ipcRenderer.invoke(IPC.loadState),
   saveState: (state, skipCloud) => ipcRenderer.invoke(IPC.saveState, state, skipCloud),
+  syncNow: (state) => ipcRenderer.invoke(IPC.syncNow, state),
   onRemoteStateUpdate: (callback) => {
     const listener = (_e: unknown, partial: import('../core/types').PersistedState) => callback(partial)
     ipcRenderer.on(IPC.remoteStateUpdate, listener)

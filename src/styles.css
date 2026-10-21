@@ -14166,3 +14166,14 @@ mark.doc-hl {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+
+.profile-dropdown-sync {
+  color: var(--text);
+}
+.profile-dropdown-sync:hover {
+  background: var(--surface-2, rgba(0, 0, 0, 0.06));
+}
+.profile-dropdown-sync:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

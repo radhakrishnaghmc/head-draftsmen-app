@@ -2116,6 +2116,19 @@ function registerHandlers(): void {
     // another session just added. So persist locally but don't re-push.
     if (!skipCloud) void firebaseSync.pushState(state)
   })
+
+  // The profile menu's Sync button: same local save, but the cloud push is awaited so the UI can say whether it landed.
+  ipcMain.handle(IPC.syncNow, async (_e, state: PersistedState): Promise<boolean> => {
+    try {
+      const json = JSON.stringify(state)
+      await fs.promises.writeFile(stateFile(), json, 'utf8')
+      lastWrittenJson = json
+      lastWrittenPath = stateFile()
+    } catch {
+      // Non-fatal: the cloud push below is what this button is for.
+    }
+    return firebaseSync.pushState(state)
+  })
 }
 
 // ── Tender portal bridge ─────────────────────────────────────────────

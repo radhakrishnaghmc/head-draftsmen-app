@@ -88,7 +88,8 @@ import type {
   BidDocumentWork,
   QcOfficeParties,
   PendingNoticeItem,
-  TenderConditionsEntry
+  TenderConditionsEntry,
+  PersistedState
 } from '@core/types'
 import type { CalendarData } from '@core/calendar'
 import { nthWorkingDay, dmyToIso } from '@core/calendar'
@@ -444,6 +445,9 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // dependency change (that's the debounce), which would silently drop the
   // latest edit if it happens to run as part of an unmount.
   const pendingSaveRef = useRef<null | (() => void)>(null)
+  // Builds the workspace snapshot from the latest render's state (set by the save effect below),
+  // so Sync / logout can push it right now instead of waiting for the debounce.
+  const buildStateRef = useRef<null | (() => PersistedState)>(null)
 
   // The current Excel shown on the Data tab (single-workbook workflow).
   const currentTable = tables[0] ?? null
@@ -704,15 +708,13 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     // this effect with the flag cleared, so it pushes normally.
     const skipCloud = savedFromRemoteRef.current
     savedFromRemoteRef.current = false
-    const save = () => {
-      pendingSaveRef.current = null
+    const build = (): PersistedState => {
       const currentTables = blockedWorksList ? (withheldTablesRef.current ?? tables) : tables
       // Persist every office's data, with this office's slot reflecting the
       // (possibly withheld) real data. currentOfficeKey routes the cloud sync so
       // only this office's entry is updated — other offices stay put.
       const byOffice = currentOfficeKey ? { ...tablesByOffice, [currentOfficeKey]: currentTables } : tablesByOffice
-      api.saveState(
-        {
+      return {
           version: ECV_RUPEES_STATE_VERSION,
           tables: currentTables,
           tablesByOffice: byOffice,
@@ -737,9 +739,12 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
           seededDocVersion,
           bidDocumentBatches,
           mbScrutiny
-        },
-        skipCloud
-      )
+      }
+    }
+    buildStateRef.current = build
+    const save = () => {
+      pendingSaveRef.current = null
+      api.saveState(build(), skipCloud)
     }
     pendingSaveRef.current = save
     const handle = setTimeout(save, 400)
@@ -1444,20 +1449,54 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingOfficeImport, office])
 
+  // Push the whole workspace to the cloud now and report whether it landed.
+  const syncNow = async (): Promise<boolean> => {
+    const build = buildStateRef.current
+    if (!build || !hydrated) return false
+    pendingSaveRef.current = null // this push supersedes the debounced autosave
+    return api.syncNow(build()).catch(() => false)
+  }
+
+  // Every logout (manual or idle) syncs first so the next device sees this session's last edits.
+  // Logging out unmounts this component, which would otherwise clearTimeout() the debounced save
+  // and drop whatever was just typed — syncNow also writes it locally. Capped so a dead network
+  // can't trap the user on the screen; the local save has already happened by then.
+  const logoutRef = useRef<() => void>(() => {})
+  logoutRef.current = () => {
+    const done = new Promise<void>((resolve) => {
+      void syncNow().finally(resolve)
+      setTimeout(resolve, 8000)
+    })
+    void done.then(() => onLogout())
+  }
+
+  // Auto logout after 10 minutes without input.
+  useEffect(() => {
+    const IDLE_MS = 10 * 60 * 1000
+    let last = Date.now()
+    const touch = () => {
+      last = Date.now()
+    }
+    const events = ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart'] as const
+    for (const ev of events) window.addEventListener(ev, touch, { passive: true })
+    // A short interval (not one 10-minute timeout) so a laptop waking from sleep logs out promptly.
+    let fired = false
+    const timer = setInterval(() => {
+      if (!fired && Date.now() - last >= IDLE_MS) {
+        fired = true
+        logoutRef.current()
+      }
+    }, 15000)
+    return () => {
+      clearInterval(timer)
+      for (const ev of events) window.removeEventListener(ev, touch)
+    }
+  }, [])
+
   return (
     <>
       <Skyline />
-      <ProfileMenu
-        username={loginId}
-        onLogout={() => {
-          // Logging out unmounts this component, which would otherwise
-          // clearTimeout() the debounced save below and drop whatever was
-          // just typed (e.g. MB Scrutiny data entered seconds earlier).
-          // Flush it synchronously first so it's written before that happens.
-          pendingSaveRef.current?.()
-          onLogout()
-        }}
-      />
+      <ProfileMenu username={loginId} onLogout={() => logoutRef.current()} onSync={syncNow} />
       <div className="shell">
       <Sidebar
         active={tab}

@@ -489,9 +489,9 @@ function subscribeRemote(
   )
 }
 
-/** Push the current workspace to the cloud, tagged as written by this device. */
-export async function pushState(state: PersistedState): Promise<void> {
-  if (!active) return
+/** Push the current workspace to the cloud, tagged as written by this device. Resolves true once everything was written, false if signed out or the push failed (autosave ignores this; the manual Sync button reports it). */
+export async function pushState(state: PersistedState): Promise<boolean> {
+  if (!active) return false
   const { loginId, sessionId } = active
   try {
     await ensureAuth()
@@ -658,7 +658,9 @@ export async function pushState(state: PersistedState): Promise<void> {
       }
       active.knownMbIds = currentMbIds
     }
+    return true
   } catch (e) {
     console.error('pushState failed', e)
+    return false
   }
 }
