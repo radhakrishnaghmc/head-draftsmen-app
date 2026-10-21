@@ -82,6 +82,8 @@ interface ActiveSession {
    * every ~100KB base64 .docx on every autosave — the biggest cloud-push cost.
    */
   pushedDocSig: Map<string, string>
+  /** JSON of each office's Works List as last seen in / written to the cloud, so a push writes only the offices that changed here (never re-sends — and so overwrites — an office another device edited). */
+  pushedWorksSig: Map<string, string>
   unsubscribes: Unsubscribe[]
   heartbeatTimer: ReturnType<typeof setInterval> | null
 }
@@ -89,6 +91,18 @@ interface ActiveSession {
 let active: ActiveSession | null = null
 /** Saved-tender IDs the cloud is known to hold. The misc write merges maps, so a removed ID must be deleted explicitly. */
 let knownCloudTenderIds = new Set<string>()
+/** Why the last pushState failed (shown by the Sync button instead of a vague "check connection"). */
+let lastPushError = ''
+export function getLastPushError(): string {
+  return lastPushError
+}
+
+/**
+ * Works Lists live one Firestore document PER OFFICE (users/<id>/worksByOffice/<officeKey>). They used to
+ * share a single meta/tables document, which grew past Firestore's 1 MiB per-document cap once several
+ * offices were synced — after which every push was rejected.
+ */
+const worksDocId = (officeKey: string): string => encodeURIComponent(officeKey).replace(/\./g, '%2E')
 
 /**
  * Call after a successful password check. Claims one of the session slots
@@ -130,7 +144,7 @@ export async function startSession(
     })
     if (!claimed) return { claim: { ok: false, maxSessions: true }, remoteState: null }
 
-    active = { loginId: id, sessionId, knownDocIds: new Set(), knownTodoIds: new Set(), knownMbIds: new Set(), pushedDocSig: new Map(), unsubscribes: [], heartbeatTimer: null }
+    active = { loginId: id, sessionId, knownDocIds: new Set(), knownTodoIds: new Set(), knownMbIds: new Set(), pushedDocSig: new Map(), pushedWorksSig: new Map(), unsubscribes: [], heartbeatTimer: null }
     active.heartbeatTimer = setInterval(() => void heartbeatTick(), 120_000)
 
     const remoteState = await pullRemoteState(id)
@@ -244,7 +258,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
     // These reads are independent of one another — fetched in parallel
     // instead of one-after-another so login/sync only pays for the slowest
     // round trip, not the sum of all of them.
-    const [tablesSnap, miscSnap, docsSnap, todosSnap, mbSnap] = await Promise.all([
+    const [tablesSnap, miscSnap, docsSnap, todosSnap, mbSnap, worksSnap] = await Promise.all([
       getDoc(doc(db!, 'users', id, 'meta', 'tables')),
       getDoc(doc(db!, 'users', id, 'meta', 'misc')),
       // A Firestore collection has no inherent array order — getDocs()
@@ -262,9 +276,11 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       // MB Scrutiny records sync per-item for the same reason — the whole-blob
       // misc.mbScrutiny write used to let a concurrent session's stale copy wipe
       // a record another device had just added. `order` keeps receipt order.
-      getDocs(collection(db!, 'users', id, 'mbScrutiny'))
+      getDocs(collection(db!, 'users', id, 'mbScrutiny')),
+      // One document per office's Works List (see worksDocId).
+      getDocs(collection(db!, 'users', id, 'worksByOffice'))
     ])
-    if (!tablesSnap.exists() && !miscSnap.exists()) return null
+    if (!tablesSnap.exists() && !miscSnap.exists() && worksSnap.empty) return null
 
     // Strip the superseded legacy example documents here so a cloud collection
     // that still holds them (an older workspace whose local prune hasn't yet
@@ -278,6 +294,15 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
     )
 
     const t = tablesSnap.exists() ? tablesSnap.data() : {}
+    // Offices from the legacy shared document first, then the per-office documents on top (they're newer).
+    const worksByOffice: Record<string, unknown[]> = { ...((t.tablesByOffice as Record<string, unknown[]> | undefined) ?? {}) }
+    if (active) active.pushedWorksSig = new Map()
+    for (const d of worksSnap.docs) {
+      const data = d.data() as { officeKey?: string; tables?: unknown[] }
+      if (typeof data.officeKey !== 'string') continue
+      worksByOffice[data.officeKey] = data.tables ?? []
+      active?.pushedWorksSig.set(data.officeKey, JSON.stringify(data.tables ?? []))
+    }
     const m = miscSnap.exists() ? miscSnap.data() : {}
     knownCloudTenderIds = new Set(Object.keys((m.tenderConditions as Record<string, unknown> | undefined) ?? {}))
     // Prefer the per-item todos collection; fall back to the legacy misc.todos
@@ -323,7 +348,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       // (each is separately guarded against re-inflating already-migrated data).
       version: typeof m.version === 'number' ? m.version : 1,
       tables: t.tables ?? [],
-      tablesByOffice: t.tablesByOffice ?? undefined,
+      tablesByOffice: Object.keys(worksByOffice).length > 0 ? (worksByOffice as PersistedState['tablesByOffice']) : undefined,
       // Restores the Head Draughtsman's chosen office on the next login / a
       // fresh machine — see PersistedState.office's own doc comment. Was
       // missing here entirely (and in pushState's write above) until now, so
@@ -383,7 +408,30 @@ function subscribeRemote(
       if (snap.metadata.hasPendingWrites) return
       const data = snap.data()
       if (!data || data.lastWriter === sessionId) return
+      // Once Works Lists moved to their own per-office documents this one only carries the flat legacy copy;
+      // applying it would put another device's current office on screen. Older clients still use it.
+      if (data.perOffice) return
       safeUpdate({ tables: data.tables ?? [], tablesByOffice: data.tablesByOffice ?? undefined })
+    })
+  )
+
+  let firstWorksSnap = true
+  active.unsubscribes.push(
+    onSnapshot(collection(db!, 'users', id, 'worksByOffice'), (snap) => {
+      if (snap.metadata.hasPendingWrites) return
+      if (firstWorksSnap) {
+        firstWorksSnap = false
+        return
+      }
+      const incoming: Record<string, unknown[]> = {}
+      for (const ch of snap.docChanges()) {
+        if (ch.type === 'removed') continue
+        const data = ch.doc.data() as { officeKey?: string; tables?: unknown[]; lastWriter?: string }
+        if (typeof data.officeKey !== 'string' || data.lastWriter === sessionId) continue
+        incoming[data.officeKey] = data.tables ?? []
+        active?.pushedWorksSig.set(data.officeKey, JSON.stringify(data.tables ?? []))
+      }
+      if (Object.keys(incoming).length > 0) safeUpdate({ tablesByOffice: incoming as PersistedState['tablesByOffice'] })
     })
   )
 
@@ -491,26 +539,40 @@ function subscribeRemote(
 
 /** Push the current workspace to the cloud, tagged as written by this device. Resolves true once everything was written, false if signed out or the push failed (autosave ignores this; the manual Sync button reports it). */
 export async function pushState(state: PersistedState): Promise<boolean> {
-  if (!active) return false
+  if (!active) {
+    lastPushError = 'Not signed in to the cloud (the app started offline) — log out and log in again.'
+    return false
+  }
+  lastPushError = ''
   const { loginId, sessionId } = active
   try {
     await ensureAuth()
-    // Update ONLY the office this session is on (state.currentOfficeKey) inside
-    // the tablesByOffice map, merging so a concurrent session working on another
-    // office keeps its own entry. `tables` stays for backward-compat with older
-    // clients (the current office's data). `merge: true` deep-merges the map.
-    const officeK = state.currentOfficeKey
-    const officeEntry = officeK ? state.tablesByOffice?.[officeK] ?? state.tables ?? [] : null
-    await setDoc(
-      doc(db!, 'users', loginId, 'meta', 'tables'),
-      {
-        tables: state.tables ?? [],
-        ...(officeK ? { tablesByOffice: { [officeK]: officeEntry } } : {}),
+    // Each office's Works List is its own document, so no single document can outgrow Firestore's 1 MiB cap
+    // (the shared meta/tables one did). Only offices that changed since they were last read/written here are
+    // sent, so an office another device edited is never overwritten by this device's stale copy.
+    const pushedWorks = active?.pushedWorksSig
+    for (const [officeK, list] of Object.entries(state.tablesByOffice ?? {})) {
+      const json = JSON.stringify(list ?? [])
+      const known = pushedWorks?.get(officeK)
+      if (known === json) continue
+      if (known === undefined && json === '[]') continue // never-used office the cloud doesn't hold — nothing to store
+      await setDoc(doc(db!, 'users', loginId, 'worksByOffice', worksDocId(officeK)), {
+        officeKey: officeK,
+        tables: list ?? [],
         updatedAt: serverTimestamp(),
         lastWriter: sessionId
-      },
-      { merge: true }
-    )
+      })
+      pushedWorks?.set(officeK, json)
+    }
+    // The shared document now keeps only the flat current-office copy (older app versions read it) and drops the
+    // old all-offices map — rewritten WITHOUT merge so that map's weight is actually released. Runs after every
+    // office above was written, so nothing is lost if a write failed (this line is never reached then).
+    await setDoc(doc(db!, 'users', loginId, 'meta', 'tables'), {
+      tables: state.tables ?? [],
+      perOffice: true,
+      updatedAt: serverTimestamp(),
+      lastWriter: sessionId
+    })
     // `merge: true` merges the saved-tenders map, so an ID deleted here must be removed with deleteField().
     const cleanedTenders = cleanTenderConditionsForCloud(state.tenderConditions)
     const tenderConditionsForPush: Record<string, unknown> = { ...cleanedTenders }
@@ -579,6 +641,7 @@ export async function pushState(state: PersistedState): Promise<boolean> {
         active?.pushedDocSig.set(d.id, sig)
       } catch (e) {
         console.error(`pushState: failed to sync document "${d.name}"`, e)
+        lastPushError = e instanceof Error ? e.message : String(e)
       }
     }
     if (active) {
@@ -614,6 +677,7 @@ export async function pushState(state: PersistedState): Promise<boolean> {
         })
       } catch (e) {
         console.error(`pushState: failed to sync todo "${t.text}"`, e)
+        lastPushError = e instanceof Error ? e.message : String(e)
       }
     }
     if (active) {
@@ -650,6 +714,7 @@ export async function pushState(state: PersistedState): Promise<boolean> {
         })
       } catch (e) {
         console.error(`pushState: failed to sync MB record "${it.mbNo}"`, e)
+        lastPushError = e instanceof Error ? e.message : String(e)
       }
     }
     if (active) {
@@ -658,9 +723,10 @@ export async function pushState(state: PersistedState): Promise<boolean> {
       }
       active.knownMbIds = currentMbIds
     }
-    return true
+    return lastPushError === ''
   } catch (e) {
     console.error('pushState failed', e)
+    lastPushError = e instanceof Error ? e.message : String(e)
     return false
   }
 }

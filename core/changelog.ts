@@ -16,6 +16,14 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.44.0',
+    changes: [
+      'Sync fix: each office\'s Works List is now stored online separately, so syncing no longer fails once several offices have data. Saved tender conditions and everything else now reach your other devices again.',
+      'The Sync across devices button now shows the exact reason if a sync fails.',
+      'Update every device to this version so they all sync with each other.'
+    ]
+  },
+  {
     version: '1.43.0',
     changes: [
       'New "Sync across devices" button in the profile menu (below Log out): click it to save your data online straight away.',

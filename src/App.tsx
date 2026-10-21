@@ -1450,11 +1450,12 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   }, [pendingOfficeImport, office])
 
   // Push the whole workspace to the cloud now and report whether it landed.
-  const syncNow = async (): Promise<boolean> => {
+  // Resolves '' on success, otherwise the reason it failed.
+  const syncNow = async (): Promise<string> => {
     const build = buildStateRef.current
-    if (!build || !hydrated) return false
+    if (!build || !hydrated) return 'The workspace is still loading.'
     pendingSaveRef.current = null // this push supersedes the debounced autosave
-    return api.syncNow(build()).catch(() => false)
+    return api.syncNow(build()).catch((e) => (e instanceof Error ? e.message : String(e)))
   }
 
   // Every logout (manual or idle) syncs first so the next device sees this session's last edits.

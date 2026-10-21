@@ -5,14 +5,15 @@ interface Props {
   /** The signed-in user's Login ID, shown in the dropdown and on the Log out button. */
   username: string
   onLogout: () => void
-  /** Pushes the workspace to the cloud now; resolves true when it was saved online. */
-  onSync: () => Promise<boolean>
+  /** Pushes the workspace to the cloud now; resolves '' when it was saved online, otherwise the reason it failed. */
+  onSync: () => Promise<string>
 }
 
 /** Fixed top-right profile badge — click to open a small menu with Log out. */
 export default function ProfileMenu({ username, onLogout, onSync }: Props) {
   const [open, setOpen] = useState(false)
   const [sync, setSync] = useState<'idle' | 'busy' | 'done' | 'failed'>('idle')
+  const [syncError, setSyncError] = useState('')
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -46,14 +47,16 @@ export default function ProfileMenu({ username, onLogout, onSync }: Props) {
             disabled={sync === 'busy'}
             onClick={() => {
               setSync('busy')
-              void onSync().then((ok) => {
-                setSync(ok ? 'done' : 'failed')
-                setTimeout(() => setSync('idle'), 3000)
+              void onSync().then((err) => {
+                setSyncError(err)
+                setSync(err ? 'failed' : 'done')
+                setTimeout(() => setSync('idle'), err ? 12000 : 3000)
               })
             }}
           >
-            <IconRefresh /> {sync === 'busy' ? 'Syncing…' : sync === 'done' ? 'Synced to online' : sync === 'failed' ? 'Sync failed — check connection' : 'Sync across devices'}
+            <IconRefresh /> {sync === 'busy' ? 'Syncing…' : sync === 'done' ? 'Synced to online' : sync === 'failed' ? 'Sync failed' : 'Sync across devices'}
           </button>
+          {sync === 'failed' && syncError && <div className="profile-dropdown-user">{syncError.slice(0, 160)}</div>}
         </div>
       )}
     </div>

@@ -2118,7 +2118,7 @@ function registerHandlers(): void {
   })
 
   // The profile menu's Sync button: same local save, but the cloud push is awaited so the UI can say whether it landed.
-  ipcMain.handle(IPC.syncNow, async (_e, state: PersistedState): Promise<boolean> => {
+  ipcMain.handle(IPC.syncNow, async (_e, state: PersistedState): Promise<string> => {
     try {
       const json = JSON.stringify(state)
       await fs.promises.writeFile(stateFile(), json, 'utf8')
@@ -2127,7 +2127,7 @@ function registerHandlers(): void {
     } catch {
       // Non-fatal: the cloud push below is what this button is for.
     }
-    return firebaseSync.pushState(state)
+    return (await firebaseSync.pushState(state)) ? '' : firebaseSync.getLastPushError() || 'Could not reach the cloud.'
   })
 }
 
