@@ -15469,3 +15469,45 @@ body.theme-play .wl-panel table.sheet td.rowdel button:hover:not(:disabled) {
 .mf-combine .primary {
   margin-left: auto;
 }
+
+/* Works List search under the Play theme: one flat tonal pill like the rest of the Play UI. The theme's global
+   white boxed-input rules must not draw a second bordered box inside it. */
+body.theme-play .sheet-toolbar {
+  border-bottom: none;
+  padding: 14px 16px 8px;
+}
+body.theme-play .sheet-toolbar .sheet-search {
+  height: 48px;
+  padding: 0 18px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--play-tonal);
+}
+body.theme-play .sheet-toolbar .sheet-search:hover {
+  background: var(--play-hover);
+}
+body.theme-play .sheet-toolbar .sheet-search:focus-within {
+  background: #fff;
+  border-color: #0b57d0;
+  box-shadow: 0 0 0 1px #0b57d0;
+}
+body.theme-play .sheet-toolbar .sheet-search input,
+body.theme-play .sheet-toolbar .sheet-search input:hover,
+body.theme-play .sheet-toolbar .sheet-search input:focus {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  font-size: 15px;
+}
+body.theme-play .sheet-toolbar .sheet-search .link-btn {
+  border: 0;
+  background: transparent;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+body.theme-play .sheet-toolbar .sheet-count {
+  background: var(--play-tonal);
+  border-radius: 999px;
+  padding: 8px 14px;
+}

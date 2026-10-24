@@ -16,6 +16,12 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.45.1',
+    changes: [
+      'Works List search bar restyled to match the new look: a single clean pill with no extra box inside.'
+    ]
+  },
+  {
     version: '1.45.0',
     changes: [
       'Monitoring Format: the works list now follows the sheet\'s own column order (up to Remarks), wraps Remarks, and loads quickly. If only the totals were saved, the works are re-read from your link automatically.',
