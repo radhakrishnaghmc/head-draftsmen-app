@@ -16,6 +16,8 @@ interface Props {
   onSaveMonitoringFormatLink: (url: string) => void
   /** Click a status tile: save a landscape PDF of just that status's works ('all' = every work). Resolves true once saved. */
   onExportStatusPdf?: (key: MfStatusKey | 'all', label: string) => Promise<boolean>
+  /** Download one PDF of the works in ANY combination of statuses the user ticked. Resolves true once saved. */
+  onExportCombinedPdf?: (keys: MfStatusKey[], label: string) => Promise<boolean>
   /** Click the Abstract tile: save the sheet's Abstract (item type + ward/circle wise) as a PDF. Resolves true once saved. */
   onExportAbstractPdf?: () => Promise<boolean>
   /** The works rows are being re-read from the saved link in the background. */
@@ -73,6 +75,7 @@ export default function MonitoringFormatCard({
   monitoringFormatLink,
   onSaveMonitoringFormatLink,
   onExportStatusPdf,
+  onExportCombinedPdf,
   onExportAbstractPdf,
   worksLoading
 }: Props) {
@@ -93,6 +96,31 @@ export default function MonitoringFormatCard({
     }
   }
   const [error, setError] = useState<string | null>(null)
+  const [combineOpen, setCombineOpen] = useState(false)
+  const [combineKeys, setCombineKeys] = useState<MfStatusKey[]>([])
+  async function downloadCombined() {
+    if (!onExportCombinedPdf || pdfBusy || combineKeys.length === 0) return
+    // Keep the tile order in the label regardless of the order they were ticked.
+    const ordered = (Object.keys(STATUS_META) as MfStatusKey[]).filter((k) => combineKeys.includes(k))
+    const names = ordered.map((k) => STATUS_META[k].label)
+    // "A", "A and B", "A, B and C"
+    const label = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]
+    setPdfBusy(label)
+    setError(null)
+    try {
+      const saved = await onExportCombinedPdf(ordered, label)
+      if (!saved) setError(`Couldn't create the ${label} PDF — either the save was cancelled or there are no works in those statuses.`)
+      else {
+        // Downloaded: clear the ticks and fold the panel away, ready for the next combination.
+        setCombineKeys([])
+        setCombineOpen(false)
+      }
+    } catch (e) {
+      setError(`Couldn't create the ${label} PDF: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setPdfBusy(null)
+    }
+  }
   const [link, setLink] = useState(monitoringFormatLink ?? '')
   const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>('idle')
   const [verifyIssues, setVerifyIssues] = useState<string[]>([])
@@ -236,7 +264,36 @@ export default function MonitoringFormatCard({
                     )}
                   </button>
                 ))}
+                {onExportCombinedPdf && (
+                  <button
+                    type="button"
+                    className={`mf-stat mf-stat-btn mf-stat-abstract${combineOpen ? ' on' : ''}`}
+                    title="Pick any combination of statuses and download them together as one PDF"
+                    onClick={() => setCombineOpen((o) => !o)}
+                  >
+                    <span className="mf-stat-label">Custom</span>
+                  </button>
+                )}
               </div>
+              {combineOpen && onExportCombinedPdf && (
+                <div className="mf-combine">
+                  <span className="mf-combine-title">Download together:</span>
+                  {(Object.keys(STATUS_META) as MfStatusKey[]).map((k) => (
+                    <label key={k} className="mf-combine-opt">
+                      <input
+                        type="checkbox"
+                        checked={combineKeys.includes(k)}
+                        onChange={(e) => setCombineKeys((prev) => (e.target.checked ? [...prev, k] : prev.filter((x) => x !== k)))}
+                      />
+                      {STATUS_META[k].label}
+                      <span className="mf-combine-count">{monitoringFormat.totals[k].no}</span>
+                    </label>
+                  ))}
+                  <button type="button" className="primary" disabled={combineKeys.length === 0 || pdfBusy !== null} onClick={downloadCombined}>
+                    Download PDF
+                  </button>
+                </div>
+              )}
               {worksLoading && !(monitoringFormatWorks && monitoringFormatWorks.length > 0) && <p className="mf-sub">Loading the works list…</p>}
               {monitoringFormatWorks && monitoringFormatWorks.length > 0 && (
                 <div className="mf-works-wrap">

@@ -887,7 +887,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // that tile's count, pulled from the Monitoring Format workbook's "list of
   // works" sheet(s) rather than the Abstract (which only has totals).
   async function exportMonitoringFormatStatusWorks(
-    key: MfStatusKey | 'all',
+    key: MfStatusKey | 'all' | MfStatusKey[],
     label: string,
     format: 'xlsx' | 'pdf' = 'xlsx'
   ): Promise<boolean> {
@@ -909,16 +909,21 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       }
     }
     if (!works) return false
-    let matches = key === 'all' ? works : filterMonitoringFormatWorksByStatus(works, key)
+    // An array is a user-picked combination of statuses (kept in the sheet's own order).
+    const pick = (all: MonitoringFormatWorkRow[]) =>
+      key === 'all' ? all : Array.isArray(key) ? all.filter((w) => key.includes(w.statusKey)) : filterMonitoringFormatWorksByStatus(all, key)
+    let matches = pick(works)
     // The tile promises works but the saved list has none for it — the list was saved by an
     // older parse (e.g. before in-progress rows were recognised). Re-read it from the link once.
-    const tileCount = (key === 'all' ? officeMonitoringFormat?.totals.totalWorks : officeMonitoringFormat?.totals[key])?.no ?? 0
+    const tileCount = Array.isArray(key)
+      ? key.reduce((n, k) => n + (officeMonitoringFormat?.totals[k]?.no ?? 0), 0)
+      : (key === 'all' ? officeMonitoringFormat?.totals.totalWorks : officeMonitoringFormat?.totals[key])?.no ?? 0
     if (matches.length === 0 && tileCount > 0 && currentOfficeKey && monitoringFormatLinks[currentOfficeKey]) {
       try {
         const sheets = await api.importAllSheetsFromLink(monitoringFormatLinks[currentOfficeKey])
         works = extractMonitoringFormatWorksForOffice(sheets, office)
         setOfficeMonitoringFormat(extractMonitoringFormatForOffice(sheets, office), works)
-        matches = key === 'all' ? works : filterMonitoringFormatWorksByStatus(works, key)
+        matches = pick(works)
       } catch {
         /* keep the (empty) saved result */
       }
@@ -1772,6 +1777,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                   monitoringFormatLink={currentOfficeKey ? monitoringFormatLinks[currentOfficeKey] : undefined}
                   onSaveMonitoringFormatLink={saveMonitoringFormatLink}
                   onExportStatusPdf={(key, label) => exportMonitoringFormatStatusWorks(key, label, 'pdf')}
+                  onExportCombinedPdf={(keys, label) => exportMonitoringFormatStatusWorks(keys, label, 'pdf')}
                   onExportAbstractPdf={exportMonitoringFormatAbstract}
                   worksLoading={mfWorksLoading}
                 />

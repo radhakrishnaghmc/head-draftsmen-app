@@ -15434,3 +15434,38 @@ body.theme-play .wl-panel table.sheet button.col-del:hover:not(:disabled),
 body.theme-play .wl-panel table.sheet td.rowdel button:hover:not(:disabled) {
   background: var(--danger-bg);
 }
+
+/* Monitoring Format "Custom" download: tick any combination of statuses, get one PDF. */
+.mf-combine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  margin: 10px 0 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+.mf-combine-title {
+  font-weight: 600;
+  color: var(--text-2);
+}
+.mf-combine-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.mf-combine-opt input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+}
+.mf-combine-count {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.mf-combine .primary {
+  margin-left: auto;
+}

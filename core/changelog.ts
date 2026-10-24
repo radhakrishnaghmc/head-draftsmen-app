@@ -20,6 +20,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     changes: [
       'Monitoring Format: the works list now follows the sheet\'s own column order (up to Remarks), wraps Remarks, and loads quickly. If only the totals were saved, the works are re-read from your link automatically.',
       'Monitoring Format PDFs: Legal landscape, Circle and Ward in the heading, at least 9 works per page, and a new Abstract tile that downloads the one-page Abstract exactly like the online sheet.',
+      'New "Custom" tile in Monitoring Format: tick any combination of statuses (for example In Progress + Tender Process + Completed) and download them together as one PDF.',
       'Zone-level PDFs now include the circle and ward of every work.',
       'Works List table no longer shows a box around every cell, and the sidebar wraps long names like "BOQ, Schedule A, Deviation & Material Quantity".'
     ]
