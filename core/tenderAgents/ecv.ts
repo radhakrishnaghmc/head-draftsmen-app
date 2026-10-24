@@ -17,12 +17,14 @@ import { joinLines, toNumber } from './shared'
  * anywhere near it: "Estimated Contract 2986947.00 OPEN - NCB …". So:
  * accept either "OPEN" (with or without "- NCB") immediately before the
  * number, OR "Estimated Contract" with "Value" only optionally following it
- * before the number.
+ * before the number. Printed portal pages go through OCR, which can glue
+ * the words together ("EstimatedContractValue3532536.00"), so the spaces
+ * between "Estimated", "Contract", "Value" and the number are all optional.
  */
 export function detectEcv(lines: string[]): number | undefined {
   const fromRow = findL1BidRow(lines)?.ecvRupees
   if (fromRow != null) return fromRow
   const joined = joinLines(lines)
-  const ecv = /(?:OPEN(?:\s*-\s*NCB)?\s+|Estimated\s+Contract(?:\s+Value)?\s*\D{0,20}?)([\d,]+\.\d{2})/i.exec(joined)
+  const ecv = /(?:OPEN(?:\s*-\s*NCB)?\s+|Estimated\s*Contract(?:\s*Value)?\s*\D{0,20}?)([\d,]+\.\d{2})/i.exec(joined)
   return ecv ? toNumber(ecv[1]) : undefined
 }

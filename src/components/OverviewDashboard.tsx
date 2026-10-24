@@ -110,7 +110,7 @@ export default function OverviewDashboard({
 }: Props) {
   const officeLabel = office.circle || office.zone || office.corporation || ''
 
-  // Per-tile Excel-download feedback: the click triggers a native save dialog
+  // Per-tile PDF-download feedback: the click triggers a native save dialog
   // with no visible page change of its own, so the tile itself shows a spinner
   // while it's in flight and a brief checkmark once the file is written (a
   // cancelled dialog just falls back to idle, no error needed).
@@ -349,7 +349,7 @@ export default function OverviewDashboard({
                     className={`ov-mf-tile${isExporting ? ' ov-mf-tile-busy' : ''}${isExported ? ' ov-mf-tile-done' : ''}`}
                     style={{ ['--tile-color' as string]: color, ['--tile-pct' as string]: `${pct}%` }}
                     disabled={bucket.no === 0 || isExporting}
-                    title={bucket.no > 0 ? `Download Excel of ${label} works` : undefined}
+                    title={bucket.no > 0 ? `Download PDF of ${label} works` : undefined}
                     onClick={() => handleExportTile(key, label)}
                   >
                     <span className="ov-mf-tile-ic">
@@ -470,7 +470,7 @@ export default function OverviewDashboard({
                       disabled={row.totalWorks.no === 0 || isExporting}
                       title={
                         row.totalWorks.no > 0
-                          ? `Download Excel of ${row.itemType}${
+                          ? `Download PDF of ${row.itemType}${
                               wardStatusFilter ? ` — ${MF_TILES.find((t) => t.key === wardStatusFilter)?.label}` : ''
                             } works`
                           : undefined

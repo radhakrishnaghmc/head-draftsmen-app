@@ -17,10 +17,10 @@ const SESSION_KEY = 'hda-authed'
 const REVEAL_MS = 450
 
 export default function AuthGate() {
-  // Login is required on every launch, dev included — LoginPage locks the
-  // Login ID to the fixed test account in dev (import.meta.env.DEV), so
-  // `npm run dev` never touches a real office's live per-login state.
-  const [authed, setAuthed] = useState(() => import.meta.env.DEV || sessionStorage.getItem(SESSION_KEY) === '1')
+  // Login is required on every launch, dev included: the dev app used to skip the screen, leaving the main
+  // process with no signed-in account, so anything that needs one (Evaluation Sheet sharing, cloud sync) could
+  // not work there. LoginPage still auto-signs-in the test account when VITE_DEV_PASSWORD is set.
+  const [authed, setAuthed] = useState(() => sessionStorage.getItem(SESSION_KEY) === '1')
   // True for the brief window between "login accepted" and the real App
   // actually mounting — drives the unblur/fade-out transition below.
   const [revealing, setRevealing] = useState(false)
@@ -59,8 +59,8 @@ export default function AuthGate() {
     const theme = getStoredTheme()
     document.body.classList.toggle('theme-aurora', theme === 'aurora')
     document.body.classList.toggle('theme-paper', theme === 'paper')
+    document.body.classList.toggle('theme-play', theme === 'play')
     document.body.classList.toggle('theme-cyan', theme === 'cyan')
-    document.body.classList.toggle('theme-meadow', theme === 'meadow')
   }, [])
 
   // Gated on `authed`, not just mount: the main process only points its saved-state

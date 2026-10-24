@@ -40,3 +40,45 @@ export async function validateLogin(loginId: string, password: string): Promise<
 
   return { ok: true }
 }
+
+/**
+ * Login IDs of the other users registered under a corporation, for the Evaluation Sheet's "Share with other
+ * users" list. Only the IDs leave this module — never passwords. The sheet is the single source of truth for
+ * who belongs to which corporation, so the main process re-checks every share target against it too.
+ */
+export async function listCorporationUsers(corporation: string, excludeLoginId: string): Promise<string[]> {
+  const corp = corporation.trim().toLowerCase()
+  const me = excludeLoginId.trim().toLowerCase()
+  const ids = new Set<string>()
+  for (const u of await loadSheetUsers()) {
+    if (u.id.toLowerCase() !== me && u.corporation === corp) ids.add(u.id)
+  }
+  return [...ids].sort((a, b) => a.localeCompare(b))
+}
+
+// The user list is only ever read here (login itself always re-downloads the sheet), and downloading the whole
+// sheet on every dialog open was the slow part — so it's kept for a few minutes, with concurrent callers sharing
+// one download. Only IDs and corporations are held, never passwords.
+const SHEET_USERS_TTL_MS = 10 * 60 * 1000
+let sheetUsers: { at: number; users: { id: string; corporation: string }[] } | null = null
+let sheetUsersInflight: Promise<{ id: string; corporation: string }[]> | null = null
+
+export function loadSheetUsers(): Promise<{ id: string; corporation: string }[]> {
+  if (sheetUsers && Date.now() - sheetUsers.at < SHEET_USERS_TTL_MS) return Promise.resolve(sheetUsers.users)
+  if (!sheetUsersInflight) {
+    sheetUsersInflight = (async () => {
+      const table = await importTableFromGoogleLink(LOGIN_SHEET_URL)
+      const idHeader = table.headers.find((h) => /login\s*id|user/i.test(h))
+      const corpHeader = table.headers.find((h) => /corporation/i.test(h))
+      if (!idHeader || !corpHeader) throw new Error('Could not read the login credentials sheet.')
+      const users = table.rows
+        .map((r) => ({ id: (r[idHeader] ?? '').trim(), corporation: (r[corpHeader] ?? '').trim().toLowerCase() }))
+        .filter((u) => u.id)
+      sheetUsers = { at: Date.now(), users }
+      return users
+    })().finally(() => {
+      sheetUsersInflight = null
+    })
+  }
+  return sheetUsersInflight
+}

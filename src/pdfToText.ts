@@ -36,8 +36,27 @@ export async function pdfToTextLinesFromData(data: ArrayBuffer | Uint8Array): Pr
 export async function pdfToTextLinesOrOcr(file: File): Promise<string[]> {
   const lines = await pdfToTextLines(file)
   if (lines.length > 0) return lines
-  const [{ pdfPagesToDataUrls }, { api }] = await Promise.all([import('./pdfToImages'), import('./ipc')])
-  return api.ocrPhotosToLines(await pdfPagesToDataUrls(file))
+  const [{ pdfPagesToDataUrlsFromData }, { api }, { gluedLineCount }] = await Promise.all([
+    import('./pdfToImages'),
+    import('./ipc'),
+    import('../core/ocrSpacing')
+  ])
+  const data = await file.arrayBuffer()
+  // The recognizer drops word spaces at some render scales (see
+  // core/ocrSpacing.ts) — start at the default and only re-read at other
+  // scales when the result shows glued words, keeping the cleanest read.
+  let best: string[] = []
+  let bestGlued = Infinity
+  for (const scale of [2, 2.8, 1.4]) {
+    const result = await api.ocrPhotosToLines(await pdfPagesToDataUrlsFromData(data, scale))
+    const glued = gluedLineCount(result)
+    if (glued < bestGlued) {
+      best = result
+      bestGlued = glued
+    }
+    if (glued === 0) break
+  }
+  return best
 }
 
 /**

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Office } from '../office'
 import type { MfStatusKey, MonitoringFormatSummary, MonitoringFormatWorkRow } from '@core/monitoringFormat'
-import { extractMonitoringFormatForOffice, extractMonitoringFormatWorksForOffice } from '@core/monitoringFormat'
+import { extractMonitoringFormatForOffice, extractMonitoringFormatWorksForOffice, monitoringFormatWorksTable } from '@core/monitoringFormat'
 import { findMonitoringFormatErrors } from '@core/worksListAgent'
 import { indianDigitGroups } from '@core/worksAmounts'
 import { api } from '../ipc'
@@ -14,12 +14,43 @@ interface Props {
   onImportMonitoringFormat: (summary: MonitoringFormatSummary, works: MonitoringFormatWorkRow[]) => void
   monitoringFormatLink?: string
   onSaveMonitoringFormatLink: (url: string) => void
+  /** Click a status tile: save a landscape PDF of just that status's works ('all' = every work). Resolves true once saved. */
+  onExportStatusPdf?: (key: MfStatusKey | 'all', label: string) => Promise<boolean>
+  /** Click the Abstract tile: save the sheet's Abstract (item type + ward/circle wise) as a PDF. Resolves true once saved. */
+  onExportAbstractPdf?: () => Promise<boolean>
+  /** The works rows are being re-read from the saved link in the background. */
+  worksLoading?: boolean
 }
 
 type VerifyStatus = 'idle' | 'checking' | 'ok' | 'error'
 
 // Same label/color per status as the Dashboard's MF_TILES (OverviewDashboard.tsx)
 // so a status reads identically wherever it's shown in the app.
+// Cell styling by the sheet's own heading, since the columns follow the workbook's order.
+function colClass(header: string): string {
+  const h = header.toLowerCase()
+  if (h.startsWith('sl.no') || h.startsWith('sl no') || h.includes('estimate')) return 'mf-works-num'
+  if (h.includes('agency')) return ''
+  if (h.includes('remark')) return 'mf-works-remarks'
+  if (/name.*work/.test(h)) return 'mf-works-name'
+  return 'mf-works-nowrap'
+}
+
+// Fixed column widths (px), chosen from the sheet's own heading — like the Works List table, so the browser
+// never has to measure every cell of a few hundred rows to size the columns.
+function colWidth(header: string): number {
+  const h = header.toLowerCase()
+  if (h.startsWith('sl.no') || h.startsWith('sl no')) return 56
+  if (/name.*work/.test(h)) return 380
+  if (h.includes('remark')) return 300
+  if (h.includes('agency')) return 190
+  if (h.includes('estimate')) return 96
+  if (h.includes('ward') || h.includes('circle')) return 150
+  if (h.includes('date')) return 112
+  if (h.includes('status')) return 124
+  return 120
+}
+
 const STATUS_META: Record<MfStatusKey, { label: string; color: string }> = {
   completed: { label: 'Completed', color: 'var(--ok)' },
   progressTotal: { label: 'In Progress', color: 'var(--teal-500)' },
@@ -40,9 +71,27 @@ export default function MonitoringFormatCard({
   monitoringFormatWorks,
   onImportMonitoringFormat,
   monitoringFormatLink,
-  onSaveMonitoringFormatLink
+  onSaveMonitoringFormatLink,
+  onExportStatusPdf,
+  onExportAbstractPdf,
+  worksLoading
 }: Props) {
   const [busy, setBusy] = useState(false)
+  const worksTable = useMemo(() => monitoringFormatWorksTable(monitoringFormatWorks ?? []), [monitoringFormatWorks])
+  const [pdfBusy, setPdfBusy] = useState<string | null>(null)
+  async function downloadPdf(key: MfStatusKey | 'all' | 'abstract', label: string) {
+    if (!onExportStatusPdf || pdfBusy) return
+    setPdfBusy(label)
+    setError(null)
+    try {
+      const saved = key === 'abstract' ? await onExportAbstractPdf?.() : await onExportStatusPdf(key, label)
+      if (!saved) setError(`Couldn't create the ${label} PDF — either the save was cancelled or the works list couldn't be read. Re-import the Monitoring Format link and try again.`)
+    } catch (e) {
+      setError(`Couldn't create the ${label} PDF: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setPdfBusy(null)
+    }
+  }
   const [error, setError] = useState<string | null>(null)
   const [link, setLink] = useState(monitoringFormatLink ?? '')
   const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>('idle')
@@ -160,37 +209,53 @@ export default function MonitoringFormatCard({
               <div className="mf-stats">
                 {(
                   [
-                    ['Total Works', monitoringFormat.totals.totalWorks],
-                    ['Completed', monitoringFormat.totals.completed],
-                    ['In Progress', monitoringFormat.totals.progressTotal],
-                    ['To Be Started', monitoringFormat.totals.toBeStarted],
-                    ['Tender Process', monitoringFormat.totals.tenderProcess],
-                    ['Held Up', monitoringFormat.totals.heldUp],
-                    ['Cancelled', monitoringFormat.totals.cancelled]
+                    ['Abstract', 'abstract', null],
+                    ['Total Works', 'all', monitoringFormat.totals.totalWorks],
+                    ['Completed', 'completed', monitoringFormat.totals.completed],
+                    ['In Progress', 'progressTotal', monitoringFormat.totals.progressTotal],
+                    ['To Be Started', 'toBeStarted', monitoringFormat.totals.toBeStarted],
+                    ['Tender Process', 'tenderProcess', monitoringFormat.totals.tenderProcess],
+                    ['Held Up', 'heldUp', monitoringFormat.totals.heldUp],
+                    ['Cancelled', 'cancelled', monitoringFormat.totals.cancelled]
                   ] as const
-                ).map(([label, bucket]) => (
-                  <div key={label} className="mf-stat">
-                    <span className="mf-stat-label">{label}</span>
-                    <span className="mf-stat-no">{bucket.no}</span>
-                    <span className="mf-stat-amt">{indianDigitGroups(bucket.amt)}</span>
-                  </div>
+                ).map(([label, key, bucket]) => (
+                  <button
+                    type="button"
+                    key={label}
+                    className={`mf-stat mf-stat-btn${bucket ? '' : ' mf-stat-abstract'}`}
+                    disabled={(bucket ? bucket.no === 0 : false) || pdfBusy !== null}
+                    title={key === 'abstract' ? 'Download the Monitoring Format Abstract as a PDF' : `Download the ${label} works as a PDF`}
+                    onClick={() => downloadPdf(key, label)}
+                  >
+                    <span className="mf-stat-label">{pdfBusy === label ? '…' : label}</span>
+                    {bucket && (
+                      <>
+                        <span className="mf-stat-no">{pdfBusy === label ? '…' : bucket.no}</span>
+                        <span className="mf-stat-amt">{indianDigitGroups(bucket.amt)}</span>
+                      </>
+                    )}
+                  </button>
                 ))}
               </div>
+              {worksLoading && !(monitoringFormatWorks && monitoringFormatWorks.length > 0) && <p className="mf-sub">Loading the works list…</p>}
               {monitoringFormatWorks && monitoringFormatWorks.length > 0 && (
                 <div className="mf-works-wrap">
-                  <table className="mf-works-table">
+                  <table
+                    className="mf-works-table"
+                    style={{ tableLayout: 'fixed', width: worksTable.headers.reduce((sum, h) => sum + colWidth(h), 0) }}
+                  >
+                    <colgroup>
+                      {worksTable.headers.map((h, c) => (
+                        <col key={c} style={{ width: colWidth(h) }} />
+                      ))}
+                    </colgroup>
                     <thead>
                       <tr>
-                        <th className="mf-works-num">Sl.No</th>
-                        <th>Circle</th>
-                        <th>Ward</th>
-                        <th>Name of Work</th>
-                        <th>Type of Work</th>
-                        <th>Win Code</th>
-                        <th className="mf-works-num">Estimate (Rs. Lakhs)</th>
-                        <th>Agency Details</th>
-                        <th>Target Date</th>
-                        <th>Status</th>
+                        {worksTable.headers.map((h, c) => (
+                          <th key={c} className={colClass(h) === 'mf-works-num' ? 'mf-works-num' : undefined}>
+                            {h}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
@@ -198,25 +263,18 @@ export default function MonitoringFormatCard({
                         const meta = w.statusKey ? STATUS_META[w.statusKey] : null
                         return (
                           <tr key={`${w.winCode || w.slNo}-${i}`}>
-                            <td className="mf-works-num">{w.slNo}</td>
-                            <td className="mf-works-nowrap">{w.circle}</td>
-                            <td className="mf-works-nowrap">{w.ward}</td>
-                            <td className="mf-works-name">{w.workName}</td>
-                            <td className="mf-works-nowrap">{w.typeOfWork}</td>
-                            <td className="mf-works-nowrap">{w.winCode}</td>
-                            <td className="mf-works-num">{indianDigitGroups(w.estimateAmt)}</td>
-                            <td>{w.agencyDetails}</td>
-                            <td className="mf-works-nowrap">{w.targetDate}</td>
-                            <td className="mf-works-nowrap">
-                              {meta ? (
-                                <span className="mf-status-pill" style={{ ['--pill-color' as string]: meta.color }}>
-                                  <i className="mf-status-dot" />
-                                  {meta.label}
-                                </span>
-                              ) : (
-                                w.status
-                              )}
-                            </td>
+                            {worksTable.rows[i].map((cell, c) => (
+                              <td key={c} className={colClass(worksTable.headers[c])}>
+                                {c === worksTable.statusCol && meta ? (
+                                  <span className="mf-status-pill" style={{ ['--pill-color' as string]: meta.color }}>
+                                    <i className="mf-status-dot" />
+                                    {meta.label}
+                                  </span>
+                                ) : (
+                                  cell
+                                )}
+                              </td>
+                            ))}
                           </tr>
                         )
                       })}

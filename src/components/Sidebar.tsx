@@ -91,6 +91,9 @@ export default function Sidebar(props: Props) {
   // header); it opens itself when no office is chosen yet.
   const [officeOpen, setOfficeOpen] = useState(!isOfficeReady(props.office))
   const [version, setVersion] = useState<string | null>(null)
+  // Play theme: the rail expands on hover; after picking a page it must fold
+  // back even though the pointer is still over it, until the pointer leaves.
+  const [justPicked, setJustPicked] = useState(false)
   useEffect(() => {
     api.getAppVersion().then(setVersion)
   }, [])
@@ -209,7 +212,7 @@ export default function Sidebar(props: Props) {
   ]
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${justPicked ? ' just-picked' : ''}`} onMouseLeave={() => setJustPicked(false)}>
       <img src={telanganaThalli} alt="" className="sidebar-art-bg" aria-hidden="true" />
       <div className="side-brand">
         <img src={appLogo} alt="" className="logo" />
@@ -236,9 +239,13 @@ export default function Sidebar(props: Props) {
           {it.section ? <div className="nav-section-label">{it.section}</div> : null}
           <button
             className={`nav-item ${props.active === it.key ? 'on' : ''} ${it.tone ? `tone-${it.tone}` : ''} ${it.blink ? 'nav-item-blink' : ''} ${it.blinkRed ? 'nav-item-blink-red' : ''}`}
-            onClick={() => props.onSelect(it.key)}
+            onClick={(e) => {
+              props.onSelect(it.key)
+              setJustPicked(true)
+              e.currentTarget.blur()
+            }}
             onDoubleClick={() => props.onReset(it.key)}
-            title="Click to switch (work continues in the background); double-click to close all workspaces and start fresh"
+            title={`${it.label} — click to switch (work continues in the background); double-click to close all workspaces and start fresh`}
           >
             <span className="nav-ic">{it.icon}</span>
             <span className="nav-text">

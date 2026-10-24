@@ -12,9 +12,13 @@ export interface SessionSlot {
   deviceLabel?: string
 }
 
+/** How often a signed-in device refreshes its slot. Each beat is a read + a write against the free Firestore
+ * quota, so it is kept sparse; STALE_MS must stay comfortably above a few beats or a live session would expire. */
+export const HEARTBEAT_MS = 300_000
+
 /** A slot with no heartbeat in this long is treated as dead (crashed/closed
  * without a clean logout) and no longer counts toward the limit. */
-const STALE_MS = 360_000
+const STALE_MS = 960_000
 
 export function liveSlots(slots: SessionSlot[], now: number): SessionSlot[] {
   return slots.filter((s) => now - s.lastSeenAt < STALE_MS)

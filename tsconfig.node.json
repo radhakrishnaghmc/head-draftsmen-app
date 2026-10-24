@@ -25,6 +25,7 @@
     "src/docClassify.ts",
     "src/worksSchema.ts",
     "src/zoneCircleCheck.ts",
-    "src/zoneCircleDirectory.ts"
+    "src/zoneCircleDirectory.ts",
+    "src/tenderOffice.ts"
   ]
 }

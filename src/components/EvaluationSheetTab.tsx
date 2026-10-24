@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import { fetchTenders } from '../tenderCache'
@@ -6,11 +6,12 @@ import { pdfToTextLinesOrOcr } from '../pdfToText'
 import { readEvaluationSheetPage } from '@core/tenderAgents/evaluationSheetAgent'
 import { BID_CAPACITY_THRESHOLD, defaultConditions, isBidCapacityCondition, type EvaluationSheetInput } from '@core/evaluationSheet'
 import { officeKey, type Office } from '../office'
+import { officeKeyFromNit } from '../tenderOffice'
 import { tenderConditionsInOffice } from '@core/tenderConditions'
-import type { ExcelTable, TenderConditionsEntry } from '@core/types'
+import type { ExcelTable, TenderConditionsEntry, ShareResult } from '@core/types'
 import { matchWorksRow } from '../estimateDownloads'
 import { lakhsToRupees } from '@core/worksAmounts'
-import { IconFolder, IconTable, IconPlus, IconTrash, IconChecklist, IconWarn, IconDownload, IconSearch, IconEye } from './Icons'
+import { IconFolder, IconTable, IconPlus, IconTrash, IconChecklist, IconWarn, IconDownload, IconSearch, IconEye, IconUser } from './Icons'
 
 interface Props {
   office: Office
@@ -74,6 +75,27 @@ function suggestedName(e: SheetEntry): string {
  * office to key in from each bidder's documents. Several tenders can be
  * loaded at once and their sheets downloaded together into one folder.
  */
+// "Save all" runs live at module level, keyed by the office that started them: switching office remounts the tab
+// (so nothing of one office is shown in another), but the run keeps going in the background, stamping each tender
+// with its own office, and its progress / Stop reappear when you switch back.
+const batchByOffice = new Map<string, { done: number; total: number }>()
+const cancelBatchByOffice = new Map<string, boolean>()
+const batchListeners = new Set<() => void>()
+function setBatchFor(key: string, value: { done: number; total: number } | null) {
+  if (value) batchByOffice.set(key, value)
+  else batchByOffice.delete(key)
+  batchListeners.forEach((l) => l())
+}
+const subscribeBatch = (l: () => void) => {
+  batchListeners.add(l)
+  return () => {
+    batchListeners.delete(l)
+  }
+}
+
+// Last user list per corporation, so the Share dialog opens with it at once and refreshes behind it.
+const shareUsersCache = new Map<string, string[]>()
+
 export default function EvaluationSheetTab({ office, tables, savedConditions, onSaveConditions, onEvaluationGenerated, onDeleteConditions }: Props) {
   const [entries, setEntries] = useState<SheetEntry[]>([])
   const [busy, setBusy] = useState<null | 'reading' | 'downloadAll'>(null)
@@ -105,6 +127,79 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
   // Saved tender awaiting delete confirmation (a closed tender can't be re-fetched).
   const [confirmDelId, setConfirmDelId] = useState<string | null>(null)
   const [confirmDelAll, setConfirmDelAll] = useState(false)
+  // "Share with other users": the corporation's other logins (from the login sheet) to copy this office's saved tenders to.
+  const corporation = (office.corporation ?? '').trim()
+  const [shareOpen, setShareOpen] = useState(false)
+  // Which saved tenders the dialog shares: every one of this office (the bar button) or just one row's.
+  const [shareIds, setShareIds] = useState<string[]>([])
+  // Tenders whose work name names no circle: they keep the sender's office when shared.
+  const [shareUnresolved, setShareUnresolved] = useState(0)
+  const [shareUsers, setShareUsers] = useState<string[] | null>(null)
+  const [shareErr, setShareErr] = useState<string | null>(null)
+  const [sharePicked, setSharePicked] = useState<Set<string>>(new Set())
+  const [shareBusy, setShareBusy] = useState(false)
+  const [shareDone, setShareDone] = useState<ShareResult[] | null>(null)
+  // Warm the list as soon as the tab is open, so the dialog doesn't wait on the login sheet.
+  useEffect(() => {
+    if (corporation && !shareUsersCache.has(corporation)) {
+      api.listShareUsers(corporation).then((list) => shareUsersCache.set(corporation, list)).catch(() => {})
+    }
+  }, [corporation])
+  function openShare(ids: string[]) {
+    setShareIds(ids)
+    setShareUnresolved(0)
+    setShareOpen(true)
+    setShareUsers(null)
+    setShareErr(null)
+    setSharePicked(new Set())
+    setShareDone(null)
+    const cached = shareUsersCache.get(corporation)
+    if (cached) setShareUsers(cached)
+    api
+      .listShareUsers(corporation)
+      .then((list) => {
+        shareUsersCache.set(corporation, list)
+        setShareUsers(list)
+      })
+      .catch((e) => {
+        if (cached) return
+        setShareErr(
+          String(e).includes('NOT_SIGNED_IN')
+            ? 'Sharing needs a signed-in account. This build started without the login screen (dev mode) — log in through a normal build to share.'
+            : 'Could not load the users — check your internet connection.'
+        )
+      })
+  }
+  async function runShare() {
+    setShareBusy(true)
+    setShareErr(null)
+    try {
+      // The recipient sees a tender under the office its NIT number decides (EE -> that circle's office, SE -> the
+      // zone-level office), not under the sender's — so each entry is re-stamped with that office key.
+      const entries: Record<string, TenderConditionsEntry> = {}
+      let unresolved = 0
+      for (const id of shareIds) {
+        const e = savedConditions[id]
+        if (!e) continue
+        const key = officeKeyFromNit(e.nitNo, corporation, (office.zone ?? '').trim(), e.workName)
+        if (key) entries[id] = { ...e, officeKey: key }
+        else {
+          entries[id] = e
+          unresolved++
+        }
+      }
+      setShareUnresolved(unresolved)
+      setShareDone(await api.shareTenderConditions(corporation, [...sharePicked], entries))
+    } catch (e) {
+      setShareErr(
+        String(e).includes('NOT_SIGNED_IN')
+          ? 'Sharing needs a signed-in account — log in through a normal build to share.'
+          : 'Could not share — check your internet connection and try again.'
+      )
+    } finally {
+      setShareBusy(false)
+    }
+  }
   const [dlAgencies, setDlAgencies] = useState<string[] | null>(null)
   const [dlMsg, setDlMsg] = useState<{ ok: boolean; text: string } | null>(null)
   // NIT / work / ECV for the sheet: prefilled from the saved tender (or the portal while it is live), editable.
@@ -241,17 +336,17 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
   }, [savedConditions])
 
   // "Save all" for the tenders listed by the current search: one portal fetch at a time, skipping those already saved here.
-  const [batch, setBatch] = useState<{ done: number; total: number } | null>(null)
-  const cancelBatch = useRef(false)
+  const batch = useSyncExternalStore(subscribeBatch, () => batchByOffice.get(currentOfficeKey) ?? null)
   async function saveAllListed() {
     const todo = (tResults ?? []).filter((r) => /^\d+$/.test((r[1] ?? '').trim()) && !(inOffice((r[1] ?? '').trim()) && savedConditions[(r[1] ?? '').trim()]?.conditions.length))
     if (todo.length === 0 || batch) return
-    cancelBatch.current = false
+    const runOffice = currentOfficeKey
+    cancelBatchByOffice.set(runOffice, false)
     let saved = 0
     let failed = 0
-    setBatch({ done: 0, total: todo.length })
+    setBatchFor(runOffice, { done: 0, total: todo.length })
     for (let i = 0; i < todo.length; i += 1) {
-      if (cancelBatch.current) break
+      if (cancelBatchByOffice.get(runOffice)) break
       const tid = (todo[i][1] ?? '').trim()
       // A tender the portal won't open must not block the rest: give each 45s, mark it failed and move on.
       let timer: ReturnType<typeof setTimeout> | undefined
@@ -267,9 +362,9 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
       clearTimeout(timer)
       if (ok) saved += 1
       else failed += 1
-      setBatch({ done: i + 1, total: todo.length })
+      setBatchFor(runOffice, { done: i + 1, total: todo.length })
     }
-    setBatch(null)
+    setBatchFor(runOffice, null)
     const left = todo.length - saved - failed
     setManualMsg({
       ok: failed === 0,
@@ -414,7 +509,7 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
           if (ev.tenderId) {
             setProgress({ index: fileIndex, total: files.length, phase: 'conditions' })
             // Conditions saved earlier win: a closed tender is gone from the portal.
-            fetched = savedConditions[ev.tenderId]?.conditions.length ? savedConditions[ev.tenderId].conditions : null
+            fetched = inOffice(ev.tenderId) && savedConditions[ev.tenderId]?.conditions.length ? savedConditions[ev.tenderId].conditions : null
             if (fetched) {
               conditionsNote = `Using the tender conditions saved earlier for tender ${ev.tenderId}.`
             } else {
@@ -665,6 +760,99 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
           </div>,
           document.body
         )}
+      {shareOpen &&
+        createPortal(
+          <div className="wo-modal-overlay" onClick={() => !shareBusy && setShareOpen(false)}>
+            <div
+              className="wo-modal tender-conditions-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Share saved tenders with other users"
+              onClick={(ev) => ev.stopPropagation()}
+              onKeyDown={(ev) => ev.key === 'Escape' && !shareBusy && setShareOpen(false)}
+            >
+              <h3>Share saved tenders</h3>
+              <p className="tender-id-card__hint">
+                Copies {shareIds.length === 1 ? `tender ${shareIds[0]}` : `${shareIds.length} saved tenders`} to the users you pick
+                {corporation ? ` (${corporation} users)` : ''}. Each tender goes to the office its NIT number says (EE: the circle named in the work name, SE: the zone office), so it shows in that office’s Evaluation Sheet for them. A tender they already have is left as it is.
+              </p>
+              {shareDone ? (
+                <ul className="todo-list">
+                  {shareDone.map((r) => (
+                    <li key={r.loginId} className="todo-item">
+                      <div className="todo-body">
+                        <span className="todo-text">{r.loginId}</span>
+                        <span className="todo-dates">
+                          {r.error
+                            ? `Not shared — ${r.error}`
+                            : `${r.added} shared${r.skipped ? `, ${r.skipped} already had` : ''}`}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                  {shareUnresolved > 0 && (
+                    <li className="todo-item">
+                      <span className="todo-dates">
+                        {shareUnresolved} tender{shareUnresolved === 1 ? ' has' : 's have'} no EE/SE office in the NIT number (or no circle for an EE work), so {shareUnresolved === 1 ? 'it was' : 'they were'} shared under your office.
+                      </span>
+                    </li>
+                  )}
+                </ul>
+              ) : shareErr ? (
+                <p className="tender-id-card__hint">{shareErr}</p>
+              ) : !corporation ? (
+                <p className="tender-id-card__hint">Pick your office (corporation) first.</p>
+              ) : shareUsers === null ? (
+                <p className="tender-id-card__hint">Loading users…</p>
+              ) : shareUsers.length === 0 ? (
+                <p className="tender-id-card__hint">No other users are listed under {corporation} in the login sheet.</p>
+              ) : (
+                <>
+                  <label className="share-user">
+                    <input
+                      type="checkbox"
+                      checked={sharePicked.size === shareUsers.length}
+                      onChange={(ev) => setSharePicked(ev.target.checked ? new Set(shareUsers) : new Set())}
+                    />{' '}
+                    Select all ({shareUsers.length})
+                  </label>
+                  <ul className="todo-list" style={{ maxHeight: 280, overflowY: 'auto' }}>
+                    {shareUsers.map((u) => (
+                      <li key={u} className="todo-item">
+                        <label className="share-user">
+                          <input
+                            type="checkbox"
+                            checked={sharePicked.has(u)}
+                            onChange={() =>
+                              setSharePicked((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(u)) next.delete(u)
+                                else next.add(u)
+                                return next
+                              })
+                            }
+                          />{' '}
+                          {u}
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <div className="boq-actions">
+                {!shareDone && shareUsers && shareUsers.length > 0 && (
+                  <button className="primary" disabled={shareBusy || sharePicked.size === 0} onClick={() => void runShare()}>
+                    {shareBusy ? 'Sharing…' : `Share with ${sharePicked.size} user${sharePicked.size === 1 ? '' : 's'}`}
+                  </button>
+                )}
+                <button className="ghost" disabled={shareBusy} onClick={() => setShareOpen(false)}>
+                  {shareDone ? 'Close' : 'Cancel'}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
       {viewId &&
         createPortal(
           <div className="wo-modal-overlay" onClick={() => setViewId(null)}>
@@ -807,7 +995,7 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
                   <span className="tender-conditions__progress" role="status">
                     Saving {batch.done + 1 > batch.total ? batch.total : batch.done + 1} of {batch.total}…
                   </span>
-                  <button className="ghost" onClick={() => (cancelBatch.current = true)}>
+                  <button className="ghost" onClick={() => cancelBatchByOffice.set(currentOfficeKey, true)}>
                     Stop
                   </button>
                 </>
@@ -879,9 +1067,14 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
                   </button>
                 </div>
               ) : (
-                <button className="danger-ghost" onClick={() => setConfirmDelAll(true)}>
-                  <IconTrash /> Delete all
-                </button>
+                <div className="saved-tender__actions">
+                  <button className="ghost" onClick={() => openShare(mineIds)} title={`Copy these saved tenders to other ${corporation || 'corporation'} users`}>
+                    <IconUser /> Share with other users
+                  </button>
+                  <button className="danger-ghost" onClick={() => setConfirmDelAll(true)}>
+                    <IconTrash /> Delete all
+                  </button>
+                </div>
               )}
             </div>
             <ul className="todo-list tender-conditions__list">
@@ -934,6 +1127,15 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
                           <button className="ghost saved-tender__icon" title="View conditions" aria-label={`View conditions for tender ${id}`} onClick={() => setViewId(id)}>
                             <IconEye />
                           </button>
+ {t.sharedBy ? (
+                            <button className="ghost" disabled title={`These conditions were shared with you by ${t.sharedBy}`}>
+                              <IconUser /> Shared by {t.sharedBy}
+                            </button>
+                          ) : (
+                            <button className="ghost saved-tender__icon" title="Share this tender's conditions with a user" aria-label={`Share tender ${id} with a user`} onClick={() => openShare([id])}>
+                              <IconUser />
+                            </button>
+                          )}
                           <button className="danger-ghost saved-tender__icon" title="Delete saved tender" aria-label={`Delete saved tender ${id}`} onClick={() => setConfirmDelId(id)}>
                             <IconTrash />
                           </button>

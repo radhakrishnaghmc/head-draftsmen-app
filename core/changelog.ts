@@ -16,6 +16,15 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.45.0',
+    changes: [
+      'Monitoring Format: the works list now follows the sheet\'s own column order (up to Remarks), wraps Remarks, and loads quickly. If only the totals were saved, the works are re-read from your link automatically.',
+      'Monitoring Format PDFs: Legal landscape, Circle and Ward in the heading, at least 9 works per page, and a new Abstract tile that downloads the one-page Abstract exactly like the online sheet.',
+      'Zone-level PDFs now include the circle and ward of every work.',
+      'Works List table no longer shows a box around every cell, and the sidebar wraps long names like "BOQ, Schedule A, Deviation & Material Quantity".'
+    ]
+  },
+  {
     version: '1.44.0',
     changes: [
       'Sync fix: each office\'s Works List is now stored online separately, so syncing no longer fails once several offices have data. Saved tender conditions and everything else now reach your other devices again.',

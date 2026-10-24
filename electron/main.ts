@@ -52,7 +52,7 @@ import type { MaterialEstimateMeta } from '../core/materialTemplate'
 import type { MaterialTotals } from '../core/materialEstimate'
 import { parseCalendarHtml } from '../core/calendar'
 import { importTableFromGoogleLink, importAllSheetsFromGoogleLink } from '../core/googleImport'
-import { validateLogin } from '../core/auth'
+import { validateLogin, listCorporationUsers } from '../core/auth'
 import type { LoginResult } from '../core/auth'
 import { rememberOfflineAuth, checkOfflineAuth } from './offlineAuth'
 import { fillTenderNotice } from '../core/tenderNotice'
@@ -101,6 +101,7 @@ import type {
   PersistedState
 } from '../core/types'
 import { pruneLegacyDocuments } from '../core/types'
+import type { TenderConditionsEntry, ShareResult } from '../core/types'
 import { mergeQcParties } from '../core/mergeQcParties'
 import type { SheetGrid } from '../core/sheet'
 
@@ -570,6 +571,26 @@ function registerHandlers(): void {
     if (sessionId === firebaseSync.currentSessionId()) return
     await firebaseSync.endOtherSession(currentLoginId, sessionId)
   })
+
+  ipcMain.handle(IPC.listShareUsers, async (_e, corporation: string): Promise<string[]> => {
+    // Not an empty list: the renderer would read that as "nobody else in this corporation". A dev build skips the
+    // login screen (see AuthGate), so there is no signed-in account here — and no one to share as.
+    if (!currentLoginId) throw new Error('NOT_SIGNED_IN')
+    return listCorporationUsers(corporation, currentLoginId)
+  })
+
+  ipcMain.handle(
+    IPC.shareTenderConditions,
+    async (_e, corporation: string, targets: string[], entries: Record<string, TenderConditionsEntry>): Promise<ShareResult[]> => {
+      if (!currentLoginId) throw new Error('NOT_SIGNED_IN')
+      // Only users the login sheet lists under this corporation may be written to — never an arbitrary ID from the renderer.
+      const allowed = new Set((await listCorporationUsers(corporation, currentLoginId)).map((u) => u.toLowerCase()))
+      return firebaseSync.shareTenderConditions(
+        targets.filter((t) => allowed.has(t.trim().toLowerCase())),
+        entries
+      )
+    }
+  )
 
   ipcMain.on(IPC.restartToUpdate, () => {
     restartToUpdate()

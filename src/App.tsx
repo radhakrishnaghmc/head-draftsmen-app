@@ -30,6 +30,8 @@ import SearchTender from './components/SearchTender'
 import Dashboard from './components/Dashboard'
 import OverviewDashboard from './components/OverviewDashboard'
 import MonitoringFormatCard from './components/MonitoringFormatCard'
+import { buildWorksListPdf, buildAbstractPdf } from '@core/worksListPdf'
+import { indianDigitGroups } from '@core/worksAmounts'
 import Skyline from './components/Skyline'
 import ProfileMenu from './components/ProfileMenu'
 import TenderNoticeButton from './components/TenderNoticeButton'
@@ -99,7 +101,8 @@ import {
   filterMonitoringFormatWorksByStatus,
   filterMonitoringFormatWorksByWard,
   extractMonitoringFormatForOffice,
-  extractMonitoringFormatWorksForOffice
+  extractMonitoringFormatWorksForOffice,
+  monitoringFormatWorksTable
 } from '@core/monitoringFormat'
 
 // Older persisted reminders stored a single work (workName/tenderId/bidClosing)
@@ -199,8 +202,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   useEffect(() => {
     document.body.classList.toggle('theme-aurora', theme === 'aurora')
     document.body.classList.toggle('theme-paper', theme === 'paper')
+    document.body.classList.toggle('theme-play', theme === 'play')
     document.body.classList.toggle('theme-cyan', theme === 'cyan')
-    document.body.classList.toggle('theme-meadow', theme === 'meadow')
   }, [theme])
 
   // Portal targets for the Agreement/Work Order and Intimation pages' own
@@ -327,6 +330,18 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   const [mbScrutiny, setMbScrutiny] = useState<MBScrutinyItem[]>([])
   const [mbMeasurementOpen, setMbMeasurementOpen] = useState(false)
   const [worklistOpenTile, setWorklistOpenTile] = useState<'qc' | 'mf' | 'wl' | null>('wl')
+  // The Monitoring Format panel is built once, in the background shortly after the Works List opens, and
+  // then only shown/hidden — so clicking its tab is instant instead of rendering a few hundred rows then.
+  const [mfPrewarmed, setMfPrewarmed] = useState(false)
+  useEffect(() => {
+    if (mfPrewarmed) return
+    const idle = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback
+    const id = idle ? idle(() => setMfPrewarmed(true), { timeout: 3000 }) : window.setTimeout(() => setMfPrewarmed(true), 1500)
+    return () => {
+      if (idle) (window as unknown as { cancelIdleCallback?: (n: number) => void }).cancelIdleCallback?.(id)
+      else window.clearTimeout(id)
+    }
+  }, [mfPrewarmed])
   const [lastGoogleLink, setLastGoogleLink] = useState<string | null>(null)
   const [refreshingWorks, setRefreshingWorks] = useState(false)
   const [refreshError, setRefreshError] = useState<string | null>(null)
@@ -840,10 +855,42 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     setMonitoringFormatWorksByOffice((prev) => ({ ...prev, [currentOfficeKey]: works }))
   }
 
+  // The cloud copy of a login keeps each office's Monitoring Format totals and link but not the per-work rows
+  // (they'd bloat the synced document), so after a relaunch / fresh login the tiles are there while the works
+  // table is empty. Re-read the rows from the remembered link once per office, quietly in the background.
+  const [mfWorksLoading, setMfWorksLoading] = useState(false)
+  const mfAutoLoadedRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const key = currentOfficeKey
+    if (!key || !officeMonitoringFormat) return
+    if (officeMonitoringFormatWorks && officeMonitoringFormatWorks.length > 0) return
+    const link = monitoringFormatLinks[key]
+    if (!link || mfAutoLoadedRef.current.has(key)) return
+    mfAutoLoadedRef.current.add(key)
+    setMfWorksLoading(true)
+    api
+      .importAllSheetsFromLink(link)
+      .then((sheets) => {
+        // `key` and `office` are captured for this office, so the result lands on the right one even if the user has since switched.
+        const works = extractMonitoringFormatWorksForOffice(sheets, office)
+        setMonitoringFormatByOffice((prev) => ({ ...prev, [key]: extractMonitoringFormatForOffice(sheets, office) }))
+        setMonitoringFormatWorksByOffice((prev) => ({ ...prev, [key]: works }))
+      })
+      .catch(() => {
+        /* offline or link no longer shared: the saved totals stay, and Refresh retries */
+      })
+      .finally(() => setMfWorksLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentOfficeKey, officeMonitoringFormat, officeMonitoringFormatWorks, monitoringFormatLinks])
+
   // Dashboard status tile click: download an Excel of just the works behind
   // that tile's count, pulled from the Monitoring Format workbook's "list of
   // works" sheet(s) rather than the Abstract (which only has totals).
-  async function exportMonitoringFormatStatusWorks(key: MfStatusKey, label: string): Promise<boolean> {
+  async function exportMonitoringFormatStatusWorks(
+    key: MfStatusKey | 'all',
+    label: string,
+    format: 'xlsx' | 'pdf' = 'xlsx'
+  ): Promise<boolean> {
     let works = currentOfficeKey ? monitoringFormatWorksByOffice[currentOfficeKey] : undefined
     // The detail rows behind the tile counts weren't persisted before this
     // field was added, so a session hydrated from an older save has the
@@ -862,47 +909,69 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       }
     }
     if (!works) return false
-    let matches = filterMonitoringFormatWorksByStatus(works, key)
+    let matches = key === 'all' ? works : filterMonitoringFormatWorksByStatus(works, key)
     // The tile promises works but the saved list has none for it — the list was saved by an
     // older parse (e.g. before in-progress rows were recognised). Re-read it from the link once.
-    const tileCount = officeMonitoringFormat?.totals[key]?.no ?? 0
+    const tileCount = (key === 'all' ? officeMonitoringFormat?.totals.totalWorks : officeMonitoringFormat?.totals[key])?.no ?? 0
     if (matches.length === 0 && tileCount > 0 && currentOfficeKey && monitoringFormatLinks[currentOfficeKey]) {
       try {
         const sheets = await api.importAllSheetsFromLink(monitoringFormatLinks[currentOfficeKey])
         works = extractMonitoringFormatWorksForOffice(sheets, office)
         setOfficeMonitoringFormat(extractMonitoringFormatForOffice(sheets, office), works)
-        matches = filterMonitoringFormatWorksByStatus(works, key)
+        matches = key === 'all' ? works : filterMonitoringFormatWorksByStatus(works, key)
       } catch {
         /* keep the (empty) saved result */
       }
     }
-    const headers = [
-      'Sl.No',
-      'Circle',
-      'Ward',
-      'Name of Work',
-      'Type of Work',
-      'Estimate (Rs. Lakhs)',
-      'Agency Details',
-      'Target Date',
-      'Status'
-    ]
-    const rows = matches.map((w) => ({
-      'Sl.No': w.slNo,
-      Circle: w.circle,
-      Ward: w.ward,
-      'Name of Work': w.workName,
-      'Type of Work': w.typeOfWork,
-      'Estimate (Rs. Lakhs)': String(w.estimateAmt),
-      'Agency Details': w.agencyDetails,
-      'Target Date': w.targetDate,
-      Status: w.status
-    }))
+    if (format === 'pdf') {
+      const bytes = await buildWorksListPdf({
+        title: `${key === 'all' ? 'All' : label} works of ${pdfCircleLabel}`,
+        subtitle: `${officeMonitoringFormat?.officeLabel || office.circle || office.zone || ''}${
+          officeMonitoringFormat?.asOfDate ? ` · As of ${officeMonitoringFormat.asOfDate}` : ''
+        } · ${matches.length} work${matches.length === 1 ? '' : 's'}`,
+        // Serial numbers run 1..n within the downloaded list (the sheet's own Sl.No has gaps once filtered by status).
+        ...worksTableForDownload(matches, works, { dropPdfColumns: true })
+      })
+      const pdfName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} ${label} works list.pdf`
+        .replace(/\s+/g, ' ')
+        .trim()
+      return (await api.savePdf(bytes, pdfName)) != null
+    }
+    const { headers, rows } = worksTableForDownload(matches, works)
     const fileName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} ${label} works list`
       .replace(/\s+/g, ' ')
       .trim()
-    const savedPath = await api.exportTable({ id: 'mf-status-works', name: label, path: '', headers, rows }, fileName)
+    const savedPath = await api.exportTable({ id: 'mf-status-works', name: label, path: '', headers, rows: rows.map((r) => Object.fromEntries(headers.map((h, c) => [h, r[c]]))) }, fileName)
     return savedPath != null
+  }
+  /** A downloaded works list, columns exactly as the Monitoring Format workbook lays them out; Sl.No runs 1..n (the sheet's own has gaps once filtered). */
+  /** Columns left out of the PDFs (Circle is in the heading; Type of Work and WIN code aren't wanted). Same loose heading match the importer uses ("Name of Circle", "Type of Work (Category)", "WIN CODE" …). */
+  function isDroppedPdfColumn(header: string): boolean {
+    const h = header.trim().toLowerCase()
+    // A zone-level list spans several circles, so its Circle column is the only place the circle is named — keep it there.
+    if (h.includes('circle')) return !!office.circle
+    return (h.includes('type') && h.includes('work')) || /\bwin\b/.test(h)
+  }
+  function worksTableForDownload(works: MonitoringFormatWorkRow[], allWorks: MonitoringFormatWorkRow[], opts?: { dropPdfColumns?: boolean }): { headers: string[]; rows: string[][] } {
+    const t = monitoringFormatWorksTable(works, allWorks)
+    const rows = t.rows.map((r, i) => r.map((cell, c) => (c === t.slNoCol ? String(i + 1) : cell)))
+    if (!opts?.dropPdfColumns) return { headers: t.headers, rows }
+    // The PDF names the circle in its heading instead of repeating it on every row, and leaves out Type of Work.
+    const keep = t.headers.map((h, c) => c).filter((c) => !isDroppedPdfColumn(t.headers[c]))
+    return { headers: keep.map((c) => t.headers[c]), rows: rows.map((r) => keep.map((c) => r[c])) }
+  }
+  /** "Dundigal circle-59" (name + CNO) for headings, falling back to the circle/zone name. */
+  const pdfCircleLabel = office.circleNumber
+    ? `${office.circle ? `${office.circle} ` : ''}circle-${office.circleNumber}`
+    : office.circle || office.zone || ''
+  async function exportMonitoringFormatAbstract(): Promise<boolean> {
+    if (!officeMonitoringFormat) return false
+    const bytes = await buildAbstractPdf(
+      officeMonitoringFormat,
+      `MONITORING FORMAT FOR WORKS IN ${(office.zone || office.circle || '').replace(/\s+zone$/i, '').toUpperCase()} ZONE ${office.corporation || ''}`.replace(/\s+/g, ' ').trim()
+    )
+    const pdfName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} Abstract.pdf`.replace(/\s+/g, ' ').trim()
+    return (await api.savePdf(bytes, pdfName)) != null
   }
   async function exportMonitoringFormatWardWorks(
     wardLabel: string,
@@ -925,33 +994,17 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     }
     if (!works) return false
     const matches = filterMonitoringFormatWorksByWard(works, wardLabel, pivotKind, statusKey)
-    const headers = [
-      'Sl.No',
-      'Circle',
-      'Ward',
-      'Name of Work',
-      'Type of Work',
-      'Estimate (Rs. Lakhs)',
-      'Agency Details',
-      'Target Date',
-      'Status'
-    ]
-    const rows = matches.map((w) => ({
-      'Sl.No': w.slNo,
-      Circle: w.circle,
-      Ward: w.ward,
-      'Name of Work': w.workName,
-      'Type of Work': w.typeOfWork,
-      'Estimate (Rs. Lakhs)': String(w.estimateAmt),
-      'Agency Details': w.agencyDetails,
-      'Target Date': w.targetDate,
-      Status: w.status
-    }))
-    const fileName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} ${wardLabel} ${statusLabel || ''} works list`
+    const baseName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} ${wardLabel} ${statusLabel || ''} works list`
       .replace(/\s+/g, ' ')
       .trim()
-    const savedPath = await api.exportTable({ id: 'mf-ward-works', name: wardLabel, path: '', headers, rows }, fileName)
-    return savedPath != null
+    const bytes = await buildWorksListPdf({
+      title: `${statusLabel || 'All'} works of ${pivotKind === 'circle' ? wardLabel : `${wardLabel} ward, ${pdfCircleLabel}`}`,
+      subtitle: `${officeMonitoringFormat?.officeLabel || office.circle || office.zone || ''}${
+        officeMonitoringFormat?.asOfDate ? ` · As of ${officeMonitoringFormat.asOfDate}` : ''
+      } · ${matches.length} work${matches.length === 1 ? '' : 's'}`,
+      ...worksTableForDownload(matches, works, { dropPdfColumns: true })
+    })
+    return (await api.savePdf(bytes, `${baseName}.pdf`)) != null
   }
   function saveMonitoringFormatLink(url: string) {
     if (currentOfficeKey) setMonitoringFormatLinks((prev) => (prev[currentOfficeKey] === url ? prev : { ...prev, [currentOfficeKey]: url }))
@@ -1541,7 +1594,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
               tenderReminders={officeTenderReminders}
               cementSteelHasNew={cementSteelHasNew}
               onNavigate={setTab}
-              onExportStatusWorks={exportMonitoringFormatStatusWorks}
+              onExportStatusWorks={(key, label) => exportMonitoringFormatStatusWorks(key, label, 'pdf')}
               onExportWardWorks={exportMonitoringFormatWardWorks}
             />
           </section>
@@ -1709,7 +1762,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                   }
                 />
               )}
-              {worklistOpenTile === 'mf' && (
+              {(worklistOpenTile === 'mf' || mfPrewarmed) && (
+                <div className="wl-keep" hidden={worklistOpenTile !== 'mf'}>
                 <MonitoringFormatCard
                   office={office}
                   monitoringFormat={currentOfficeKey ? monitoringFormatByOffice[currentOfficeKey] : undefined}
@@ -1717,7 +1771,11 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                   onImportMonitoringFormat={setOfficeMonitoringFormat}
                   monitoringFormatLink={currentOfficeKey ? monitoringFormatLinks[currentOfficeKey] : undefined}
                   onSaveMonitoringFormatLink={saveMonitoringFormatLink}
+                  onExportStatusPdf={(key, label) => exportMonitoringFormatStatusWorks(key, label, 'pdf')}
+                  onExportAbstractPdf={exportMonitoringFormatAbstract}
+                  worksLoading={mfWorksLoading}
                 />
+                </div>
               )}
               {worklistOpenTile === 'wl' &&
                 (currentTable ? (
@@ -1922,7 +1980,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
             </div>
             {intimationSubTab === 'intimation' ? (
               <GiveIntimationTab
-                key={intimationInstanceKey}
+                key={`${intimationInstanceKey}|${currentOfficeKey}`}
                 active={tab === 'intimation'}
                 tables={tables}
                 onChange={updateTable}
@@ -1932,7 +1990,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
               />
             ) : (
               <EvaluationSheetTab
-                key={evaluationInstanceKey}
+                key={`${evaluationInstanceKey}|${currentOfficeKey}`}
                 office={office}
                 tables={tables}
                 savedConditions={tenderConditions}

@@ -3,7 +3,9 @@ import type {
   ExcelTable,
   TenderQuery,
   TenderResult,
-  PersistedState
+  PersistedState,
+  TenderConditionsEntry,
+  ShareResult
 } from '../core/types'
 import type { SheetGrid } from '../core/sheet'
 import type { SheetPreview } from '../core/excel'
@@ -121,6 +123,8 @@ export const IPC = {
   login: 'auth:login',
   logout: 'auth:logout',
   listActiveSessions: 'auth:listActiveSessions',
+  listShareUsers: 'share:listUsers',
+  shareTenderConditions: 'share:tenderConditions',
   logoutOtherSession: 'auth:logoutOtherSession',
   importFromLink: 'data:importFromLink',
   importAllSheetsFromLink: 'data:importAllSheetsFromLink',
@@ -286,6 +290,10 @@ export interface DocuGenApi {
   listActiveSessions(): Promise<ActiveSessionInfo[]>
   /** Signs a specific OTHER device out (its sessionId, from listActiveSessions) — never this device's own; use logout() for that instead. A no-op if the sessionId is this device's own or already gone. */
   logoutOtherSession(sessionId: string): Promise<void>
+  /** Login IDs of the other users in a corporation, from the login sheet (never passwords) — the Evaluation Sheet's "Share with other users" list. */
+  listShareUsers(corporation: string): Promise<string[]>
+  /** Copies the given saved tenders into the chosen users' workspaces. Targets must belong to the corporation per the login sheet; one result per target. */
+  shareTenderConditions(corporation: string, targetLoginIds: string[], entries: Record<string, TenderConditionsEntry>): Promise<ShareResult[]>
   importFromLink(url: string): Promise<ExcelTable>
   /** Downloads every sheet of a monitoring-format workbook link (one sheet per circle). */
   importAllSheetsFromLink(url: string): Promise<SheetGrid[]>

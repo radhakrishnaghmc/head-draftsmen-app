@@ -569,4 +569,14 @@ describe('Evaluation Sheet agent', () => {
     expect(r.header.ecvRupees).toBe(1199453)
     expect(r.bidders.map((b) => b.name)).toEqual(['M Arjun'])
   })
+
+  it('reads the ECV when OCR glues the label and the number together (bidders (4).pdf)', () => {
+    const r = readEvaluationSheetPage([
+      'Tender ID 741365',
+      'NoticeNumber 57/CMC/2026-27,Dated:09.10.2026',
+      'Tender Type OPEN - NCB EstimatedContractValue3532536.00',
+      'Vemula Ramulu 1385053-0 19/10/202601:09PM 152.59.200.137'
+    ])
+    expect(r.header.ecvRupees).toBe(3532536)
+  })
 })

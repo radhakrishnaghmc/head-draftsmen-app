@@ -50,6 +50,10 @@ export interface MonitoringFormatWorkRow {
   /** `status`, normalized to whichever Dashboard tile it belongs under. */
   statusKey: MfStatusKey
   winCode: string
+  /** Every non-blank-header column of the sheet row, in the sheet's own order (parallel to `headers`). Absent on rows saved before this was added. */
+  cells?: string[]
+  /** The sheet's column headings, same order as `cells` — stored on the first row of each sheet only, to keep the synced payload small. */
+  headers?: string[]
 }
 
 export interface MonitoringFormatSummary {
@@ -376,6 +380,10 @@ export function parseMonitoringFormatWorkSheet(sheet: SheetGrid): MonitoringForm
     winCode: colIndex(header, (h) => h.includes('win'))
   }
 
+  // The works table ends at the Remarks column: anything the sheet adds after it is not taken.
+  const remarksAt = header.findIndex((h) => (h || '').toLowerCase().includes('remark'))
+  const keptCols = header.map((h, i) => ((h || '').trim() && (remarksAt < 0 || i <= remarksAt) ? i : -1)).filter((i) => i >= 0)
+  const keptHeaders = keptCols.map((i) => (header[i] || '').replace(/\s+/g, ' ').trim())
   const rows: MonitoringFormatWorkRow[] = []
   for (let i = headerRowIdx + 1; i < grid.length; i++) {
     const row = grid[i]
@@ -402,7 +410,9 @@ export function parseMonitoringFormatWorkSheet(sheet: SheetGrid): MonitoringForm
       agencyDetails: cellAt(row, col.agencyDetails),
       status,
       statusKey,
-      winCode: cellAt(row, col.winCode)
+      winCode: cellAt(row, col.winCode),
+      cells: keptCols.map((c) => (row[c] || '').trim()),
+      ...(rows.length === 0 ? { headers: keptHeaders } : {})
     })
   }
   return rows
@@ -484,4 +494,72 @@ export function filterMonitoringFormatWorksByWard(
     if (value === '' || !(value === target || target.includes(value) || value.includes(target))) return false
     return !statusKey || w.statusKey === statusKey
   })
+}
+
+
+/**
+ * The works' columns exactly as the workbook lays them out: headings plus one string[] per work.
+ * `allWorks` is the full imported list — the headings are stored only on the first row of each
+ * sheet, so a status-filtered subset (which may not contain that row) must look them up there.
+ * Sheets whose headings differ are merged into one column set, matched by heading text. Rows saved
+ * before `cells` existed fall back to the fixed columns.
+ */
+export function monitoringFormatWorksTable(
+  works: MonitoringFormatWorkRow[],
+  allWorks: MonitoringFormatWorkRow[] = works
+): {
+  headers: string[]
+  rows: string[][]
+  /** Index of the Sl.No column (renumbered 1..n in downloads), or -1. */
+  slNoCol: number
+  /** Index of the status column, or -1. */
+  statusCol: number
+} {
+  // Each work's sheet headings: the most recent `headers` seen walking the full list in order.
+  const headersOf = new Map<MonitoringFormatWorkRow, string[]>()
+  let current: string[] | undefined
+  for (const w of allWorks) {
+    if (w.headers) current = w.headers
+    if (current) headersOf.set(w, current)
+  }
+  const key = (h: string) => h.toLowerCase().replace(/\s+/g, ' ').trim()
+  if (works.length > 0 && works.every((w) => w.cells && headersOf.has(w))) {
+    const headers: string[] = []
+    const seen = new Map<string, number>()
+    for (const w of works) {
+      for (const h of headersOf.get(w)!) {
+        if (!seen.has(key(h))) {
+          seen.set(key(h), headers.length)
+          headers.push(h)
+        }
+      }
+    }
+    const rows = works.map((w) => {
+      const own = headersOf.get(w)!
+      const row = headers.map(() => '')
+      own.forEach((h, i) => {
+        const at = seen.get(key(h))
+        if (at !== undefined && !row[at]) row[at] = w.cells![i] ?? ''
+      })
+      return row
+    })
+    // Also applied here, so lists saved before the parser stopped at Remarks are cut the same way.
+    const remarksCol = headers.findIndex((h) => h.toLowerCase().includes('remark'))
+    const upTo = remarksCol >= 0 ? remarksCol + 1 : headers.length
+    headers.length = upTo
+    rows.forEach((r) => (r.length = upTo))
+    const lower = headers.map((h) => h.toLowerCase())
+    return {
+      headers,
+      rows,
+      slNoCol: lower.findIndex((h) => h.startsWith('sl.no') || h.startsWith('sl no')),
+      statusCol: lower.findIndex((h) => h === 'status' || h.includes('current status'))
+    }
+  }
+  return {
+    headers: ['Sl.No', 'Circle', 'Ward', 'Name of Work', 'Type of Work', 'Win Code', 'Estimate (Rs. Lakhs)', 'Agency Details', 'Sanction Date', 'Agreement Date', 'Target Date', 'Status'],
+    rows: works.map((w) => [w.slNo, w.circle, w.ward, w.workName, w.typeOfWork, w.winCode, String(w.estimateAmt), w.agencyDetails, w.sanctionDate, w.agreementDate, w.targetDate, w.status]),
+    slNoCol: 0,
+    statusCol: 11
+  }
 }

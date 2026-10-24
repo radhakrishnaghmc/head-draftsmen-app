@@ -16,9 +16,9 @@ describe('sessionSlots', () => {
     expect(canClaimSlot(liveN(MAX_CONCURRENT_SESSIONS), now)).toBe(false)
   })
 
-  it('treats a slot with no heartbeat in 6 min as dead, freeing a slot', () => {
+  it('treats a slot with no heartbeat in 16 min as dead, freeing a slot', () => {
     const stale: SessionSlot[] = [
-      { sessionId: 'a', loginAt: now - 800_000, lastSeenAt: now - 400_000 },
+      { sessionId: 'a', loginAt: now - 1_800_000, lastSeenAt: now - 1_000_000 },
       { sessionId: 'b', loginAt: now, lastSeenAt: now }
     ]
     expect(liveSlots(stale, now)).toEqual([{ sessionId: 'b', loginAt: now, lastSeenAt: now }])
@@ -26,7 +26,7 @@ describe('sessionSlots', () => {
   })
 
   it('claimSlot appends the new slot and drops stale ones', () => {
-    const stale: SessionSlot[] = [{ sessionId: 'a', loginAt: now - 800_000, lastSeenAt: now - 400_000 }]
+    const stale: SessionSlot[] = [{ sessionId: 'a', loginAt: now - 1_800_000, lastSeenAt: now - 1_000_000 }]
     const next = claimSlot(stale, 'c', now, 'my-laptop')
     expect(next).toEqual([{ sessionId: 'c', loginAt: now, lastSeenAt: now, deviceLabel: 'my-laptop' }])
   })
@@ -56,5 +56,14 @@ describe('sessionSlots', () => {
     expect(canClaimSlot(full, now)).toBe(false)
     expect(clearSlots()).toEqual([])
     expect(canClaimSlot(clearSlots(), now)).toBe(true)
+  })
+})
+
+describe('heartbeat vs expiry', () => {
+  it('a live device survives two missed heartbeats, and a dead one still frees its slot', async () => {
+    const { HEARTBEAT_MS, liveSlots } = await import('../core/sessionSlots')
+    const slot = { sessionId: 's', loginAt: 0, lastSeenAt: 0 }
+    expect(liveSlots([slot], HEARTBEAT_MS * 2)).toHaveLength(1)
+    expect(liveSlots([slot], HEARTBEAT_MS * 4)).toHaveLength(0)
   })
 })

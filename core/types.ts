@@ -305,6 +305,8 @@ export interface TenderConditionsEntry {
   ecv?: number
   /** Office the tender was saved from (officeKey); older entries have none. */
   officeKey?: string
+  /** Login ID of the user who shared this tender's conditions with this account; unset for a tender saved here. */
+  sharedBy?: string
   expiresAt?: number
   /** When this device last saved the entry (ms): protects a fresh local save from a cloud update that predates it. */
   savedAt?: number
@@ -381,4 +383,13 @@ export interface PersistedState {
    * work after an app restart without forcing a re-import.
    */
   monitoringFormatWorksByOffice?: Record<string, MonitoringFormatWorkRow[]>
+}
+
+export interface ShareResult {
+  loginId: string
+  /** Tenders newly written to that user's workspace. */
+  added: number
+  /** Tenders that user already had (left untouched, never overwritten). */
+  skipped: number
+  error?: string
 }

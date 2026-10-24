@@ -29,6 +29,9 @@ const DEV_TEST_LOGIN_ID = 'radhakrishna'
 // real build never auto-signs-in with anything.
 const DEV_AUTOLOGIN_PASSWORD = import.meta.env.DEV ? (import.meta.env.VITE_DEV_PASSWORD as string | undefined) : undefined
 
+// Dev auto-login fires once per launch: after a logout the form is shown, so another login can be used.
+let devAutoLoginUsed = false
+
 export default function LoginPage({ onSuccess }: Props) {
   const [loginId, setLoginId] = useState(() => localStorage.getItem(REMEMBERED_LOGIN_ID_KEY) ?? '')
   const [password, setPassword] = useState('')
@@ -44,14 +47,15 @@ export default function LoginPage({ onSuccess }: Props) {
   // already succeeded, the form itself is never shown — a failure (e.g. a
   // stale password in .env) drops back to the normal form, pre-filled, so it
   // can be fixed by hand instead of looping silently.
-  const [devAutoLoginPending, setDevAutoLoginPending] = useState(!!DEV_AUTOLOGIN_PASSWORD)
+  const [devAutoLoginPending, setDevAutoLoginPending] = useState(!!DEV_AUTOLOGIN_PASSWORD && !devAutoLoginUsed)
 
   useEffect(() => {
     api.getAppVersion().then(setVersion)
   }, [])
 
   useEffect(() => {
-    if (!DEV_AUTOLOGIN_PASSWORD) return
+    if (!DEV_AUTOLOGIN_PASSWORD || devAutoLoginUsed) return
+    devAutoLoginUsed = true
     setPassword(DEV_AUTOLOGIN_PASSWORD)
     ;(async () => {
       setBusy(true)

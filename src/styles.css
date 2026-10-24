@@ -215,62 +215,6 @@ body.theme-paper {
   --shadow-glow: none;
 }
 
-body.theme-meadow {
-  /* Accent: a lighter, warmer sage-green (a shade brighter/yellower than
-     Paper's deep teal-green) — pale sage tints for badges/pills, the solid
-     sage for the sidebar and fills, a deeper shade for hover states. The
-     categorical hues (sky/rose/amber/teal) are pushed more saturated than
-     Paper's so cards, chips and dots read as genuinely colorful rather than
-     a single-accent palette with color used only sparingly. */
-  --indigo-50: #eef8f0;
-  --indigo-100: #d6edda;
-  --indigo-200: #a9d9b2;
-  --indigo-500: #5ea06c; /* sage green — interactive accent (focus, active borders) */
-  --indigo-600: #4c8459; /* solid sage — sidebar background, accent fills */
-  --indigo-700: #366143; /* deepest sage — hover state / promo tile */
-  --violet-500: #8ec498; /* lighter sage — gradient partner, kept subtle since gradients are off */
-  --chakra: #4c8459;
-  --sky-100: #dcefff;
-  --sky-500: #2f8fe0; /* vivid sky blue */
-  --teal-500: #14b8a6;
-  --teal-100: #ccfbf1;
-  --rose-500: #f0548a; /* vivid pink */
-  --rose-100: #ffe0ec;
-  --amber-500: #f5940f; /* vivid orange — the dashboard's one deliberate warm "pop" color */
-  --amber-100: #fef0d8;
-  --green-bg: #eafbea;
-  --orange-bg: #fff0e0;
-
-  /* Soft warm-sage canvas that the rounded app shell floats on — see .shell. */
-  --paper-canvas: #e3f2e5;
-
-  --bg-grad-a: #ffffff;
-  --bg-grad-b: #ffffff;
-  --surface: #ffffff; /* opaque, not translucent — no glass */
-  --surface-2: #f4faf5;
-  --border: #e3ece4;
-  --border-strong: #cde0d0;
-
-  --text: #1e293b;
-  --text-2: #475569;
-  --muted: #8fa295;
-
-  --ok: #19a463;
-  --ok-bg: #eafbea;
-  --warn: #f5940f;
-  --warn-bg: #fff0e0;
-  --danger: #ef4458;
-  --danger-bg: #ffecee;
-
-  /* Soft floating-card shadows (no blur/glass) instead of Default/Aurora's
-     glassy glow — matches the reference dashboard's card elevation. */
-  --glass-blur: none;
-  --shadow-sm: 0 1px 2px rgba(20, 60, 36, 0.06);
-  --shadow-md: 0 10px 28px -12px rgba(20, 60, 36, 0.18);
-  --shadow-lg: 0 24px 56px -18px rgba(20, 60, 36, 0.3);
-  --shadow-glow: none;
-}
-
 body.theme-cyan {
   /* Accent: CMC (cmc.telangana.gov.in)'s own blue — same recipe as Paper
      (pale tints for badges/pills, solid fill for sidebar/buttons, a
@@ -393,18 +337,10 @@ body.theme-paper {
   background: #ffffff;
 }
 
-body.theme-meadow {
-  background: #ffffff;
-}
-
 body.theme-cyan {
   background: #ffffff;
 }
 body.theme-paper::before {
-  display: none;
-}
-
-body.theme-meadow::before {
   display: none;
 }
 
@@ -413,11 +349,6 @@ body.theme-cyan::before {
 }
 body.theme-paper .skyline-bg,
 body.theme-paper .sidebar-art-bg {
-  display: none;
-}
-
-body.theme-meadow .skyline-bg,
-body.theme-meadow .sidebar-art-bg {
   display: none;
 }
 
@@ -527,11 +458,6 @@ body.theme-cyan .sidebar-art-bg {
    #root/.shell above) so the badge still sits just inside the shell's
    rounded top-right corner instead of drifting into the mint canvas. */
 body.theme-paper .profile-menu {
-  top: 46px;
-  right: 42px;
-}
-
-body.theme-meadow .profile-menu {
   top: 46px;
   right: 42px;
 }
@@ -705,13 +631,6 @@ body.theme-paper #root {
   overflow: visible;
 }
 
-body.theme-meadow #root {
-  padding: 18px;
-  box-sizing: border-box;
-  background: var(--paper-canvas);
-  overflow: visible;
-}
-
 body.theme-cyan #root {
   padding: 18px;
   box-sizing: border-box;
@@ -719,15 +638,6 @@ body.theme-cyan #root {
   overflow: visible;
 }
 body.theme-paper .shell {
-  height: 100%;
-  /* Sidebar and workspace float as two separate rounded cards (each rounds
-     and shadows itself below) with a gap between, instead of one big
-     rounded rectangle — reads as two uniform panels on the mint canvas. */
-  gap: 10px;
-  overflow: visible;
-}
-
-body.theme-meadow .shell {
   height: 100%;
   /* Sidebar and workspace float as two separate rounded cards (each rounds
      and shadows itself below) with a gap between, instead of one big
@@ -785,15 +695,6 @@ body.theme-paper .sidebar {
   box-shadow: 0 30px 70px -20px rgba(15, 60, 40, 0.35);
 }
 
-body.theme-meadow .sidebar {
-  height: 100%;
-  background: var(--indigo-600);
-  border-right: none;
-  border-radius: 24px;
-  overflow: hidden;
-  box-shadow: 0 30px 70px -20px rgba(15, 60, 40, 0.35);
-}
-
 body.theme-cyan .sidebar {
   height: 100%;
   background: var(--indigo-600);
@@ -814,11 +715,6 @@ body.theme-paper .side-brand {
   border-bottom: 1px solid rgba(255, 255, 255, 0.14);
 }
 
-body.theme-meadow .side-brand {
-  padding-bottom: 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
-}
-
 body.theme-cyan .side-brand {
   padding-bottom: 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.14);
@@ -833,16 +729,6 @@ body.theme-aurora .side-brand .logo {
   filter: drop-shadow(0 4px 10px rgba(16, 156, 222, 0.35));
 }
 body.theme-paper .side-brand .logo {
-  filter: none;
-  /* The mark's dark linework is illegible on the sidebar's solid green —
-     give it a white chip to sit on, like the reference's logo mark. */
-  background: #fff;
-  border-radius: 14px;
-  padding: 8px;
-  box-sizing: border-box;
-}
-
-body.theme-meadow .side-brand .logo {
   filter: none;
   /* The mark's dark linework is illegible on the sidebar's solid green —
      give it a white chip to sit on, like the reference's logo mark. */
@@ -875,14 +761,6 @@ body.theme-paper .side-brand h1 {
   color: #fff;
 }
 
-body.theme-meadow .side-brand h1 {
-  font-size: 16px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #fff;
-}
-
 body.theme-cyan .side-brand h1 {
   font-size: 16px;
   font-weight: 700;
@@ -901,10 +779,6 @@ body.theme-paper .side-brand p {
   color: rgba(255, 255, 255, 0.68);
 }
 
-body.theme-meadow .side-brand p {
-  color: rgba(255, 255, 255, 0.68);
-}
-
 body.theme-cyan .side-brand p {
   color: rgba(255, 255, 255, 0.68);
 }
@@ -912,10 +786,6 @@ body.theme-cyan .side-brand p {
   color: var(--amber-600, #b45309);
 }
 body.theme-paper .side-brand p.warn {
-  color: #fde68a;
-}
-
-body.theme-meadow .side-brand p.warn {
   color: #fde68a;
 }
 
@@ -944,11 +814,6 @@ body.theme-cyan .side-brand p.warn {
   opacity: 1;
 }
 body.theme-paper .side-office-change {
-  color: #fff;
-  text-decoration: underline;
-}
-
-body.theme-meadow .side-office-change {
   color: #fff;
   text-decoration: underline;
 }
@@ -1150,21 +1015,11 @@ body.theme-paper .nav-item {
   padding-left: 16px;
 }
 
-body.theme-meadow .nav-item {
-  border-left: none;
-  padding-left: 16px;
-}
-
 body.theme-cyan .nav-item {
   border-left: none;
   padding-left: 16px;
 }
 body.theme-paper .nav-item:hover {
-  background: rgba(255, 255, 255, 0.1);
-  transform: none;
-}
-
-body.theme-meadow .nav-item:hover {
   background: rgba(255, 255, 255, 0.1);
   transform: none;
 }
@@ -1179,22 +1034,12 @@ body.theme-paper .nav-item.on {
   box-shadow: none;
 }
 
-body.theme-meadow .nav-item.on {
-  background: rgba(255, 255, 255, 0.16);
-  border-color: transparent;
-  box-shadow: none;
-}
-
 body.theme-cyan .nav-item.on {
   background: rgba(255, 255, 255, 0.16);
   border-color: transparent;
   box-shadow: none;
 }
 body.theme-paper .nav-ic {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-body.theme-meadow .nav-ic {
   color: rgba(255, 255, 255, 0.7);
 }
 
@@ -1209,18 +1054,10 @@ body.theme-paper .nav-item.on .nav-ic {
    Documents/BOQ/Search Tender/Tools) keeps its tone color instead of
    Paper's flat white — more color variety in the sidebar itself, not
    just the cards. Untoned items still fall back to white. */
-body.theme-meadow .nav-item.on .nav-ic {
-  color: var(--tone-a, #fff);
-}
-
 body.theme-cyan .nav-item.on .nav-ic {
   color: #fff;
 }
 body.theme-paper .nav-label {
-  color: rgba(255, 255, 255, 0.92);
-}
-
-body.theme-meadow .nav-label {
   color: rgba(255, 255, 255, 0.92);
 }
 
@@ -1245,16 +1082,6 @@ body.theme-paper .nav-section-label {
   color: rgba(255, 255, 255, 0.45);
 }
 
-body.theme-meadow .nav-section-label {
-  display: block;
-  margin: 14px 10px 2px;
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.45);
-}
-
 body.theme-cyan .nav-section-label {
   display: block;
   margin: 14px 10px 2px;
@@ -1265,10 +1092,6 @@ body.theme-cyan .nav-section-label {
   color: rgba(255, 255, 255, 0.45);
 }
 body.theme-paper .nav-section-label:first-child {
-  margin-top: 4px;
-}
-
-body.theme-meadow .nav-section-label:first-child {
   margin-top: 4px;
 }
 
@@ -1558,14 +1381,6 @@ body.theme-aurora .workspace {
    white, hairline-bordered cards above it read as floating panels — the
    reference dashboard's light-canvas-plus-white-cards look. */
 body.theme-paper .workspace {
-  height: 100%;
-  background: var(--surface-2);
-  border-radius: 24px;
-  overflow: hidden;
-  box-shadow: 0 30px 70px -20px rgba(15, 60, 40, 0.35);
-}
-
-body.theme-meadow .workspace {
   height: 100%;
   background: var(--surface-2);
   border-radius: 24px;
@@ -2087,12 +1902,6 @@ body.theme-paper button.primary {
 /* Meadow: primary buttons get a sage-to-teal gradient instead of a flat
    fill — the theme's one deliberately "louder" control, echoing the promo
    tile's gradient treatment rather than the flat single-hue other themes use. */
-body.theme-meadow button.primary {
-  background: linear-gradient(135deg, var(--indigo-600), var(--teal-500));
-  color: #fff;
-  border-color: transparent;
-}
-
 body.theme-cyan button.primary {
   background: var(--indigo-600);
   color: #fff;
@@ -2103,20 +1912,11 @@ body.theme-paper button.primary:hover:not(:disabled) {
   border-color: transparent;
 }
 
-body.theme-meadow button.primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--teal-500), var(--indigo-600));
-  border-color: transparent;
-}
-
 body.theme-cyan button.primary:hover:not(:disabled) {
   background: var(--indigo-700);
   border-color: transparent;
 }
 body.theme-paper button.primary:active:not(:disabled) {
-  background: var(--indigo-700);
-}
-
-body.theme-meadow button.primary:active:not(:disabled) {
   background: var(--indigo-700);
 }
 
@@ -2145,12 +1945,6 @@ body.theme-paper button.ghost {
 /* Meadow: ghost buttons get a warm amber border/text instead of the
    neutral grey other themes use, so secondary actions read as a distinct
    colour (not just a muted copy) from the sage/teal primary buttons. */
-body.theme-meadow button.ghost {
-  border-color: var(--amber-500);
-  background: var(--surface);
-  color: var(--indigo-700);
-}
-
 body.theme-cyan button.ghost {
   border-color: var(--border-strong);
   background: var(--surface);
@@ -2159,12 +1953,6 @@ body.theme-paper button.ghost:hover:not(:disabled) {
   background: var(--indigo-50);
   border-color: var(--indigo-500);
   color: var(--text);
-}
-
-body.theme-meadow button.ghost:hover:not(:disabled) {
-  background: var(--amber-100);
-  border-color: var(--amber-500);
-  color: #92400e;
 }
 
 body.theme-cyan button.ghost:hover:not(:disabled) {
@@ -5569,22 +5357,12 @@ body.theme-paper .gen-output-modes .seg:hover {
   border-color: var(--indigo-500);
 }
 
-body.theme-meadow .gen-output-modes .seg:hover {
-  border-color: var(--teal-500);
-}
-
 body.theme-cyan .gen-output-modes .seg:hover {
   border-color: var(--indigo-500);
 }
 body.theme-paper .gen-output-modes .seg.active {
   border-color: transparent;
   background: var(--indigo-600);
-  color: #fff;
-}
-
-body.theme-meadow .gen-output-modes .seg.active {
-  border-color: transparent;
-  background: linear-gradient(135deg, var(--indigo-600), var(--teal-500));
   color: #fff;
 }
 
@@ -5969,11 +5747,6 @@ body.theme-paper .doc-tile-card::after {
   display: none;
 }
 
-body.theme-meadow .doc-tile-card::before,
-body.theme-meadow .doc-tile-card::after {
-  display: none;
-}
-
 body.theme-cyan .doc-tile-card::after {
   display: none;
 }
@@ -5981,19 +5754,10 @@ body.theme-paper .doc-tile-card {
   box-shadow: var(--shadow-md);
 }
 
-body.theme-meadow .doc-tile-card {
-  box-shadow: var(--shadow-md);
-}
-
 body.theme-cyan .doc-tile-card {
   box-shadow: var(--shadow-md);
 }
 body.theme-paper .doc-tile-card:hover {
-  box-shadow: var(--shadow-lg);
-  border-color: var(--border);
-}
-
-body.theme-meadow .doc-tile-card:hover {
   box-shadow: var(--shadow-lg);
   border-color: var(--border);
 }
@@ -12227,6 +11991,17 @@ body.theme-aurora .pdf-ws-page.on {
   max-width: 100%;
 }
 
+.mf-stat-abstract {
+  align-items: center;
+  justify-content: center;
+}
+.mf-stat-abstract .mf-stat-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: center;
+}
+
 .mf-works-wrap {
   overflow: auto;
   max-height: 50vh;
@@ -12235,7 +12010,7 @@ body.theme-aurora .pdf-ws-page.on {
   border-radius: var(--radius);
 }
 .mf-works-table {
-  width: 100%;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: 12.5px;
 }
@@ -12249,7 +12024,8 @@ body.theme-aurora .pdf-ws-page.on {
   padding: 8px 10px;
   font-weight: 650;
   color: var(--muted);
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .mf-works-table tbody td {
   padding: 8px 10px;
@@ -12264,13 +12040,12 @@ body.theme-aurora .pdf-ws-page.on {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.mf-works-table .mf-works-nowrap {
-  white-space: nowrap;
-}
-.mf-works-table .mf-works-name {
-  min-width: 260px;
-  max-width: 420px;
+.mf-works-table .mf-works-nowrap,
+.mf-works-table .mf-works-name,
+.mf-works-table .mf-works-remarks {
+  /* Fixed table layout (set inline): the column widths come from <colgroup>, so text just wraps inside them. */
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 .mf-status-pill {
   display: inline-flex;
@@ -12393,31 +12168,6 @@ button.ov-promo:hover:not(:disabled) {
    "pop" color (reference design's orange accent) against the otherwise
    sage-green/white palette, instead of reusing the mint green every other
    tile already uses. */
-body.theme-meadow .ov-promo {
-  background: linear-gradient(135deg, var(--amber-500), #ffb648);
-  color: #fff;
-}
-body.theme-meadow .ov-promo-head {
-  color: #fff;
-}
-body.theme-meadow .ov-promo-head svg {
-  color: #fff;
-}
-body.theme-meadow .ov-promo-badge {
-  background: rgba(255, 255, 255, 0.25);
-  color: #fff;
-}
-body.theme-meadow .ov-promo-sub {
-  color: rgba(255, 255, 255, 0.85);
-}
-body.theme-meadow .ov-promo-btn {
-  background: #fff;
-  color: var(--amber-500);
-}
-body.theme-meadow button.ov-promo:hover:not(:disabled) {
-  background: linear-gradient(135deg, #ffb648, var(--amber-500));
-}
-
 @media (max-width: 1200px) {
   .ov-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -12449,23 +12199,12 @@ body.theme-paper .ov-card {
   border-radius: 20px;
 }
 
-body.theme-meadow .card,
-body.theme-meadow .ov-card {
-  box-shadow: var(--shadow-md);
-  border: 1px solid rgba(15, 23, 42, 0.05);
-  border-radius: 20px;
-}
-
 body.theme-cyan .ov-card {
   box-shadow: var(--shadow-md);
   border: 1px solid rgba(15, 34, 42, 0.05);
   border-radius: 20px;
 }
 body.theme-paper .card:hover {
-  box-shadow: var(--shadow-lg);
-}
-
-body.theme-meadow .card:hover {
   box-shadow: var(--shadow-lg);
 }
 
@@ -12484,35 +12223,12 @@ body.theme-paper .ov-stat {
   padding: 20px 20px 18px;
 }
 
-body.theme-meadow .ov-stat {
-  position: relative;
-  border-radius: 20px;
-  padding: 20px 20px 18px;
-}
-
 body.theme-cyan .ov-stat {
   position: relative;
   border-radius: 20px;
   padding: 20px 20px 18px;
 }
 body.theme-paper .ov-stat::after {
-  content: '\2197';
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  background: var(--surface-2);
-  color: var(--text-2);
-  border: 1px solid var(--border);
-}
-
-body.theme-meadow .ov-stat::after {
   content: '\2197';
   position: absolute;
   top: 16px;
@@ -12558,19 +12274,6 @@ body.theme-paper .ov-stat-sub {
   white-space: normal;
 }
 
-body.theme-meadow .ov-stat-sub {
-  display: inline-flex;
-  align-items: center;
-  margin-top: 10px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--indigo-50);
-  color: var(--indigo-700);
-  font-size: 11.5px;
-  font-weight: 650;
-  white-space: normal;
-}
-
 body.theme-cyan .ov-stat-sub {
   display: inline-flex;
   align-items: center;
@@ -12584,10 +12287,6 @@ body.theme-cyan .ov-stat-sub {
   white-space: normal;
 }
 body.theme-paper .ov-stat-hero b {
-  font-size: 34px;
-}
-
-body.theme-meadow .ov-stat-hero b {
   font-size: 34px;
 }
 
@@ -12605,11 +12304,6 @@ body.theme-paper .ov-stat-warn .ov-stat-sub {
   color: var(--danger);
 }
 
-body.theme-meadow .ov-stat-warn .ov-stat-sub {
-  background: var(--danger-bg);
-  color: var(--danger);
-}
-
 body.theme-cyan .ov-stat-warn .ov-stat-sub {
   background: var(--danger-bg);
   color: var(--danger);
@@ -12618,12 +12312,6 @@ body.theme-cyan .ov-stat-warn .ov-stat-sub {
    "Bid closing…" phrase), so a rounded-oval pill clips awkwardly — give it
    a plain box instead, unlike the other three KPI cards' short pill chips. */
 body.theme-paper .ov-stat-nextdeadline .ov-stat-sub {
-  display: block;
-  border-radius: 8px;
-  width: 100%;
-}
-
-body.theme-meadow .ov-stat-nextdeadline .ov-stat-sub {
   display: block;
   border-radius: 8px;
   width: 100%;
@@ -12642,27 +12330,10 @@ body.theme-paper .ov-task-ic {
   color: var(--indigo-600);
 }
 
-body.theme-meadow .ov-task-ic {
-  background: var(--indigo-50);
-  color: var(--indigo-600);
-}
 /* Meadow theme: each Upcoming-list icon is tinted by its own kind (To
    Do/MB Scrutiny/Tender) instead of every row sharing one accent color —
    a small but real extra bit of color variety in a list that's otherwise
    all text. */
-body.theme-meadow .ov-task-ic-todo {
-  background: var(--indigo-50);
-  color: var(--indigo-600);
-}
-body.theme-meadow .ov-task-ic-mb {
-  background: var(--sky-100);
-  color: var(--sky-500);
-}
-body.theme-meadow .ov-task-ic-tender {
-  background: var(--rose-100);
-  color: var(--rose-500);
-}
-
 body.theme-cyan .ov-task-ic {
   background: var(--indigo-50);
   color: var(--indigo-600);
@@ -12672,18 +12343,6 @@ body.theme-cyan .ov-task-ic {
    and count per segment, so the chart reads on its own instead of only
    through the separate tile list beside it. */
 body.theme-paper .ov-donut-legend-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 150px;
-  margin: 14px 0 0;
-  padding: 0;
-  list-style: none;
-  max-height: 130px;
-  overflow-y: auto;
-}
-
-body.theme-meadow .ov-donut-legend-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -12714,14 +12373,6 @@ body.theme-paper .ov-donut-legend-list li {
   color: var(--text-2);
 }
 
-body.theme-meadow .ov-donut-legend-list li {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  color: var(--text-2);
-}
-
 body.theme-cyan .ov-donut-legend-list li {
   display: flex;
   align-items: center;
@@ -12730,14 +12381,6 @@ body.theme-cyan .ov-donut-legend-list li {
   color: var(--text-2);
 }
 body.theme-paper .ov-donut-legend-list li span {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-body.theme-meadow .ov-donut-legend-list li span {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -12757,23 +12400,11 @@ body.theme-paper .ov-donut-legend-list b {
   color: var(--text);
 }
 
-body.theme-meadow .ov-donut-legend-list b {
-  font-weight: 700;
-  color: var(--text);
-}
-
 body.theme-cyan .ov-donut-legend-list b {
   font-weight: 700;
   color: var(--text);
 }
 body.theme-paper .ov-donut-legend-dot {
-  flex: none;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-}
-
-body.theme-meadow .ov-donut-legend-dot {
   flex: none;
   width: 9px;
   height: 9px;
@@ -12798,15 +12429,6 @@ body.theme-paper .ov-progress-bar {
   overflow: hidden;
 }
 
-body.theme-meadow .ov-progress-bar {
-  display: block;
-  height: 10px;
-  border-radius: 999px;
-  margin-top: 14px;
-  background: var(--indigo-50);
-  overflow: hidden;
-}
-
 body.theme-cyan .ov-progress-bar {
   display: block;
   height: 10px;
@@ -12816,16 +12438,6 @@ body.theme-cyan .ov-progress-bar {
   overflow: hidden;
 }
 body.theme-paper .ov-progress-bar::after {
-  content: '';
-  display: block;
-  height: 100%;
-  width: var(--done-pct, 0%);
-  border-radius: 999px;
-  background: var(--indigo-600);
-  transition: width 0.4s var(--ease);
-}
-
-body.theme-meadow .ov-progress-bar::after {
   content: '';
   display: block;
   height: 100%;
@@ -12855,29 +12467,10 @@ body.theme-paper .ov-mf-tile {
   padding-bottom: 20px;
 }
 
-body.theme-meadow .ov-mf-tile {
-  padding-bottom: 20px;
-}
-
 body.theme-cyan .ov-mf-tile {
   padding-bottom: 20px;
 }
 body.theme-paper .ov-mf-tile::after {
-  content: '';
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 10px;
-  height: 4px;
-  border-radius: 999px;
-  background: linear-gradient(
-    to right,
-    var(--tile-color) 0 var(--tile-pct, 0%),
-    var(--border) var(--tile-pct, 0%) 100%
-  );
-}
-
-body.theme-meadow .ov-mf-tile::after {
   content: '';
   position: absolute;
   left: 14px;
@@ -12913,7 +12506,7 @@ body.theme-cyan .ov-mf-tile::after {
    PDF · Print. In the field panel every input carries one of three states:
    auto-filled (read from uploads), needs input (blank, will print empty) or
    edited (typed over). Colours come from theme tokens so default, aurora,
-   paper, meadow and cyan all follow. */
+   paper and cyan all follow. */
 .wo-foot-close {
   margin-right: auto;
 }
@@ -13418,8 +13011,13 @@ mark.doc-hl {
 .wl-panel {
   min-width: 0;
 }
+.wl-keep[hidden] {
+  display: none;
+}
 .wl-panel > .card,
-.wl-panel > section.card {
+.wl-panel > section.card,
+.wl-panel > .wl-keep > .card,
+.wl-panel > .wl-keep > section.card {
   border: 0;
   border-radius: 0;
   box-shadow: none;
@@ -14176,4 +13774,1663 @@ mark.doc-hl {
 .profile-dropdown-sync:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* ============================================================
+   Play theme (Settings → Themes) — Google Play Console / Material 3 look:
+   pale blue-gray canvas, transparent pill-shaped sidebar with a light-blue
+   active item, one big white rounded content panel, tonal (#f0f4f9) cards
+   with no borders/shadows, and solid Google-blue pill buttons. Palette swap
+   + shape restyle only; no JSX beyond the body class toggle.
+   ============================================================ */
+body.theme-play {
+  --indigo-50: #ecf3fe;
+  --indigo-100: #d3e3fd;
+  --indigo-200: #a8c7fa;
+  --indigo-500: #0b57d0;
+  --indigo-600: #0b57d0;
+  --indigo-700: #0842a0;
+  --violet-500: #4c8df6;
+  --chakra: #0b57d0;
+  --sky-100: #d3e3fd;
+  --sky-500: #0b57d0;
+  --teal-500: #00639b;
+  --teal-100: #c2e7ff;
+  --rose-500: #b3261e;
+  --rose-100: #f9dedc;
+  --amber-500: #b06000;
+  --amber-100: #fcefc7;
+  --green-bg: #c4eed0;
+  --orange-bg: #ffe9c7;
+
+  --play-canvas: #f8fafd;
+  --play-tonal: #f0f4f9;
+  --play-hover: #e9eef6;
+  --play-active: #c2e7ff;
+
+  --bg-grad-a: #f8fafd;
+  --bg-grad-b: #f8fafd;
+  --surface: #ffffff;
+  --surface-2: #f0f4f9;
+  --border: #e1e3e1;
+  --border-strong: #c4c7c5;
+
+  --text: #1f1f1f;
+  --text-2: #444746;
+  --muted: #747775;
+
+  --ok: #146c2e;
+  --ok-bg: #e6f4ea;
+  --warn: #b06000;
+  --warn-bg: #fef7e0;
+  --danger: #b3261e;
+  --danger-bg: #fce8e6;
+
+  --glass-blur: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: 0 4px 12px rgba(60, 64, 67, 0.18);
+  --shadow-glow: none;
+
+  --radius: 16px;
+  --radius-sm: 12px;
+
+  --font: 'Google Sans Text', 'Google Sans', 'Product Sans', Roboto, 'Segoe UI Variable', 'Segoe UI',
+    -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  background: var(--play-canvas);
+}
+body.theme-play::before,
+body.theme-play .skyline-bg,
+body.theme-play .sidebar-art-bg {
+  display: none;
+}
+
+/* ---- shell: canvas, transparent sidebar, white rounded content panel ---- */
+body.theme-play #root {
+  background: var(--play-canvas);
+}
+body.theme-play .shell {
+  gap: 0;
+}
+body.theme-play .sidebar {
+  width: 300px;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-right: none;
+  padding: 16px 12px;
+}
+body.theme-play .side-brand {
+  padding: 4px 12px 14px;
+  border-bottom: none;
+}
+body.theme-play .side-brand .logo {
+  width: 48px;
+  height: 48px;
+  filter: none;
+}
+body.theme-play .workspace {
+  height: calc(100vh - 16px);
+  margin: 8px 8px 8px 0;
+  padding: 28px 40px 24px 36px;
+  background: #fff;
+  border-radius: 28px;
+}
+body.theme-play .profile-menu {
+  top: 22px;
+  right: 28px;
+}
+
+/* ---- navigation: pill rows, light-blue active, tonal section groups ---- */
+body.theme-play .nav-item {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 999px;
+  box-shadow: none;
+}
+body.theme-play .nav-item:hover {
+  background: var(--play-hover);
+  box-shadow: none;
+  transform: none;
+}
+body.theme-play .nav-item.on {
+  background: var(--play-active);
+  border: none;
+  box-shadow: none;
+}
+body.theme-play .nav-ic {
+  color: var(--text-2);
+}
+body.theme-play .nav-item.on .nav-ic,
+body.theme-play .nav-item.on .nav-label {
+  color: #001d35;
+}
+body.theme-play .nav-label {
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+body.theme-play .nav-sub {
+  color: var(--muted);
+}
+body.theme-play .nav-section-label {
+  display: block;
+  margin: 16px 16px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--muted);
+}
+body.theme-play .nav-section-label:first-child {
+  margin-top: 2px;
+}
+body.theme-play .side-nav::-webkit-scrollbar-thumb {
+  background: rgba(31, 31, 31, 0.12);
+}
+
+/* ---- page headings ---- */
+body.theme-play .page-head-text h1 {
+  font-size: 28px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text);
+}
+body.theme-play .page-head-text p {
+  color: var(--text-2);
+}
+body.theme-play .page-ic {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--play-active);
+  border: none;
+  box-shadow: none;
+  color: #001d35;
+}
+body.theme-play .page-ic svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* ---- cards: tonal fill, no border/shadow ---- */
+body.theme-play .card,
+body.theme-play .ov-card {
+  background: var(--play-tonal);
+  border: none;
+  border-radius: 16px;
+  box-shadow: none;
+}
+body.theme-play .card:hover {
+  box-shadow: none;
+}
+
+/* ---- buttons: solid blue primary, outlined secondary, text-only ghost ---- */
+body.theme-play button {
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--indigo-600);
+  font-weight: 500;
+  padding: 9px 20px;
+}
+body.theme-play button:hover:not(:disabled) {
+  background: rgba(11, 87, 208, 0.08);
+  border-color: var(--border-strong);
+}
+body.theme-play button:active:not(:disabled) {
+  background: rgba(11, 87, 208, 0.12);
+}
+body.theme-play button.primary {
+  background: #0b57d0;
+  color: #fff;
+  border: 1px solid #0b57d0;
+  font-weight: 500;
+}
+body.theme-play button.primary:hover:not(:disabled) {
+  background: #0842a0;
+  border-color: #0842a0;
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.3);
+}
+body.theme-play button.primary:active:not(:disabled) {
+  background: #063a8f;
+}
+body.theme-play button.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--indigo-600);
+  padding: 6px 12px;
+}
+body.theme-play button.ghost:hover:not(:disabled) {
+  background: rgba(11, 87, 208, 0.08);
+  color: var(--indigo-700);
+}
+
+/* ---- inputs: Google-style rounded outlined fields ---- */
+body.theme-play input[type='text'],
+body.theme-play input[type='search'],
+body.theme-play input[type='number'],
+body.theme-play input[type='email'],
+body.theme-play input[type='password'],
+body.theme-play select,
+body.theme-play textarea {
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+}
+body.theme-play input:focus,
+body.theme-play select:focus,
+body.theme-play textarea:focus {
+  outline: none;
+  border-color: #0b57d0;
+  box-shadow: 0 0 0 1px #0b57d0;
+}
+
+/* ---- Play top bar: a 64px strip across the whole window (Play Console's
+   header). The existing brand block and profile badge are lifted into it
+   with fixed positioning — no extra markup — and the shell sits below. ---- */
+body.theme-play #root {
+  padding-top: 64px;
+  box-sizing: border-box;
+}
+body.theme-play .shell {
+  height: calc(100vh - 64px);
+}
+body.theme-play .sidebar {
+  height: calc(100vh - 64px);
+  padding-top: 8px;
+}
+body.theme-play .workspace {
+  height: calc(100vh - 72px);
+  margin-top: 0;
+}
+body.theme-play .side-brand {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 64px;
+  width: 300px;
+  box-sizing: border-box;
+  padding: 0 20px;
+  gap: 12px;
+  z-index: 16;
+}
+body.theme-play .side-brand .logo {
+  width: 36px;
+  height: 36px;
+}
+body.theme-play .side-brand-text {
+  position: relative;
+  min-width: 0;
+}
+body.theme-play .side-brand h1 {
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-2);
+  line-height: 1.2;
+}
+body.theme-play .side-brand p {
+  margin: 0;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  line-height: 1.2;
+  color: var(--muted);
+}
+body.theme-play .side-brand p.warn {
+  color: var(--danger);
+}
+body.theme-play .side-office-change {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 8px);
+  transform: translateY(-50%);
+  margin: 0;
+  white-space: nowrap;
+  color: var(--indigo-600);
+  text-decoration: none;
+  background: var(--play-active);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+body.theme-play .side-brand:hover .side-office-change,
+body.theme-play .side-brand p.warn ~ .side-office-change {
+  opacity: 1;
+}
+body.theme-play .profile-menu {
+  top: 10px;
+  right: 20px;
+}
+body.theme-play .profile-badge {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+  border: none;
+  background: var(--play-active);
+  color: #001d35;
+}
+body.theme-play .profile-badge:hover:not(:disabled) {
+  background: #a8d8f5;
+}
+
+/* ---- Play: tiles are <button>s too, so the pill rule above made them ovals.
+   Material outlined cards instead: white, 1px outline, 12px corners, flat
+   (no glass blobs, no per-tone gradient/tint, no hover lift). ---- */
+body.theme-play .doc-tile-card,
+body.theme-play .tools-grid .doc-tile-card,
+body.theme-play .cement-steel-workspace .doc-tile-card,
+body.theme-play .doc-tile-card.tone-green,
+body.theme-play .doc-tile-card.tone-sky,
+body.theme-play .doc-tile-card.tone-rose,
+body.theme-play .doc-tile-card.tone-amber,
+body.theme-play .doc-tile-card.tone-teal,
+body.theme-play .wo-tile,
+body.theme-play .ov-mf-tile,
+body.theme-play .doc-tile,
+body.theme-play button.ov-promo {
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  color: var(--text);
+  transform: none;
+}
+body.theme-play .doc-tile-card::before,
+body.theme-play .doc-tile-card::after {
+  display: none;
+}
+body.theme-play .doc-tile-card:hover,
+body.theme-play .wo-tile:hover,
+body.theme-play .doc-tile:hover,
+body.theme-play .ov-mf-tile:not(:disabled):hover {
+  background: #f8fafd;
+  border-color: var(--border-strong);
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.2);
+  transform: none;
+}
+body.theme-play .doc-tile-card.selected,
+body.theme-play .doc-tile.on {
+  background: var(--indigo-50);
+  border-color: var(--indigo-600);
+}
+body.theme-play .tool-card .nav-ic,
+body.theme-play .doc-tile-card .tile-ic {
+  color: var(--indigo-600);
+}
+body.theme-play .ov-mf-tile::before {
+  border-radius: 12px 0 0 12px;
+}
+body.theme-play .ov-card.ov-stat-hero {
+  background: var(--play-active);
+}
+body.theme-play .ov-stat-hero b {
+  color: #001d35;
+}
+/* Cards nested inside a tonal card read as white outlined tiles. */
+body.theme-play .card .doc-tile-card,
+body.theme-play .card .ov-mf-tile {
+  background: #fff;
+}
+
+/* ---- Play: Material outlined fields for every input type ---- */
+body.theme-play input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='color']),
+body.theme-play select,
+body.theme-play textarea,
+body.theme-play .wo-modal-sidebar .wo-date-field select {
+  background: #fff;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: none;
+  font-family: inherit;
+}
+body.theme-play input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='color']):hover,
+body.theme-play select:hover,
+body.theme-play textarea:hover {
+  border-color: var(--text-2);
+}
+body.theme-play input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='color']):focus,
+body.theme-play select:focus,
+body.theme-play textarea:focus {
+  outline: none;
+  border-color: #0b57d0;
+  box-shadow: 0 0 0 1px #0b57d0;
+}
+body.theme-play input::placeholder,
+body.theme-play textarea::placeholder {
+  color: var(--muted);
+}
+body.theme-play input:disabled,
+body.theme-play select:disabled,
+body.theme-play textarea:disabled {
+  background: #f8fafd;
+  color: var(--muted);
+  border-color: var(--border);
+}
+body.theme-play input[type='checkbox'],
+body.theme-play input[type='radio'],
+body.theme-play input[type='range'] {
+  accent-color: #0b57d0;
+}
+body.theme-play label {
+  color: var(--text-2);
+}
+
+/* ============================================================
+   Play console layout pass: icon-only navigation rail, Play-style page
+   header, and row tiles ("Title / description  →") for tool tiles.
+   ============================================================ */
+
+/* ---- icon rail ---- */
+body.theme-play .sidebar {
+  width: 88px;
+  padding: 8px 8px 12px;
+  align-items: center;
+}
+body.theme-play .side-nav {
+  width: 100%;
+  align-items: center;
+  gap: 4px;
+}
+body.theme-play .nav-item {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  justify-content: center;
+  flex: none;
+  border-radius: 50%;
+}
+body.theme-play .nav-text {
+  display: none;
+}
+body.theme-play .nav-ic svg {
+  width: 24px;
+  height: 24px;
+}
+body.theme-play .nav-section-label {
+  display: block;
+  height: 1px;
+  width: 36px;
+  margin: 8px auto;
+  padding: 0;
+  overflow: hidden;
+  font-size: 0;
+  background: var(--border);
+}
+body.theme-play .nav-section-label:first-child {
+  display: none;
+}
+body.theme-play .nav-badge {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10.5px;
+  border-radius: 9px;
+  background: #0b57d0;
+  color: #fff;
+  border: none;
+}
+body.theme-play .nav-badge.warn {
+  background: var(--danger);
+}
+body.theme-play .nav-badge svg {
+  width: 11px;
+  height: 11px;
+}
+body.theme-play .nav-badge-dot {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+/* footer: credits text hidden, the controls stack as small icons */
+body.theme-play .side-foot {
+  width: 100%;
+  padding: 8px 0 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+body.theme-play .side-foot-row {
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+body.theme-play .side-credits {
+  font-size: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+body.theme-play .side-credits-links {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+body.theme-play .wa-contact {
+  font-size: 0;
+  gap: 0;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+}
+body.theme-play .wa-contact svg {
+  width: 20px;
+  height: 20px;
+}
+body.theme-play .whatsnew-link {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 999px;
+}
+body.theme-play .side-update-btn {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+}
+body.theme-play .side-update-status {
+  display: none;
+}
+body.theme-play .side-brand {
+  width: 340px;
+}
+
+/* ---- page header: big gray circle icon, light 32px title, rule below ---- */
+body.theme-play .page-head {
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-strong);
+  background: #fff;
+}
+body.theme-play .page-head::before,
+body.theme-play .page-head::after {
+  display: none;
+}
+body.theme-play .page-ic {
+  width: 64px;
+  height: 64px;
+  background: var(--play-hover);
+  color: var(--text-2);
+}
+body.theme-play .page-ic svg {
+  width: 30px;
+  height: 30px;
+}
+body.theme-play .page-head-text h1 {
+  font-size: 32px;
+  line-height: 1.2;
+}
+body.theme-play .page-head-text p {
+  font-size: 14px;
+}
+
+/* ---- tool tiles: tonal rows, arrow at the right ---- */
+body.theme-play .card:has(> .tools-grid) {
+  background: transparent;
+  padding: 0;
+}
+body.theme-play .tools-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
+  gap: 8px;
+}
+body.theme-play .tools-grid .tool-card:has(.tool-card-ic) {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 2px;
+  height: auto;
+  min-height: 96px;
+  padding: 20px 24px;
+  text-align: left;
+  background: var(--play-tonal);
+  border: none;
+  border-radius: 12px;
+}
+body.theme-play .tools-grid .tool-card:has(.tool-card-ic):hover {
+  background: var(--play-hover);
+  box-shadow: none;
+}
+body.theme-play .tools-grid .tool-card:has(.tool-card-ic) .tool-card-ic {
+  grid-row: 1 / span 2;
+  position: static;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--text-2);
+}
+body.theme-play .tools-grid .tool-card:has(.tool-card-ic) .tool-card-ic svg {
+  width: 22px;
+  height: 22px;
+}
+body.theme-play .tools-grid .tool-card:has(.tool-card-ic) .doc-tile-card-name {
+  grid-column: 2;
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--text);
+  -webkit-line-clamp: 2;
+}
+body.theme-play .tools-grid .tool-card:has(.tool-card-ic) .doc-tile-card-meta {
+  grid-column: 2;
+  font-size: 14px;
+  color: var(--text-2);
+}
+body.theme-play .tools-grid .tool-card:has(.tool-card-ic) .tool-card-cta {
+  display: none;
+}
+body.theme-play .tools-grid .tool-card:has(.tool-card-ic)::after {
+  content: '→';
+  display: block;
+  position: static;
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  width: auto;
+  height: auto;
+  background: none;
+  filter: none;
+  border-radius: 0;
+  opacity: 1;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text);
+}
+
+/* ---- Play: rail expands on hover (Play Console's collapsible navigation).
+   The sidebar keeps its 88px footprint in the layout (negative right margin
+   cancels the extra width) so the workspace never shifts; the wider panel
+   floats over it with labels, section headings and the footer text. ---- */
+body.theme-play .sidebar {
+  z-index: 30;
+  transition: width 0.2s var(--ease), margin-right 0.2s var(--ease), box-shadow 0.2s var(--ease),
+    background-color 0.2s var(--ease);
+}
+body.theme-play .sidebar:not(.just-picked):hover,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) {
+  width: 288px;
+  margin-right: -200px;
+  align-items: stretch;
+  background: var(--play-canvas);
+  box-shadow: 0 8px 24px rgba(60, 64, 67, 0.22);
+  border-radius: 0 24px 24px 0;
+  overflow-y: auto;
+}
+body.theme-play .sidebar:not(.just-picked):hover .side-nav,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) .side-nav {
+  align-items: stretch;
+}
+body.theme-play .sidebar:not(.just-picked):hover .nav-item,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) .nav-item {
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  gap: 14px;
+  justify-content: flex-start;
+  border-radius: 999px;
+}
+body.theme-play .sidebar:not(.just-picked):hover .nav-text,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) .nav-text {
+  display: flex;
+}
+body.theme-play .sidebar:not(.just-picked):hover .nav-label,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) .nav-label {
+  /* Long names (e.g. "BOQ, Schedule A, Deviation & Material Quantity") wrap onto a second line instead of being cut off. */
+  white-space: normal;
+  line-height: 1.25;
+}
+body.theme-play .sidebar:not(.just-picked):hover .nav-item,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) .nav-item {
+  height: auto;
+  min-height: 48px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+body.theme-play .sidebar:not(.just-picked):hover .nav-badge,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) .nav-badge {
+  position: static;
+  margin-left: auto;
+}
+body.theme-play .sidebar:not(.just-picked):hover .nav-badge-dot,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) .nav-badge-dot {
+  position: static;
+  margin-left: auto;
+}
+body.theme-play .sidebar:not(.just-picked):hover .nav-section-label,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) .nav-section-label {
+  display: block;
+  height: auto;
+  width: auto;
+  margin: 14px 16px 4px;
+  overflow: visible;
+  font-size: 12px;
+  background: none;
+  color: var(--muted);
+}
+body.theme-play .sidebar:not(.just-picked):hover .nav-section-label:first-child,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) .nav-section-label:first-child {
+  display: block;
+  margin-top: 2px;
+}
+body.theme-play .sidebar:not(.just-picked):hover .side-foot-row,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) .side-foot-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+}
+body.theme-play .sidebar:not(.just-picked):hover .side-credits,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) .side-credits {
+  font-size: 11.5px;
+  align-items: flex-start;
+  color: var(--muted);
+}
+body.theme-play .sidebar:not(.just-picked):hover .side-credits-links,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) .side-credits-links {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+body.theme-play .sidebar:not(.just-picked):hover .wa-contact,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) .wa-contact {
+  font-size: 11.5px;
+  gap: 6px;
+  width: auto;
+  height: auto;
+  padding: 4px 0;
+  border: none;
+  background: none;
+}
+body.theme-play .sidebar:not(.just-picked):hover .side-update-status,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) .side-update-status {
+  display: block;
+  padding: 0 12px;
+}
+
+/* ---- Play: white workspace, tonal tiles. In the console the content panel
+   is plain white and every tile/row on it is a light blue-gray (#f0f4f9)
+   block with no outline, so tiles read against the white. Sections (.card)
+   become transparent wrappers; only the tiles inside carry the fill. ---- */
+body.theme-play .workspace {
+  background: #fff;
+}
+body.theme-play .card {
+  background: transparent;
+  border: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+body.theme-play .doc-tile-card,
+body.theme-play .tools-grid .doc-tile-card,
+body.theme-play .cement-steel-workspace .doc-tile-card,
+body.theme-play .doc-tile-card.tone-green,
+body.theme-play .doc-tile-card.tone-sky,
+body.theme-play .doc-tile-card.tone-rose,
+body.theme-play .doc-tile-card.tone-amber,
+body.theme-play .doc-tile-card.tone-teal,
+body.theme-play .card .doc-tile-card,
+body.theme-play .card .ov-mf-tile,
+body.theme-play .wo-tile,
+body.theme-play .ov-mf-tile,
+body.theme-play .doc-tile,
+body.theme-play .ov-card,
+body.theme-play button.ov-promo {
+  background: var(--play-tonal);
+  border: none;
+}
+body.theme-play .doc-tile-card:hover,
+body.theme-play .wo-tile:hover,
+body.theme-play .doc-tile:hover,
+body.theme-play .ov-mf-tile:not(:disabled):hover {
+  background: var(--play-hover);
+  border: none;
+  box-shadow: none;
+}
+body.theme-play .doc-tile-card.selected,
+body.theme-play .doc-tile.on {
+  background: var(--play-active);
+  border: none;
+}
+/* document thumbnails keep a white page on the tonal tile */
+body.theme-play .wo-tile-preview,
+body.theme-play .doc-tile-thumb {
+  background: #fff;
+}
+body.theme-play .tool-card-ic,
+body.theme-play .tools-grid .tool-card:has(.tool-card-ic) .tool-card-ic {
+  background: #fff;
+}
+body.theme-play .ov-card.ov-stat-hero {
+  background: var(--play-active);
+}
+
+/* ---- Play: measurements taken from the live console (play.google.com/console):
+   64px rail with panel starting at x≈70; white panel rounded ONLY at its
+   top-left and flush to the right/bottom edges; buttons 40px tall, 24px side
+   padding, weight 500; section headings 24px/400; body 14px, text #444746. ---- */
+body.theme-play .sidebar {
+  width: 70px;
+  padding: 8px 6px 12px;
+}
+body.theme-play .sidebar:not(.just-picked):hover,
+body.theme-play .sidebar:not(.just-picked):has(:focus-visible) {
+  width: 290px;
+  margin-right: -220px;
+  border-radius: 0 16px 16px 0;
+}
+body.theme-play .nav-item {
+  width: 54px;
+  height: 52px;
+  border-radius: 26px;
+}
+body.theme-play .workspace {
+  margin: 0;
+  height: calc(100vh - 64px);
+  padding: 24px 28px 24px 32px;
+  border-radius: 28px 0 0 0;
+}
+body.theme-play .card-head h2,
+body.theme-play .workspace-section-title {
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text);
+}
+body.theme-play button:not(.nav-item):not(.profile-badge):not(.ghost):not(.side-update-btn):not(.wa-contact):not(.whatsnew-link):not(.office-chip):not(.doc-tile-card):not(.wo-tile):not(.ov-mf-tile):not(.doc-tile) {
+  min-height: 40px;
+  padding: 0 24px;
+}
+body.theme-play button:disabled {
+  opacity: 1;
+  background: rgba(31, 31, 31, 0.12);
+  border-color: transparent;
+  color: rgba(31, 31, 31, 0.38);
+}
+body.theme-play .page-head-text p a,
+body.theme-play a {
+  color: #0b57d0;
+}
+/* Play's top-right "Unread notifications"-style pill: light-blue, 40px, 24px pad */
+body.theme-play .profile-badge {
+  width: 40px;
+  height: 40px;
+}
+
+/* ============================================================
+   Play: Dashboard + Works List redo.
+   Console grammar: white page, tonal (#f0f4f9) 12px-radius blocks with
+   no border/shadow, 24px/400 section titles, small-caps-free 14px labels,
+   Material underline tabs, hairline-only tables.
+   ============================================================ */
+
+/* ---- Dashboard: KPI tiles ---- */
+body.theme-play .overview-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+body.theme-play .ov-stat-row {
+  gap: 8px;
+  margin-bottom: 0;
+}
+body.theme-play .ov-stat {
+  background: var(--play-tonal);
+  border: none;
+  border-radius: 12px;
+  box-shadow: none;
+  padding: 20px 24px;
+  gap: 6px;
+}
+body.theme-play .ov-stat::after {
+  display: none;
+}
+body.theme-play .ov-stat-top {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+body.theme-play .ov-stat b {
+  font-size: 32px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text);
+}
+body.theme-play .ov-stat b.ov-stat-deadline {
+  font-size: 18px !important;
+  font-weight: 500;
+}
+body.theme-play .ov-stat-sub {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+body.theme-play .ov-stat-hero {
+  background: var(--play-active);
+}
+body.theme-play .ov-stat-hero .ov-stat-top,
+body.theme-play .ov-stat-hero b,
+body.theme-play .ov-stat-hero .ov-stat-sub {
+  color: #001d35;
+}
+body.theme-play .ov-stat-warn b {
+  color: var(--danger);
+}
+
+/* ---- Dashboard: sections (Monitoring / Ward / MB / Reminders / Tasks) ---- */
+body.theme-play .ov-mf-row,
+body.theme-play .ov-grid {
+  gap: 8px;
+}
+body.theme-play .ov-card {
+  min-height: 0;
+  padding: 24px;
+  border-radius: 12px;
+  background: var(--play-tonal);
+}
+body.theme-play .ov-card .card-head h2,
+body.theme-play .ov-card .card-head h3,
+body.theme-play .ov-mf-titles > :first-child {
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text);
+}
+body.theme-play .ov-card .sub {
+  font-size: 13px;
+  color: var(--text-2);
+}
+body.theme-play .ov-mf-tile {
+  border-radius: 12px;
+  background: #fff;
+  border: none;
+  box-shadow: none;
+  padding: 14px 16px;
+  text-align: left;
+}
+body.theme-play .ov-mf-tile:not(:disabled):hover {
+  background: var(--play-hover);
+}
+body.theme-play .ov-mf-tile::before {
+  display: none;
+}
+body.theme-play .ov-mf-tile-ic {
+  border-radius: 50%;
+  background: var(--play-tonal);
+  color: var(--text-2);
+}
+body.theme-play .ov-mf-tile-label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-2);
+}
+body.theme-play .ov-mf-tile-no {
+  font-size: 24px;
+  font-weight: 400;
+  color: var(--text);
+}
+body.theme-play .ov-mf-tile-pct,
+body.theme-play .ov-status-chip {
+  border-radius: 8px;
+  font-weight: 500;
+}
+body.theme-play .ov-mf-tile::after {
+  display: none;
+}
+body.theme-play .ov-mb-list li,
+body.theme-play .ov-task-list li {
+  border-radius: 8px;
+  background: #fff;
+  border: none;
+}
+body.theme-play .ov-reminder-title {
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--text);
+}
+
+/* ---- Works List: summary tiles ---- */
+body.theme-play .wl-workspace {
+  gap: 16px;
+}
+body.theme-play .wl-stats {
+  gap: 8px;
+}
+body.theme-play .wl-stat {
+  background: var(--play-tonal);
+  border: none;
+  border-radius: 12px;
+  box-shadow: none;
+  padding: 16px 20px;
+  gap: 4px;
+}
+body.theme-play .wl-stat-label {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-2);
+}
+body.theme-play .wl-stat-value {
+  font-size: 28px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+body.theme-play .wl-stat-text {
+  font-size: 16px;
+  font-weight: 400;
+}
+body.theme-play .wl-stat-action:hover {
+  background: var(--play-hover);
+}
+body.theme-play .wl-stat-action.warn {
+  background: var(--danger-bg);
+}
+body.theme-play .wl-stat-action.ok .wl-stat-value {
+  color: var(--ok);
+}
+
+/* ---- Works List: Material underline tabs + flat panel ---- */
+body.theme-play .wl-shell {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+body.theme-play .wl-tabbar {
+  gap: 0;
+  padding: 0;
+  background: transparent;
+  border-bottom: 1px solid var(--border-strong);
+}
+body.theme-play .wl-tab {
+  min-height: 56px;
+  padding: 0 24px;
+  border-radius: 0;
+  border-bottom: 3px solid transparent;
+  color: var(--text-2);
+}
+body.theme-play .wl-tab:hover {
+  background: var(--play-tonal);
+  color: var(--text);
+}
+body.theme-play .wl-tab.active {
+  background: transparent;
+  color: #0b57d0;
+  border-bottom-color: #0b57d0;
+}
+body.theme-play .wl-tab.active .wl-tab-ic,
+body.theme-play .wl-tab.active .wl-tab-label {
+  color: #0b57d0;
+}
+body.theme-play .wl-tab-label {
+  font-weight: 500;
+}
+body.theme-play .wl-panel {
+  background: transparent;
+}
+body.theme-play .wl-panel table.sheet th {
+  background: var(--play-tonal);
+  border-bottom: 1px solid var(--border-strong);
+  border-right: none;
+  box-shadow: none;
+}
+body.theme-play .wl-panel .col-name {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-2);
+}
+body.theme-play .wl-panel table.sheet td {
+  border-right: none;
+  border-bottom: 1px solid var(--border);
+}
+body.theme-play .wl-panel table.sheet tbody tr:hover td {
+  background: var(--play-tonal);
+}
+body.theme-play .wl-panel table.sheet .rownum,
+body.theme-play .wl-panel table.sheet tbody tr:hover td.rownum {
+  background: var(--play-tonal);
+  border-right: none;
+  color: var(--muted);
+}
+body.theme-play .wl-panel .sheet-inline .sheet-wrap {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+/* ---- Play: .doc-tabs sub-page switchers (Issue Intimation / Evaluation
+   Sheet etc.) become Material primary tabs: flat row, hairline underneath,
+   active tab blue with a 3px underline — no pills, no green outline. ---- */
+body.theme-play .doc-tabs {
+  display: flex;
+  gap: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-strong);
+  border-radius: 0;
+  box-shadow: none;
+}
+body.theme-play .doc-tab,
+body.theme-play .doc-tab:hover:not(:disabled),
+body.theme-play .doc-tab.active {
+  min-height: 48px;
+  padding: 0 24px;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 500;
+}
+body.theme-play .doc-tab:hover:not(:disabled) {
+  background: var(--play-tonal);
+  color: var(--text);
+}
+body.theme-play .doc-tab.active {
+  color: #0b57d0;
+  border-bottom-color: #0b57d0;
+}
+body.theme-play .doc-tab:focus-visible {
+  background: var(--play-tonal);
+}
+
+/* ---- Play: upload areas. The striped dashed .empty dropzone becomes a plain
+   tonal block, and upload buttons are Material "filled tonal" (light-blue
+   fill, dark-blue text) instead of the solid dark-blue primary. ---- */
+body.theme-play .empty {
+  background: var(--play-tonal);
+  border: none;
+  border-radius: 12px;
+  color: var(--text-2);
+}
+body.theme-play .empty svg {
+  color: var(--text-2);
+}
+body.theme-play button.upload-btn,
+body.theme-play button.primary.upload-btn {
+  background: var(--play-active);
+  border: none;
+  color: #001d35;
+  font-weight: 500;
+  min-height: 40px;
+  height: auto;
+  padding: 8px 24px;
+  border-radius: 24px;
+  box-shadow: none;
+}
+body.theme-play button.upload-btn:hover:not(:disabled) {
+  background: #a8d8f5;
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.3);
+}
+body.theme-play button.upload-btn:disabled {
+  background: rgba(31, 31, 31, 0.12);
+  color: rgba(31, 31, 31, 0.38);
+  box-shadow: none;
+}
+body.theme-play button.upload-btn svg {
+  color: inherit;
+}
+
+/* ---- Play: row tiles in one grid row share the tallest tile's height
+   (the base tools-grid top-aligns them, which left unequal heights). ---- */
+body.theme-play .tools-grid,
+body.theme-play .notice-kind-grid {
+  align-items: stretch;
+}
+body.theme-play .tools-grid .tool-card:has(.tool-card-ic),
+body.theme-play .notice-kind-grid .tool-card {
+  height: auto;
+  align-self: stretch;
+}
+
+/* ---- Play: Settings. Each settings section is one tonal block (the
+   console's collapsible "Play apps settings" rows): circular gray icon,
+   24px/400 title, chevron at the right; nested items are white rows. ---- */
+body.theme-play .card:has(> .card-head),
+body.theme-play .card:has(.active-devices-list) {
+  background: var(--play-tonal);
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 8px;
+}
+body.theme-play .card:has(.ov-card),
+body.theme-play .card:has(> .tools-grid),
+body.theme-play .card:has(.wl-workspace) {
+  background: transparent;
+  padding: 0;
+}
+body.theme-play .card-head .head-ic {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #fff;
+  border: none;
+  color: var(--text-2);
+}
+body.theme-play .card-head .head-ic svg {
+  width: 22px;
+  height: 22px;
+}
+body.theme-play .card-head h2,
+body.theme-play .settings-template-section-title {
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text);
+}
+body.theme-play .card-head .sub,
+body.theme-play .settings-template-section .sub {
+  font-size: 14px;
+  color: var(--text-2);
+}
+body.theme-play .settings-section-chevron {
+  width: 22px;
+  height: 22px;
+  color: var(--text-2);
+}
+body.theme-play .settings-section-current {
+  background: var(--play-active);
+  color: #001d35;
+  font-weight: 500;
+  border-radius: 8px;
+}
+body.theme-play .settings-template-section {
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--border-strong);
+  margin-top: 12px;
+}
+body.theme-play .settings-section-preview-btn {
+  background: #fff;
+  border: none;
+}
+body.theme-play .settings-section-preview-btn:hover:not(:disabled) {
+  background: #0b57d0;
+  color: #fff;
+}
+body.theme-play .settings-tile-selected {
+  background: #0b57d0;
+  border-radius: 8px;
+}
+body.theme-play .wo-tile.on {
+  background: #fff;
+  border: 2px solid #0b57d0;
+  box-shadow: none;
+}
+body.theme-play .settings-theme-preview {
+  background: #fff;
+}
+body.theme-play .settings-theme-desc {
+  color: var(--text-2);
+}
+body.theme-play .active-device-row {
+  background: #fff;
+  border: none;
+  border-radius: 12px;
+}
+body.theme-play .active-device-tag {
+  background: var(--play-active);
+  color: #001d35;
+  border-radius: 8px;
+  font-weight: 500;
+}
+body.theme-play .active-device-meta {
+  color: var(--text-2);
+}
+body.theme-play .active-device-logout {
+  border-radius: 999px;
+}
+
+/* ---- Play: Settings collapsible headers are <button>s, so the global Play
+   button rule (outline, pill, 24px padding, 40px min-height) was drawing
+   rings around them. They are plain clickable rows here. ---- */
+body.theme-play button.settings-section-toggle,
+body.theme-play button.settings-section-toggle:hover:not(:disabled),
+body.theme-play button.settings-section-toggle:active:not(:disabled) {
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font-weight: 400;
+}
+body.theme-play .settings-section-head {
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+}
+body.theme-play .settings-section-toggle-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+body.theme-play .settings-section-toggle-titles h3,
+body.theme-play .settings-section-toggle-titles h2 {
+  margin: 0;
+}
+body.theme-play .settings-section-toggle-titles .sub {
+  margin: 0;
+}
+body.theme-play .settings-card-head-toggle {
+  padding: 0;
+}
+body.theme-play button.settings-section-preview-btn {
+  min-height: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+body.theme-play .settings-template-tiles {
+  padding-top: 8px;
+}
+body.theme-play button.active-device-logout {
+  min-height: 36px;
+  padding: 0 16px;
+  background: #fff;
+}
+
+/* The Play 40px/24px button rule uses a long :not() chain (very high
+   specificity), so the header-button reset needs !important to win. */
+body.theme-play button.settings-section-toggle {
+  padding: 0 !important;
+  min-height: 0 !important;
+}
+body.theme-play button.settings-section-preview-btn {
+  padding: 0 !important;
+  min-height: 0 !important;
+}
+
+/* ---- Play: upload buttons are white outlined pills (no colored fill). ---- */
+body.theme-play button.upload-btn,
+body.theme-play button.primary.upload-btn {
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  color: #0b57d0;
+}
+body.theme-play button.upload-btn:hover:not(:disabled),
+body.theme-play button.primary.upload-btn:hover:not(:disabled) {
+  background: #f8fafd;
+  border-color: #0b57d0;
+  box-shadow: none;
+}
+body.theme-play button.upload-btn:disabled {
+  background: #fff;
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+/* ---- Play: upload buttons = the standard primary button (same solid blue
+   as "Download all documents"); the dropzone's gray block is removed. ---- */
+body.theme-play .empty {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+body.theme-play button.upload-btn,
+body.theme-play button.primary.upload-btn {
+  background: #0b57d0;
+  border: 1px solid #0b57d0;
+  color: #fff;
+}
+body.theme-play button.upload-btn:hover:not(:disabled),
+body.theme-play button.primary.upload-btn:hover:not(:disabled) {
+  background: #0842a0;
+  border-color: #0842a0;
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.3);
+}
+body.theme-play button.upload-btn:disabled {
+  background: rgba(31, 31, 31, 0.12);
+  border-color: transparent;
+  color: rgba(31, 31, 31, 0.38);
+}
+
+/* ============================================================
+   Play: Issue Documents redo.
+   Transparent page section; a white-field "Work" picker; batch actions as a
+   Material segmented button + filled/text buttons; a tonal select bar; and a
+   grid of tonal document cards (white page thumbnail, title, date).
+   ============================================================ */
+body.theme-play .card:has(> .doc-tile-grid),
+body.theme-play .card:has(.doc-tile-grid):has(.doc-work-picker) {
+  background: transparent;
+  padding: 0;
+}
+body.theme-play .doc-work-picker {
+  background: var(--play-tonal);
+  border: none;
+  border-radius: 12px;
+  padding: 12px 16px;
+  gap: 12px;
+}
+body.theme-play .doc-work-picker-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+body.theme-play .doc-work-search,
+body.theme-play .doc-work-select {
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: none;
+}
+body.theme-play .doc-work-search:focus-within {
+  border-color: #0b57d0;
+  box-shadow: 0 0 0 1px #0b57d0;
+}
+body.theme-play .doc-work-search input,
+body.theme-play .doc-work-search input:focus,
+body.theme-play .doc-work-search input:hover {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+body.theme-play .doc-work-select {
+  padding: 0 16px;
+  min-height: 40px;
+}
+
+/* batch actions: Word | PDF | Print as a Material segmented button */
+body.theme-play .gen-output-modes {
+  display: inline-flex;
+  gap: 0;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  overflow: hidden;
+  box-shadow: none;
+}
+body.theme-play .gen-output-modes .seg {
+  min-height: 40px;
+  padding: 0 18px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--text-2);
+  font-weight: 500;
+  box-shadow: none;
+}
+body.theme-play .gen-output-modes .seg + .seg {
+  border-left: 1px solid var(--border-strong);
+}
+body.theme-play .gen-output-modes .seg:hover:not(:disabled) {
+  background: var(--play-tonal);
+}
+body.theme-play .gen-output-modes .seg.active {
+  background: var(--play-active);
+  color: #001d35;
+}
+body.theme-play .doc-batch-actions {
+  gap: 8px;
+  padding: 12px 0;
+}
+
+/* select bar */
+body.theme-play .doc-select-bar {
+  background: var(--play-tonal);
+  border: none;
+  border-radius: 12px;
+  padding: 8px 16px;
+  margin: 8px 0 16px;
+}
+body.theme-play .doc-select-all,
+body.theme-play .doc-select-hint {
+  color: var(--text-2);
+}
+body.theme-play .doc-select-bar button {
+  background: #fff;
+}
+
+/* document cards */
+body.theme-play .doc-tile-grid:not(.tools-grid) {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+  margin-top: 0;
+}
+body.theme-play .doc-tile-grid:not(.tools-grid) .doc-tile-card {
+  padding: 16px 16px 20px;
+  gap: 6px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+body.theme-play .doc-tile-card .doc-tile-thumb,
+body.theme-play .doc-tile-card canvas,
+body.theme-play .doc-tile-card .thumb-img {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.2);
+}
+body.theme-play .doc-tile-card-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+}
+body.theme-play .doc-tile-card-meta {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+body.theme-play .doc-tile-card > .doc-tile-check {
+  top: 10px;
+  left: 10px;
+  background: #fff;
+  border: none;
+  border-radius: 8px;
+  box-shadow: none;
+}
+body.theme-play .doc-tile-check input {
+  accent-color: #0b57d0;
+}
+body.theme-play .doc-tile-card.selected {
+  background: var(--play-active);
+  border: none;
+  box-shadow: none;
+}
+body.theme-play .doc-tile-card.drag-over {
+  outline: 2px dashed #0b57d0;
+}
+body.theme-play .doc-tile-card > .doc-preview-cta {
+  background: #fff;
+  color: #0b57d0;
+  box-shadow: none;
+  border-radius: 999px;
+}
+
+/* Works List → Monitoring Format status tiles are buttons (click = PDF download). */
+.mf-stat-btn {
+  font: inherit;
+  cursor: pointer;
+  text-align: center;
+  flex-direction: column;
+  justify-content: center;
+}
+.mf-stat-btn:disabled {
+  cursor: default;
+}
+body.theme-play .mf-stat-btn,
+body.theme-play .mf-stat-btn:disabled {
+  min-height: 0;
+  padding: 12px 8px;
+  border: none;
+  border-radius: 12px;
+  background: var(--play-tonal);
+  color: var(--text);
+  opacity: 1;
+}
+body.theme-play .mf-stat-btn:hover:not(:disabled) {
+  background: var(--play-hover);
+}
+
+/* Works List sheet under the Play theme: the theme's global input/textarea/button rules (white boxed fields,
+   pill buttons) must not apply to the spreadsheet cells — they stay flat like a sheet, with the small
+   square column/row delete buttons. */
+body.theme-play .wl-panel table.sheet td input,
+body.theme-play .wl-panel table.sheet td textarea {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+body.theme-play .wl-panel table.sheet td input:hover,
+body.theme-play .wl-panel table.sheet td textarea:hover {
+  background: transparent !important;
+}
+body.theme-play .wl-panel table.sheet td input:focus,
+body.theme-play .wl-panel table.sheet td textarea:focus {
+  background: var(--surface) !important;
+  outline: 2px solid var(--indigo-500);
+  outline-offset: -2px;
+  box-shadow: none !important;
+}
+body.theme-play .wl-panel table.sheet th input.col-name {
+  background: transparent !important;
+  border-radius: var(--radius-sm) !important;
+  box-shadow: none !important;
+}
+body.theme-play .wl-panel table.sheet th input.col-name:hover,
+body.theme-play .wl-panel table.sheet th input.col-name:focus {
+  background: var(--surface) !important;
+}
+body.theme-play .wl-panel table.sheet button.col-del,
+body.theme-play .wl-panel table.sheet button.col-add,
+body.theme-play .wl-panel table.sheet td.rowdel button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  min-height: 0;
+}
+body.theme-play .wl-panel table.sheet button.col-add {
+  background: var(--indigo-50);
+}
+body.theme-play .wl-panel table.sheet button.col-del:hover:not(:disabled),
+body.theme-play .wl-panel table.sheet td.rowdel button:hover:not(:disabled) {
+  background: var(--danger-bg);
 }

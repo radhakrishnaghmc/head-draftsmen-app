@@ -20,6 +20,7 @@ export function normalizeTenderConditions(raw: unknown): Record<string, TenderCo
       if (typeof e.workName === 'string') out[id].workName = e.workName
       if (typeof e.ecv === 'number') out[id].ecv = e.ecv
       if (typeof e.officeKey === 'string') out[id].officeKey = e.officeKey
+      if (typeof e.sharedBy === 'string') out[id].sharedBy = e.sharedBy
       if (typeof e.savedAt === 'number') out[id].savedAt = e.savedAt
     }
   }
@@ -74,6 +75,7 @@ export function cleanTenderConditionsForCloud(map: Record<string, TenderConditio
     if (typeof e.workName === 'string') clean.workName = e.workName
     if (typeof e.ecv === 'number') clean.ecv = e.ecv
     if (typeof e.officeKey === 'string') clean.officeKey = e.officeKey
+    if (typeof e.sharedBy === 'string') clean.sharedBy = e.sharedBy
     if (typeof e.savedAt === 'number') clean.savedAt = e.savedAt
     out[id] = clean
   }
