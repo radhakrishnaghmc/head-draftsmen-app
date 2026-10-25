@@ -33,6 +33,10 @@ export interface ExcelTable {
   id: string
   name: string
   path: string
+  /** Export as a print-ready sheet: wrapped text, auto-fit row heights, borders, landscape fit-to-width, repeating header row. */
+  printReady?: boolean
+  /** Export as the Monitoring Format Abstract laid out like its PDF (merged headings) — `title` is the sheet's title bar. */
+  abstractLayout?: { summary: MonitoringFormatSummary; title: string }
   headers: string[]
   /**
    * When the table was imported from a sheet: that sheet's own columns, in the

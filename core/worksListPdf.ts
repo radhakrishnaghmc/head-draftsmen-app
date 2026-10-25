@@ -235,9 +235,9 @@ async function renderWorksList(opts: WorksListPdfOpts): Promise<{ bytes: Uint8Ar
 // ---- Monitoring Format "Abstract": drawn to look like the online sheet (Times, black grid, merged headings) ----
 
 /** Excel column widths of the sheet's Abstract (A = item type / ward, then No. + Amt pairs); the PDF keeps the same proportions. */
-const ABSTRACT_COL_UNITS = [34, 9, 13, ...Array<number>(20).fill(9)]
+export const ABSTRACT_COL_UNITS = [34, 9, 13, ...Array<number>(20).fill(9)]
 
-const ABSTRACT_GROUP_KEYS: (keyof Omit<MonitoringFormatRow, 'itemType'>)[] = [
+export const ABSTRACT_GROUP_KEYS: (keyof Omit<MonitoringFormatRow, 'itemType'>)[] = [
   'totalWorks',
   'completed',
   'upto25',
@@ -252,7 +252,7 @@ const ABSTRACT_GROUP_KEYS: (keyof Omit<MonitoringFormatRow, 'itemType'>)[] = [
 ]
 
 /** A number the way the sheet shows it: no thousands separators, at most two decimals, no trailing zeros. */
-function sheetNumber(n: number): string {
+export function sheetNumber(n: number): string {
   return String(Math.round((Number.isFinite(n) ? n : 0) * 100) / 100)
 }
 

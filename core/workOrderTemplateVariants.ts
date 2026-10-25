@@ -36,7 +36,13 @@ export function variantsForCorporation(variants: TemplateVariantOption[], corpor
 }
 
 /** A saved variant pick, or undefined when it's another corporation's logo header (a stale choice). */
-export function variantForCorporation(variantId: string | undefined, corporation: string | undefined): string | undefined {
+export function variantForCorporation(
+  variantId: string | undefined,
+  corporation: string | undefined,
+  /** The document's current variants: a saved pick no longer in this list (a retired template) falls back to the corporation's own. */
+  validVariants?: TemplateVariantOption[]
+): string | undefined {
+  if (variantId && validVariants && !validVariants.some((v) => v.id === variantId)) return corporationDefaultVariant(corporation, undefined)
   if (!variantId || !CORPORATION_VARIANT_ID_SET.has(variantId)) return variantId
   return variantId === (corporation ? CORPORATION_VARIANT_IDS[corporation] : undefined) ? variantId : undefined
 }
@@ -54,9 +60,9 @@ export function zonalTemplateVariant(variantId: string | undefined): string | un
   return variantId === 'header2' || (variantId && CORPORATION_VARIANT_ID_SET.has(variantId)) ? variantId : undefined
 }
 
+// Work Order types 1-2, File Backer types 1-2, Tender Document types 1-2, Intimation / Notice / QC Intimation type 1
+// are retired: their .docx files live in legacy-templates/ (not bundled with the app). Remaining types keep their numbers.
 export const WORK_ORDER_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
-  { id: 'default', label: 'Work Order type 1' },
-  { id: 'kompally', label: 'Work Order type 2' },
   { id: 'header2', label: 'Work Order type 3' },
   // Corporation-only: type 3's layout with that corporation's horizontal logo as the whole header (types 4-6).
   { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Work Order type 4 (MMC)' },
@@ -64,23 +70,24 @@ export const WORK_ORDER_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
   { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Work Order type 6 (GHMC)' }
 ]
 
-export const DEFAULT_WORK_ORDER_TEMPLATE_VARIANT = 'default'
+export const DEFAULT_WORK_ORDER_TEMPLATE_VARIANT = 'header2'
 
 /**
  * SE (zone-level) Concluding Agreement and Memo to EE: the default letterhead,
  * or the logo header shared with Work Order type 3 ("header2") — body text is
  * identical. Resolved in electron/main.ts.
  */
+/** Concluding Agreement types 1 and 3 are retired (legacy-templates/); an office with no corporation header gets the CMC one. */
+export const DEFAULT_CONCLUDING_AGREEMENT_TEMPLATE_VARIANT = CMC_WORK_ORDER_TEMPLATE_VARIANT
 export const CONCLUDING_AGREEMENT_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
-  { id: 'default', label: 'Concluding Agreement type 1' },
-  { id: 'header2', label: 'Concluding Agreement type 3' },
   // MMC-only: the horizontal Malkajgiri Municipal Corporation logo header (Work Order type 4).
   { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Concluding Agreement type 4 (MMC)' },
   { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Concluding Agreement type 5 (CMC)' },
   { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Concluding Agreement type 6 (GHMC)' }
 ]
+/** Memo to EE type 1 is retired (legacy-templates/); an office with no pick and no corporation header gets type 3. */
+export const DEFAULT_MEMO_EE_TEMPLATE_VARIANT = 'header2'
 export const MEMO_EE_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
-  { id: 'default', label: 'Memo to EE type 1' },
   { id: 'header2', label: 'Memo to EE type 3' },
   { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Memo to EE type 4 (MMC)' },
   { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Memo to EE type 5 (CMC)' },
@@ -97,8 +104,7 @@ export const MEMO_EE_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
  */
 export function workOrderTemplateFileName(variantId: string | undefined): string {
   const found = WORK_ORDER_TEMPLATE_VARIANTS.find((v) => v.id === variantId)
-  if (!found || found.id === DEFAULT_WORK_ORDER_TEMPLATE_VARIANT) return 'work-order-template.docx'
-  return `work-order-template-${found.id}.docx`
+  return `work-order-template-${found?.id ?? DEFAULT_WORK_ORDER_TEMPLATE_VARIANT}.docx`
 }
 
 /**
@@ -129,7 +135,6 @@ export function agreementTemplateFileName(variantId: string | undefined): string
  * CMC logo) instead of the app's own plain-text "{{Corp Full Caps}}" header.
  */
 export const INTIMATION_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
-  { id: 'default', label: 'Intimation template 1' },
   { id: '2', label: 'Intimation template 2' },
   // Corporation-only: template 2's body with that corporation's horizontal logo as the whole header (Work Order types 4-6).
   { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Intimation template 3 (MMC)' },
@@ -137,13 +142,12 @@ export const INTIMATION_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
   { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Intimation template 5 (GHMC)' }
 ]
 
-export const DEFAULT_INTIMATION_TEMPLATE_VARIANT = 'default'
+export const DEFAULT_INTIMATION_TEMPLATE_VARIANT = '2'
 
 /** Same naming convention as workOrderTemplateFileName, for intimation-template*.docx. */
 export function intimationTemplateFileName(variantId: string | undefined): string {
   const found = INTIMATION_TEMPLATE_VARIANTS.find((v) => v.id === variantId)
-  if (!found || found.id === DEFAULT_INTIMATION_TEMPLATE_VARIANT) return 'intimation-template.docx'
-  return `intimation-template-${found.id}.docx`
+  return `intimation-template-${found?.id ?? DEFAULT_INTIMATION_TEMPLATE_VARIANT}.docx`
 }
 
 /**
@@ -152,19 +156,18 @@ export function intimationTemplateFileName(variantId: string | undefined): strin
  * that corporation's logo header over the original wording.
  */
 export const NOTICE_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
-  { id: 'default', label: 'Notice template 1' },
   { id: '2', label: 'Notice template 2' },
   { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Notice template 3 (MMC)' },
   { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Notice template 4 (CMC)' },
   { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Notice template 5 (GHMC)' }
 ]
 
-export const DEFAULT_NOTICE_TEMPLATE_VARIANT = 'default'
+export const DEFAULT_NOTICE_TEMPLATE_VARIANT = '2'
 
-/** Filename suffix for issue-notice[-ee]-template*.docx: '' for the default, else '-<variant id>'. */
+/** Filename suffix for issue-notice[-ee]-template*.docx: '-<variant id>' (an unknown id gets the default's). */
 export function noticeTemplateSuffix(variantId: string | undefined): string {
   const found = NOTICE_TEMPLATE_VARIANTS.find((v) => v.id === variantId)
-  return !found || found.id === DEFAULT_NOTICE_TEMPLATE_VARIANT ? '' : `-${found.id}`
+  return `-${found?.id ?? DEFAULT_NOTICE_TEMPLATE_VARIANT}`
 }
 
 /**
@@ -173,19 +176,17 @@ export function noticeTemplateSuffix(variantId: string | undefined): string {
  * corporation's horizontal logo header (Work Order types 4-6) — corporation-only, like the others.
  */
 export const QC_INTIMATION_COMPLETION_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
-  { id: 'default', label: 'QC Intimation/Completion type 1' },
   { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'QC Intimation/Completion type 2 (MMC)' },
   { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'QC Intimation/Completion type 2 (CMC)' },
   { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'QC Intimation/Completion type 2 (GHMC)' }
 ]
 
-export const DEFAULT_QC_INTIMATION_COMPLETION_TEMPLATE_VARIANT = 'default'
+export const DEFAULT_QC_INTIMATION_COMPLETION_TEMPLATE_VARIANT = CMC_WORK_ORDER_TEMPLATE_VARIANT
 
 /** Same naming convention as workOrderTemplateFileName, for qc-intimation-completion-template*.docx. */
 export function qcIntimationCompletionTemplateFileName(variantId: string | undefined): string {
   const found = QC_INTIMATION_COMPLETION_TEMPLATE_VARIANTS.find((v) => v.id === variantId)
-  if (!found || found.id === DEFAULT_QC_INTIMATION_COMPLETION_TEMPLATE_VARIANT) return 'qc-intimation-completion-template.docx'
-  return `qc-intimation-completion-template-${found.id}.docx`
+  return `qc-intimation-completion-template-${found?.id ?? DEFAULT_QC_INTIMATION_COMPLETION_TEMPLATE_VARIANT}.docx`
 }
 
 /**
@@ -196,21 +197,18 @@ export function qcIntimationCompletionTemplateFileName(variantId: string | undef
  * Intimation "header2"/"2" variants.
  */
 export const FILE_BACKER_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
-  { id: 'default', label: 'File Backer type 1' },
-  { id: 'header2', label: 'File Backer type 2' },
   // MMC-only: the horizontal Malkajgiri Municipal Corporation logo header (Work Order type 4).
   { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'File Backer type 3 (MMC)' },
   { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'File Backer type 4 (CMC)' },
   { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'File Backer type 5 (GHMC)' }
 ]
 
-export const DEFAULT_FILE_BACKER_TEMPLATE_VARIANT = 'default'
+export const DEFAULT_FILE_BACKER_TEMPLATE_VARIANT = CMC_WORK_ORDER_TEMPLATE_VARIANT
 
 /** Same naming convention as workOrderTemplateFileName, for file-backer-template*.docx. */
 export function fileBackerTemplateFileName(variantId: string | undefined): string {
   const found = FILE_BACKER_TEMPLATE_VARIANTS.find((v) => v.id === variantId)
-  if (!found || found.id === DEFAULT_FILE_BACKER_TEMPLATE_VARIANT) return 'file-backer-template.docx'
-  return `file-backer-template-${found.id}.docx`
+  return `file-backer-template-${found?.id ?? DEFAULT_FILE_BACKER_TEMPLATE_VARIANT}.docx`
 }
 
 /**
@@ -220,19 +218,16 @@ export function fileBackerTemplateFileName(variantId: string | undefined): strin
  * default plain-text "{{Corp Full}}" heading.
  */
 export const CIVIL_TENDER_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
-  { id: 'default', label: 'Tender Document type 1' },
-  { id: 'header2', label: 'Tender Document type 2' },
   // CMC-only: the horizontal CMC logo header (Work Order type 5) on the Forwarding Slip and NIT pages.
   { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Tender Document type 3 (CMC)' },
   { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Tender Document type 4 (MMC)' },
   { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Tender Document type 5 (GHMC)' }
 ]
 
-export const DEFAULT_CIVIL_TENDER_TEMPLATE_VARIANT = 'default'
+export const DEFAULT_CIVIL_TENDER_TEMPLATE_VARIANT = CMC_WORK_ORDER_TEMPLATE_VARIANT
 
 /** Same naming convention as workOrderTemplateFileName, for civil-tender-template*.docx. */
 export function civilTenderTemplateFileName(variantId: string | undefined): string {
   const found = CIVIL_TENDER_TEMPLATE_VARIANTS.find((v) => v.id === variantId)
-  if (!found || found.id === DEFAULT_CIVIL_TENDER_TEMPLATE_VARIANT) return 'civil-tender-template.docx'
-  return `civil-tender-template-${found.id}.docx`
+  return `civil-tender-template-${found?.id ?? DEFAULT_CIVIL_TENDER_TEMPLATE_VARIANT}.docx`
 }

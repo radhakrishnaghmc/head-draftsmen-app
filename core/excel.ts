@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import * as XLSX from 'xlsx'
+import * as ExcelJS from 'exceljs'
 import type { ExcelTable } from './types'
 import { buildTableFromGrid, guessHeaderRow, type SheetGrid } from './sheet'
 
@@ -164,4 +165,34 @@ export function buildWorkbookBuffer(table: ExcelTable): Buffer {
   // Excel sheet names cap at 31 chars.
   XLSX.utils.book_append_sheet(workbook, sheet, (table.name || 'Sheet1').slice(0, 31))
   return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+}
+
+/**
+ * A print-ready workbook: every cell wraps and rows are left without a fixed height so Excel/LibreOffice
+ * auto-fit them to the wrapped text; thin borders, bold repeating header row, Legal landscape fitted to one page wide.
+ */
+export async function buildPrintReadyWorkbookBuffer(table: ExcelTable): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet((table.name || 'Sheet1').slice(0, 31), {
+    pageSetup: { orientation: 'landscape', paperSize: 5, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 } }
+  })
+  const data = [table.headers, ...table.rows.map((row) => table.headers.map((h) => row[h] ?? ''))]
+  data.forEach((r) => ws.addRow(r))
+  // Column width from the longest word / typical line, so wrapped text stays readable without huge columns.
+  ws.columns = table.headers.map((_, c) => {
+    const longest = Math.max(...data.map((r) => String(r[c] ?? '').length), 4)
+    const longestWord = Math.max(...data.map((r) => Math.max(...String(r[c] ?? '').split(/\s+/).map((w) => w.length), 0)), 4)
+    return { width: Math.min(Math.max(Math.min(longest, 45) + 2, longestWord + 2, 6), 60) }
+  })
+  const border = { style: 'thin' as const, color: { argb: 'FF000000' } }
+  ws.eachRow((row, i) => {
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      cell.alignment = { wrapText: true, vertical: 'middle', horizontal: i === 1 ? 'center' : undefined }
+      cell.border = { top: border, left: border, bottom: border, right: border }
+      if (i === 1) cell.font = { bold: true }
+    })
+  })
+  ws.views = [{ state: 'frozen', ySplit: 1 }]
+  ws.pageSetup.printTitlesRow = '1:1'
+  return Buffer.from(await wb.xlsx.writeBuffer())
 }

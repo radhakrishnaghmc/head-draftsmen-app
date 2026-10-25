@@ -1,3 +1,4 @@
+import { SELECTED_ROW_MARK } from '../selectedRowMark'
 import { PRICE_ROW, isNameContinuation, prevNonEmptyLine, toNumber } from './shared'
 
 export interface PriceBidRow {
@@ -21,6 +22,13 @@ export interface PriceBidRow {
  * logic lives; each agent below just asks it for its own field.
  */
 export function findL1BidRow(lines: string[]): PriceBidRow | undefined {
+  // Tied L-1s: the portal ticks the department's chosen bidder, and the PDF
+  // reader tags that row's line with SELECTED_ROW_MARK. Only that agency counts.
+  const selected = lines.findIndex((l) => l.includes(SELECTED_ROW_MARK) && PRICE_ROW.test(l))
+  return scanL1Rows(lines, selected >= 0 ? selected : 0, selected >= 0)
+}
+
+function scanL1Rows(lines: string[], from: number, onlyThis: boolean): PriceBidRow | undefined {
   // The numeric core is "<ECV> <Less|Excess> <pct> <amount> L-<rank>". The
   // bidder's company name is usually on the same line just before it, but a
   // long name wraps onto its own line(s), with the number cells landing on a
@@ -29,7 +37,7 @@ export function findL1BidRow(lines: string[]): PriceBidRow | undefined {
   // "3133583.00 Less 11.99 2757866.40 L-1" / "Contractor". So when the number
   // row carries no company prefix, take the name from the line above, plus
   // the line below when that's a name continuation.
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = from; i < (onlyThis ? from + 1 : lines.length); i++) {
     const line = lines[i].trim()
     const m = PRICE_ROW.exec(line)
     if (!m || Number(m[5]) !== 1) continue

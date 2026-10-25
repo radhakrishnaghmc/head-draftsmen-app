@@ -77,8 +77,6 @@ extraResources:
     to: bid-document-template.docx
   - from: resources/bid-document-se-template.docx
     to: bid-document-se-template.docx
-  - from: resources/intimation-template.docx
-    to: intimation-template.docx
   - from: resources/intimation-template-2.docx
     to: intimation-template-2.docx
   - from: resources/intimation-template-mmc.docx
@@ -93,10 +91,6 @@ extraResources:
     to: fonts/Carlito-Bold.ttf
   - from: resources/fonts/NotoSansTelugu-Regular.ttf
     to: fonts/NotoSansTelugu-Regular.ttf
-  - from: resources/work-order-template.docx
-    to: work-order-template.docx
-  - from: resources/work-order-template-kompally.docx
-    to: work-order-template-kompally.docx
   - from: resources/work-order-template-header2.docx
     to: work-order-template-header2.docx
   - from: resources/work-order-template-mmc.docx
@@ -111,10 +105,6 @@ extraResources:
     to: zonal-work-order-template-cmc.docx
   - from: resources/zonal-work-order-template-ghmc.docx
     to: zonal-work-order-template-ghmc.docx
-  - from: resources/file-backer-template.docx
-    to: file-backer-template.docx
-  - from: resources/file-backer-template-header2.docx
-    to: file-backer-template-header2.docx
   - from: resources/file-backer-template-mmc.docx
     to: file-backer-template-mmc.docx
   - from: resources/file-backer-template-cmc.docx
@@ -127,8 +117,6 @@ extraResources:
     to: agreement-template-kompally.docx
   - from: resources/qcc-intimation-template.docx
     to: qcc-intimation-template.docx
-  - from: resources/qc-intimation-completion-template.docx
-    to: qc-intimation-completion-template.docx
   - from: resources/qc-intimation-completion-template-mmc.docx
     to: qc-intimation-completion-template-mmc.docx
   - from: resources/qc-intimation-completion-template-cmc.docx
@@ -157,10 +145,6 @@ extraResources:
     to: ae-dyee-forwarding-template-ghmc.docx
   - from: resources/ae-dyee-forwarding-template-mmc.docx
     to: ae-dyee-forwarding-template-mmc.docx
-  - from: resources/civil-tender-template.docx
-    to: civil-tender-template.docx
-  - from: resources/civil-tender-template-header2.docx
-    to: civil-tender-template-header2.docx
   - from: resources/civil-tender-template-cmc.docx
     to: civil-tender-template-cmc.docx
   - from: resources/civil-tender-template-ghmc.docx
@@ -173,12 +157,6 @@ extraResources:
     to: zonal-work-order-template.docx
   - from: resources/zonal-work-order-template-header2.docx
     to: zonal-work-order-template-header2.docx
-  - from: resources/zonal-concluding-agreement-template.docx
-    to: zonal-concluding-agreement-template.docx
-  - from: resources/zonal-concluding-agreement-template-header2.docx
-    to: zonal-concluding-agreement-template-header2.docx
-  - from: resources/zonal-memo-ee-template.docx
-    to: zonal-memo-ee-template.docx
   - from: resources/zonal-memo-ee-template-header2.docx
     to: zonal-memo-ee-template-header2.docx
   - from: resources/zonal-concluding-agreement-template-mmc.docx
@@ -215,10 +193,6 @@ extraResources:
     to: ts-note-template.docx
   - from: resources/eligibility-criteria-template.docx
     to: eligibility-criteria-template.docx
-  - from: resources/issue-notice-template.docx
-    to: issue-notice-template.docx
-  - from: resources/issue-notice-ee-template.docx
-    to: issue-notice-ee-template.docx
   - from: resources/issue-notice-template-2.docx
     to: issue-notice-template-2.docx
   - from: resources/issue-notice-ee-template-2.docx

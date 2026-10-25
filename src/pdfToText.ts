@@ -1,6 +1,47 @@
+import { SELECTED_ROW_MARK } from '../core/selectedRowMark'
+
 interface TextItem {
   str: string
   transform: number[]
+  width?: number
+}
+
+
+/**
+ * When two or more bidders tie at L-1, the portal's price-bid table still
+ * shows every one as "L-1" and ticks the "Select" radio of the one the
+ * department picked — a purely graphical cue the text layer doesn't carry.
+ * Renders the page and looks for the blue (filled) radio under the "Select"
+ * header at each L-1 row; returns the y (PDF space) of the single ticked row,
+ * or undefined when the page has no tie or the tick can't be told apart.
+ */
+async function findSelectedTieRowY(page: any, items: TextItem[]): Promise<number | undefined> {
+  const l1 = items.filter((i) => i.str.trim() === 'L-1')
+  if (l1.length < 2) return undefined
+  const header = items.find((i) => i.str.trim() === 'Select')
+  if (!header) return undefined
+  const viewport = page.getViewport({ scale: 1 })
+  const canvas = document.createElement('canvas')
+  canvas.width = viewport.width
+  canvas.height = viewport.height
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return undefined
+  await page.render({ canvas, canvasContext: ctx, viewport }).promise
+  const cx = header.transform[4] + (header.width ?? 0) / 2
+  let best: { y: number; blue: number } | undefined
+  let hits = 0
+  for (const it of l1) {
+    const y = it.transform[5]
+    const [px, py] = viewport.convertToViewportPoint(cx, y + 4)
+    const img = ctx.getImageData(Math.max(0, Math.round(px) - 8), Math.max(0, Math.round(py) - 8), 17, 17).data
+    let blue = 0
+    for (let k = 0; k < img.length; k += 4) if (img[k + 2] > 200 && img[k] < 90 && img[k + 1] > 70 && img[k + 1] < 190) blue++
+    if (blue >= 6) {
+      hits++
+      if (!best || blue > best.blue) best = { y, blue }
+    }
+  }
+  return hits === 1 ? best!.y : undefined
 }
 
 /**
@@ -86,6 +127,16 @@ export async function pdfPagesToTextLinesFromData(
         if (!byRow.has(y)) byRow.set(y, [])
         byRow.get(y)!.push({ x: item.transform[4], s: item.str })
       }
+      // Tied L-1s: tag the row whose Select radio is ticked (best-effort — a
+      // render failure just leaves the page untagged, i.e. the old first-L-1 read).
+      let selectedY: number | undefined
+      try {
+        const sy = await findSelectedTieRowY(page, content.items as TextItem[])
+        if (sy != null) selectedY = Math.round(sy)
+      } catch {
+        selectedY = undefined
+      }
+      if (selectedY != null && byRow.has(selectedY)) byRow.get(selectedY)!.push({ x: Infinity, s: SELECTED_ROW_MARK })
       const lines: string[] = []
       for (const y of [...byRow.keys()].sort((a, b) => b - a)) {
         const line = byRow

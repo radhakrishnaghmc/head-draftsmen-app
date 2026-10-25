@@ -30,6 +30,7 @@ import SearchTender from './components/SearchTender'
 import Dashboard from './components/Dashboard'
 import OverviewDashboard from './components/OverviewDashboard'
 import MonitoringFormatCard from './components/MonitoringFormatCard'
+import PdfPreviewModal from './components/PdfPreviewModal'
 import { buildWorksListPdf, buildAbstractPdf } from '@core/worksListPdf'
 import { indianDigitGroups } from '@core/worksAmounts'
 import Skyline from './components/Skyline'
@@ -883,6 +884,13 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentOfficeKey, officeMonitoringFormat, officeMonitoringFormatWorks, monitoringFormatLinks])
 
+  // Monitoring Format PDFs open in a preview (with Print and Save PDF) instead of going straight to a save dialog.
+  const [pdfPreview, setPdfPreview] = useState<{ bytes: Uint8Array; fileName: string; onExcel?: () => Promise<unknown> } | null>(null)
+  function openPdfPreview(bytes: Uint8Array, fileName: string, onExcel?: () => Promise<unknown>): boolean {
+    setPdfPreview({ bytes, fileName, onExcel })
+    return true
+  }
+
   // Dashboard status tile click: download an Excel of just the works behind
   // that tile's count, pulled from the Monitoring Format workbook's "list of
   // works" sheet(s) rather than the Abstract (which only has totals).
@@ -928,6 +936,14 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
         /* keep the (empty) saved result */
       }
     }
+    const saveExcel = async (): Promise<boolean> => {
+      const { headers, rows } = worksTableForDownload(matches, works)
+      const fileName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} ${label} works list`
+        .replace(/\s+/g, ' ')
+        .trim()
+      const savedPath = await api.exportTable({ id: 'mf-status-works', printReady: true, name: label, path: '', headers, rows: rows.map((r) => Object.fromEntries(headers.map((h, c) => [h, r[c]]))) }, fileName)
+      return savedPath != null
+    }
     if (format === 'pdf') {
       const bytes = await buildWorksListPdf({
         title: `${key === 'all' ? 'All' : label} works of ${pdfCircleLabel}`,
@@ -940,14 +956,9 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       const pdfName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} ${label} works list.pdf`
         .replace(/\s+/g, ' ')
         .trim()
-      return (await api.savePdf(bytes, pdfName)) != null
+      return openPdfPreview(bytes, pdfName, saveExcel)
     }
-    const { headers, rows } = worksTableForDownload(matches, works)
-    const fileName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} ${label} works list`
-      .replace(/\s+/g, ' ')
-      .trim()
-    const savedPath = await api.exportTable({ id: 'mf-status-works', name: label, path: '', headers, rows: rows.map((r) => Object.fromEntries(headers.map((h, c) => [h, r[c]]))) }, fileName)
-    return savedPath != null
+    return saveExcel()
   }
   /** A downloaded works list, columns exactly as the Monitoring Format workbook lays them out; Sl.No runs 1..n (the sheet's own has gaps once filtered). */
   /** Columns left out of the PDFs (Circle is in the heading; Type of Work and WIN code aren't wanted). Same loose heading match the importer uses ("Name of Circle", "Type of Work (Category)", "WIN CODE" …). */
@@ -971,12 +982,12 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     : office.circle || office.zone || ''
   async function exportMonitoringFormatAbstract(): Promise<boolean> {
     if (!officeMonitoringFormat) return false
-    const bytes = await buildAbstractPdf(
-      officeMonitoringFormat,
-      `MONITORING FORMAT FOR WORKS IN ${(office.zone || office.circle || '').replace(/\s+zone$/i, '').toUpperCase()} ZONE ${office.corporation || ''}`.replace(/\s+/g, ' ').trim()
-    )
+    const abstractTitle = `MONITORING FORMAT FOR WORKS IN ${(office.zone || office.circle || '').replace(/\s+zone$/i, '').toUpperCase()} ZONE ${office.corporation || ''}`.replace(/\s+/g, ' ').trim()
+    const bytes = await buildAbstractPdf(officeMonitoringFormat, abstractTitle)
     const pdfName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} Abstract.pdf`.replace(/\s+/g, ' ').trim()
-    return (await api.savePdf(bytes, pdfName)) != null
+    return openPdfPreview(bytes, pdfName, () =>
+      api.exportTable({ id: 'mf-abstract', name: 'Abstract', path: '', headers: [], rows: [], abstractLayout: { summary: officeMonitoringFormat, title: abstractTitle } }, pdfName.replace(/\.pdf$/i, ''))
+    )
   }
   async function exportMonitoringFormatWardWorks(
     wardLabel: string,
@@ -1009,7 +1020,10 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       } · ${matches.length} work${matches.length === 1 ? '' : 's'}`,
       ...worksTableForDownload(matches, works, { dropPdfColumns: true })
     })
-    return (await api.savePdf(bytes, `${baseName}.pdf`)) != null
+    return openPdfPreview(bytes, `${baseName}.pdf`, async () => {
+      const { headers, rows } = worksTableForDownload(matches, works)
+      return api.exportTable({ id: 'mf-ward-works', printReady: true, name: wardLabel, path: '', headers, rows: rows.map((r) => Object.fromEntries(headers.map((h, c) => [h, r[c]]))) }, baseName)
+    })
   }
   function saveMonitoringFormatLink(url: string) {
     if (currentOfficeKey) setMonitoringFormatLinks((prev) => (prev[currentOfficeKey] === url ? prev : { ...prev, [currentOfficeKey]: url }))
@@ -1555,6 +1569,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   return (
     <>
       <Skyline />
+      {pdfPreview && <PdfPreviewModal bytes={pdfPreview.bytes} fileName={pdfPreview.fileName} onExcel={pdfPreview.onExcel} onClose={() => setPdfPreview(null)} />}
       <ProfileMenu username={loginId} onLogout={() => logoutRef.current()} onSync={syncNow} />
       <div className="shell">
       <Sidebar

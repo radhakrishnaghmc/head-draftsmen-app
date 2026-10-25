@@ -5,7 +5,7 @@ import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice
 import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { circleFromNit } from '@core/workOrderAgreement'
-import { variantForCorporation, corporationDefaultVariant } from '@core/workOrderTemplateVariants'
+import { variantForCorporation, corporationDefaultVariant, NOTICE_TEMPLATE_VARIANTS } from '@core/workOrderTemplateVariants'
 import {
   issueNoticePlaceholders,
   isNoticeOverdue,
@@ -438,7 +438,8 @@ function AgreementNotConcludedWorkspace({ office, worksTable, items, onChange, v
           ]
           const variant = variantForCorporation(
             localStorage.getItem(noticeVariantKey) ?? corporationDefaultVariant(office?.corporation, undefined),
-            office?.corporation
+            office?.corporation,
+            NOTICE_TEMPLATE_VARIANTS
           )
           const slots = await Promise.all(
             keys.map(async ([, isEe]) => {

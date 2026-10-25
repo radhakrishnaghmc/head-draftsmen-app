@@ -26,7 +26,8 @@ import {
   zonalTemplateVariant,
   civilTenderTemplateFileName
 } from '../core/workOrderTemplateVariants'
-import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer, readSheetPreviews } from '../core/excel'
+import { buildAbstractWorkbookBuffer } from '../core/abstractExcel'
+import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer, buildPrintReadyWorkbookBuffer, readSheetPreviews } from '../core/excel'
 import type { SheetPreview } from '../core/excel'
 import { recognizeImages } from './ocr'
 import { extractMbMeasurementSheet } from './mbMeasurementOcr'
@@ -609,7 +610,7 @@ function registerHandlers(): void {
         filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
       })
       if (result.canceled || !result.filePath) return null
-      fs.writeFileSync(result.filePath, buildWorkbookBuffer(table))
+      fs.writeFileSync(result.filePath, table.abstractLayout ? await buildAbstractWorkbookBuffer(table.abstractLayout.summary, table.abstractLayout.title) : table.printReady ? await buildPrintReadyWorkbookBuffer(table) : buildWorkbookBuffer(table))
       return result.filePath
     }
   )
@@ -1606,7 +1607,9 @@ function registerHandlers(): void {
 
   ipcMain.handle(IPC.zonalConcludingAgreementTemplate, async (_e, variantId?: string): Promise<string> => {
     const templatePath = bundledResourceFile(
-      zonalTemplateVariant(variantId) ? `zonal-concluding-agreement-template-${zonalTemplateVariant(variantId)}.docx` : 'zonal-concluding-agreement-template.docx'
+      `zonal-concluding-agreement-template-${
+        zonalTemplateVariant(variantId) && zonalTemplateVariant(variantId) !== 'header2' ? zonalTemplateVariant(variantId) : 'cmc'
+      }.docx`
     )
     if (!templatePath) throw new Error('SE Concluding Agreement format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
@@ -1614,7 +1617,7 @@ function registerHandlers(): void {
 
   ipcMain.handle(IPC.zonalMemoEeTemplate, async (_e, variantId?: string): Promise<string> => {
     const templatePath = bundledResourceFile(
-      zonalTemplateVariant(variantId) ? `zonal-memo-ee-template-${zonalTemplateVariant(variantId)}.docx` : 'zonal-memo-ee-template.docx'
+      `zonal-memo-ee-template-${zonalTemplateVariant(variantId) ?? 'header2'}.docx`
     )
     if (!templatePath) throw new Error('SE Memo to EE format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')

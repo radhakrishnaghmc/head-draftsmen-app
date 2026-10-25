@@ -5,7 +5,11 @@ import { applyCorporationBranding, brandingFromRow, CORPORATION_BRANDING } from 
 import { extractAllText } from '../core/docx-edit'
 import PizZip from 'pizzip'
 
-const res = (f: string) => path.join(__dirname, '..', 'resources', f)
+// Retired templates (Work Order type 1 etc.) live in legacy-templates/; their branding retarget still has to work if one is restored.
+const res = (f: string) => {
+  const bundled = path.join(__dirname, '..', 'resources', f)
+  return fs.existsSync(bundled) ? bundled : path.join(__dirname, '..', 'legacy-templates', f)
+}
 const logo = (f: string) => fs.readFileSync(res(f))
 const GHMC = CORPORATION_BRANDING[1]
 const MMC = CORPORATION_BRANDING[2]

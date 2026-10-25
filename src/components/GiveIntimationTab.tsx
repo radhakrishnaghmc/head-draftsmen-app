@@ -45,7 +45,7 @@ import { VerifyButton } from './VerifyButton'
 import PageMarginGuides from './PageMarginGuides'
 import { applyPageMargins, type PageMargins } from '@core/docMargins'
 import DocFieldsEditor, { groupLabels, humanizeLabel, type DocField, type DocFieldGroup } from './DocFieldsEditor'
-import { variantForCorporation, corporationDefaultVariant } from '@core/workOrderTemplateVariants'
+import { variantForCorporation, corporationDefaultVariant, INTIMATION_TEMPLATE_VARIANTS } from '@core/workOrderTemplateVariants'
 
 interface Props {
   tables: ExcelTable[]
@@ -693,7 +693,8 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       try {
         const intimationVariant = variantForCorporation(
           localStorage.getItem(officeScopedKey(TEMPLATE_KEYS.intimation, office)) ?? corporationDefaultVariant(office.corporation, undefined),
-          office.corporation
+          office.corporation,
+          INTIMATION_TEMPLATE_VARIANTS
         )
         const b64 = seMode
           ? await api.loaSeTemplate(seReserved, office.corporation)

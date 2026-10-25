@@ -10693,6 +10693,14 @@ body.theme-cyan .pdf-ws-clearbtn:hover:not(:disabled) {
   align-items: center;
   gap: 8px;
 }
+.pdf-preview-head-actions .pdf-ws-railbtn {
+  width: auto;
+  flex: none;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .pdf-preview-frame {
   flex: 1;
   width: 100%;
@@ -14799,7 +14807,7 @@ body.theme-play .ov-mf-tile::after {
 body.theme-play .ov-mb-list li,
 body.theme-play .ov-task-list li {
   border-radius: 8px;
-  background: #fff;
+  background: transparent;
   border: none;
 }
 body.theme-play .ov-reminder-title {
@@ -15510,4 +15518,397 @@ body.theme-play .sheet-toolbar .sheet-count {
   background: var(--play-tonal);
   border-radius: 999px;
   padding: 8px 14px;
+}
+
+.bundle-picker {
+  position: relative;
+}
+.bundle-picker-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  min-width: 220px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #d0d5dd);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+.bundle-picker-pop label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.bundle-picker-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+/* Every upload button is the same size and shape everywhere: one fixed height (two label lines fit),
+   centred icon + text on one axis, same font. Width fills its grid column / rail, or at least 300px standalone. */
+button.upload-btn,
+body.theme-play button.upload-btn,
+body.theme-play button.primary.upload-btn,
+.wo-compact-actions .upload-btn,
+.ntc-actions button.upload-btn,
+button.pdf-ws-upload {
+  box-sizing: border-box;
+  height: 64px;
+  min-height: 64px;
+  padding: 8px 24px;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.2;
+  gap: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-radius: 999px;
+}
+button.upload-btn {
+  min-width: 300px;
+}
+.boq-actions--grid .upload-btn,
+.wo-compact-actions .upload-btn,
+button.pdf-ws-upload {
+  min-width: 0;
+  width: 100%;
+}
+.ntc-actions button.upload-btn {
+  min-width: 0;
+}
+button.upload-btn svg,
+button.pdf-ws-upload svg,
+.wo-compact-actions .upload-btn svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  margin: 0;
+}
+
+/* Icon-only close buttons stay small round buttons with a centred ×/icon in every theme
+   (the Play theme's generic 24px-padding pill rule used to stretch them into an off-centre oval). */
+button.wo-modal-close,
+body.theme-play button.wo-modal-close,
+body[class] button.wo-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  gap: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+}
+button.wo-modal-close:hover:not(:disabled),
+body.theme-play button.wo-modal-close:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+button.wo-modal-close svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+button.verify-banner-close,
+body.theme-play button.verify-banner-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+}
+
+/* ============================================================
+   Play theme — Calendar workspace (Material 3 look): a tonal
+   toolbar of chips + round nav buttons, white month panels with
+   round day cells, filled-circle selection, tonal legend chips.
+   ============================================================ */
+body.theme-play .cal-counter {
+  gap: 20px;
+  padding: 20px 24px 22px;
+}
+body.theme-play .cal-counter-head {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+/* Tender window: M3 filter chips instead of bare checkboxes */
+body.theme-play .cal-tender-modes {
+  margin-top: 0;
+  gap: 10px;
+}
+body.theme-play .cal-tender-mode {
+  height: 36px;
+  padding: 0 16px 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+body.theme-play .cal-tender-mode:hover {
+  background: var(--play-hover);
+}
+body.theme-play .cal-tender-mode:has(input:checked) {
+  background: var(--play-active);
+  border-color: transparent;
+  color: #001d35;
+}
+body.theme-play .cal-tender-mode input {
+  accent-color: #0b57d0;
+}
+body.theme-play .cal-tender-phone {
+  font-size: 13px;
+  color: var(--text-2);
+  gap: 8px;
+}
+body.theme-play .cal-tender-phone input {
+  width: 150px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: #fff;
+  font-size: 14px;
+}
+/* Month navigation: round icon buttons + tonal Today pill */
+body.theme-play .cal-nav {
+  gap: 6px;
+  align-items: center;
+}
+body.theme-play button.cal-nav-btn {
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  gap: 0;
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--text-2);
+}
+body.theme-play button.cal-nav-btn:hover:not(:disabled) {
+  background: var(--play-active);
+  color: #001d35;
+}
+body.theme-play button.cal-nav-today {
+  height: 40px;
+  min-height: 40px;
+  padding: 0 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: #0b57d0;
+  font-size: 14px;
+  font-weight: 500;
+}
+body.theme-play button.cal-nav-today:hover:not(:disabled) {
+  background: rgba(11, 87, 208, 0.08);
+}
+/* Month panels */
+body.theme-play .cal-months {
+  gap: 20px;
+}
+body.theme-play .cal-month {
+  padding: 18px 16px 16px;
+  border: none;
+  border-radius: 24px;
+  background: #fff;
+}
+body.theme-play .cal-month-title {
+  margin-bottom: 14px;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text);
+}
+body.theme-play .cal-weekdays {
+  gap: 2px;
+  margin-bottom: 4px;
+}
+body.theme-play .cal-weekdays span {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+body.theme-play .cal-days {
+  grid-auto-rows: 42px;
+  gap: 2px;
+}
+/* Day cells: borderless, circular, centred in their grid slot */
+body.theme-play button.cal-day {
+  height: 42px;
+  min-height: 0;
+  padding: 0;
+  gap: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 400;
+  aspect-ratio: 1;
+  width: 42px;
+  justify-self: center;
+}
+body.theme-play button.cal-day:hover:not(.empty):not(:disabled) {
+  background: var(--play-hover);
+  transform: none;
+}
+body.theme-play button.cal-day.empty {
+  background: transparent;
+}
+body.theme-play button.cal-day.sunday {
+  background: transparent;
+  color: var(--danger);
+}
+body.theme-play button.cal-day.hol-public {
+  background: var(--rose-100);
+  color: var(--danger);
+  font-weight: 500;
+}
+body.theme-play button.cal-day.hol-optional {
+  background: var(--ok-bg);
+  color: var(--ok);
+  font-weight: 500;
+}
+body.theme-play button.cal-day.numbered:not(.hol-public):not(.hol-optional):not(.sunday) {
+  background: var(--indigo-50);
+  color: #0842a0;
+  font-weight: 500;
+}
+body.theme-play button.cal-day.anchor {
+  background: #0b57d0;
+  color: #fff;
+  box-shadow: none;
+  font-weight: 500;
+}
+body.theme-play button.cal-day.anchor:hover:not(:disabled) {
+  background: #0842a0;
+}
+/* Working-day counter badge: small blue dot-pill at the cell's corner */
+body.theme-play .cal-num {
+  top: -1px;
+  right: -1px;
+  min-width: 16px;
+  height: 16px;
+  font-size: 10px;
+  font-weight: 600;
+  background: #0b57d0;
+  box-shadow: 0 0 0 2px #fff;
+}
+body.theme-play .cal-day.anchor .cal-num {
+  color: #0842a0;
+  background: #fff;
+  box-shadow: 0 0 0 2px #0b57d0;
+}
+/* Today: a calm ring + gentle pulse instead of the old green blink */
+body.theme-play .cal-day.cal-today-blink {
+  animation: none;
+  box-shadow: inset 0 0 0 2px #0b57d0;
+  font-weight: 600;
+}
+body.theme-play .cal-day.cal-today-blink.anchor {
+  box-shadow: 0 0 0 3px var(--play-active);
+}
+body.theme-play .cal-day[data-tooltip]:hover::after {
+  background: #303030;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+/* Legend + source links as tonal chips */
+body.theme-play .cal-legend {
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  padding-top: 4px;
+}
+body.theme-play .cal-legend .lg {
+  height: 32px;
+  padding: 0 14px 0 12px;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-2);
+}
+body.theme-play .cal-legend .lg::before {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+body.theme-play .cal-legend .lg-public::before {
+  background: var(--danger);
+  border: none;
+}
+body.theme-play .cal-legend .lg-optional::before {
+  background: var(--ok);
+  border: none;
+}
+body.theme-play button.cal-source-link,
+body.theme-play button.cal-source-save {
+  min-height: 0;
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #0b57d0;
+  font-size: 13px;
+  font-weight: 500;
+  margin-left: 0;
+}
+body.theme-play button.cal-source-link:first-of-type {
+  margin-left: auto;
+}
+body.theme-play button.cal-source-link:hover:not(:disabled),
+body.theme-play button.cal-source-save:hover:not(:disabled) {
+  background: rgba(11, 87, 208, 0.08);
+  text-decoration: none;
+}
+body.theme-play .cal-source-edit input {
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  font-size: 13px;
+}
+body.theme-play .cal-month-missing {
+  color: var(--text-2);
+  padding: 36px 12px;
+}
+@media (max-width: 900px) {
+  body.theme-play button.cal-day {
+    width: 36px;
+    height: 36px;
+  }
+  body.theme-play .cal-days {
+    grid-auto-rows: 36px;
+  }
 }

@@ -4,7 +4,7 @@ import { resolve } from 'path'
 import { findPlaceholdersInAllParts, fillPlaceholdersInAllParts, extractAllText } from '../core/docx-edit'
 import { qcIntimationCompletionPlaceholders, qcPartyToBlock, type WorkOrderAgreementFields } from '../core/workOrderAgreement'
 
-const template = () => fs.readFileSync(resolve(__dirname, '../resources/qc-intimation-completion-template.docx'))
+const template = () => fs.readFileSync(resolve(__dirname, '../legacy-templates/qc-intimation-completion-template.docx'))
 
 describe('qcPartyToBlock', () => {
   it('prints the address block once when it already names the agency', () => {

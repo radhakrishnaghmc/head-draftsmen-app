@@ -10,6 +10,8 @@ import {
   CONCLUDING_AGREEMENT_TEMPLATE_VARIANTS,
   MEMO_EE_TEMPLATE_VARIANTS,
   DEFAULT_WORK_ORDER_TEMPLATE_VARIANT,
+  DEFAULT_MEMO_EE_TEMPLATE_VARIANT,
+  DEFAULT_CONCLUDING_AGREEMENT_TEMPLATE_VARIANT,
   AGREEMENT_TEMPLATE_VARIANTS,
   DEFAULT_AGREEMENT_TEMPLATE_VARIANT,
   INTIMATION_TEMPLATE_VARIANTS,
@@ -162,7 +164,12 @@ interface TemplateSectionProps {
  * document type is just another instance of this, per office.
  */
 function TemplateSection({ title, subtitle, storageKey, variants, defaultVariant, fields, fetchTemplate, placeholders }: TemplateSectionProps) {
-  const [selected, setSelected] = useState(() => localStorage.getItem(storageKey) || defaultVariant)
+  // A saved pick that's no longer offered (a retired template) shows the default instead.
+  const savedPick = () => {
+    const saved = localStorage.getItem(storageKey)
+    return saved && variants.some((v) => v.id === saved) ? saved : defaultVariant
+  }
+  const [selected, setSelected] = useState(savedPick)
   const [failed, setFailed] = useState<Set<string>>(new Set())
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
@@ -175,7 +182,7 @@ function TemplateSection({ title, subtitle, storageKey, variants, defaultVariant
   // saved selection under the now-correct key instead of leaving `selected`
   // stuck at the bare key's (usually empty) value from the initial mount.
   useEffect(() => {
-    setSelected(localStorage.getItem(storageKey) || defaultVariant)
+    setSelected(savedPick())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey])
 
@@ -594,10 +601,8 @@ export default function SettingsTab({ office, theme, onThemeChange }: Props) {
           title="Work Order"
           subtitle="Some circles word and lay out their own Work Order differently."
           storageKey={officeScopedKey(TEMPLATE_KEYS.workOrder, office)}
-          // A zone-level (SE) office's Work Order comes in the default letterhead or the logo header (type 3) only.
-          variants={variantsForCorporation(WORK_ORDER_TEMPLATE_VARIANTS, office.corporation).filter(
-            (v) => !isZoneOnlyOffice(office) || v.id !== 'kompally'
-          )}
+          // Work Order types 1-2 are retired (legacy-templates/).
+          variants={variantsForCorporation(WORK_ORDER_TEMPLATE_VARIANTS, office.corporation)}
           defaultVariant={corporationDefaultVariant(office.corporation, DEFAULT_WORK_ORDER_TEMPLATE_VARIANT)}
           fields={fields}
           fetchTemplate={isZoneOnlyOffice(office) ? api.zonalWorkOrderTemplate : api.workOrderTemplate}
@@ -611,7 +616,7 @@ export default function SettingsTab({ office, theme, onThemeChange }: Props) {
               subtitle="Default letterhead, or the logo header used by Work Order type 3 (types 4-6 for MMC / CMC / GHMC) — same body text."
               storageKey={officeScopedKey(TEMPLATE_KEYS.concludingAgreement, office)}
               variants={variantsForCorporation(CONCLUDING_AGREEMENT_TEMPLATE_VARIANTS, office.corporation)}
-              defaultVariant={corporationDefaultVariant(office.corporation, DEFAULT_WORK_ORDER_TEMPLATE_VARIANT)}
+              defaultVariant={corporationDefaultVariant(office.corporation, DEFAULT_CONCLUDING_AGREEMENT_TEMPLATE_VARIANT)}
               fields={fields}
               fetchTemplate={api.zonalConcludingAgreementTemplate}
               placeholders={(f) => zonalDocsPlaceholders(f, {}, {})}
@@ -622,7 +627,7 @@ export default function SettingsTab({ office, theme, onThemeChange }: Props) {
               subtitle="Default letterhead, or the logo header used by Work Order type 3 (types 4-6 for MMC / CMC / GHMC) — same body text."
               storageKey={officeScopedKey(TEMPLATE_KEYS.memoEe, office)}
               variants={variantsForCorporation(MEMO_EE_TEMPLATE_VARIANTS, office.corporation)}
-              defaultVariant={corporationDefaultVariant(office.corporation, DEFAULT_WORK_ORDER_TEMPLATE_VARIANT)}
+              defaultVariant={corporationDefaultVariant(office.corporation, DEFAULT_MEMO_EE_TEMPLATE_VARIANT)}
               fields={fields}
               fetchTemplate={api.zonalMemoEeTemplate}
               placeholders={(f) => zonalDocsPlaceholders(f, {}, {})}

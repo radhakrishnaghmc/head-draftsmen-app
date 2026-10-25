@@ -10,7 +10,16 @@ import {
 } from '@core/intimationNotice'
 import { detectTenderId } from '@core/tenderAgents'
 import { parseTenderEvaluation, parseAllBidders, type TenderEvaluation } from '@core/tenderEvaluationPdf'
-import { variantForCorporation, corporationDefaultVariant } from '@core/workOrderTemplateVariants'
+import {
+  variantForCorporation,
+  corporationDefaultVariant,
+  WORK_ORDER_TEMPLATE_VARIANTS,
+  FILE_BACKER_TEMPLATE_VARIANTS,
+  QC_INTIMATION_COMPLETION_TEMPLATE_VARIANTS,
+  CIVIL_TENDER_TEMPLATE_VARIANTS,
+  MEMO_EE_TEMPLATE_VARIANTS,
+  CONCLUDING_AGREEMENT_TEMPLATE_VARIANTS
+} from '@core/workOrderTemplateVariants'
 import { parseBalanceEmdReceipt } from '@core/balanceEmdReceipt'
 import { parseBankGuarantees, extractBankName } from '@core/bankGuaranteePdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
@@ -199,6 +208,50 @@ type DocKind =
   | 'seAgreementNote'
   | 'contractDeed'
 type Output = DocKind | 'scheduleA' | 'note'
+
+// Hand edits to the Note Submitted, kept per work (by tender id / NIT / name) in memory only —
+// they survive closing the editor or leaving the workspace, but nothing is written to disk, so
+// they're gone when the app closes.
+type NoteEditsStore = Record<string, Partial<NoteSubmittedData>>
+const noteEditsStore: NoteEditsStore = {}
+function noteEditsKey(seed: NoteSubmittedData, pdfEval: TenderEvaluation | null): string {
+  return (pdfEval?.tenderId || seed.nitNo || seed.workName || '').trim().toLowerCase()
+}
+function loadNoteEdits(key: string): Partial<NoteSubmittedData> {
+  return key ? (noteEditsStore[key] ?? {}) : {}
+}
+function noteDiff(seed: NoteSubmittedData, next: NoteSubmittedData): Partial<NoteSubmittedData> {
+  const out: Record<string, unknown> = {}
+  for (const k of Object.keys(next) as (keyof NoteSubmittedData)[]) {
+    if (JSON.stringify(next[k]) !== JSON.stringify(seed[k])) out[k] = next[k]
+  }
+  return out as Partial<NoteSubmittedData>
+}
+function saveNoteEdits(key: string, diff: Partial<NoteSubmittedData>): void {
+  if (!key) return
+  delete noteEditsStore[key] // re-insert last so the oldest works fall off first
+  if (Object.keys(diff).length > 0) noteEditsStore[key] = diff
+  const keys = Object.keys(noteEditsStore)
+  for (const old of keys.slice(0, Math.max(0, keys.length - 30))) delete noteEditsStore[old]
+}
+
+// Same idea (in memory only) for the other documents' fields-left editors: overrides per work, per document.
+type DocEdits = Partial<Record<DocKind, Record<string, string>>>
+const docEditsStore: Record<string, DocEdits> = {}
+function loadDocEdits(key: string): DocEdits {
+  return key && key !== '|' ? (docEditsStore[key] ?? {}) : {}
+}
+function saveDocEdits(key: string, edits: DocEdits): void {
+  if (!key || key === '|') return
+  delete docEditsStore[key] // re-insert last so the oldest works fall off first
+  const kept: DocEdits = {}
+  for (const [kind, vals] of Object.entries(edits) as [DocKind, Record<string, string>][]) {
+    if (vals && Object.keys(vals).length > 0) kept[kind] = vals
+  }
+  if (Object.keys(kept).length > 0) docEditsStore[key] = kept
+  const keys = Object.keys(docEditsStore)
+  for (const old of keys.slice(0, Math.max(0, keys.length - 30))) delete docEditsStore[old]
+}
 
 const DOC_LABEL: Record<Output, string> = {
   fileBacker: 'File Backer',
@@ -823,6 +876,9 @@ export default function WorkOrderAgreementTab({
   // A is always Excel regardless — the one format it actually has). Defaults
   // to Word since PDF needs LibreOffice installed.
   const [bundleFormat, setBundleFormat] = useState<'docx' | 'pdf'>('docx')
+  // Documents left out of "Download all" (unticked in the Select popover); empty = every document.
+  const [bundleSkipped, setBundleSkipped] = useState<Set<string>>(() => new Set())
+  const [bundlePickerOpen, setBundlePickerOpen] = useState(false)
   // Live "Download all documents" progress — filling each document locally,
   // then (a separate, often slower phase, especially for PDF: LibreOffice per
   // file) the main process writing/converting them — so the button reads
@@ -882,6 +938,9 @@ export default function WorkOrderAgreementTab({
   // as the Intimation tab, shown here as a fourth output tile.
   const [allBidders, setAllBidders] = useState<NoteBidder[]>([])
   const [noteData, setNoteData] = useState<NoteSubmittedData | null>(null)
+  // The seeded note (before the user's typing) — hand edits are stored as a diff against it,
+  // so they survive closing the editor / leaving the workspace without blocking fresh uploads.
+  const noteSeedRef = useRef<NoteSubmittedData | null>(null)
   // Page margins (mm) of the Note Submitted preview and print; kept between sessions.
   const [noteMargins, setNoteMargins] = useState<NoteMargins>(() => {
     try {
@@ -1025,19 +1084,23 @@ export default function WorkOrderAgreementTab({
           const corp = office?.corporation
           const workOrderVariant = variantForCorporation(
             localStorage.getItem(workOrderVariantKey) ?? corporationDefaultVariant(corp, undefined),
-            corp
+            corp,
+            WORK_ORDER_TEMPLATE_VARIANTS
           )
           const fileBackerVariant = variantForCorporation(
             localStorage.getItem(fileBackerVariantKey) ?? corporationDefaultVariant(corp, undefined),
-            corp
+            corp,
+            FILE_BACKER_TEMPLATE_VARIANTS
           )
           const qcVariant = variantForCorporation(
             localStorage.getItem(qcVariantKey) ?? corporationDefaultVariant(corp, undefined),
-            corp
+            corp,
+            QC_INTIMATION_COMPLETION_TEMPLATE_VARIANTS
           )
           const civilTenderVariant = variantForCorporation(
             localStorage.getItem(civilTenderVariantKey) ?? corporationDefaultVariant(corp, undefined),
-            corp
+            corp,
+            CIVIL_TENDER_TEMPLATE_VARIANTS
           )
           const [woB64, fbB64, agB64, qiB64, fsB64, ctB64, wbB64, aeB64] = await Promise.all([
             api.workOrderTemplate(workOrderVariant),
@@ -1117,10 +1180,10 @@ export default function WorkOrderAgreementTab({
         // Concluding Agreement / Memo to EE have their own picks of the same two.
         // The corporation logo headers (types 4-6) are per-corporation — ignore a stale saved choice anywhere else.
         const corp = office?.corporation
-        const workOrderVariant = variantForCorporation(localStorage.getItem(workOrderVariantKey) ?? corporationDefaultVariant(corp, undefined), corp)
+        const workOrderVariant = variantForCorporation(localStorage.getItem(workOrderVariantKey) ?? corporationDefaultVariant(corp, undefined), corp, WORK_ORDER_TEMPLATE_VARIANTS)
         // An MMC / CMC / GHMC office with no saved pick gets its own header on these two by default.
-        const concludingVariant = variantForCorporation(localStorage.getItem(concludingVariantKey) ?? corporationDefaultVariant(corp, undefined), corp)
-        const memoEeVariant = variantForCorporation(localStorage.getItem(memoEeVariantKey) ?? corporationDefaultVariant(corp, undefined), corp)
+        const concludingVariant = variantForCorporation(localStorage.getItem(concludingVariantKey) ?? corporationDefaultVariant(corp, undefined), corp, CONCLUDING_AGREEMENT_TEMPLATE_VARIANTS)
+        const memoEeVariant = variantForCorporation(localStorage.getItem(memoEeVariantKey) ?? corporationDefaultVariant(corp, undefined), corp, MEMO_EE_TEMPLATE_VARIANTS)
         const [bondB64, woB64, caB64, meB64, noteB64, deedB64] = await Promise.all([
           api.seAgreementBondTemplate(),
           api.zonalWorkOrderTemplate(workOrderVariant),
@@ -1694,22 +1757,26 @@ export default function WorkOrderAgreementTab({
     return groupLabels(labels)
   }
 
+  // Hand edits are kept per work in memory (see saveDocEdits), so closing the
+  // editor or leaving the workspace doesn't discard them; each change is written here.
+  const docEditsWorkKey = `${fields.tenderId}|${fields.nameOfWork}`.trim().toLowerCase()
+  function commitDocEdits(next: Partial<Record<DocKind, Record<string, string>>>) {
+    setDocEdits(next)
+    saveDocEdits(docEditsWorkKey, next)
+  }
   function setDocEdit(kind: DocKind, label: string, value: string) {
-    setDocEdits((prev) => ({ ...prev, [kind]: { ...(prev[kind] ?? {}), [label]: value } }))
+    commitDocEdits({ ...docEdits, [kind]: { ...(docEdits[kind] ?? {}), [label]: value } })
   }
   function revertDocEdit(kind: DocKind, label: string) {
-    setDocEdits((prev) => {
-      const next = { ...(prev[kind] ?? {}) }
-      delete next[label]
-      return { ...prev, [kind]: next }
-    })
+    const kindEdits = { ...(docEdits[kind] ?? {}) }
+    delete kindEdits[label]
+    commitDocEdits({ ...docEdits, [kind]: kindEdits })
   }
 
-  // A different work (another L-1 upload / Works List row) invalidates those
-  // overrides — they were typed for the previous work's documents.
-  const docEditsWorkKey = `${fields.tenderId}|${fields.nameOfWork}`
+  // A different work (another L-1 upload / Works List row) swaps in that work's own
+  // saved overrides (none for a new work) — they were typed for its documents.
   useEffect(() => {
-    setDocEdits({})
+    setDocEdits(loadDocEdits(docEditsWorkKey))
   }, [docEditsWorkKey])
 
   // The small, live thumbnail shown inside each tile on the catalog grid — up
@@ -1868,7 +1935,7 @@ export default function WorkOrderAgreementTab({
     if (fields.completionMonths.trim()) return false
     // A period typed into a document's preview editor is stored as that doc's edit, not in `fields`.
     const typed = (k: DocKind) => !!docEdits[k]?.['Period of Completion']?.trim()
-    if (a.type === 'all') return !PERIOD_DOCS.some(typed)
+    if (a.type === 'all') return PERIOD_DOCS.some((k) => !bundleSkipped.has(k)) && !PERIOD_DOCS.some(typed)
     return PERIOD_DOCS.includes(a.kind) && !typed(a.kind)
   }
   function runGated(a: PeriodGated) {
@@ -2001,13 +2068,8 @@ export default function WorkOrderAgreementTab({
     setActionSaved(null)
     // A Zone-level (SE) office's 6 rebuilt documents — Schedule A (pushed
     // below, outside this count) is its other output.
-    const totalPrep = seMode
-      ? [fileBackerB64, seAgreementBondB64, zonalWorkOrderB64, zonalConcludingAgreementB64, zonalMemoEeB64, seAgreementNoteB64, contractDeedB64].filter(
-          Boolean
-        ).length
-      : [fileBackerB64, workBillNoteB64, aeDyeeB64, civilTenderB64, forwardingSlipB64, agreementB64, qccIntimationB64, workOrderB64, noteReady].filter(
-          Boolean
-        ).length
+    const wants = (key: string) => !bundleSkipped.has(key)
+    const totalPrep = bundleDocs.filter((d) => d.key !== 'scheduleA' && wants(d.key)).length
     let prepDone = 0
     setBundleProgress({ phase: 'preparing', done: 0, total: totalPrep })
     const unsubscribe = api.onAgreementBundleProgress(({ done, total }) =>
@@ -2030,32 +2092,32 @@ export default function WorkOrderAgreementTab({
       if (seMode) {
         // File Backer — the cover page — first, then the Work Order, then the Agreement
         // Bond, then its two forwarding memos and the put-up note.
-        if (fileBackerB64) await add(docName('fileBacker'), await fillDoc('fileBacker'))
-        if (zonalWorkOrderB64) await add(docName('zonalWorkOrder'), await fillDoc('zonalWorkOrder'))
+        if (fileBackerB64 && wants('fileBacker')) await add(docName('fileBacker'), await fillDoc('fileBacker'))
+        if (zonalWorkOrderB64 && wants('zonalWorkOrder')) await add(docName('zonalWorkOrder'), await fillDoc('zonalWorkOrder'))
         // Same "blank, hand-writable date" policy as the EE Work Order / Agreement Bond bundle.
-        if (seAgreementBondB64) await add(docName('seAgreementBond'), await fillDoc('seAgreementBond', { blankDate: true }))
-        if (seAgreementNoteB64) await add(docName('seAgreementNote'), await fillDoc('seAgreementNote'))
-        if (zonalConcludingAgreementB64) await add(docName('zonalConcludingAgreement'), await fillDoc('zonalConcludingAgreement'))
-        if (zonalMemoEeB64) await add(docName('zonalMemoEe'), await fillDoc('zonalMemoEe'))
-        if (contractDeedB64) await add(docName('contractDeed'), await fillDoc('contractDeed'))
+        if (seAgreementBondB64 && wants('seAgreementBond')) await add(docName('seAgreementBond'), await fillDoc('seAgreementBond', { blankDate: true }))
+        if (seAgreementNoteB64 && wants('seAgreementNote')) await add(docName('seAgreementNote'), await fillDoc('seAgreementNote'))
+        if (zonalConcludingAgreementB64 && wants('zonalConcludingAgreement')) await add(docName('zonalConcludingAgreement'), await fillDoc('zonalConcludingAgreement'))
+        if (zonalMemoEeB64 && wants('zonalMemoEe')) await add(docName('zonalMemoEe'), await fillDoc('zonalMemoEe'))
+        if (contractDeedB64 && wants('contractDeed')) await add(docName('contractDeed'), await fillDoc('contractDeed'))
       } else {
         // File Backer — the cover page — first in the bundle.
         if (fileBackerB64) await add(docName('fileBacker'), await fillDoc('fileBacker'))
-        if (workBillNoteB64) await add(docName('workBillNote'), await fillDoc('workBillNote'))
-        if (aeDyeeB64) await add(docName('aeDyeeForwarding'), await fillDoc('aeDyeeForwarding'))
-        if (civilTenderB64) await add(docName('civilTender'), await fillDoc('civilTender'))
-        if (forwardingSlipB64) await add(docName('forwardingSlip'), await fillDoc('forwardingSlip'))
+        if (workBillNoteB64 && wants('workBillNote')) await add(docName('workBillNote'), await fillDoc('workBillNote'))
+        if (aeDyeeB64 && wants('aeDyeeForwarding')) await add(docName('aeDyeeForwarding'), await fillDoc('aeDyeeForwarding'))
+        if (civilTenderB64 && wants('civilTender')) await add(docName('civilTender'), await fillDoc('civilTender'))
+        if (forwardingSlipB64 && wants('forwardingSlip')) await add(docName('forwardingSlip'), await fillDoc('forwardingSlip'))
         // Work Order & Agreement Bond print a blank, hand-writable date in the bundle.
-        if (agreementB64) await add(docName('agreement'), await fillDoc('agreement', { blankDate: true }))
-        if (qccIntimationB64) await add(docName('qccIntimation'), await fillDoc('qccIntimation'))
-        if (workOrderB64) await add(docName('workOrder'), await fillDoc('workOrder', { blankDate: true }))
-        if (noteReady)
+        if (agreementB64 && wants('agreement')) await add(docName('agreement'), await fillDoc('agreement', { blankDate: true }))
+        if (qccIntimationB64 && wants('qccIntimation')) await add(docName('qccIntimation'), await fillDoc('qccIntimation'))
+        if (workOrderB64 && wants('workOrder')) await add(docName('workOrder'), await fillDoc('workOrder', { blankDate: true }))
+        if (noteReady && wants('note'))
           await add(
             `${noteSubmittedFileName(noteData?.workName)}${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`,
             await noteDocx()
           )
       }
-      if (scheduleA)
+      if (scheduleA && wants('scheduleA'))
         files.push({
           name: `Schedule A${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`,
           format: 'xlsx',
@@ -2064,7 +2126,7 @@ export default function WorkOrderAgreementTab({
           scheduleAIsSe: seMode
         })
       if (files.length === 0) {
-        setActionError('No documents are ready to download yet.')
+        setActionError(bundleSkipped.size > 0 ? 'No documents are selected.' : 'No documents are ready to download yet.')
         return
       }
       setBundleProgress({ phase: 'saving', done: 0, total: files.length })
@@ -2140,7 +2202,8 @@ export default function WorkOrderAgreementTab({
       if (emdReceiptInfo.receiptNo) seed.receiptNo = emdReceiptInfo.receiptNo
       if (emdReceiptInfo.receiptDate) seed.receiptDate = emdReceiptInfo.receiptDate
     }
-    setNoteData(seed)
+    noteSeedRef.current = seed
+    setNoteData({ ...seed, ...loadNoteEdits(noteEditsKey(seed, pdfEval)) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowIndex, table, allBidders, pdfEval, notice, effectiveNotice, deriveFromUploads, selectedRow, emdReceiptInfo])
 
@@ -2165,6 +2228,34 @@ export default function WorkOrderAgreementTab({
   // from the selected row), or the L1's circle isn't this office's circle —
   // otherwise it would show the wrong work/agency or the wrong circle's note.
   const noteReady = !!noteData && !!pdfEval && !workMismatch && !circleMismatch
+
+  // The documents "Download all" can include right now (ready ones only), in bundle order — drives the Select popover.
+  const bundleDocs: { key: string; label: string }[] = (
+    seMode
+      ? [
+          ['fileBacker', fileBackerB64],
+          ['zonalWorkOrder', zonalWorkOrderB64],
+          ['seAgreementBond', seAgreementBondB64],
+          ['seAgreementNote', seAgreementNoteB64],
+          ['zonalConcludingAgreement', zonalConcludingAgreementB64],
+          ['zonalMemoEe', zonalMemoEeB64],
+          ['contractDeed', contractDeedB64]
+        ]
+      : [
+          ['fileBacker', fileBackerB64],
+          ['workBillNote', workBillNoteB64],
+          ['aeDyeeForwarding', aeDyeeB64],
+          ['civilTender', civilTenderB64],
+          ['forwardingSlip', forwardingSlipB64],
+          ['agreement', agreementB64],
+          ['qccIntimation', qccIntimationB64],
+          ['workOrder', workOrderB64],
+          ['note', noteReady]
+        ]
+  )
+    .filter(([, ready]) => !!ready)
+    .map(([key]) => ({ key: key as string, label: DOC_LABEL[key as Output] }))
+  if (scheduleA) bundleDocs.push({ key: 'scheduleA', label: DOC_LABEL.scheduleA })
 
   // Defence-in-depth: Note Submitted is seeded independently of every other
   // document (its own effect, above) from the same upload/matched row — if it
@@ -2495,13 +2586,53 @@ export default function WorkOrderAgreementTab({
           PDF
         </button>
       </div>
+      <div className="bundle-picker">
+        <button
+          type="button"
+          className="bundle-picker-btn"
+          disabled={busy === 'bundle'}
+          aria-expanded={bundlePickerOpen}
+          onClick={() => setBundlePickerOpen((o) => !o)}
+          title="Choose which documents to download"
+        >
+          Select ({bundleDocs.filter((d) => !bundleSkipped.has(d.key)).length}/{bundleDocs.length})
+        </button>
+        {bundlePickerOpen && (
+          <div className="bundle-picker-pop" role="group" aria-label="Documents to download">
+            <div className="bundle-picker-actions">
+              <button type="button" onClick={() => setBundleSkipped(new Set())}>All</button>
+              <button type="button" onClick={() => setBundleSkipped(new Set(bundleDocs.map((d) => d.key)))}>None</button>
+            </div>
+            {bundleDocs.map((d) => (
+              <label key={d.key}>
+                <input
+                  type="checkbox"
+                  checked={!bundleSkipped.has(d.key)}
+                  onChange={() =>
+                    setBundleSkipped((prev) => {
+                      const next = new Set(prev)
+                      if (!next.delete(d.key)) next.add(d.key)
+                      return next
+                    })
+                  }
+                />
+                {d.label}
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
       <button
         className="primary"
-        disabled={busy === 'bundle'}
-        onClick={() => gated({ type: 'all' })}
-        title={`Every document as ${bundleFormat === 'pdf' ? 'PDF' : 'Word'}, into one folder you choose`}
+        disabled={busy === 'bundle' || bundleDocs.every((d) => bundleSkipped.has(d.key))}
+        onClick={() => {
+          setBundlePickerOpen(false)
+          gated({ type: 'all' })
+        }}
+        title={`${bundleSkipped.size > 0 ? 'The selected documents' : 'Every document'} as ${bundleFormat === 'pdf' ? 'PDF' : 'Word'}, into one folder you choose`}
       >
-        <IconDownload /> {busy === 'bundle' ? bundleProgressLabel : 'Download all documents'}
+        <IconDownload />{' '}
+        {busy === 'bundle' ? bundleProgressLabel : bundleSkipped.size > 0 ? 'Download selected' : 'Download all documents'}
       </button>
     </div>
   )
@@ -3188,7 +3319,11 @@ export default function WorkOrderAgreementTab({
                 noteData && (
                   <NoteSubmittedEditor
                     data={noteData}
-                    onChange={setNoteData}
+                    onChange={(next) => {
+                      const seed = noteSeedRef.current
+                      if (seed) saveNoteEdits(noteEditsKey(seed, pdfEval), noteDiff(seed, next))
+                      setNoteData(next)
+                    }}
                     margins={noteMargins}
                     onMarginsChange={setNoteMargins}
                   />
@@ -3203,7 +3338,7 @@ export default function WorkOrderAgreementTab({
                     edits={docEdits[expanded] ?? {}}
                     onChange={(label, value) => setDocEdit(expanded as DocKind, label, value)}
                     onRevert={(label) => revertDocEdit(expanded as DocKind, label)}
-                    onResetAll={() => setDocEdits((prev) => ({ ...prev, [expanded as DocKind]: {} }))}
+                    onResetAll={() => commitDocEdits({ ...docEdits, [expanded as DocKind]: {} })}
                     followPages={expanded === 'aeDyeeForwarding'}
                   />
                   <div className="ns-preview">

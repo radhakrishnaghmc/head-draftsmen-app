@@ -4,8 +4,8 @@ import { resolve } from 'path'
 import PizZip from 'pizzip'
 import { substituteFontsForLibreOffice } from '../core/docxToPdf'
 
-const FILE_BACKER = resolve(__dirname, '../resources/file-backer-template-header2.docx')
-const INTIMATION = resolve(__dirname, '../resources/intimation-template.docx')
+const FILE_BACKER = resolve(__dirname, '../legacy-templates/file-backer-template-header2.docx')
+const INTIMATION = resolve(__dirname, '../legacy-templates/intimation-template.docx')
 
 function part(buffer: Buffer, name: string): string {
   return new PizZip(buffer).file(name)?.asText() ?? ''

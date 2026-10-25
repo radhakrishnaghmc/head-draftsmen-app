@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 import PizZip from 'pizzip'
 import { fillPlaceholdersInDocx, findPlaceholdersInDocx } from '../core/docx-edit'
@@ -7,7 +7,7 @@ import { sanitizeDocxForWord2007 } from '../core/word2007Compat'
 import type { PlaceholderMatch } from '../core/createDocument'
 import type { Element } from '@xmldom/xmldom'
 
-const TENDER = resolve(__dirname, '../resources/civil-tender-template.docx')
+const TENDER = resolve(__dirname, '../legacy-templates/civil-tender-template.docx')
 
 function part(buffer: Buffer, name: string): string {
   return new PizZip(buffer).file(name)?.asText() ?? ''
@@ -215,7 +215,7 @@ describe('sanitizeDocxForWord2007', () => {
       'file-backer-template-header2.docx',
       'intimation-template-2.docx'
     ]) {
-      const buf = readFileSync(resolve(__dirname, '../resources', name))
+      const buf = readFileSync(resolve(__dirname, existsSync(resolve(__dirname, '../resources', name)) ? '../resources' : '../legacy-templates', name))
       const zip = new PizZip(buf)
       const fontParts = Object.keys(zip.files).filter((f) => /^word\/fonts\//.test(f))
       expect(fontParts.length, `${name} should carry no embedded font`).toBe(0)

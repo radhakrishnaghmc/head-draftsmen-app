@@ -10,6 +10,8 @@ import {
   workOrderTemplateFileName,
   fileBackerTemplateFileName,
   intimationTemplateFileName,
+  civilTenderTemplateFileName,
+  qcIntimationCompletionTemplateFileName,
   noticeTemplateSuffix,
   NOTICE_TEMPLATE_VARIANTS,
   WORK_ORDER_TEMPLATE_VARIANTS
@@ -17,6 +19,8 @@ import {
 import { findPlaceholdersInAllParts } from '../core/docx-edit'
 
 const res = (f: string) => path.resolve(__dirname, '../resources', f)
+// The retired originals (Notice type 1 etc.) are kept in legacy-templates/; the Notice logo variants are checked against their body.
+const legacy = (f: string) => path.resolve(__dirname, '../legacy-templates', f)
 const BASES = ['work-order', 'zonal-work-order', 'file-backer', 'intimation', 'zonal-concluding-agreement', 'zonal-memo-ee']
 
 describe('corporation logo-header templates (CMC / GHMC)', () => {
@@ -47,17 +51,28 @@ describe('corporation logo-header templates (CMC / GHMC)', () => {
       expect(zonalTemplateVariant(v)).toBe(v)
     }
     expect(zonalTemplateVariant('kompally')).toBeUndefined()
+    // Retired ids (types 1-2) resolve to a bundled template instead of a missing file.
+    for (const v of ['default', 'kompally', 'header2', undefined]) {
+      expect(fs.existsSync(res(workOrderTemplateFileName(v)))).toBe(true)
+      expect(fs.existsSync(res(fileBackerTemplateFileName(v)))).toBe(true)
+      expect(fs.existsSync(res(intimationTemplateFileName(v)))).toBe(true)
+      expect(fs.existsSync(res(civilTenderTemplateFileName(v)))).toBe(true)
+      expect(fs.existsSync(res(qcIntimationCompletionTemplateFileName(v)))).toBe(true)
+    }
   })
 
   it('offers each office only its own corporation header', () => {
     const ids = (c?: string) => variantsForCorporation(WORK_ORDER_TEMPLATE_VARIANTS, c).map((v) => v.id)
-    expect(ids('CMC')).toEqual(['default', 'kompally', 'header2', 'cmc'])
-    expect(ids('GHMC')).toEqual(['default', 'kompally', 'header2', 'ghmc'])
-    expect(ids('MMC')).toEqual(['default', 'kompally', 'header2', 'mmc'])
-    expect(ids(undefined)).toEqual(['default', 'kompally', 'header2'])
+    expect(ids('CMC')).toEqual(['header2', 'cmc'])
+    expect(ids('GHMC')).toEqual(['header2', 'ghmc'])
+    expect(ids('MMC')).toEqual(['header2', 'mmc'])
+    expect(ids(undefined)).toEqual(['header2'])
     expect(variantForCorporation('mmc', 'CMC')).toBeUndefined()
     expect(variantForCorporation('cmc', 'CMC')).toBe('cmc')
     expect(variantForCorporation('header2', 'GHMC')).toBe('header2')
+    // A saved pick for a retired template (Work Order type 1) falls back to the office's own corporation header.
+    expect(variantForCorporation('default', 'CMC', WORK_ORDER_TEMPLATE_VARIANTS)).toBe('cmc')
+    expect(variantForCorporation('kompally', undefined, WORK_ORDER_TEMPLATE_VARIANTS)).toBeUndefined()
   })
 
   it('defaults MMC, CMC and GHMC offices to their own header', () => {
@@ -73,7 +88,7 @@ describe('Notice logo-header templates', () => {
   for (const corp of ['cmc', 'ghmc', 'mmc']) {
     for (const base of ['issue-notice-template', 'issue-notice-ee-template']) {
       it(`${base}-${corp}: logo header over the original body, header image at true aspect`, () => {
-        const orig = findPlaceholdersInAllParts(fs.readFileSync(res(`${base}.docx`)))
+        const orig = findPlaceholdersInAllParts(fs.readFileSync(legacy(`${base}.docx`)))
         const buf = fs.readFileSync(res(`${base}-${corp}.docx`))
         const got = findPlaceholdersInAllParts(buf)
         // Only the old text letterhead's corporation-name placeholder goes away.
@@ -96,11 +111,11 @@ describe('Notice logo-header templates', () => {
   }
 
   it('maps notice variant ids to bundled files that exist and offers each office only its own logo', () => {
-    for (const v of ['cmc', 'ghmc', 'mmc', '2', 'default']) {
+    for (const v of ['cmc', 'ghmc', 'mmc', '2', 'default', 'bogus']) {
       expect(fs.existsSync(res(`issue-notice-template${noticeTemplateSuffix(v)}.docx`))).toBe(true)
       expect(fs.existsSync(res(`issue-notice-ee-template${noticeTemplateSuffix(v)}.docx`))).toBe(true)
     }
-    expect(variantsForCorporation(NOTICE_TEMPLATE_VARIANTS, 'GHMC').map((v) => v.id)).toEqual(['default', '2', 'ghmc'])
-    expect(noticeTemplateSuffix('bogus')).toBe('')
+    expect(variantsForCorporation(NOTICE_TEMPLATE_VARIANTS, 'GHMC').map((v) => v.id)).toEqual(['2', 'ghmc'])
+    expect(noticeTemplateSuffix('bogus')).toBe('-2')
   })
 })

@@ -16,6 +16,16 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.46.0',
+    changes: [
+      'Monitoring Format PDFs (status lists, ward works and Abstract) now open in a preview first, with Print, Save PDF and Excel buttons.',
+      'Excel downloads of works lists are print-ready: wrapped text, borders, Legal landscape and a repeating header row. The Abstract Excel is laid out like its PDF.',
+      'Tied L-1 bidders: when the tender PDF shows several L-1 rows, the agency the department ticked as Selected is now the one picked.',
+      'Retired the old Work Order, File Backer, Tender Document, Intimation, Notice, Memo to EE and Concluding Agreement types 1-2. A saved choice of a retired type now shows the default instead.',
+      'Work Order / Agreement page refinements and a smoother layout.'
+    ]
+  },
+  {
     version: '1.45.1',
     changes: [
       'Works List search bar restyled to match the new look: a single clean pill with no extra box inside.'
