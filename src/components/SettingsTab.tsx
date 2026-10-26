@@ -41,7 +41,8 @@ import type { IntimationNotice } from '@core/intimationNotice'
 import type { TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { MAX_CONCURRENT_SESSIONS } from '@core/sessionSlots'
 import { THEME_OPTIONS, type ThemeId } from '../theme'
-import type { ActiveSessionInfo } from '../../electron/ipc-contract'
+import type { ActiveSessionInfo, ActivityLogEntry, BackupResult } from '../../electron/ipc-contract'
+import type { PersistedState } from '@core/types'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import { IconSettings, IconCheck, IconWarn, IconOpen, IconUser, IconLogout, IconChevronRight } from './Icons'
 
@@ -49,6 +50,10 @@ interface Props {
   office: Office
   theme: ThemeId
   onThemeChange: (theme: ThemeId) => void
+  /** The workspace as it is on screen right now (including edits not yet autosaved). */
+  getState: () => PersistedState | null
+  /** Applies a restored workspace to the live screen (App's applyLoadedState). */
+  onRestored: (state: PersistedState) => void
 }
 
 // Deliberately long/realistic values (not blank, not short) — a preview built
@@ -466,6 +471,128 @@ function ActiveDevicesCard() {
 }
 
 /**
+ * Settings — "Backup & Restore": seals the whole workspace (Dashboard through
+ * Works List, plus the activity log) into one encrypted .dhbak file that only
+ * THIS login can open, on any device. The save/edit history behind the log
+ * is kept locally per login (electron/activityLog.ts).
+ */
+function BackupRestoreCard({ getState, onRestored }: Pick<Props, 'getState' | 'onRestored'>) {
+  const [busy, setBusy] = useState<'backup' | 'restore' | null>(null)
+  const [backup, setBackup] = useState<BackupResult | null>(null)
+  const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+  const [log, setLog] = useState<ActivityLogEntry[] | null>(null)
+
+  const currentState = getState
+
+  async function runBackup() {
+    const state = currentState()
+    if (!state) return setMessage({ kind: 'error', text: 'Nothing to back up yet — the workspace is still loading.' })
+    setBusy('backup')
+    setMessage(null)
+    try {
+      setBackup(await api.createBackup(state))
+      if (log) setLog(await api.getActivityLog())
+    } catch (e) {
+      setMessage({ kind: 'error', text: e instanceof Error ? e.message : 'Backup failed.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function runRestore() {
+    const state = currentState()
+    if (!state) return
+    if (!window.confirm('Restoring replaces ALL current data on this device (and syncs it to your other devices) with the backup. A safety backup of the current data is made first. Continue?')) return
+    setBusy('restore')
+    setMessage(null)
+    try {
+      const result = await api.restoreBackup(state)
+      if (result.ok) {
+        onRestored(result.state)
+        setMessage({ kind: 'ok', text: `Restored ${result.fileName} (made ${new Date(result.createdAt).toLocaleString()}).` })
+        if (log) setLog(await api.getActivityLog())
+      } else if (!result.cancelled) {
+        setMessage({ kind: 'error', text: result.error || 'Restore failed.' })
+      }
+    } catch (e) {
+      setMessage({ kind: 'error', text: e instanceof Error ? e.message : 'Restore failed.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function copyBackup() {
+    if (!backup) return
+    const saved = await api.saveBackupCopy(backup.filePath)
+    if (saved) setMessage({ kind: 'ok', text: `Copy saved to ${saved}` })
+  }
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <div className="head-ic">
+          <IconSettings />
+        </div>
+        <div className="titles">
+          <h2>Backup &amp; Restore</h2>
+          <p className="sub">
+            Backup saves everything — Dashboard, Works List, To Do, MB Scrutiny, documents and settings — into one
+            encrypted file. It can be restored on any device, but only after signing in with this same login.
+          </p>
+        </div>
+      </div>
+
+      <div className="backup-actions">
+        <button type="button" disabled={busy !== null} onClick={() => void runBackup()}>
+          {busy === 'backup' ? 'Backing up…' : 'Backup'}
+        </button>
+        <button type="button" className="ghost" disabled={busy !== null} onClick={() => void runRestore()}>
+          {busy === 'restore' ? 'Restoring…' : 'Restore'}
+        </button>
+      </div>
+
+      {message && (
+        <div className={`notice ${message.kind === 'error' ? 'error' : ''}`}>
+          {message.kind === 'error' ? <IconWarn /> : <IconCheck />} {message.text}
+        </div>
+      )}
+
+      {backup && (
+        <div className="backup-result">
+          <span className="backup-file">{backup.fileName}</span>
+          <span className="hint">{(backup.sizeBytes / 1024).toFixed(0)} KB · saved in the app folder</span>
+          <div className="backup-actions">
+            <button type="button" className="ghost" onClick={() => void api.revealBackup(backup.filePath)}>
+              <IconOpen /> Open file location
+            </button>
+            <button type="button" className="ghost" onClick={() => void copyBackup()}>
+              Save a copy to transfer…
+            </button>
+          </div>
+        </div>
+      )}
+
+      <details className="backup-log" onToggle={(e) => e.currentTarget.open && void api.getActivityLog().then(setLog)}>
+        <summary>Activity log</summary>
+        {log === null && <p className="hint">Loading…</p>}
+        {log && log.length === 0 && <p className="hint">Nothing recorded yet.</p>}
+        {log && log.length > 0 && (
+          <ul className="backup-log-list">
+            {log.map((e) => (
+              <li key={e.id}>
+                <span className="backup-log-time">{new Date(e.ts).toLocaleString()}</span>
+                <span className="backup-log-action">{e.action}</span>
+                <span>{e.detail}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </details>
+    </div>
+  )
+}
+
+/**
  * Settings — "Themes": lets a user try the Aurora restyle of the Issue
  * Documents tiles side by side with the original thumbnail tiles
  * ("Default"), and switch back at any time. A static mock tile (not a real
@@ -529,7 +656,7 @@ function ThemeSection({ theme, onThemeChange }: { theme: ThemeId; onThemeChange:
  * (see CONTACT_KEYS). One TemplateSection per document type — a future
  * document type is just another entry in the list below.
  */
-export default function SettingsTab({ office, theme, onThemeChange }: Props) {
+export default function SettingsTab({ office, theme, onThemeChange, getState, onRestored }: Props) {
   const fields = useMemo(
     () => sampleFields(office),
     [office.circle, office.circleNumber, office.zone, office.corporation]
@@ -540,6 +667,7 @@ export default function SettingsTab({ office, theme, onThemeChange }: Props) {
   return (
     <>
       <ActiveDevicesCard />
+      <BackupRestoreCard getState={getState} onRestored={onRestored} />
 
       <div className="card">
         <button

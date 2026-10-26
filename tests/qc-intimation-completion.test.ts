@@ -19,16 +19,40 @@ describe('qcPartyToBlock', () => {
   })
 })
 
+describe('QC letters quote the Work Order in Ref', () => {
+  const f = { corporationFullName: '', nameOfWork: 'W', estimateLakhs: '25', ecvRupees: '2000000', contractRupees: '1800000', wincode: 'W1', agencyName: 'A', completionMonths: '4', circle: 'Moosapet', cno: '23', zone: 'Kukatpally', corporation: 'GHMC', financialYear: '2026-27', agreementNo: '37', agreementDate: '12/09/2026', workOrderDate: '05/09/2026' } as WorkOrderAgreementFields
+  for (const v of ['cmc', 'ghmc', 'mmc']) {
+    it(`${v}: all five letters carry the work order number and date`, () => {
+      const buf = fs.readFileSync(resolve(__dirname, `../resources/qc-intimation-completion-template-${v}.docx`))
+      const text = extractAllText(fillPlaceholdersInAllParts(buf, findPlaceholdersInAllParts(buf).map((l) => ({ label: l, column: l, score: 1 })), qcIntimationCompletionPlaceholders(f)))
+      expect(text.match(/Work Order No\s+\/GHMC\/KPZ\/Moosapet\/CIR-23\/EE\/2026-27 Dt: 05\/09\/2026/g)).toHaveLength(5)
+      expect(text).not.toContain('Agreement No')
+    })
+  }
+  it('the 4th-party table carries the work order number and the typed AE name & phone', () => {
+    const buf = fs.readFileSync(resolve(__dirname, '../resources/qc-intimation-completion-template-cmc.docx'))
+    const values = qcIntimationCompletionPlaceholders({ ...f, aeNamePhone: ' K. Ramesh, 9876543210 ' })
+    const text = extractAllText(fillPlaceholdersInAllParts(buf, findPlaceholdersInAllParts(buf).map((l) => ({ label: l, column: l, score: 1 })), values))
+    expect(text).toContain('K. Ramesh, 9876543210')
+    // the W.O No cell repeats the Ref line's number and date, so 5 Ref lines + 1 table cell
+    expect(text.match(/\/GHMC\/KPZ\/Moosapet\/CIR-23\/EE\/2026-27 Dt: 05\/09\/2026/g)).toHaveLength(6)
+    expect(qcIntimationCompletionPlaceholders(f)['AE Name Phone']).toBe('')
+  })
+  it('the serial is left as a gap to write in, and a blank date prints no Dt', () => {
+    expect(qcIntimationCompletionPlaceholders({ ...f, workOrderDate: '' })['Work Order No and Date']).toMatch(/^\u00a0{2}\/GHMC\/.*\/EE\/2026-27$/)
+  })
+})
+
 describe('QC Intimation/Completion template', () => {
   it('only uses placeholders the app fills', () => {
-    const known = new Set(Object.keys(qcIntimationCompletionPlaceholders({ corporationFullName: '', completionMonths: '' } as WorkOrderAgreementFields)).map((k) => k.toLowerCase()))
+    const known = new Set(Object.keys(qcIntimationCompletionPlaceholders({ corporationFullName: '', completionMonths: '', agreementDate: '' } as WorkOrderAgreementFields)).map((k) => k.toLowerCase()))
     for (const label of findPlaceholdersInAllParts(template())) expect(known.has(label.toLowerCase()), label).toBe(true)
   })
 
   it('fills all five letters, leaving no placeholder or stale sample text behind', () => {
     const f = {
       corporationFullName: 'Greater Hyderabad Municipal Corporation', corporation: 'GHMC', zone: 'Kukatpally', circle: 'Moosapet', cno: '23', financialYear: '2026-27',
-      nameOfWork: 'Laying of BT road at Test Colony', estimateLakhs: '25', ecvRupees: '2000000', contractRupees: '1800000.5', wincode: 'W1', agencyName: 'M/s Test Agency', completionMonths: '4',
+      nameOfWork: 'Laying of BT road at Test Colony', estimateLakhs: '25', ecvRupees: '2000000', contractRupees: '1800000.5', wincode: 'W1', agencyName: 'M/s Test Agency', completionMonths: '4', agreementNo: '37', agreementDate: '12/09/2026',
       qcThirdTo: 'Professor & Head,\nCollege X', qcFourthTo: 'M/s Lab Y,\nAddress Y'
     } as WorkOrderAgreementFields
     const buf = template()

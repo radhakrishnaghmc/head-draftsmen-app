@@ -150,6 +150,12 @@ function sumRows(rows: MonitoringFormatRow[]): MonitoringFormatRow {
   }), emptyRow('Total'))
 }
 
+function excelSerialToDmy(n: number): string {
+  const d = new Date(Date.UTC(1899, 11, 30) + n * 86400000)
+  const p = (x: number) => String(x).padStart(2, '0')
+  return `${p(d.getUTCDate())}-${p(d.getUTCMonth() + 1)}-${d.getUTCFullYear()}`
+}
+
 /** Read the "Name of the Cir(c)le:-" / "Date:-" label+value pairs off the sheet's first few rows. */
 function readLabelledValues(grid: string[][]): { office?: string; date?: string } {
   let office: string | undefined
@@ -160,10 +166,132 @@ function readLabelledValues(grid: string[][]): { office?: string; date?: string 
       if (!cell) continue
       const next = row.slice(i + 1).find((v) => (v || '').trim() !== '')
       if (!office && cell.startsWith('name of the cir')) office = next?.trim()
-      else if (!date && cell.startsWith('date')) date = next?.trim()
+      else if (!date && (cell.startsWith('date') || cell === 'dt' || cell === 'dt:')) {
+        const v = next?.trim()
+        // A bare Excel serial (e.g. 46320) -> dd-mm-yyyy.
+        date = v && /^\d{5}$/.test(v) ? excelSerialToDmy(Number(v)) : v
+      }
     }
   }
   return { office, date }
+}
+
+// 2026-27 template ("Sl. No | Circle | Category | Sub | Status ..."): Category/Sub-category
+// labels, Spillover + Current-year pairs ahead of the Total works / Completed / Progress /
+// To be started / Held up / Cancelled / Tender process pairs. No progress-% buckets.
+const NEW_COLS = {
+  circle: 1,
+  category: 2,
+  sub: 3,
+  totalWorks: 8,
+  completed: 10,
+  progressTotal: 12,
+  toBeStarted: 14,
+  heldUp: 16,
+  cancelled: 18,
+  tenderProcess: 20
+} as const
+
+const lc = (v: string | undefined) => (v || '').trim().toLowerCase()
+
+function newLayoutHeaderIdx(grid: string[][]): number {
+  return grid.slice(0, 10).findIndex((r) => lc(r[NEW_COLS.category]) === 'category' && lc(r[4]) === 'status')
+}
+
+function newLayoutRow(label: string, row: string[], cols: { [K in 'totalWorks' | 'completed' | 'progressTotal' | 'toBeStarted' | 'heldUp' | 'cancelled' | 'tenderProcess']: number }): MonitoringFormatRow {
+  return {
+    ...emptyRow(label),
+    totalWorks: bucketAt(row, cols.totalWorks),
+    completed: bucketAt(row, cols.completed),
+    progressTotal: bucketAt(row, cols.progressTotal),
+    toBeStarted: bucketAt(row, cols.toBeStarted),
+    heldUp: bucketAt(row, cols.heldUp),
+    cancelled: bucketAt(row, cols.cancelled),
+    tenderProcess: bucketAt(row, cols.tenderProcess)
+  }
+}
+
+function parseNewLayoutSheet(sheet: SheetGrid, headerIdx: number): MonitoringFormatSummary {
+  const grid = sheet.grid
+  const rows: MonitoringFormatRow[] = []
+  let totals: MonitoringFormatRow | undefined
+  let category = ''
+  let i = headerIdx + 4 // group row, No./Amount row, column-number row
+  let firstCircle = ''
+  for (; i < grid.length; i++) {
+    const r = grid[i]
+    const cat = (r[NEW_COLS.category] || '').trim()
+    const sub = (r[NEW_COLS.sub] || '').trim()
+    if (!firstCircle) firstCircle = (r[NEW_COLS.circle] || '').trim()
+    if (lc(cat) === 'total') {
+      totals = newLayoutRow('Total', r, NEW_COLS)
+      i++
+      break
+    }
+    if (!cat && !sub) break
+    if (cat) category = cat
+    rows.push(newLayoutRow(sub ? `${category} – ${sub}` : category, r, NEW_COLS))
+  }
+  totals = totals || sumRows(rows)
+
+  // Second pivot. A circle sheet has a "Ward Name" block with the same column layout; the
+  // zone sheet instead has per-category circle pivots (Roads / SWD / Others ...) whose rows are
+  // "<circle no> | Total works ..." starting one column further left, which are summed per circle.
+  let wardRows: MonitoringFormatRow[] | undefined
+  let wardTotals: MonitoringFormatRow | undefined
+  let wardPivotKind: 'ward' | 'circle' | undefined
+  const wardHdr = grid.findIndex((r, k) => k >= i && lc(r[NEW_COLS.sub]) === 'ward name')
+  if (wardHdr >= 0) {
+    wardRows = []
+    for (let k = wardHdr + 2; k < grid.length; k++) {
+      const label = (grid[k][NEW_COLS.sub] || '').trim()
+      if (lc(label) === 'total') {
+        wardTotals = newLayoutRow('Total', grid[k], NEW_COLS)
+        break
+      }
+      // Blank-named ward rows are an unfilled template (all zeros) — skip them.
+      if (label) wardRows.push(newLayoutRow(label, grid[k], NEW_COLS))
+      else if (k > wardHdr + 2 && !grid[k].some((c) => (c || '').trim())) break
+    }
+    if (wardRows.length === 0) wardRows = undefined
+    else {
+      wardTotals = wardTotals || sumRows(wardRows)
+      wardPivotKind = 'ward'
+    }
+  } else {
+    const PIVOT = { totalWorks: 8, completed: 10, progressTotal: 12, toBeStarted: 14, heldUp: 16, cancelled: 18, tenderProcess: 20 }
+    const byCircle = new Map<string, MonitoringFormatRow>()
+    let inPivot = false
+    for (let k = i; k < grid.length; k++) {
+      const label = (grid[k][7] || '').trim()
+      if (/^(roads|swd|others)$/i.test(label)) inPivot = true
+      else if (label && !/^(\d{1,4}|circle|total)$/i.test(label)) inPivot = false // BT / CC sub-pivots repeat Roads' rows
+      else if (inPivot && /^\d{1,4}$/.test(label)) {
+        const row = newLayoutRow(label, grid[k], PIVOT)
+        const prev = byCircle.get(label)
+        byCircle.set(label, prev ? sumRows([prev, row]) : row)
+      }
+    }
+    if (byCircle.size > 0) {
+      wardRows = [...byCircle.entries()]
+        .sort((a, b) => Number(a[0]) - Number(b[0]))
+        .map(([label, r]) => ({ ...r, itemType: label }))
+      wardTotals = sumRows(wardRows)
+      wardPivotKind = 'circle'
+    }
+  }
+
+  const { office, date } = readLabelledValues(grid)
+  return {
+    officeLabel: office || firstCircle || sheet.sheetName,
+    sheetName: sheet.sheetName,
+    asOfDate: date,
+    rows,
+    totals,
+    wardRows,
+    wardTotals,
+    wardPivotKind
+  }
 }
 
 /**
@@ -233,6 +361,8 @@ function parseAbstractBlock(
 /** Parse one "MF" sheet's item-type table (and, if present, its ward-wise pivot) into per-item-type/per-ward rows plus each block's own Total row. */
 export function parseMonitoringFormatSheet(sheet: SheetGrid): MonitoringFormatSummary {
   const grid = sheet.grid
+  const newIdx = newLayoutHeaderIdx(grid)
+  if (newIdx >= 0) return parseNewLayoutSheet(sheet, newIdx)
   const itemBlock = parseAbstractBlock(grid, 0, 'item type')
   if (!itemBlock) {
     throw new Error(`"${sheet.sheetName}" doesn't look like a Monitoring Format sheet (no "Item type" header row found).`)
@@ -266,18 +396,26 @@ export function parseMonitoringFormatSheet(sheet: SheetGrid): MonitoringFormatSu
  * always spells out either "<CNO>-<Circle>" or "<Zone> Zone".
  */
 export function findMonitoringFormatSheet(sheets: SheetGrid[], office: OfficeLike): SheetGrid | null {
+  // The 2026-27 template's zone tab has no "MF" in its name ("LB Ngar Zone"), so a tab also
+  // qualifies by its Category/Status header row.
   const candidates = sheets.filter(
-    (s) => /\bmf\b/i.test(s.sheetName) && !/list/i.test(s.sheetName)
+    (s) => !/list/i.test(s.sheetName) && (/\bmf\b/i.test(s.sheetName) || newLayoutHeaderIdx(s.grid) >= 0)
   )
   if (candidates.length === 0) return null
 
-  const withLabel = candidates.map((s) => ({ sheet: s, label: (readLabelledValues(s.grid).office || '').toLowerCase() }))
+  const withLabel = candidates.map((s) => {
+    const { office } = readLabelledValues(s.grid)
+    const idx = newLayoutHeaderIdx(s.grid)
+    // New template: the circle (or zone) is named in the first data row's Circle cell ("11 - Nagole").
+    const fromRow = idx >= 0 ? (s.grid[idx + 4]?.[NEW_COLS.circle] || '').trim() : ''
+    return { sheet: s, label: (office || fromRow).toLowerCase() }
+  })
 
   if (office.circle) {
     const cno = (office.circleNumber || '').trim()
     const circle = office.circle.trim().toLowerCase()
     const byLabel = withLabel.find(
-      ({ label }) => label && ((cno && label.startsWith(`${cno}-`)) || label.includes(circle))
+      ({ label }) => label && ((cno && new RegExp(`^0*${cno}\\s*[-–]`).test(label)) || label.includes(circle))
     )
     if (byLabel) return byLabel.sheet
     // Fall back to the tab name itself carrying the circle number, e.g. "C58 MF".
@@ -290,14 +428,14 @@ export function findMonitoringFormatSheet(sheets: SheetGrid[], office: OfficeLik
 
   if (office.zone) {
     const zone = office.zone.trim().toLowerCase()
-    const byLabel = withLabel.find(({ label }) => label && label.includes(zone) && !/^\d+-/.test(label))
+    const byLabel = withLabel.find(({ label }) => label && label.includes(zone) && !/^\d+\s*[-–]/.test(label))
     if (byLabel) return byLabel.sheet
     // A zone-only office has no circle number. Its tab is often just an
     // abbreviation (e.g. "QBZ MF") that won't textually match the zone name,
     // so among the "MF" sheets that don't look like a per-circle sheet
     // ("C##"), fall back to the first one — the zone rollup is conventionally
     // the first sheet in these workbooks.
-    const byName = candidates.filter((s) => !/^c\d/i.test(s.sheetName.trim()))
+    const byName = candidates.filter((s) => !isCircleTabName(s.sheetName))
     if (byName.length > 0) return byName[0]
   }
 
@@ -338,6 +476,18 @@ function normalizeWorkStatus(raw: string): MfStatusKey | null {
   return null
 }
 
+/** Tab names that spell a circle: "C57", "C-57", "C 57", "Circle 57", "C-12-Saroornagar". */
+function isCircleTabName(name: string): boolean {
+  return /^\s*c(?:ircle)?[\s.\-_#]*\d/i.test(name)
+}
+
+const isStatusHeader = (h: string) => h === 'status' || h === 'work status' || h.includes('current status')
+
+/** A works-list sheet is recognised by its status column header, whatever the tab is called. */
+function hasWorkStatusHeader(grid: string[][]): boolean {
+  return grid.slice(0, 15).some((row) => row.some((c) => isStatusHeader((c || '').trim().toLowerCase())))
+}
+
 function colIndex(header: string[], test: (h: string) => boolean): number {
   return header.findIndex((h) => test((h || '').trim().toLowerCase()))
 }
@@ -354,17 +504,19 @@ function cellAt(row: string[], idx: number): string {
  */
 export function parseMonitoringFormatWorkSheet(sheet: SheetGrid): MonitoringFormatWorkRow[] {
   const grid = sheet.grid
-  const headerRowIdx = grid.findIndex((row) => row.some((c) => (c || '').trim().toLowerCase() === 'current status'))
+  const headerRowIdx = grid.findIndex(
+    (row, i) => i < 15 && row.some((c) => isStatusHeader((c || '').trim().toLowerCase())) && row.some((c) => /name.*work/i.test((c || '').trim()))
+  )
   if (headerRowIdx === -1) return []
   const header = grid[headerRowIdx]
 
   const col = {
-    slNo: colIndex(header, (h) => h.startsWith('sl.no') || h.startsWith('sl no')),
-    circle: colIndex(header, (h) => h.includes('circle')),
+    slNo: colIndex(header, (h) => /^sl\.?\s*no/.test(h)),
+    circle: colIndex(header, (h) => h.includes('circle') || h === 'cir'),
     ward: colIndex(header, (h) => h.includes('ward')),
     workName: colIndex(header, (h) => /name.*work/.test(h)),
     estimateAmt: colIndex(header, (h) => h.includes('estimate')),
-    typeOfWork: colIndex(header, (h) => h.includes('type') && h.includes('work')),
+    typeOfWork: colIndex(header, (h) => (h.includes('type') && h.includes('work')) || h.startsWith('category')),
     sourceOfSanction: colIndex(header, (h) => h.includes('source')),
     sanctionDate: colIndex(header, (h) => h.includes('sanction') && h.includes('date')),
     agreementDate: colIndex(header, (h) => h.includes('agreement')),
@@ -374,7 +526,10 @@ export function parseMonitoringFormatWorkSheet(sheet: SheetGrid): MonitoringForm
     // and leave "Current status" blank on every row (the opposite of what
     // the header-row anchor above assumes) — try both, per row, and use
     // whichever one names a status (see the per-row pick below).
-    statusCols: [colIndex(header, (h) => h === 'status'), colIndex(header, (h) => h.includes('current status'))].filter(
+    statusCols: [
+      colIndex(header, (h) => h === 'status' || h === 'work status'),
+      colIndex(header, (h) => h.includes('current status'))
+    ].filter(
       (i) => i >= 0
     ),
     winCode: colIndex(header, (h) => h.includes('win'))
@@ -427,7 +582,11 @@ export function parseMonitoringFormatWorkSheet(sheet: SheetGrid): MonitoringForm
  * in the workbook is in scope (the whole workbook already belongs to one zone).
  */
 export function findMonitoringFormatWorkSheets(sheets: SheetGrid[], office: OfficeLike): SheetGrid[] {
-  const candidates = sheets.filter((s) => /list/i.test(s.sheetName))
+  // Circle tabs are often just "C11-Nagole" / "C-12-Saroornagar" with no "list" in the name,
+  // so a sheet also counts when it has a works-list status header and isn't an MF abstract.
+  const candidates = sheets.filter(
+    (s) => /list/i.test(s.sheetName) || (!/\bmf\b/i.test(s.sheetName) && hasWorkStatusHeader(s.grid))
+  )
   if (candidates.length === 0) return []
 
   if (office.circle) {
@@ -552,8 +711,8 @@ export function monitoringFormatWorksTable(
     return {
       headers,
       rows,
-      slNoCol: lower.findIndex((h) => h.startsWith('sl.no') || h.startsWith('sl no')),
-      statusCol: lower.findIndex((h) => h === 'status' || h.includes('current status'))
+      slNoCol: lower.findIndex((h) => /^sl\.?\s*no/.test(h)),
+      statusCol: lower.findIndex((h) => h === 'status' || h === 'work status' || h.includes('current status'))
     }
   }
   return {

@@ -16,6 +16,26 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.47.0',
+    changes: [
+      'QC Intimation/Completion: page 4 is now the new 4th-party letter; its table fills the Work Order number, and a new "AE name & phone number" box under the upload buttons fills the AE column.',
+      'QC letters now quote the Work Order number and date in Ref (not the Agreement number), and the Dy.EE intimation says the work is in progress.',
+      'Work Order: WIN Code is no longer bold, and the name of the work in the Subject line is bold.',
+      'Tender Document: back to 41 pages, and GST @ 18% on the last page stays blank when no technical sanction estimate is uploaded.',
+      'Settings now has Backup & Restore: Backup saves all your data into one encrypted file you can open in its folder or copy to another device. Restore works on any device, but only when signed in with the same login.',
+      'An activity log (Settings > Backup & Restore) now records your saves, edits, sign-ins, backups and restores on this device.',
+      'Work Order / Agreement: new E-Office file number box after the Schedule A items field.',
+      'File Backer: new Technical Sanction No & Date and Agreement No & Date rows (the agreement number is left blank to write in), and an empty NIT No & Date no longer prints a stray ", Dt.".',
+      'QC letters: the recipient address is pushed to the right, with a blank line after it.',
+      'Work Order: the WIN Code to Period of Completion block is neatly aligned and centered, in the preview and the PDF.',
+      'AE/Dy.EE forwarding letter: the Reference section is now a neat 3-row table (Agreement No, Administrative Sanction, Technical Sanction).',
+      'Forwarding Slip: No. of pages of Agreement now fills (41 unless you change it) and ASD shows NIL when there is none.',
+      'EOT proposal: Agreement No. and Date now fills from the Agreement Bond line, with space left to write the number.',
+      'The E-mail ID and phone numbers on the Calendar page now sync to your other devices and logins.',
+      'Schedule A now downloads as a PDF when you choose PDF, and its print area always runs through the Executive Engineer signature (Excel and PDF).'
+    ]
+  },
+  {
     version: '1.46.0',
     changes: [
       'Monitoring Format PDFs (status lists, ward works and Abstract) now open in a preview first, with Print, Save PDF and Excel buttons.',

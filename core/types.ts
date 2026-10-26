@@ -355,6 +355,14 @@ export interface PersistedState {
    */
   office?: { corporation?: string; zone?: string; circle?: string; circleNumber?: string }
   /**
+   * The notice contact details (e-mail ID, EE/SE phone, Head Draughtsman phone)
+   * entered on the Calendar page / Tender Notice dialog, keyed by their
+   * office-scoped localStorage key (see CONTACT_KEYS in src/office.ts). Kept in
+   * localStorage for instant reads; this synced copy carries them to every login
+   * and device.
+   */
+  contacts?: Record<string, string>
+  /**
    * Tender conditions (required-document names) saved by tender ID. The portal
    * drops a tender once bidding closes, but the evaluation sheet is made after
    * that, so conditions are saved while the tender is still listed and reused.

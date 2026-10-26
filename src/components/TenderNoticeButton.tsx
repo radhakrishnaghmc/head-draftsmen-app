@@ -7,7 +7,7 @@ import type { ExcelTable } from '@core/types'
 import type { BidDocumentBatch } from '@core/types'
 import type { TenderNoticeInput, TenderNoticeGroup } from '../../electron/ipc-contract'
 import { indianFinancialYear } from '@core/workOrderAgreement'
-import { type Office, officeScopedKey, isZoneOnlyOffice, CONTACT_KEYS } from '../office'
+import { type Office, officeScopedKey, isZoneOnlyOffice, CONTACT_KEYS, saveContact } from '../office'
 import { closeOnBackdropMouseDown } from '../overlayClose'
 import { corporationByName } from '../zoneCircleDirectory'
 import { applyRecallTag, ordinal } from '@core/tenderAgents/recallTag'
@@ -122,7 +122,10 @@ function composeNitNo(serial: string, office: Office | undefined, datedIso: stri
   // A Zone-level office has no Circle of its own — name the Zone instead of
   // "Circle Circle-<CNO>", which would otherwise print "undefined".
   const place = office?.circle ? `${office.circle} Circle-${office.circleNumber}` : `${office?.zone} Zone`
-  return `${s}/DB/EE/${place}/${office?.corporation}/${indianFinancialYear(parseIsoDateLocal(datedIso))}`
+  // A Zone-level (SE) office numbers its NITs "33/SE(M)/<Zone> Zone/<Corp>/<FY>" (SE Maintenance, no "DB");
+  // a Circle (EE) office uses "16/DB/EE/<Circle> Circle-<No>/<Corp>/<FY>".
+  const prefix = isZoneOnlyOffice(office) ? 'SE(M)' : 'DB/EE'
+  return `${s}/${prefix}/${place}/${office?.corporation}/${indianFinancialYear(parseIsoDateLocal(datedIso))}`
 }
 
 function todayISO(): string {
@@ -448,9 +451,9 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
       const path = await api.generateTenderNotice(input, suggestedName)
       if (path) {
         // Remember the contact details for next time (per machine, per office).
-        localStorage.setItem(officeScopedKey(CONTACT_KEYS.email, office), email.trim())
-        localStorage.setItem(officeScopedKey(CONTACT_KEYS.eePhone, office), eePhone.trim())
-        localStorage.setItem(officeScopedKey(CONTACT_KEYS.hdPhone, office), hdPhone.trim())
+        saveContact(officeScopedKey(CONTACT_KEYS.email, office), email.trim())
+        saveContact(officeScopedKey(CONTACT_KEYS.eePhone, office), eePhone.trim())
+        saveContact(officeScopedKey(CONTACT_KEYS.hdPhone, office), hdPhone.trim())
         setSaved(path)
         setOpen(false)
         onGenerated?.(input.nitNo)

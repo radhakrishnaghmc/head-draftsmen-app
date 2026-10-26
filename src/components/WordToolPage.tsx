@@ -57,9 +57,8 @@ export default function WordToolPage({ onBack }: Props) {
   const working = busy === 'merge' || busy === 'save' || busy === 'files'
 
   // Draw one page's thumbnail on demand: convert that section .docx to PDF
-  // (LibreOffice) and render its first page. Cached; a failure (e.g. no
-  // LibreOffice) returns null and the tile shows a small warning — the actual
-  // merge/split still work without it.
+  // and render its first page. Cached; a failure returns null and the tile
+  // shows a small warning — the actual merge/split still work without it.
   const renderThumb = useCallback(async (id: string, sectionIndex: number): Promise<string | null> => {
     const key = keyOf(id, sectionIndex)
     const cached = thumbCacheRef.current.get(key)
@@ -385,7 +384,7 @@ export default function WordToolPage({ onBack }: Props) {
 
           <p className="pdf-ws-rail-hint">
             Pages are split at the document's page breaks, and every output stays in Word (.docx) with its formatting,
-            tables and images kept. Previews need LibreOffice, but the merge/split do not.
+            tables and images kept.
           </p>
         </aside>
       </div>

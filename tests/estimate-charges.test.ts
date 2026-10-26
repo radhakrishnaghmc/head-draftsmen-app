@@ -47,9 +47,9 @@ describe('civilTenderPlaceholders GST', () => {
     expect(v.GST).toBe('Rs.2,69,609.00')
   })
 
-  it('falls back to 18% of the ECV when no estimate has been uploaded', () => {
+  it('stays blank when no estimate has been uploaded, even with an ECV', () => {
     const v = civilTenderPlaceholders(fields, {}, {})
-    expect(v.GST).toBe('Rs.3,08,160.00')
+    expect(v.GST).toBe('')
   })
 
   it('keeps Labour Cess at 1% of the ECV', () => {

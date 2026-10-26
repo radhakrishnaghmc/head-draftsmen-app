@@ -7951,9 +7951,10 @@ tr.on .rp-box span {
 }
 .tk-nit {
   max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 150px;
+  /* NIT numbers have no spaces, so break anywhere to show the full text. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .tk-org {
   max-width: 220px;
@@ -8702,6 +8703,12 @@ tr.on .rp-box span {
 .cal-tender-phone input:focus {
   outline: none;
   border-color: var(--indigo-500);
+}
+.cal-tender-phone.cal-tender-email input {
+  width: 210px;
+}
+body.theme-play .cal-tender-phone.cal-tender-email input {
+  width: 250px;
 }
 
 /* Link to the official source calendar, sits in the legend row. */
@@ -12035,6 +12042,94 @@ body.theme-aurora .pdf-ws-page.on {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+.mf-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.mf-filter-count {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.mf-filter-bar + .mf-works-wrap,
+.mf-filter-panel + .mf-works-wrap {
+  margin-top: 8px;
+}
+.mf-filter-bar + .mf-works-wrap {
+  margin-top: 8px;
+}
+/* Per-column filter: the funnel only shows while hovering that heading (or once it's in use). */
+.mf-th {
+  position: relative;
+}
+.mf-th-filter {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  padding: 2px 4px;
+  vertical-align: middle;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.mf-th:hover .mf-th-filter,
+.mf-th-filter.on,
+.mf-th-filter.open {
+  display: inline-flex;
+}
+.mf-th-filter.on {
+  color: var(--teal-500);
+  border-color: var(--teal-500);
+}
+.mf-filter-pop {
+  position: fixed;
+  z-index: 50;
+  width: 240px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.mf-filter-pop-title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.mf-filter-pop input {
+  width: 100%;
+  font-size: 12.5px;
+  padding: 5px 7px;
+}
+.mf-filter-pop-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.mf-filter-pop-list button {
+  text-align: left;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.mf-filter-pop-list button:hover {
+  background: var(--surface-2);
+}
+.mf-filter-pop-list button.on {
+  font-weight: 650;
+  color: var(--teal-500);
+}
 .mf-works-table tbody td {
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
@@ -15294,6 +15389,45 @@ body.theme-play .gen-output-modes .seg.active {
   background: var(--play-active);
   color: #001d35;
 }
+/* Word | PDF download-format toggle: the chosen side is the filled segment, the other is flat. */
+body.theme-play .format-toggle {
+  display: inline-flex;
+  gap: 0;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  overflow: hidden;
+  box-shadow: none;
+}
+body.theme-play .format-toggle button {
+  min-height: 40px;
+  padding: 0 18px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: none;
+}
+body.theme-play .format-toggle button + button {
+  border-left: 1px solid var(--border-strong);
+}
+body.theme-play .format-toggle button:hover:not(:disabled):not(.on) {
+  background: var(--play-tonal);
+}
+body.theme-play .format-toggle button.on {
+  background: var(--play-active);
+  color: #001d35;
+  font-weight: 600;
+  box-shadow: none;
+}
+body.theme-play .format-toggle button.on::before {
+  content: '✓';
+  margin-right: 6px;
+  font-weight: 700;
+}
 body.theme-play .doc-batch-actions {
   gap: 8px;
   padding: 12px 0;
@@ -15911,4 +16045,69 @@ body.theme-play .cal-month-missing {
   body.theme-play .cal-days {
     grid-auto-rows: 36px;
   }
+}
+
+/* Settings — Backup & Restore */
+.backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.backup-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.backup-actions svg {
+  width: 14px;
+  height: 14px;
+}
+.backup-result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.backup-file {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+  word-break: break-all;
+}
+.backup-log {
+  margin-top: 14px;
+}
+.backup-log summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.backup-log-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+.backup-log-list li {
+  display: flex;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.backup-log-time {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.backup-log-action {
+  flex-shrink: 0;
+  min-width: 52px;
+  font-weight: 700;
+  text-transform: capitalize;
 }

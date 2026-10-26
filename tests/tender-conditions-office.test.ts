@@ -18,6 +18,11 @@ describe('tenderConditionsInOffice', () => {
     expect(tenderConditionsInOffice(ee, EE, false)).toBe(true)
     expect(tenderConditionsInOffice(ee, SE, true)).toBe(false)
   })
+  it('treats an SE(M) (SE Maintenance) NIT as zone-level', () => {
+    const se = { conditions: ['a'], nitNo: 'NIT No.33/SE(M)/Malkajgiri Zone/MMC/2026-27, Dated: 22-10-2026' }
+    expect(tenderConditionsInOffice(se, SE, true)).toBe(true)
+    expect(tenderConditionsInOffice(se, EE, false)).toBe(false)
+  })
   it('keeps entries with no clue visible everywhere', () => {
     const e = { conditions: ['a'] }
     expect(tenderConditionsInOffice(e, EE, false)).toBe(true)

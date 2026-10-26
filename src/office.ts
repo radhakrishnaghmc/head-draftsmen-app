@@ -104,6 +104,41 @@ export const CONTACT_KEYS = {
   hdPhone: 'hda-tn-hd-phone'
 } as const
 
+/** Fired (same window) after a contact value is saved, so App can include it in the synced state. */
+export const CONTACTS_CHANGED_EVENT = 'hda-contacts-changed'
+/** Fired after contact values arrive from the cloud / a restore and are written to localStorage, so visible fields re-read them. */
+export const CONTACTS_SYNCED_EVENT = 'hda-contacts-synced'
+
+const isContactKey = (k: string) => Object.values(CONTACT_KEYS).some((base) => k === base || k.startsWith(`${base}:`))
+
+/** Saves one contact value and tells App it changed (so it syncs). */
+export function saveContact(key: string, value: string): void {
+  localStorage.setItem(key, value)
+  window.dispatchEvent(new Event(CONTACTS_CHANGED_EVENT))
+}
+
+/** Every saved contact value (all offices), for the synced state. */
+export function readContacts(): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i)
+    if (k && isContactKey(k)) out[k] = localStorage.getItem(k) ?? ''
+  }
+  return out
+}
+
+/** Writes contact values that came from the cloud / a restore into localStorage and tells visible fields to re-read them. */
+export function applyContacts(contacts: Record<string, string>): void {
+  let changed = false
+  for (const [k, v] of Object.entries(contacts)) {
+    if (isContactKey(k) && localStorage.getItem(k) !== v) {
+      localStorage.setItem(k, v)
+      changed = true
+    }
+  }
+  if (changed) window.dispatchEvent(new Event(CONTACTS_SYNCED_EVENT))
+}
+
 // Which bundled document-template variant an office has chosen (see
 // core/workOrderTemplateVariants.ts, and Settings' Document Templates
 // section) — scoped per office the same way as CONTACT_KEYS above, so one

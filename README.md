@@ -46,8 +46,8 @@ and asks you to choose the winning source before generating.
 | `npm run package` | Build a distributable installer (electron-builder). |
 | `npm run package:dir` | Build an unpacked app (fast, for testing). |
 
-> **PDF export** uses headless **LibreOffice** for high-fidelity conversion. Install LibreOffice
-> to enable PDF output; otherwise generate `.docx` only.
+> **PDF export** is built in: documents are rendered and printed to PDF by the app's own Chromium.
+> No external office software is needed.
 
 ## Project structure
 

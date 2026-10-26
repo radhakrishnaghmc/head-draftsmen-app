@@ -64,6 +64,7 @@ import {
 import NoteSubmittedEditor from './NoteSubmittedEditor'
 import {
   DEFAULT_NOTE_MARGINS,
+  PREVIOUS_NOTE_MARGINS,
   noteDocxHtml,
   noteMarginsTwips,
   noteSheetsHtml,
@@ -84,7 +85,8 @@ import {
   PAGE_WIDTH,
   renderDocPreview,
   DOCX_PREVIEW_OPTIONS,
-  normalizeDocxTextboxes
+  normalizeDocxTextboxes,
+  fitDocxToOnePage
 } from './docPage'
 import { renderAsync } from '../lazyDocxPreview'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconCheck, IconClipboard, IconTable } from './Icons'
@@ -631,7 +633,8 @@ const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
       fields: [
         { label: 'Name of the work', title: 'Name of the work', multiline: true },
         { label: 'Wincode', title: 'Wincode' },
-        { label: 'Completion Period', title: 'Completion period', periodUnit: true }
+        { label: 'Completion Period', title: 'Completion period', periodUnit: true },
+        { label: 'AE Name Phone', title: 'AE name & phone (4th-party letter)', wide: true }
       ]
     },
     {
@@ -815,6 +818,9 @@ export default function WorkOrderAgreementTab({
   const [loadError, setLoadError] = useState<string | null>(null)
   // Forwarding Slip fields the office hand-enters (not on the Works List / L-1).
   const [tsNoDate, setTsNoDate] = useState('')
+  // e-Office file no. of the administrative sanction and the Budget no. — both hand-entered (AE/Dy.EE letters).
+  const [eOfficeFileNo, setEOfficeFileNo] = useState('')
+  const [budgetNo, setBudgetNo] = useState('')
   // Chief Engineer's administrative-sanction letter No & Date — the SE zonal
   // Work Order / Agreement Put-up Note still print this ({{CE Letter No Date}}),
   // but the app no longer offers a way to enter it (removed from this
@@ -872,9 +878,9 @@ export default function WorkOrderAgreementTab({
   >(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
-  // Which format "Download all documents" saves every document as (Schedule
-  // A is always Excel regardless — the one format it actually has). Defaults
-  // to Word since PDF needs LibreOffice installed.
+  // Which format "Download all documents" saves every document as — Schedule A
+  // included (a printed PDF, or its Excel file for Word). Defaults to Word since
+  // PDF conversion is the slow part.
   const [bundleFormat, setBundleFormat] = useState<'docx' | 'pdf'>('docx')
   // Documents left out of "Download all" (unticked in the Select popover); empty = every document.
   const [bundleSkipped, setBundleSkipped] = useState<Set<string>>(() => new Set())
@@ -918,6 +924,8 @@ export default function WorkOrderAgreementTab({
   // when the Agreement Bond tile is opened).
   const [agreementDate, setAgreementDate] = useState('')
   const [agreementNo, setAgreementNo] = useState('')
+  // The AE's name and phone number — typed per work, fills the 4th-party QC letter's "AE Name & Phone No." column.
+  const [aeNamePhone, setAeNamePhone] = useState('')
   const [datePromptOpen, setDatePromptOpen] = useState(false)
   const [promptDate, setPromptDate] = useState('')
   // Tools/standalone: when the uploaded L-1's name of work / NIT carries no Zone
@@ -945,7 +953,12 @@ export default function WorkOrderAgreementTab({
   const [noteMargins, setNoteMargins] = useState<NoteMargins>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('noteSubmittedMargins') ?? 'null')
-      if (saved && (['top', 'bottom', 'left', 'right'] as const).every((k) => Number.isFinite(saved[k]))) return saved
+      if (saved && (['top', 'bottom', 'left', 'right'] as const).every((k) => Number.isFinite(saved[k]))) {
+        const untouched = (Object.keys(PREVIOUS_NOTE_MARGINS) as (keyof NoteMargins)[]).every((k) => saved[k] === PREVIOUS_NOTE_MARGINS[k])
+        const interim =
+          saved.top === 3.5 && saved.bottom === 6.35 && ((saved.left === 22 && saved.right === 22) || (saved.left === 3.5 && saved.right === 3.5))
+        return untouched || interim ? DEFAULT_NOTE_MARGINS : saved
+      }
     } catch {
       /* fall through to defaults */
     }
@@ -1258,7 +1271,11 @@ export default function WorkOrderAgreementTab({
         cno: office?.circleNumber || f.cno,
         zone: office?.zone || f.zone,
         corporation: corp,
-        corporationFullName: corporationByName(corp)?.fullName ?? f.corporationFullName
+        corporationFullName: corporationByName(corp)?.fullName ?? f.corporationFullName,
+        // the office's saved QC agencies apply to manually-entered works too
+        qcDepartmentTo: qcPartyToBlock(qcParties?.department),
+        qcThirdTo: qcPartyToBlock(qcParties?.third),
+        qcFourthTo: qcPartyToBlock(qcParties?.fourth)
       }
     }
     const f = deriveFields(effectiveNotice ?? {}, pdfEval ?? {}, selectedRow ?? {})
@@ -1272,6 +1289,7 @@ export default function WorkOrderAgreementTab({
       ...f,
       agreementDate: dmy,
       agreementNo: agreementNo.trim(),
+      aeNamePhone: aeNamePhone.trim(),
       workOrderDate: dmy,
       // Corporation / Circle / Zone come from the chosen office (Works List page)
       // when set, else the L-1/NIT-derived value, else the hand-entered fallback.
@@ -1285,6 +1303,8 @@ export default function WorkOrderAgreementTab({
       corporationFullName: (only ? '' : corporationByName(office?.corporation)?.fullName) ?? '',
       tsNoDate,
       ceLetterNoDate,
+      eOfficeFileNo,
+      budgetNo,
       completionMonths,
       emdDetails,
       qcDepartmentTo: qcPartyToBlock(qcParties?.department),
@@ -1300,9 +1320,12 @@ export default function WorkOrderAgreementTab({
     selectedRow,
     agreementDate,
     agreementNo,
+    aeNamePhone,
     office,
     tsNoDate,
     ceLetterNoDate,
+    eOfficeFileNo,
+    budgetNo,
     completionMonths,
     emdDetails,
     manualCircle,
@@ -1651,7 +1674,7 @@ export default function WorkOrderAgreementTab({
       case 'qccIntimation':
         return qcIntimationCompletionPlaceholders(f)
       case 'forwardingSlip':
-        return forwardingSlipPlaceholders(f)
+        return forwardingSlipPlaceholders(f, pagesOfAgreement)
       case 'workBillNote':
         return workBillNotePlaceholders(f)
       case 'aeDyeeForwarding':
@@ -1705,10 +1728,12 @@ export default function WorkOrderAgreementTab({
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
     const filled = await api.fillPlaceholdersInDocument(b64, resolved, values)
     // File Backer is a single A4 sheet (the templates are still US Letter).
-    return applyPageMargins(filled, docMargins[kind] ?? null, A4_DOCS.includes(kind))
+    const sized = applyPageMargins(filled, docMargins[kind] ?? null, A4_DOCS.includes(kind))
+    // The Agreement Bond is a single A4 sheet — long names/addresses shrink the text rather than spill onto a second page.
+    return kind === 'agreement' || kind === 'seAgreementBond' ? fitDocxToOnePage(sized) : sized
   }
 
-  // The full-size, accurate (LibreOffice-backed) render — used only for the
+  // The full-size, accurate (Chromium-rendered) render — used only for the
   // expanded preview modal and for print, where a user is actually looking
   // at (or about to print) one specific document.
   async function renderDocInto(kind: DocKind, container: HTMLElement): Promise<number> {
@@ -1781,7 +1806,7 @@ export default function WorkOrderAgreementTab({
 
   // The small, live thumbnail shown inside each tile on the catalog grid — up
   // to 6 of these render at once. Deliberately the FAST docx-preview.js
-  // render, not the accurate LibreOffice-backed one renderDocInto (above)
+  // render, not the accurate Chromium-rendered one renderDocInto (above)
   // uses: LibreOffice conversion for every tile — whether run independently
   // or batched into one call — depends on a working local/bundled LibreOffice
   // install, and on at least one real machine turned both slow and, for
@@ -2060,8 +2085,8 @@ export default function WorkOrderAgreementTab({
 
   // Generate every agreement-workspace document at once, into one folder the
   // user picks — each in the format chosen by the toggle next to the button
-  // (Word or PDF). Schedule A is always Excel, the one format it actually
-  // has. Only the outputs that are ready are included.
+  // (Word or PDF) — Schedule A too: Excel for Word, a printed PDF for PDF.
+  // Only the outputs that are ready are included.
   async function downloadAll() {
     setBusy('bundle')
     setActionError(null)
@@ -2102,7 +2127,7 @@ export default function WorkOrderAgreementTab({
         if (contractDeedB64 && wants('contractDeed')) await add(docName('contractDeed'), await fillDoc('contractDeed'))
       } else {
         // File Backer — the cover page — first in the bundle.
-        if (fileBackerB64) await add(docName('fileBacker'), await fillDoc('fileBacker'))
+        if (fileBackerB64 && wants('fileBacker')) await add(docName('fileBacker'), await fillDoc('fileBacker'))
         if (workBillNoteB64 && wants('workBillNote')) await add(docName('workBillNote'), await fillDoc('workBillNote'))
         if (aeDyeeB64 && wants('aeDyeeForwarding')) await add(docName('aeDyeeForwarding'), await fillDoc('aeDyeeForwarding'))
         if (civilTenderB64 && wants('civilTender')) await add(docName('civilTender'), await fillDoc('civilTender'))
@@ -2120,7 +2145,7 @@ export default function WorkOrderAgreementTab({
       if (scheduleA && wants('scheduleA'))
         files.push({
           name: `Schedule A${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`,
-          format: 'xlsx',
+          format: bundleFormat === 'pdf' ? 'pdf' : 'xlsx',
           scheduleATable: scheduleA,
           scheduleAMeta,
           scheduleAIsSe: seMode
@@ -2138,12 +2163,12 @@ export default function WorkOrderAgreementTab({
       if (!res) {
         setActionSaved('Cancelled.')
       } else if (res.failed.length > 0) {
-        // Some documents (usually PDFs needing LibreOffice) didn't convert — say
+        // Some documents (usually PDFs) didn't convert — say
         // which, instead of silently dropping them from the folder.
         setActionSaved(`Saved ${res.written.length} document(s).`)
         setActionError(
           `${res.failed.length} document(s) could not be saved: ${res.failed.join(', ')}. ` +
-            `PDFs need LibreOffice installed — install it from libreoffice.org, or download those as Word (.docx) instead.` +
+            `Try downloading those as Word (.docx) instead.` +
             unresolvedNote
         )
       } else {
@@ -2499,6 +2524,21 @@ export default function WorkOrderAgreementTab({
     if (scheduleAOnly) onContent?.(!!boq || !!scheduleAError)
   }, [scheduleAOnly, boq, scheduleAError, onContent])
 
+  async function downloadScheduleAPdf() {
+    if (!scheduleA) return
+    setScheduleABusy(true)
+    setScheduleAError(null)
+    try {
+      const suggestedName = `Schedule A${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`
+      const savedPath = await api.exportScheduleAPdf(scheduleA, suggestedName, scheduleAMeta, seMode)
+      if (savedPath) setActionSaved(`Saved: ${savedPath}`)
+    } catch (e) {
+      setScheduleAError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setScheduleABusy(false)
+    }
+  }
+
   async function downloadScheduleA() {
     if (!scheduleA) return
     setScheduleABusy(true)
@@ -2519,25 +2559,29 @@ export default function WorkOrderAgreementTab({
     }
   }
 
-  function scheduleATableHtml(): string {
-    if (!scheduleAPreview) return ''
-    const rows = scheduleAPreview
-      .map((row) => {
-        const cells = Array.from({ length: 6 }, (_, ci) => String(row[ci] ?? ''))
-        const wide = cells.slice(1).every((c) => c === '')
-        if (wide) return `<tr><td colspan="6" style="font-weight:600">${cells[0]}</td></tr>`
-        return `<tr>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`
+  // The page the PDF prints — the preview and Print use this very HTML, so all three match.
+  const [scheduleAPageHtml, setScheduleAPageHtml] = useState('')
+  useEffect(() => {
+    if (expanded !== 'scheduleA') return
+    let cancelled = false
+    api
+      .scheduleAPreviewHtml(scheduleA, scheduleAMeta, seMode)
+      .then((html) => {
+        if (!cancelled) setScheduleAPageHtml(html)
       })
-      .join('')
-    return `<table style="border-collapse:collapse;width:100%;font-family:'Times New Roman',serif;font-size:12px">
-      <style>td{border:1px solid #333;padding:5px 7px;vertical-align:top}</style>${rows}</table>`
-  }
+      .catch((e) => {
+        if (!cancelled) setScheduleAError(e instanceof Error ? e.message : String(e))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [expanded, scheduleA, scheduleAMeta, seMode])
 
   async function printScheduleA() {
     setScheduleABusy(true)
     setScheduleAError(null)
     try {
-      await api.printCreatedDocument(scheduleATableHtml())
+      await api.printCreatedDocument(await api.scheduleAPreviewHtml(scheduleA, scheduleAMeta, seMode))
     } catch (e) {
       setScheduleAError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -2629,7 +2673,7 @@ export default function WorkOrderAgreementTab({
           setBundlePickerOpen(false)
           gated({ type: 'all' })
         }}
-        title={`${bundleSkipped.size > 0 ? 'The selected documents' : 'Every document'} as ${bundleFormat === 'pdf' ? 'PDF' : 'Word'}, into one folder you choose`}
+        title={`${bundleSkipped.size > 0 ? 'The selected documents' : 'Every document'} as ${bundleFormat === 'pdf' ? 'separate PDFs' : 'Word (Schedule A as Excel)'}, into one folder you choose`}
       >
         <IconDownload />{' '}
         {busy === 'bundle' ? bundleProgressLabel : bundleSkipped.size > 0 ? 'Download selected' : 'Download all documents'}
@@ -2764,6 +2808,19 @@ export default function WorkOrderAgreementTab({
             }}
           />
         </div>
+        {!scheduleAOnly && !only && (
+          <div className="wo-manual-form">
+            <label className="wo-date-field wo-manual-wide">
+              <span>AE name &amp; phone number (4th-party letter)</span>
+              <input
+                type="text"
+                placeholder="K. Ramesh, 9876543210"
+                value={aeNamePhone}
+                onChange={(e) => setAeNamePhone(e.target.value)}
+              />
+            </label>
+          </div>
+        )}
         {only && manualMode && (
           <div className="wo-manual-form">
             <label className="wo-date-field wo-manual-wide">
@@ -2853,6 +2910,10 @@ export default function WorkOrderAgreementTab({
               <input type="date" value={manual.adminSanctionDate} onChange={(e) => setManual((p) => ({ ...p, adminSanctionDate: e.target.value }))} />
             </label>
             <label className="wo-date-field">
+              <span>Budget number</span>
+              <input type="text" placeholder="e.g. 5" value={budgetNo} onChange={(e) => setBudgetNo(e.target.value)} />
+            </label>
+            <label className="wo-date-field">
               <span>Period of completion (months)</span>
               <input type="text" placeholder="03" value={manual.completionMonths} onChange={(e) => setManual((p) => ({ ...p, completionMonths: e.target.value }))} />
             </label>
@@ -2917,7 +2978,16 @@ export default function WorkOrderAgreementTab({
                 onChange={(e) => setScheduleAItems(e.target.value)}
               />
             </label>
-            <span className="estimate-hint wo-manual-wide">For the Forwarding Slip &amp; Tender Document.</span>
+            <label className="wo-date-field">
+              <span>E-Office file number</span>
+              <input
+                type="text"
+                placeholder="1234567"
+                value={eOfficeFileNo}
+                onChange={(e) => setEOfficeFileNo(e.target.value)}
+              />
+            </label>
+            <span className="estimate-hint wo-manual-wide">For the Forwarding Slip, Tender Document &amp; AE/Dy.EE letters.</span>
           </div>
         )}
         {!only && noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
@@ -3239,7 +3309,6 @@ export default function WorkOrderAgreementTab({
                 type="date"
                 value={promptDate}
                 onChange={(e) => setPromptDate(e.target.value)}
-                // eslint-disable-next-line jsx-a11y/no-autofocus
                 autoFocus
               />
             </div>
@@ -3294,27 +3363,12 @@ export default function WorkOrderAgreementTab({
 
             <div className="wo-modal-body">
               {expanded === 'scheduleA' ? (
-                <div className="sheet-wrap">
-                  <table className="sa-preview-table">
-                    <tbody>
-                      {scheduleAPreview?.map((row, ri) => {
-                        const cells = Array.from({ length: 6 }, (_, ci) => row[ci] ?? '')
-                        const wide = cells.slice(1).every((c) => c === '')
-                        return (
-                          <tr key={ri}>
-                            {wide ? (
-                              <td colSpan={6} className="sa-wide">
-                                {String(cells[0])}
-                              </td>
-                            ) : (
-                              cells.map((c, ci) => <td key={ci}>{String(c)}</td>)
-                            )}
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <iframe
+                  className="sa-page-frame"
+                  title="Schedule A"
+                  srcDoc={scheduleAPageHtml}
+                  style={{ width: '100%', height: '100%', minHeight: '70vh', border: 0, background: '#d8d8dc' }}
+                />
               ) : expanded === 'note' ? (
                 noteData && (
                   <NoteSubmittedEditor
@@ -3412,6 +3466,9 @@ export default function WorkOrderAgreementTab({
                   <button className="primary" onClick={downloadScheduleA} disabled={scheduleABusy || !scheduleA}>
                     <IconDownload /> {scheduleABusy ? 'Working…' : 'Excel'}
                   </button>
+                  <button className="primary" onClick={downloadScheduleAPdf} disabled={scheduleABusy || !scheduleA}>
+                    <IconDownload /> {scheduleABusy ? 'Working…' : 'PDF'}
+                  </button>
                   <button className="primary" onClick={printScheduleA} disabled={scheduleABusy}>
                     <IconPrint /> Print
                   </button>
@@ -3475,7 +3532,6 @@ export default function WorkOrderAgreementTab({
                         acceptPeriod()
                       }
                     }}
-                    // eslint-disable-next-line jsx-a11y/no-autofocus
                     autoFocus
                   />
                 </label>

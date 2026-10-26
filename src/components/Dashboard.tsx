@@ -3,7 +3,7 @@ import { api } from '../ipc'
 import { IconTable, IconChevronLeft, IconChevronRight } from './Icons'
 import type { CalendarData, HolidayType } from '@core/calendar'
 import { MONTH_NAMES, holidaysByDay } from '@core/calendar'
-import { type Office, officeScopedKey, isZoneOnlyOffice, CONTACT_KEYS } from '../office'
+import { type Office, officeScopedKey, isZoneOnlyOffice, CONTACT_KEYS, saveContact, CONTACTS_SYNCED_EVENT } from '../office'
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
@@ -105,17 +105,34 @@ export default function Dashboard({ cached, onData, office }: Props) {
   // the other. Reloaded whenever the chosen office changes.
   const [enginPhone, setEnginPhone] = useState('')
   const [hdPhone, setHdPhone] = useState('')
+  // The notice's e-mail ID lives beside the phones under the same sharing rule.
+  const [email, setEmail] = useState('')
   useEffect(() => {
     setEnginPhone(localStorage.getItem(officeScopedKey(CONTACT_KEYS.eePhone, office)) || '')
     setHdPhone(localStorage.getItem(officeScopedKey(CONTACT_KEYS.hdPhone, office)) || '')
+    setEmail(localStorage.getItem(officeScopedKey(CONTACT_KEYS.email, office)) || '')
   }, [office])
+  // Values arriving from another device / a restore land in localStorage; re-read them.
+  useEffect(() => {
+    const reload = () => {
+      setEnginPhone(localStorage.getItem(officeScopedKey(CONTACT_KEYS.eePhone, office)) || '')
+      setHdPhone(localStorage.getItem(officeScopedKey(CONTACT_KEYS.hdPhone, office)) || '')
+      setEmail(localStorage.getItem(officeScopedKey(CONTACT_KEYS.email, office)) || '')
+    }
+    window.addEventListener(CONTACTS_SYNCED_EVENT, reload)
+    return () => window.removeEventListener(CONTACTS_SYNCED_EVENT, reload)
+  }, [office])
+  function saveEmail(v: string) {
+    setEmail(v)
+    saveContact(officeScopedKey(CONTACT_KEYS.email, office), v.trim())
+  }
   function saveEnginPhone(v: string) {
     setEnginPhone(v)
-    localStorage.setItem(officeScopedKey(CONTACT_KEYS.eePhone, office), v.trim())
+    saveContact(officeScopedKey(CONTACT_KEYS.eePhone, office), v.trim())
   }
   function saveHdPhone(v: string) {
     setHdPhone(v)
-    localStorage.setItem(officeScopedKey(CONTACT_KEYS.hdPhone, office), v.trim())
+    saveContact(officeScopedKey(CONTACT_KEYS.hdPhone, office), v.trim())
   }
 
   // Fetches one specific year's calendar, guessing its URL from the last
@@ -328,6 +345,15 @@ export default function Dashboard({ cached, onData, office }: Props) {
                       value={hdPhone}
                       onChange={(e) => saveHdPhone(e.target.value)}
                       placeholder="10-digit mobile number"
+                    />
+                  </label>
+                  <label className="cal-tender-phone cal-tender-email">
+                    <span>Email ID</span>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => saveEmail(e.target.value)}
+                      placeholder="eec58.GHMC@gmail.com"
                     />
                   </label>
                 </div>

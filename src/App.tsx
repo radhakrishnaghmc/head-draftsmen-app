@@ -16,7 +16,7 @@ import {
 import { autofillWorksRow, enforceZoneCircle, fillCircleNumber, splitCircleColumn } from './zoneCircleCheck'
 import { closeOnBackdropMouseDown } from './overlayClose'
 import { entriesOf, corporationByName } from './zoneCircleDirectory'
-import { type Office, officeKey, isOfficeReady } from './office'
+import { type Office, officeKey, isOfficeReady, readContacts, applyContacts, CONTACTS_CHANGED_EVENT } from './office'
 import { type ThemeId, getStoredTheme, setStoredTheme } from './theme'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import { findWorksListErrors, findMonitoringFormatErrors } from '@core/worksListAgent'
@@ -410,6 +410,13 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // injection never repeats (and a default the user deletes stays deleted).
   const [seededDocVersion, setSeededDocVersion] = useState(0)
   const [bidDocumentBatches, setBidDocumentBatches] = useState<BidDocumentBatch[]>([])
+  // Notice contact details (e-mail / phones), mirrored from localStorage so they sync like everything else.
+  const [contacts, setContacts] = useState<Record<string, string>>(readContacts)
+  useEffect(() => {
+    const reload = () => setContacts(readContacts())
+    window.addEventListener(CONTACTS_CHANGED_EVENT, reload)
+    return () => window.removeEventListener(CONTACTS_CHANGED_EVENT, reload)
+  }, [])
   // Set when the previously-saved Works List belongs to a different
   // Zone/Circle than the one logged in — that data is withheld (never
   // loaded into `tables`, so it never displays). Everything else (documents,
@@ -564,6 +571,73 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
 
   // ── Persistence: load the saved workspace once on startup ──────────
   const [hydrated, setHydrated] = useState(false)
+  // Applies a whole saved workspace to the screen — used by the startup load and by Settings > Restore.
+  const applyLoadedState = (s: PersistedState) => {
+    // Force every existing works database onto the standard column schema
+    // (columns come from the APP Excel). Any other columns are dropped.
+    // A Works List saved before ECV/Contract Amount moved to rupee
+    // storage is converted once here (Lakhs -> rupees), keyed on the
+    // persisted schema version so it never double-converts.
+    const needsEcvRupeeMigration = (s.version ?? 1) < ECV_RUPEES_STATE_VERSION
+    const migrate = (ts: ExcelTable[]): ExcelTable[] =>
+      ts
+        .map(applyWorksSchema)
+        .map((t) => (needsEcvRupeeMigration ? migrateEcvContractToRupees(t) : t))
+        // Always heal any ECV/Contract Amount left absurdly inflated by an
+        // earlier over-migration (idempotent — see repairInflatedRupees).
+        .map(repairInflatedRupees)
+        // Always re-apply the canonical column order (idempotent).
+        .map(reorderWorksColumns)
+
+    // Restore each office's own Works List. Legacy states stored only a
+    // single top-level `tables` (the last office in use) — migrate it into
+    // this office's slot so switching away and back no longer loses it.
+    const byOffice: Record<string, ExcelTable[]> = {}
+    for (const [k, v] of Object.entries(s.tablesByOffice ?? {})) byOffice[k] = migrate(v)
+    const loadedTables = byOffice[currentOfficeKey] ?? migrate(s.tables ?? [])
+    if (!byOffice[currentOfficeKey] && loadedTables.length > 0) byOffice[currentOfficeKey] = loadedTables
+    setTablesByOffice(byOffice)
+
+    // A previously-saved Works List belonging to a different Zone/Circle
+    // than the one logged in now must not be shown — same rule as a
+    // fresh import (see importFromGoogleLink), applied to what's already
+    // on disk too.
+    const first = loadedTables[0] ? splitCircleColumn(loadedTables[0]) : undefined
+    if (loginZone && loginCircle && first) {
+      const { table: checked, mismatches } = enforceZoneCircle(first, loginZone, loginCircle, officeEntries)
+      // A circle reorganisation (e.g. Moosapet's wards split into
+      // Kukatpally) means some of the office's own works can legitimately
+      // still carry their old circle's name — those foreign-tagged rows
+      // are kept as-is, not rejected. Only block when NOT ONE row belongs
+      // to the office's own Zone/Circle (the sheet is plainly the wrong
+      // one), matching the fresh-import check below.
+      if (mismatches.length > 0 && mismatches.length === checked.rows.length) {
+        const m = mismatches[0]
+        withheldTablesRef.current = loadedTables
+        setBlockedWorksList({ zone: m.foundZone, circle: m.foundCircle })
+      } else {
+        setTables([fillCircleNumber(checked, loginCircleNumber), ...loadedTables.slice(1)])
+      }
+    } else {
+      setTables(loadedTables)
+    }
+    setResolution(s.resolution ?? {})
+    setTodos(s.todos ?? [])
+    setMbScrutiny(assignMissingSerialNos((s.mbScrutiny ?? []).map(migrateMbScrutinyItem)))
+    setLastGoogleLink(s.lastGoogleLink ?? null)
+    setWorksListLinks(s.worksListLinks ?? {})
+    setQcParties(s.qcParties ?? {})
+    setTenderConditions(purgeExpiredTenderConditions(normalizeTenderConditions(s.tenderConditions), Date.now()))
+    setMonitoringFormatByOffice(s.monitoringFormatByOffice ?? {})
+    setMonitoringFormatWorksByOffice(s.monitoringFormatWorksByOffice ?? {})
+    setMonitoringFormatLinks(s.monitoringFormatLinks ?? {})
+    setTenderReminders((s.tenderReminders ?? []).map(migrateTenderReminder))
+    setPendingNotices(s.pendingNotices ?? [])
+    setCreatedDocuments(s.createdDocuments ?? [])
+    setSeededDocVersion(s.seededDocVersion ?? 0)
+    setBidDocumentBatches(s.bidDocumentBatches ?? [])
+  }
+
   useEffect(() => {
     // Warm the Search Tender default view in the background so the tab is
     // instant whenever the user opens it.
@@ -572,71 +646,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     ;(async () => {
       try {
         const s = await api.loadState()
-        if (!cancelled && s) {
-          // Force every existing works database onto the standard column schema
-          // (columns come from the APP Excel). Any other columns are dropped.
-          // A Works List saved before ECV/Contract Amount moved to rupee
-          // storage is converted once here (Lakhs -> rupees), keyed on the
-          // persisted schema version so it never double-converts.
-          const needsEcvRupeeMigration = (s.version ?? 1) < ECV_RUPEES_STATE_VERSION
-          const migrate = (ts: ExcelTable[]): ExcelTable[] =>
-            ts
-              .map(applyWorksSchema)
-              .map((t) => (needsEcvRupeeMigration ? migrateEcvContractToRupees(t) : t))
-              // Always heal any ECV/Contract Amount left absurdly inflated by an
-              // earlier over-migration (idempotent — see repairInflatedRupees).
-              .map(repairInflatedRupees)
-              // Always re-apply the canonical column order (idempotent).
-              .map(reorderWorksColumns)
-
-          // Restore each office's own Works List. Legacy states stored only a
-          // single top-level `tables` (the last office in use) — migrate it into
-          // this office's slot so switching away and back no longer loses it.
-          const byOffice: Record<string, ExcelTable[]> = {}
-          for (const [k, v] of Object.entries(s.tablesByOffice ?? {})) byOffice[k] = migrate(v)
-          const loadedTables = byOffice[currentOfficeKey] ?? migrate(s.tables ?? [])
-          if (!byOffice[currentOfficeKey] && loadedTables.length > 0) byOffice[currentOfficeKey] = loadedTables
-          setTablesByOffice(byOffice)
-
-          // A previously-saved Works List belonging to a different Zone/Circle
-          // than the one logged in now must not be shown — same rule as a
-          // fresh import (see importFromGoogleLink), applied to what's already
-          // on disk too.
-          const first = loadedTables[0] ? splitCircleColumn(loadedTables[0]) : undefined
-          if (loginZone && loginCircle && first) {
-            const { table: checked, mismatches } = enforceZoneCircle(first, loginZone, loginCircle, officeEntries)
-            // A circle reorganisation (e.g. Moosapet's wards split into
-            // Kukatpally) means some of the office's own works can legitimately
-            // still carry their old circle's name — those foreign-tagged rows
-            // are kept as-is, not rejected. Only block when NOT ONE row belongs
-            // to the office's own Zone/Circle (the sheet is plainly the wrong
-            // one), matching the fresh-import check below.
-            if (mismatches.length > 0 && mismatches.length === checked.rows.length) {
-              const m = mismatches[0]
-              withheldTablesRef.current = loadedTables
-              setBlockedWorksList({ zone: m.foundZone, circle: m.foundCircle })
-            } else {
-              setTables([fillCircleNumber(checked, loginCircleNumber), ...loadedTables.slice(1)])
-            }
-          } else {
-            setTables(loadedTables)
-          }
-          setResolution(s.resolution ?? {})
-          setTodos(s.todos ?? [])
-          setMbScrutiny(assignMissingSerialNos((s.mbScrutiny ?? []).map(migrateMbScrutinyItem)))
-          setLastGoogleLink(s.lastGoogleLink ?? null)
-          setWorksListLinks(s.worksListLinks ?? {})
-          setQcParties(s.qcParties ?? {})
-          setTenderConditions(purgeExpiredTenderConditions(normalizeTenderConditions(s.tenderConditions), Date.now()))
-          setMonitoringFormatByOffice(s.monitoringFormatByOffice ?? {})
-          setMonitoringFormatWorksByOffice(s.monitoringFormatWorksByOffice ?? {})
-          setMonitoringFormatLinks(s.monitoringFormatLinks ?? {})
-          setTenderReminders((s.tenderReminders ?? []).map(migrateTenderReminder))
-          setPendingNotices(s.pendingNotices ?? [])
-          setCreatedDocuments(s.createdDocuments ?? [])
-          setSeededDocVersion(s.seededDocVersion ?? 0)
-          setBidDocumentBatches(s.bidDocumentBatches ?? [])
-        }
+        if (!cancelled && s) applyLoadedState(s)
       } finally {
         if (!cancelled) setHydrated(true)
       }
@@ -698,6 +708,10 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       if (partial.createdDocuments) setCreatedDocuments(partial.createdDocuments)
       if (partial.seededDocVersion !== undefined) setSeededDocVersion(partial.seededDocVersion)
       if (partial.bidDocumentBatches) setBidDocumentBatches(partial.bidDocumentBatches)
+      if (partial.contacts) {
+        applyContacts(partial.contacts)
+        setContacts(readContacts())
+      }
     })
   }, [hydrated, blockedWorksList, currentOfficeKey])
 
@@ -754,6 +768,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
           createdDocuments,
           seededDocVersion,
           bidDocumentBatches,
+          contacts,
           mbScrutiny
       }
     }
@@ -789,6 +804,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     createdDocuments,
     seededDocVersion,
     bidDocumentBatches,
+    contacts,
     mbScrutiny
   ])
 
@@ -936,6 +952,16 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
         /* keep the (empty) saved result */
       }
     }
+    return exportWorksSubset(matches, works, label, key === 'all' ? 'All' : label, format)
+  }
+  /** Save (Excel) or preview (PDF) exactly these works, columns as the workbook lays them out. `allWorks` supplies the sheet headings. */
+  async function exportWorksSubset(
+    matches: MonitoringFormatWorkRow[],
+    works: MonitoringFormatWorkRow[],
+    label: string,
+    titleLabel: string,
+    format: 'xlsx' | 'pdf'
+  ): Promise<boolean> {
     const saveExcel = async (): Promise<boolean> => {
       const { headers, rows } = worksTableForDownload(matches, works)
       const fileName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} ${label} works list`
@@ -946,7 +972,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     }
     if (format === 'pdf') {
       const bytes = await buildWorksListPdf({
-        title: `${key === 'all' ? 'All' : label} works of ${pdfCircleLabel}`,
+        title: `${titleLabel} works of ${pdfCircleLabel}`,
         subtitle: `${officeMonitoringFormat?.officeLabel || office.circle || office.zone || ''}${
           officeMonitoringFormat?.asOfDate ? ` · As of ${officeMonitoringFormat.asOfDate}` : ''
         } · ${matches.length} work${matches.length === 1 ? '' : 's'}`,
@@ -960,6 +986,13 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     }
     return saveExcel()
   }
+  /** The Monitoring Format works table's own filter: download just the rows the user filtered down to. */
+  async function exportMonitoringFormatFilteredWorks(rows: MonitoringFormatWorkRow[], format: 'xlsx' | 'pdf'): Promise<boolean> {
+    const all = currentOfficeKey ? monitoringFormatWorksByOffice[currentOfficeKey] : undefined
+    if (!all || rows.length === 0) return false
+    return exportWorksSubset(rows, all, 'Filtered', 'Filtered', format)
+  }
+
   /** A downloaded works list, columns exactly as the Monitoring Format workbook lays them out; Sl.No runs 1..n (the sheet's own has gaps once filtered). */
   /** Columns left out of the PDFs (Circle is in the heading; Type of Work and WIN code aren't wanted). Same loose heading match the importer uses ("Name of Circle", "Type of Work (Category)", "WIN CODE" …). */
   function isDroppedPdfColumn(header: string): boolean {
@@ -1794,6 +1827,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                   onExportStatusPdf={(key, label) => exportMonitoringFormatStatusWorks(key, label, 'pdf')}
                   onExportCombinedPdf={(keys, label) => exportMonitoringFormatStatusWorks(keys, label, 'pdf')}
                   onExportAbstractPdf={exportMonitoringFormatAbstract}
+                  onExportFilteredWorks={exportMonitoringFormatFilteredWorks}
                   worksLoading={mfWorksLoading}
                 />
                 </div>
@@ -2216,7 +2250,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                 <h1>Settings</h1>
               </div>
             </div>
-            <SettingsTab office={office} theme={theme} onThemeChange={changeTheme} />
+            <SettingsTab office={office} theme={theme} onThemeChange={changeTheme} getState={() => buildStateRef.current?.() ?? null} onRestored={applyLoadedState} />
           </section>
         </KeepAlive>
         </Fragment>

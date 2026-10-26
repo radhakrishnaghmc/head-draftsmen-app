@@ -4,6 +4,7 @@ import { resolve } from 'path'
 import * as ExcelJS from 'exceljs'
 import { buildScheduleARows, metaFromWorksRow, type ScheduleAItem } from '../core/scheduleA'
 import { fillScheduleATemplate, fillSeScheduleATemplate } from '../core/scheduleATemplate'
+import { scheduleAWorkbookToHtml } from '../core/scheduleAHtml'
 
 const TEMPLATE_PATH = resolve(__dirname, '../resources/schedule-a-template.xlsx')
 const SE_TEMPLATE_PATH = resolve(__dirname, '../resources/se-schedule-a-template.xlsx')
@@ -73,9 +74,11 @@ describe('fillScheduleATemplate', () => {
 
     const values: string[] = []
     for (let r = 1; r <= 20; r++) values.push(String(ws.getCell(r, 3).value ?? ''))
-    expect(values).toContain('45,00,000/-')
-    expect(values).toContain('42,00,000/-')
-    expect(values).toContain('34,44,000/-')
+    // "Rs." sits in the value cell (not the label) so the three amounts line up in one column.
+    expect(values).toContain('Rs. 45,00,000/-')
+    expect(values).toContain('Rs. 42,00,000/-')
+    expect(values).toContain('Rs. 34,44,000/-')
+    expect(String(ws.getCell(12, 1).value)).toBe('Estimate Amount:')
     // The raw Lakhs figures must not appear as bare numbers anywhere in that column.
     expect(values).not.toContain('45')
     expect(values).not.toContain('42')
@@ -180,5 +183,66 @@ describe('fillSeScheduleATemplate', () => {
     ws.eachRow((row) => row.eachCell((c) => { allText += ' ' + (typeof c.value === 'string' ? c.value : '') }))
     expect(allText).toContain('{{Zone}}')
     expect(allText).toContain('Superintending Engineer')
+  }, 30000)
+})
+
+describe('Schedule A print coverage (through the Executive Engineer signature)', () => {
+  const many: ScheduleAItem[] = Array.from({ length: 30 }, (_, i) => ({
+    itemNo: String(i + 1),
+    quantity: '10',
+    description: `Item ${i + 1}`,
+    rate: '100',
+    units: 'Cum',
+    amount: '1000'
+  }))
+
+  for (const [label, tpl, fill, title] of [
+    ['EE', TEMPLATE_PATH, fillScheduleATemplate, 'Executive Engineer'],
+    ['SE', SE_TEMPLATE_PATH, fillSeScheduleATemplate, 'Superintending Engineer']
+  ] as const) {
+    it(`${label}: the print area ends at the signature block's last row, however many items were inserted`, async () => {
+      const out = await fill(readFileSync(tpl), many, { nameOfWork: 'X' })
+      const wb = new ExcelJS.Workbook()
+      await wb.xlsx.load(out as unknown as ArrayBuffer)
+      const ws = wb.worksheets[0]
+      let titleRow = 0
+      let lastRow = 0
+      ws.eachRow((row, i) => {
+        row.eachCell((c) => {
+          if (c.value === title) titleRow = i
+        })
+        lastRow = i
+      })
+      expect(titleRow).toBeGreaterThan(29) // the signature really did move below the template's old print area
+      expect(ws.pageSetup.printArea).toBe(`A1:F${lastRow}`)
+      expect(lastRow).toBeGreaterThan(titleRow) // the circle / zone line below the title is covered too
+    }, 30000)
+
+    it(`${label}: the PDF page keeps the signature block and evaluates the amounts`, async () => {
+      const out = await fill(readFileSync(tpl), many, { nameOfWork: 'X' })
+      const { html } = await scheduleAWorkbookToHtml(out)
+      expect(html).toContain(title)
+      expect(html).toContain('1000.00') // 10 x 100 per item, in the sheet's own 0.00 format
+      expect(html).toContain('30000.00') // SUM of the 30 amounts
+      expect(html).not.toMatch(/style="[^"]*"[^>]*"[^>]*>/) // no quote inside a style attribute closes it early
+      expect(html).not.toContain('<thead>') // the item header is not repeated on the next page
+      expect(html).not.toContain('#REF!') // the template's scratch formulas never print
+    }, 30000)
+  }
+})
+
+describe('Schedule A "In Figures" row', () => {
+  it('spells out the computed tender-adjusted total', async () => {
+    const out = await fillScheduleATemplate(readFileSync(TEMPLATE_PATH), [
+      { itemNo: '1', quantity: '10', description: 'A', rate: '1000', units: 'Cum', amount: '0' }
+    ], { tenderPercentage: '10' } as never)
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(out as unknown as ArrayBuffer)
+    let label = ''
+    wb.worksheets[0].eachRow((row) => {
+      const v = row.getCell(1).value
+      if (typeof v === 'string' && /^in figures/i.test(v)) label = v
+    })
+    expect(label).toBe('In Figures (Nine Thousand Rupees Only)') // 10,000 less 10%
   }, 30000)
 })

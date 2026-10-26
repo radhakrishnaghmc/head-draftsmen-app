@@ -89,6 +89,10 @@ export interface WorkOrderAgreementFields {
   tsNoDate: string
   /** Chief Engineer's administrative-sanction letter No & Date, hand-entered for the SE zonal Work Order / Agreement Put-up Note (e.g. "CE/CMC/TA-I/K6/2026-27/202, dated: 06.07.2026"). */
   ceLetterNoDate: string
+  /** e-Office file number of the administrative sanction, hand-entered on the page (prints as {{AS File No}}). */
+  eOfficeFileNo?: string
+  /** Budget number, hand-entered on the page (prints as {{Budget No}} in the AE/Dy.EE letters' Completion Report). */
+  budgetNo?: string
   /** Period of completion in months, hand-entered for the Forwarding Slip (e.g. "02"). */
   completionMonths: string
   /** Reservation category on the work ("SC" / "ST" / "Waddera" / "Vaddera" / "WLCCS" / "" / …), for the Forwarding Slip's EMD exemption — ASD still applies above 25% regardless of reservation (see reservationCategory/reservationFromRow). */
@@ -120,6 +124,8 @@ export interface WorkOrderAgreementFields {
   qcFourthTo?: string
   /** The Department QC unit's full "To" block, "" when none entered (the letters then print the stock Executive Engineer, Quality Control lines). */
   qcDepartmentTo?: string
+  /** The AE's name and phone number, typed in the Agreement workspace — fills the 4th-party letter's "AE Name & Phone No." column. */
+  aeNamePhone?: string
 }
 
 /**
@@ -509,6 +515,8 @@ export function fileBackerPlaceholders(f: WorkOrderAgreementFields): Record<stri
     'Tender ID': f.tenderId,
     'NIT No': f.noticeNo,
     'NIT Date': f.noticeDate,
+    // One value so the ", Dt. " separator only prints when there is a NIT number (an empty cover shows nothing).
+    'NIT No and Date': [f.noticeNo?.trim(), f.noticeDate?.trim() && `Dt. ${f.noticeDate.trim()}`].filter(Boolean).join(', '),
     'Name of the work': f.nameOfWork,
     'Estimate Amount': estLakhs != null ? `Rs. ${estLakhs.toFixed(2)} Lakhs` : '',
     // ECV sits between Estimate and Contract; it's stored in rupees (blank stays
@@ -517,7 +525,11 @@ export function fileBackerPlaceholders(f: WorkOrderAgreementFields): Record<stri
     'Contract Amount': contract != null ? groupedRupees(contract) : '',
     'Tender Percentage': pct == null ? '' : pct === 0 ? 'At par' : `${formatPercent(pct)} % Less`,
     'Name of the agency': f.agencyName,
-    'Address of the agency': f.address
+    'Address of the agency': f.address,
+    'Technical Sanction No and Date': f.tsNoDate,
+    // The same A.B.No line the Agreement Bond prints, but with a two-character gap where the
+    // number goes (no underscores) so it can be written in by hand on the cover.
+    'Agreement No and Date': agreementBondNoDate(f, '\u00a0\u00a0')
   }
 }
 
@@ -582,7 +594,7 @@ function qcRupees(n: number): string {
  * fields come from the same sources as the Agreement; the two agency "To"
  * blocks come from the 3rd/4th-party panel on the Works List page. The Lr.No
  * number and "Dt:" date default to blank gaps (typed over in the editor panel);
- * GST No., Date of Mark Out and the Ref lines carry no placeholder — hand-filled.
+ * GST No. and Date of Mark Out carry no placeholder — hand-filled; the Ref lines quote the Agreement Bond's number and date.
  */
 const QC_LR_BLANK = '    '
 // trailing non-breaking spaces (plain ones are dropped at the line end) leave underlined room for the year
@@ -601,6 +613,9 @@ export function qcIntimationCompletionPlaceholders(f: WorkOrderAgreementFields):
     Financialyear: f.financialYear,
     'Name of the work': f.nameOfWork,
     'Estimate Amount': estLakhs != null ? `Rs ${estLakhs.toFixed(2)} Lakhs` : '',
+    'AE Name Phone': (f.aeNamePhone ?? '').trim(),
+    // bare number: the 4th-party letter's table column header already says "Rs. in Lakhs"
+    'Estimate Lakhs': estLakhs != null ? estLakhs.toFixed(2) : '',
     'ECV Amount': ecv != null ? qcRupees(ecv) : '',
     'Contract Amount': contract != null ? qcRupees(contract) : '',
     Wincode: f.wincode,
@@ -613,9 +628,22 @@ export function qcIntimationCompletionPlaceholders(f: WorkOrderAgreementFields):
       `The Executive Engineer,\nQuality Control,\n${f.zone} Zone, ${f.corporation}.`,
     // the "Lr.No." number and the "Dt:" date are hand-written on the printed letters, so they default to the
     // blank gap / "   /   /" and are typed over in the editor panel (one value shared by all five letters)
+    // quoted from the Work Order's own number line (see workOrderNoDate); an unentered serial leaves a gap to write it in
+    'Work Order No and Date': workOrderNoDate(f),
     'Lr No': QC_LR_BLANK,
     'Letter Date': QC_DATE_BLANK
   }
+}
+
+/**
+ * The Work Order's own "Work Order.No … Date:" line (work-order-template*.docx), quoted by the EOT proposal
+ * and the QC Intimation/Completion letters' Ref line. The serial is typed per work, so it stays a
+ * two-character gap to write in; the date is the Work Order's date once entered.
+ */
+export function workOrderNoDate(
+  f: Pick<WorkOrderAgreementFields, 'workOrderDate' | 'circle' | 'cno' | 'zone' | 'corporation' | 'financialYear'>
+): string {
+  return `\u00a0\u00a0/${f.corporation}/${zoneAbbr(f.zone)}/${f.circle}/CIR-${f.cno}/EE/${f.financialYear}${(f.workOrderDate ?? '').trim() ? ` Dt: ${f.workOrderDate.trim()}` : ''}`
 }
 
 /**
@@ -623,8 +651,11 @@ export function qcIntimationCompletionPlaceholders(f: WorkOrderAgreementFields):
  * the AE/Dy.EE Forwarding Letters' Ref line and the Work Bill Note's "Agreement No and Date".
  * An unentered number or date prints as a blank rule to be written in by hand.
  */
-function agreementBondNoDate(f: WorkOrderAgreementFields): string {
-  const no = (f.agreementNo ?? '').trim() || '________'
+export function agreementBondNoDate(
+  f: Pick<WorkOrderAgreementFields, 'agreementNo' | 'agreementDate' | 'circle' | 'cno' | 'zone' | 'corporation' | 'financialYear'>,
+  blankNo = '________'
+): string {
+  const no = (f.agreementNo ?? '').trim() || blankNo
   const dt = f.agreementDate.trim() || '__________'
   return `${no}/ EE/${f.circle}/CIRCLE-${f.cno}/${zoneAbbr(f.zone)}/${f.corporation}/${f.financialYear} Dt: ${dt}`
 }
@@ -708,11 +739,18 @@ export function aeDyeeForwardingPlaceholders(f: WorkOrderAgreementFields): Recor
     // are typed per work in the editor (nothing upstream carries them); the amount is the estimate.
     // The Work Order's own number line (see work-order-template*.docx: "<no>/<Corp>/<ZoneAbbr>/<Circle>/CIR-<CNO>/EE/<FY>"),
     // quoted by the EOT proposal; the serial is typed per work, so it shows as a blank rule until entered.
-    'Work Order No': `________/${f.corporation}/${zoneAbbr(f.zone)}/${f.circle}/CIR-${f.cno}/EE/${f.financialYear}${f.workOrderDate.trim() ? ` Dt: ${f.workOrderDate.trim()}` : ''}`,
-    'AS File No': '',
-    'TS No': '',
+    'Work Order No': workOrderNoDate(f),
+    'AS File No': f.eOfficeFileNo?.trim() ?? '',
+    'Budget No': f.budgetNo?.trim() ?? '',
+    // Two-character gap before the "/<year>" so the TS number can be written in by hand (it has no source).
+    'TS No': '\u00a0\u00a0',
+    // TS number as typed in the editor ("No, Dt: date"); until then a two-character gap before "/<year>" to write it in by hand.
+    'TS Ref': f.tsNoDate.trim() || `\u00a0\u00a0/${f.financialYear}`,
     'Financial year': f.financialYear,
     'Agmt Date': f.agreementDate.trim(),
+    // The EOT proposal's "Agreement No. and Date" row: the Agreement Bond's A.B.No line, with a two-character gap
+    // where the number is written in by hand.
+    'Agreement No and Date': agreementBondNoDate(f, '\u00a0\u00a0'),
     'Completion Period': f.completionMonths.trim() ? `${f.completionMonths.trim()} Months` : ''
   }
 }
@@ -729,7 +767,7 @@ function slipHeaderDate(f: WorkOrderAgreementFields): string {
 }
 
 /** The {{Label}} -> value map for the Forwarding Slip template. */
-export function forwardingSlipPlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
+export function forwardingSlipPlaceholders(f: WorkOrderAgreementFields, pagesOfAgreement?: string): Record<string, string> {
   const estLakhs = num(f.estimateLakhs)
   const ecv = num(f.ecvRupees)
   const pct = num(f.tenderPercent)
@@ -739,6 +777,8 @@ export function forwardingSlipPlaceholders(f: WorkOrderAgreementFields): Record<
   // Contractor block: name, address, phone — each on its own line.
   const contractor = [f.agencyName, f.address, f.phone].map((s) => (s ?? '').trim()).filter(Boolean).join('\n')
   return {
+    // Defaults to the standard 41 unless the "No. of pages of Agreement" field is filled in.
+    'Pages Of Agreement': pagesOfAgreement?.trim() || DEFAULT_PAGES_OF_AGREEMENT,
     Corporation: f.corporation,
     'Corporation Full Name': f.corporationFullName.toUpperCase(),
     Circle: f.circle,
@@ -762,8 +802,13 @@ export function forwardingSlipPlaceholders(f: WorkOrderAgreementFields): Record<
     // ASD applies whenever the tender % exceeds 25 (at (%-25)% of ECV) —
     // independent of reservation: a reserved work is EMD-exempt, not
     // ASD-exempt, and still owes ASD above 25% same as an open work.
-    'ASD Details': pct != null && pct > 25 && ecv != null ? groupedRupees(ecv * ((pct - 25) / 100)) : '-'
+    'ASD Details': asdDetails(pct, ecv)
   }
+}
+
+/** ASD amount ((tender % - 25)% of ECV) when the tender exceeds 25% above estimate; "NIL" when there is none. */
+function asdDetails(pct: number | null, ecv: number | null): string {
+  return pct != null && pct > 25 && ecv != null ? groupedRupees(ecv * ((pct - 25) / 100)) : 'NIL'
 }
 
 /**
@@ -834,14 +879,9 @@ export function civilTenderPlaceholders(
     // "Details of Maximum amount reimbursable to the Contractor" — GST as the
     // sanctioned estimate itself charges it (the estimate levies GST on its own
     // sub-total, after seigniorage and the other charges, so 18% of the ECV is
-    // not the same figure), falling back to 18% of the ECV only when no estimate
-    // has been uploaded to read it from. Labour Cess stays at 1% of the ECV.
-    GST:
-      extras.gstRupees != null
-        ? groupedRupees(extras.gstRupees)
-        : ecv != null
-          ? groupedRupees(ecv * 0.18)
-          : '',
+    // not the same figure). With no estimate uploaded to read it from it stays
+    // blank rather than guessing 18% of the ECV. Labour Cess stays at 1% of the ECV.
+    GST: extras.gstRupees != null ? groupedRupees(extras.gstRupees) : '',
     'Labour Cess': ecv != null ? groupedRupees(ecv * 0.01) : ''
   }
 }

@@ -587,7 +587,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSaved, setActionSaved] = useState<string | null>(null)
   // Which format "Download all documents" saves every document as. Defaults
-  // to Word since PDF needs LibreOffice installed.
+  // to Word since PDF conversion is the slow part.
   const [bundleFormat, setBundleFormat] = useState<'docx' | 'pdf'>('docx')
   // Live "Download all documents" progress (see the same field on the
   // Agreement/Work Order tab) — filling locally, then the main process
@@ -978,7 +978,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   // Live docx thumbnail of the filled letter (tile preview) — refreshed
   // whenever the values change, so this deliberately stays on the fast,
   // approximate docx-preview.js render rather than the accurate
-  // LibreOffice-backed one: re-rendering on every keystroke through
+  // Chromium-rendered one: re-rendering on every keystroke through
   // LibreOffice would make typing feel sluggish. The expanded modal below
   // (opened by an explicit click) is where the accurate render belongs.
   useEffect(() => {
@@ -1054,7 +1054,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     return applyPageMargins(filled, docMargins[kind] ?? null)
   }
 
-  // The full-size, accurate (LibreOffice-backed) render — used only for the
+  // The full-size, accurate (Chromium-rendered) render — used only for the
   // expanded preview modal, where a user is actually looking at one specific
   // document.
   async function renderSeDocInto(kind: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval', container: HTMLElement) {
@@ -1282,7 +1282,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
         setActionSaved(`Saved ${res.written.length} document(s).`)
         setActionError(
           `${res.failed.length} document(s) could not be saved: ${res.failed.join(', ')}. ` +
-            `PDFs need LibreOffice installed — install it from libreoffice.org, or download those as Word (.docx) instead.`
+            `Try downloading those as Word (.docx) instead.`
         )
       } else {
         setActionSaved(`Saved ${res.written.length} document(s) to the chosen folder.`)

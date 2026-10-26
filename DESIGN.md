@@ -87,7 +87,7 @@ Template placeholders are matched to these column names by exact string equality
 | legacy `.doc` text | **word-extractor** `^1.0` |
 | HTML → docx (authoring) | **html-to-docx** `^1.8` (used only by the now-dead authoring path) |
 | docx rendering (viewer/preview/thumbnail) | **docx-preview** `^0.4` (+ jszip) |
-| docx → PDF (optional) | **libreoffice-convert** `^1.6` (requires LibreOffice installed; optional) |
+| docx → PDF | Electron's built-in Chromium (`electron/docxChromiumPdf.ts`: docx-preview render + `printToPDF`) |
 
 **Runtime targets:** macOS (primary; uses `textutil` for `.doc`→`.docx` and `lp` for
 printing), Windows (`nsis` target; PowerShell `Start-Process -Verb Print`), Linux
@@ -147,7 +147,7 @@ core/                         # framework-agnostic logic (no electron/DOM)
   generate.ts                 # fillTemplate (+ resilient fallback), generateDocs, naming re-export
   naming.ts                   # output filename pattern resolver
   docx-edit.ts                # XML-level docx editing (insert/remove placeholder, set text)
-  export.ts                   # write docx/pdf to disk; docx→pdf via LibreOffice
+  export.ts                   # write docx/pdf to disk; docx→pdf via built-in Chromium
   preview.ts                  # build standalone print-preview HTML (docx-preview inlined)
   print.ts                    # OS print (lp / PowerShell)
   import.ts                   # any document → editable HTML (mammoth / text / word-extractor)
@@ -374,8 +374,8 @@ Operates directly on `word/document.xml` via `@xmldom/xmldom`. Namespace
 ### 6.7 `core/export.ts`, `core/print.ts`
 - `writeOutputs(docxBuffer, {outputDir, baseName, formats})`: `mkdir -p`; write `.docx`; if
   `pdf` requested, `docxToPdf` then write; `uniquePath` appends `_2`,`_3`… to avoid overwrite.
-- `docxToPdf(buf)`: lazy-import `libreoffice-convert`, `promisify(convert)(buf,'.pdf')`.
-  (Fails gracefully if LibreOffice absent — caller records the error per item.)
+- `docxToPdf(buf)`: renders the docx with docx-preview in a hidden Chromium window and prints it to PDF
+  (`electron/docxChromiumPdf.ts`). No external program needed; a failed conversion is recorded per item.
 - `printFile(path)`: Windows → `powershell Start-Process -Verb Print`; else → `lp`
   (optionally `-d printer`). `printFiles` prints sequentially.
 
@@ -717,7 +717,7 @@ installs load it via the `loadState` seeding path. Recipients upload their own t
 - **macOS-only helpers:** `.doc`→`.docx` uses `textutil`; printing uses `lp`. Provide
   equivalents on Windows/Linux (PowerShell print is already handled; `.doc` import falls back
   to word-extractor text).
-- **PDF export needs LibreOffice** installed; otherwise per-item PDF errors are recorded.
+- **PDF export** uses the built-in Chromium converter; a failed conversion is recorded per item.
 - **Tender portal** is fragile by nature (full DataTables param set + live session in a hidden
   window). Expect to adjust params if the portal changes.
 - **Diagnostic IPC** (`dbg`, `dbgParagraphs`) and a `userData/debug.log` writer exist for the

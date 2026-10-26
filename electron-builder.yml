@@ -56,6 +56,9 @@ files:
 # with "The specified module could not be found" — so unpack the whole
 # package, both copies, everywhere.
 asarUnpack:
+  # Loaded by file:// URL from the hidden docx→PDF window (electron/docxChromiumPdf.ts).
+  - '**/node_modules/docx-preview/**'
+  - '**/node_modules/jszip/**'
   - '**/node_modules/sharp/**'
   - '**/node_modules/@img/**'
   - '**/node_modules/onnxruntime-node/**'

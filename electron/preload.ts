@@ -42,7 +42,10 @@ const api: DocuGenApi = {
   exportEvaluationSheetBatch: (entries) => ipcRenderer.invoke(IPC.exportEvaluationSheetBatch, entries),
   exportScheduleA: (table, suggestedName, meta) =>
     ipcRenderer.invoke(IPC.exportScheduleA, table, suggestedName, meta),
-  exportAgreementBundle: (files) => ipcRenderer.invoke(IPC.exportAgreementBundle, files),
+  scheduleAPreviewHtml: (table, meta, isSe) => ipcRenderer.invoke(IPC.scheduleAPreviewHtml, table, meta, isSe),
+  exportScheduleAPdf: (table, suggestedName, meta, isSe) =>
+    ipcRenderer.invoke(IPC.exportScheduleAPdf, table, suggestedName, meta, isSe),
+  exportAgreementBundle: (files, mergedPdfName) => ipcRenderer.invoke(IPC.exportAgreementBundle, files, mergedPdfName),
   exportBoq: (table, suggestedName, workName) =>
     ipcRenderer.invoke(IPC.exportBoq, table, suggestedName, workName),
   exportBoqBatch: (entries) => ipcRenderer.invoke(IPC.exportBoqBatch, entries),
@@ -68,7 +71,6 @@ const api: DocuGenApi = {
   ocrPhotosToLines: (dataUrls) => ipcRenderer.invoke(IPC.ocrPhotosToLines, dataUrls),
   savePhotosAsWord: (text, suggestedName) => ipcRenderer.invoke(IPC.savePhotosAsWord, text, suggestedName),
   savePhotosAsExcel: (text, suggestedName) => ipcRenderer.invoke(IPC.savePhotosAsExcel, text, suggestedName),
-  savePdfAsWord: (pdfs, suggestedName) => ipcRenderer.invoke(IPC.savePdfAsWord, pdfs, suggestedName),
   saveWordDoc: (blocks, suggestedName) => ipcRenderer.invoke(IPC.saveWordDoc, blocks, suggestedName),
   ocrPhotosToLayout: (dataUrls) => ipcRenderer.invoke(IPC.ocrPhotosToLayout, dataUrls),
   saveRowsAsExcel: (rows, suggestedName) => ipcRenderer.invoke(IPC.saveRowsAsExcel, rows, suggestedName),
@@ -151,6 +153,11 @@ const api: DocuGenApi = {
   loadState: () => ipcRenderer.invoke(IPC.loadState),
   saveState: (state, skipCloud) => ipcRenderer.invoke(IPC.saveState, state, skipCloud),
   syncNow: (state) => ipcRenderer.invoke(IPC.syncNow, state),
+  createBackup: (state) => ipcRenderer.invoke(IPC.createBackup, state),
+  revealBackup: (filePath) => ipcRenderer.invoke(IPC.revealBackup, filePath),
+  saveBackupCopy: (filePath) => ipcRenderer.invoke(IPC.saveBackupCopy, filePath),
+  restoreBackup: (currentState) => ipcRenderer.invoke(IPC.restoreBackup, currentState),
+  getActivityLog: () => ipcRenderer.invoke(IPC.getActivityLog),
   onRemoteStateUpdate: (callback) => {
     const listener = (_e: unknown, partial: import('../core/types').PersistedState) => callback(partial)
     ipcRenderer.on(IPC.remoteStateUpdate, listener)

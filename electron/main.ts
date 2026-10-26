@@ -4,6 +4,8 @@ import * as path from 'path'
 import * as https from 'https'
 import * as os from 'os'
 import * as firebaseSync from './firebaseSync'
+import { readActivityLog, logActivity, mergeIntoActivityLog } from './activityLog'
+import { encryptBackup, decryptBackup, BackupError, BACKUP_EXTENSION, describeStateChange } from '../core/backup'
 import { initAutoUpdate, restartToUpdate, checkForUpdatesManually } from './autoUpdate'
 import { IPC } from './ipc-contract'
 import type {
@@ -13,7 +15,8 @@ import type {
   PickedTenderDocument,
   VerifyDocItem,
   VerifyDocResult,
-  PageMarginsMm
+  PageMarginsMm,
+  RestoreResult
 } from './ipc-contract'
 import { collectTenderDocuments } from './tenderDocumentScan'
 import {
@@ -65,10 +68,12 @@ import type { BidDocumentBatchEntry } from './bidDocumentBatchRunner'
 import type { CalendarData } from '../core/calendar'
 import { convertHtmlToDocx } from '../core/htmlToDocx'
 import { textToParagraphsHtml, buildPhotosWorkbook, buildWorkbookFromRows } from '../core/photosToDoc'
-import { convertPdfToDocx } from '../core/pdfToDocx'
 import { buildDocx, type DocBlock } from '../core/docxBuilder'
 import type { OcrPage } from '../core/ocrReconstruct'
-import { convertDocxToPdf, docxToPageImages } from '../core/docxToPdf'
+import { docxToPageImages } from '../core/docxToPdf'
+import { convertDocxToPdfWithChromium as convertDocxToPdf } from './docxChromiumPdf'
+import { scheduleAWorkbookToPdf, scheduleAPageHtml } from './scheduleAPdf'
+import { PDFDocument } from 'pdf-lib'
 import { rasterizePdfPages } from './pdfRaster'
 import { mergeDocxBuffers } from '../core/mergeDocx'
 import { splitDocxByPageBreaks } from '../core/splitDocx'
@@ -242,6 +247,11 @@ function registerHandlers(): void {
   // different login never loads — and never leaks — the previous user's data.
   // Null only before any login (i.e. dev, where the login screen is skipped).
   let currentLoginId: string | null = null
+  // Kept in memory only (never written to disk) so Backup can seal a file under
+  // this login's ID + password and Restore can open one — see core/backup.ts.
+  let currentLoginPassword: string | null = null
+  // Per-key signatures of the last saved workspace, to describe what each save changed in the activity log.
+  let activitySigs: Record<string, string> = {}
 
   ipcMain.handle(IPC.pickExcels, async (): Promise<ExcelTable[]> => {
     const result = await dialog.showOpenDialog(mainWindow!, {
@@ -494,6 +504,8 @@ function registerHandlers(): void {
     // writes it, so we never load the previous user's state and never write
     // this user's over theirs.
     currentLoginId = firebaseSync.normalizeId(loginId)
+    currentLoginPassword = password
+    activitySigs = {}
 
     // forceLogout only ever reaches here after the password above has
     // already been re-verified — the login screen only offers it once a
@@ -511,6 +523,7 @@ function registerHandlers(): void {
       forceLogout
     )
     if (!claim.ok) return { ok: false, maxSessions: true }
+    logActivity(currentLoginId, 'login', `Signed in on ${os.hostname()}${result.offline ? ' (offline)' : ''}`)
 
     if (remoteState) {
       try {
@@ -551,10 +564,13 @@ function registerHandlers(): void {
   })
 
   ipcMain.handle(IPC.logout, async (): Promise<void> => {
+    logActivity(currentLoginId, 'logout', `Signed out on ${os.hostname()}`)
     await firebaseSync.endSession()
     // Forget which login's cache we were pointing at, so nothing can read or
     // write it until the next login re-establishes identity.
     currentLoginId = null
+    currentLoginPassword = null
+    activitySigs = {}
   })
 
   ipcMain.handle(IPC.listActiveSessions, async (): Promise<ActiveSessionInfo[]> => {
@@ -632,6 +648,26 @@ function registerHandlers(): void {
         : buildScheduleAWorkbook(items, meta) // fallback if the bundled template is missing
 
       fs.writeFileSync(result.filePath, buffer)
+      return result.filePath
+    }
+  )
+
+  ipcMain.handle(
+    IPC.scheduleAPreviewHtml,
+    async (_e, table: ExcelTable | null, meta?: ScheduleAMeta, isSe?: boolean): Promise<string> =>
+      scheduleAPageHtml(await buildScheduleABuffer(table ?? { id: '', name: '', path: '', headers: [], rows: [] }, meta, isSe))
+  )
+
+  ipcMain.handle(
+    IPC.exportScheduleAPdf,
+    async (_e, table: ExcelTable, suggestedName: string, meta?: ScheduleAMeta, isSe?: boolean): Promise<string | null> => {
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        title: `Save ${suggestedName}`,
+        defaultPath: `${suggestedName}.pdf`,
+        filters: [{ name: 'PDF', extensions: ['pdf'] }]
+      })
+      if (result.canceled || !result.filePath) return null
+      fs.writeFileSync(result.filePath, await scheduleAWorkbookToPdf(await buildScheduleABuffer(table, meta, isSe)))
       return result.filePath
     }
   )
@@ -717,11 +753,11 @@ function registerHandlers(): void {
   }
 
   // Save every agreement-workspace document into ONE folder the user picks —
-  // each in its requested format (docx as-is, pdf via LibreOffice, xlsx built
+  // each in its requested format (docx as-is, pdf via the built-in Chromium converter, xlsx built
   // from the Schedule A table). A unique-name guard avoids clobbering.
   ipcMain.handle(
     IPC.exportAgreementBundle,
-    async (_e, files: AgreementBundleFile[]): Promise<{ written: string[]; failed: string[] } | null> => {
+    async (_e, files: AgreementBundleFile[], mergedPdfName?: string): Promise<{ written: string[]; failed: string[] } | null> => {
       if (!files || files.length === 0) return null
       const result = await dialog.showOpenDialog(mainWindow!, {
         title: 'Choose a folder to save all agreement documents into',
@@ -744,19 +780,36 @@ function registerHandlers(): void {
 
       const written: string[] = []
       const failed: string[] = []
+      const mergedParts: Buffer[] = []
       let doneCount = 0
       for (const f of files) {
         mainWindow?.webContents.send(IPC.agreementBundleProgress, { done: doneCount, total: files.length, name: f.name })
         try {
-          if (f.format === 'xlsx') {
-            if (!f.scheduleATable) continue
-            const p = uniquePath(f.name, 'xlsx')
-            fs.writeFileSync(p, await buildScheduleABuffer(f.scheduleATable, f.scheduleAMeta, f.scheduleAIsSe))
-            written.push(p)
+          if (f.scheduleATable) {
+            // Schedule A: the workbook is built here, then saved as is (Excel) or printed (PDF).
+            const sheet = await buildScheduleABuffer(f.scheduleATable, f.scheduleAMeta, f.scheduleAIsSe)
+            if (f.format === 'pdf') {
+              const pdf = await scheduleAWorkbookToPdf(sheet)
+              if (mergedPdfName) {
+                mergedParts.push(pdf)
+              } else {
+                const p = uniquePath(f.name, 'pdf')
+                fs.writeFileSync(p, pdf)
+                written.push(p)
+              }
+            } else {
+              const p = uniquePath(f.name, 'xlsx')
+              fs.writeFileSync(p, sheet)
+              written.push(p)
+            }
+          } else if (f.format === 'xlsx') {
+            continue
           } else {
             if (!f.docxBase64) continue
             const docxBuffer = sanitizeDocxForWord2007(Buffer.from(f.docxBase64, 'base64'))
-            if (f.format === 'pdf') {
+            if (f.format === 'pdf' && mergedPdfName) {
+              mergedParts.push(await convertDocxToPdf(docxBuffer))
+            } else if (f.format === 'pdf') {
               const p = uniquePath(f.name, 'pdf')
               fs.writeFileSync(p, await convertDocxToPdf(docxBuffer))
               written.push(p)
@@ -767,7 +820,7 @@ function registerHandlers(): void {
             }
           }
         } catch (e) {
-          // Best-effort per file: one bad convert (e.g. LibreOffice missing for a
+          // Best-effort per file: one bad convert (e.g. a failed PDF conversion for a
           // pdf) shouldn't abort the whole bundle — but record it so the caller
           // can tell the user exactly which documents didn't make it (they used
           // to vanish silently).
@@ -775,6 +828,21 @@ function registerHandlers(): void {
           failed.push(`${f.name} (${f.format.toUpperCase()})`)
         } finally {
           doneCount += 1
+        }
+      }
+      if (mergedParts.length > 0) {
+        try {
+          const merged = await PDFDocument.create()
+          for (const part of mergedParts) {
+            const src = await PDFDocument.load(part)
+            for (const page of await merged.copyPages(src, src.getPageIndices())) merged.addPage(page)
+          }
+          const p = uniquePath(mergedPdfName || 'Agreement documents', 'pdf')
+          fs.writeFileSync(p, await merged.save())
+          written.push(p)
+        } catch (e) {
+          console.error('exportAgreementBundle: failed to merge PDFs', e)
+          failed.push(`${mergedPdfName || 'Agreement documents'} (PDF)`)
         }
       }
       return written.length > 0 || failed.length > 0 ? { written, failed } : null
@@ -1062,31 +1130,6 @@ function registerHandlers(): void {
     }
   )
 
-  // Photos/PDF → Word (keep layout): convert the ORIGINAL uploaded PDF(s) to a
-  // .docx that preserves the layout (LibreOffice writer_pdf_import), merging
-  // several PDFs in order — vs the OCR path that only extracts plain text.
-  ipcMain.handle(
-    IPC.savePdfAsWord,
-    async (_e, pdfs: { name: string; bytes: Uint8Array }[], suggestedName: string): Promise<string | null> => {
-      if (!pdfs || pdfs.length === 0) return null
-      const result = await dialog.showSaveDialog(mainWindow!, {
-        title: 'Save as Word (keep layout)',
-        defaultPath: `${suggestedName || 'Document'}.docx`,
-        filters: [{ name: 'Word Document', extensions: ['docx'] }]
-      })
-      if (result.canceled || !result.filePath) return null
-      const docxBuffers: Buffer[] = []
-      for (const pdf of pdfs) docxBuffers.push(await convertPdfToDocx(Buffer.from(pdf.bytes)))
-      const merged = docxBuffers.length === 1 ? docxBuffers[0] : mergeDocxBuffers(docxBuffers)
-      // convertPdfToDocx shells out to LibreOffice's own PDF->docx conversion —
-      // the same authoring tool responsible for every other bidi/child-order
-      // corruption found in this codebase, so its output needs the same
-      // defensive sanitizing before it reaches a real Word install.
-      fs.writeFileSync(result.filePath, sanitizeDocxForWord2007(merged))
-      return result.filePath
-    }
-  )
-
   // Photos/PDF → Word (offline reconstruction): the renderer rebuilds a text
   // PDF's layout (or plain OCR lines) into a doc-model of real paragraphs +
   // tables; this writes it as a directly-built, Word-valid .docx (core/docxBuilder
@@ -1134,7 +1177,7 @@ function registerHandlers(): void {
   )
 
   // Word workspace — a .docx has no addressable pages until it's laid out, so the
-  // page-level preview is driven off a LibreOffice conversion to PDF. The renderer
+  // page-level preview is driven off a conversion to PDF. The renderer
   // then renders/selects/merges those pages exactly like the PDF workspace.
   ipcMain.handle(IPC.docxToPdf, async (_e, docxBytes: Uint8Array): Promise<Uint8Array> => {
     const pdf = await convertDocxToPdf(Buffer.from(docxBytes))
@@ -1142,7 +1185,7 @@ function registerHandlers(): void {
   })
 
   ipcMain.handle(IPC.docxToPageImages, async (_e, docxBytes: Uint8Array): Promise<Uint8Array[]> => {
-    const images = await docxToPageImages(Buffer.from(docxBytes), (pdf, sizes) => rasterizePdfPages(pdf, sizes))
+    const images = await docxToPageImages(Buffer.from(docxBytes), convertDocxToPdf, (pdf, sizes) => rasterizePdfPages(pdf, sizes))
     return images.map((buf) => new Uint8Array(buf))
   })
 
@@ -2032,7 +2075,16 @@ function registerHandlers(): void {
   // v20: Public Participation Log Book, Action Taken Report and Completion Report
   // are circle-scoped (EE office only) — the SE (zonal) office's Issue Documents
   // tab should show only its EOT proposal, not these EE-oriented reports.
-  const CURRENT_DEFAULT_DOC_VERSION = 20
+  // v21: QC five-letter set — recipient "To" block pushed right, plus a blank
+  // line after the address.
+  // v22: EOT proposals — "Agreement No. and Date" now fills from the Agreement Bond's A.B.No line (it was blank).
+  // v26: File Backer is a strict single A4 page with tight top/bottom margins;
+  // v26: AE/Dy.EE letter's EOT page has no bottom margin.
+  // v26: Tender Document's forwarding slip no longer spills an empty page 2 (spacer paragraphs dropped).
+  // v26: Work Order / forwarding-letter Work Order No. leave a two-character gap to write the number in; the AE/Dy.EE letter has an extra signature line.
+  // v25: AE/Dy.EE forwarding letters greet "Sir/Mam,".
+  // v24: QC letters' work name no longer bold; AE/Dy.EE EOT rows take the typed TS No and the full Agreement No/Date.
+  const CURRENT_DEFAULT_DOC_VERSION = 26
   const DEFAULT_DOCUMENTS: { id: string; name: string; file: string; officeScope?: 'zonal' | 'circle' }[] = [
     { id: 'doc_public_participation', name: 'Public Participation Log Book', file: 'public-participation-book-template.docx', officeScope: 'circle' },
     { id: 'doc_action_taken_report', name: 'Action Taken Report', file: 'action-taken-report-template.docx', officeScope: 'circle' },
@@ -2128,6 +2180,12 @@ function registerHandlers(): void {
         await fs.promises.writeFile(file, json, 'utf8')
         lastWrittenJson = json
         lastWrittenPath = file
+        // The first save after sign-in only sets the baseline; later ones log what changed.
+        const { sigs, detail } = describeStateChange(activitySigs, state)
+        if (Object.keys(activitySigs).length > 0 && detail) {
+          logActivity(currentLoginId, skipCloud ? 'sync' : 'save', skipCloud ? `Updated from another device: ${detail}` : detail)
+        }
+        activitySigs = sigs
       } catch {
         // Non-fatal: persistence is best-effort.
       }
@@ -2139,6 +2197,95 @@ function registerHandlers(): void {
     // again — a write storm in which a slightly-stale copy can clobber a task
     // another session just added. So persist locally but don't re-push.
     if (!skipCloud) void firebaseSync.pushState(state)
+  })
+
+
+  // ── Backup / Restore ────────────────────────────────────────────────
+  const backupsDir = () => {
+    const dir = path.join(app.getPath('userData'), 'backups')
+    fs.mkdirSync(dir, { recursive: true })
+    return dir
+  }
+  const writeBackupFile = (state: PersistedState, label: string): { filePath: string; fileName: string; sizeBytes: number } => {
+    if (!currentLoginId || !currentLoginPassword) throw new Error('Sign in first to back up your data.')
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const fileName = `${label}-${currentLoginId}-${stamp}.${BACKUP_EXTENSION}`
+    const filePath = path.join(backupsDir(), fileName)
+    const bytes = encryptBackup(
+      { appVersion: app.getVersion(), createdAt: Date.now(), loginId: currentLoginId, state, activityLog: readActivityLog(currentLoginId) },
+      currentLoginId,
+      currentLoginPassword
+    )
+    fs.writeFileSync(filePath, bytes)
+    return { filePath, fileName, sizeBytes: bytes.length }
+  }
+  // Only files inside the app's own backups folder may be revealed/copied via IPC.
+  const isOwnBackup = (filePath: string) => {
+    const resolved = path.resolve(filePath)
+    return resolved.startsWith(backupsDir() + path.sep) && fs.existsSync(resolved)
+  }
+
+  ipcMain.handle(IPC.createBackup, async (_e, state: PersistedState) => {
+    logActivity(currentLoginId, 'backup', 'Created an encrypted backup')
+    return writeBackupFile(state, 'DraftsmenBackup')
+  })
+
+  ipcMain.handle(IPC.revealBackup, async (_e, filePath: string): Promise<void> => {
+    if (isOwnBackup(filePath)) shell.showItemInFolder(path.resolve(filePath))
+  })
+
+  ipcMain.handle(IPC.saveBackupCopy, async (_e, filePath: string): Promise<string | null> => {
+    if (!isOwnBackup(filePath)) return null
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: 'Save a copy of the backup',
+      defaultPath: path.join(app.getPath('downloads'), path.basename(filePath)),
+      filters: [{ name: 'Draftsmen Backup', extensions: [BACKUP_EXTENSION] }]
+    })
+    if (result.canceled || !result.filePath) return null
+    fs.copyFileSync(filePath, result.filePath)
+    return result.filePath
+  })
+
+  ipcMain.handle(IPC.restoreBackup, async (_e, currentState: PersistedState): Promise<RestoreResult> => {
+    if (!currentLoginId || !currentLoginPassword) return { ok: false, error: 'Sign in first to restore a backup.' }
+    const picked = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Choose a backup to restore',
+      defaultPath: backupsDir(),
+      properties: ['openFile'],
+      filters: [{ name: 'Draftsmen Backup', extensions: [BACKUP_EXTENSION] }]
+    })
+    if (picked.canceled || !picked.filePaths[0]) return { ok: false, cancelled: true }
+    const chosen = picked.filePaths[0]
+    let payload
+    try {
+      payload = decryptBackup(fs.readFileSync(chosen), currentLoginId, currentLoginPassword)
+    } catch (e) {
+      return { ok: false, error: e instanceof BackupError ? e.message : 'The backup file could not be read.' }
+    }
+    // Seal what's on screen right now first, so a wrong pick can be undone.
+    try {
+      writeBackupFile(currentState, 'BeforeRestore')
+    } catch {
+      // Safety copy is best-effort; the restore itself must still be able to proceed.
+    }
+    const state = injectDefaultDocuments(await migrateCreatedDocuments(payload.state))
+    try {
+      const json = JSON.stringify(state)
+      await fs.promises.writeFile(stateFile(), json, 'utf8')
+      lastWrittenJson = json
+      lastWrittenPath = stateFile()
+    } catch {
+      return { ok: false, error: 'Could not write the restored data to this device.' }
+    }
+    mergeIntoActivityLog(currentLoginId, payload.activityLog ?? [])
+    activitySigs = describeStateChange({}, state).sigs
+    logActivity(currentLoginId, 'restore', `Restored backup ${path.basename(chosen)} made ${new Date(payload.createdAt).toLocaleString()}`)
+    return { ok: true, state, fileName: path.basename(chosen), createdAt: payload.createdAt }
+  })
+
+  ipcMain.handle(IPC.getActivityLog, async () => {
+    if (!currentLoginId) return []
+    return readActivityLog(currentLoginId).slice(-300).reverse()
   })
 
   // The profile menu's Sync button: same local save, but the cloud push is awaited so the UI can say whether it landed.

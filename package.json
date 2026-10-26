@@ -1,6 +1,6 @@
 {
   "name": "head-draftsmen-app",
-  "version": "1.46.0",
+  "version": "1.47.0",
   "description": "Documentation made easy",
   "main": "out/main/index.js",
   "author": "Head Draughtsman App",
@@ -15,7 +15,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "build:material-rag": "vite-node scripts/buildMaterialRag.ts"
+    "build:material-rag": "vite-node scripts/buildMaterialRag.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"{src,core,electron,tests}/**/*.{ts,tsx,css}\"",
+    "format:check": "prettier --check \"{src,core,electron,tests}/**/*.{ts,tsx,css}\""
   },
   "dependencies": {
     "@gutenye/ocr-node": "^1.4.8",
@@ -26,7 +30,7 @@
     "exifr": "^7.1.3",
     "firebase": "^12.16.0",
     "html-to-docx": "^1.8.0",
-    "libreoffice-convert": "^1.6.0",
+    "jszip": "^3.10.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.1.200",
     "pizzip": "^3.1.7",
@@ -38,6 +42,7 @@
     "sharp": "$sharp"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
@@ -45,10 +50,16 @@
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
     "patch-package": "^8.0.1",
+    "prettier": "^3.9.10",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.7.2",
+    "typescript-eslint": "^8.72.0",
     "vite": "^5.4.11",
     "vitest": "^2.1.8"
   }

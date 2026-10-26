@@ -233,6 +233,13 @@ export async function buildEvaluationSheet(input: EvaluationSheetInput): Promise
     cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
     cell.border = ALL_BORDERS
   })
+  // Bidder names wrap inside their narrow columns — size the header row to the tallest one.
+  ws.getRow(R_HEADER).height = Math.max(
+    18,
+    ...headerCells.map((text, i) =>
+      wrappedRowHeight(text, i === 0 ? 5 : i === 1 ? 58 : 20, BANNER_CHARS_PER_WIDTH_UNIT, CELL_LINE_POINTS)
+    )
+  )
 
   // A labelled data row: Sl.No in A, label in B, then one cell per bidder (its
   // value comes from `bidderValue`, a formula/number/blank). `boldLabel` bolds
@@ -264,6 +271,15 @@ export async function buildEvaluationSheet(input: EvaluationSheetInput): Promise
       cell.border = ALL_BORDERS
       if (opts.accounting) cell.numFmt = ACCOUNTING_FMT
     }
+    // Auto-fit: tall enough for the wrapped label (column B) and any wrapped bidder text.
+    ws.getRow(row).height = Math.max(
+      18,
+      wrappedRowHeight(label, 58, CELL_CHARS_PER_WIDTH_UNIT, CELL_LINE_POINTS),
+      ...Array.from({ length: Math.max(nCols - FIRST_BIDDER_COL + 1, 0) }, (_, k) => {
+        const v = ws.getCell(row, FIRST_BIDDER_COL + k).value
+        return typeof v === 'string' ? wrappedRowHeight(v, 20, CELL_CHARS_PER_WIDTH_UNIT, CELL_LINE_POINTS) : 0
+      })
+    )
   }
 
   // Eligibility criteria — bidder cells blank for the office to fill.

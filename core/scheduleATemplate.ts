@@ -11,6 +11,8 @@ const DESC_COL = 3
 const RATE_COL = 4
 const UNITS_COL = 5
 const AMOUNT_COL = 6
+// Left indent (in Excel indent steps) that lines the Estimate / ECV / Contract amounts up with the contractor's name below them.
+const AMOUNT_INDENT = 1
 
 function cellText(v: ExcelJS.CellValue): string {
   if (v == null) return ''
@@ -169,6 +171,17 @@ function fillScheduleAWorksheet(ws: ExcelJS.Worksheet, items: ScheduleAItem[], m
     } else if (label.startsWith('contract amount')) {
       ws.getCell(r, 3).value = meta?.contractAmount ?? ''
     }
+    // The three amounts sit in their own column beside a short label, while the contractor line is one
+    // long string; indent the amounts so they start where the contractor's name does.
+    if (/^(estimate|ecv|contract) amount/.test(label)) {
+      // "Rs." moves from the end of the label into the value cell, so the three "Rs." (and the figures after them)
+      // share one starting column instead of trailing labels of different lengths.
+      ws.getCell(r, 1).value = String(ws.getCell(r, 1).value).replace(/\s*Rs\.?\s*$/i, '')
+      const cell = ws.getCell(r, 3)
+      const figure = cellText(cell.value).trim()
+      cell.value = figure ? `Rs. ${figure}` : 'Rs.'
+      cell.alignment = { ...(cell.alignment ?? {}), horizontal: 'left', indent: AMOUNT_INDENT }
+    }
   }
 
   // Tender-quoted % and its "Less:" restatement — filled from the Works List
@@ -191,9 +204,12 @@ function fillScheduleAWorksheet(ws: ExcelJS.Worksheet, items: ScheduleAItem[], m
     // Not an else-branch: the label shares its row with "Tender Quoted".
     if (/^in figures/i.test(c1)) {
       inFiguresRow = r
-      // The contract amount spelled out beside the label: "In Figures (One Hundred Rupees Only)".
-      const contract = Number((meta?.contractAmount ?? '').replace(/[^\d.]/g, ''))
-      const words = contract > 0 ? amountToWords(contract) : ''
+      // The figure beside the label (the tender-adjusted total, as the sheet's own formula computes it)
+      // spelled out: "In Figures (One Hundred Rupees Only)". Falls back to the Works List contract amount.
+      const itemsTotal = items.reduce((sum, it) => sum + Math.round((numOrNull(it.quantity) ?? 0) * (numOrNull(it.rate) ?? 0)), 0)
+      const computed = itemsTotal - itemsTotal * ((tenderPct ?? 0) / 100)
+      const contract = computed > 0 ? computed : Number((meta?.contractAmount ?? '').replace(/[^\d.]/g, ''))
+      const words = contract > 0 ? amountToWords(Math.round(contract * 100) / 100) : ''
       if (words) ws.getCell(r, 1).value = `In Figures (${words})`
     }
   }
@@ -205,6 +221,25 @@ function fillScheduleAWorksheet(ws: ExcelJS.Worksheet, items: ScheduleAItem[], m
       formula: `+F${totalRow}-(F${totalRow}*D${tenderQuotedRow}%)`
     }
   }
+  fitPrintAreaToContent(ws)
+}
+
+/**
+ * The bundled templates carry the sample's fixed print area (A1:F29). Once item
+ * rows are inserted or removed the Executive/Superintending Engineer signature
+ * block moves, so that stale area cut it (and every row below the 29th) off the
+ * printout. Re-fit it to end at the last row holding anything, the signature
+ * block's circle/zone line, so a printed or PDF Schedule A always runs through it.
+ */
+function fitPrintAreaToContent(ws: ExcelJS.Worksheet): void {
+  let last = 0
+  ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    for (let c = 1; c <= AMOUNT_COL; c++) {
+      const v = row.getCell(c).value
+      if (v != null && String(typeof v === 'object' ? cellText(v) || 'x' : v).trim() !== '') last = rowNumber
+    }
+  })
+  if (last > 0) ws.pageSetup.printArea = `A1:F${last}`
 }
 
 /**

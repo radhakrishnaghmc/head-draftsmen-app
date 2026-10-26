@@ -4,6 +4,7 @@ import { api } from '../ipc'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { withComputedAmounts } from '@core/worksAmounts'
+import { agreementBondNoDate, indianFinancialYear } from '@core/workOrderAgreement'
 import type { CreatedDocument, ExcelTable, QcOfficeParties } from '@core/types'
 import type { Office } from '../office'
 import { corporationByName } from '../zoneCircleDirectory'
@@ -62,7 +63,8 @@ const MANUAL_LABELS = new Set([
   'ts no and date',
   'corporation',
   'corp full',
-  'corp full caps'
+  'corp full caps',
+  'agreement no and date'
 ])
 function isPartyDoc(doc: CreatedDocument | null): boolean {
   return doc?.id === PARTY_3RD_ID || doc?.id === PARTY_4TH_ID
@@ -224,6 +226,21 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
       'AE Name Phone': '',
       'Estimate Lakhs': rawEstimate && !Number.isNaN(Number(rawEstimate)) ? Number(rawEstimate).toFixed(2) : rawEstimate,
       'TS No and Date': tsNo && tsDate ? `${tsNo} dt. ${tsDate}` : tsNo || tsDate,
+      // The Agreement Bond's A.B.No line (number gap left for hand entry, date from the Works List's Agmt Date) — the EOT proposal's "Agreement No. and Date" row.
+      'Agreement No and Date': office.circle
+        ? agreementBondNoDate(
+            {
+              agreementNo: '',
+              agreementDate: (rawRow['Agmt Date'] ?? '').trim(),
+              circle: office.circle,
+              cno: office.circleNumber ?? '',
+              zone: office.zone ?? '',
+              corporation: office.corporation ?? '',
+              financialYear: indianFinancialYear()
+            },
+            '\u00a0\u00a0'
+          )
+        : `\u00a0\u00a0 Dt: ${(rawRow['Agmt Date'] ?? '').trim() || '__________'}`,
       Corporation: office.corporation ?? '',
       'Corp Full': corpFull,
       'Corp Full Caps': corpFull.toUpperCase()

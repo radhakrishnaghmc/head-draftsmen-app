@@ -61,7 +61,8 @@ export function markEvaluationGenerated(
 export function tenderConditionsInOffice(entry: TenderConditionsEntry, currentOfficeKey: string, zoneLevel: boolean): boolean {
   if (entry.officeKey != null) return entry.officeKey === currentOfficeKey
   if (!entry.nitNo) return true
-  return /\/SE\//i.test(entry.nitNo) === zoneLevel
+  // "/SE/" (e.g. 28/SE/QBZ/CMC) or "/SE(M)/" (SE Maintenance, e.g. 33/SE(M)/Malkajgiri Zone/MMC).
+  return /\/SE(?:\(M\))?\//i.test(entry.nitNo) === zoneLevel
 }
 
 /** Drops undefined fields (Firestore rejects them) and keeps only well-formed entries, ready to write to the cloud. */

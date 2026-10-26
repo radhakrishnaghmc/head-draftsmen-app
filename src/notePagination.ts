@@ -13,7 +13,9 @@ export interface NoteMargins {
   left: number
   right: number
 }
-export const DEFAULT_NOTE_MARGINS: NoteMargins = { top: 6.35, bottom: 6.35, left: 31.75, right: 31.75 }
+export const DEFAULT_NOTE_MARGINS: NoteMargins = { top: 12, bottom: 8, left: 16, right: 16 }
+/** The defaults before the sides/top were tightened — a saved copy of exactly these was never hand-set, so it upgrades. */
+export const PREVIOUS_NOTE_MARGINS: NoteMargins = { top: 6.35, bottom: 6.35, left: 31.75, right: 31.75 }
 const MM_PX = 96 / 25.4
 const px = (mm: number) => Math.round(mm * MM_PX)
 export const NOTE_FONT = "font-family:'Bookman Old Style',Georgia,serif;font-size:12pt;line-height:1.5;color:#000"
@@ -165,6 +167,8 @@ export function noteMarginsTwips(m: NoteMargins): { top: number; bottom: number;
  * Left to flow, the export fills each page and keeps the preview's page count.
  */
 export function noteDocxHtml(pages: NoteSeg[][]): string {
-  const body = pages.map((segs) => segs.map((sg) => sg.html).join('')).join('')
+  // The export has no hard page breaks, so a table the preview split over two pages must be one table again
+  // here — otherwise its two halves sit apart with a gap and their own column widths.
+  const body = mergeRows(pages.map((segs) => segs.map((sg) => sg.html).join('')).join(''))
   return `<div style="${NOTE_FONT}">${body}</div>`
 }

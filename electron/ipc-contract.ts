@@ -54,6 +54,23 @@ export interface PickedTenderDocument {
 }
 
 /** One entry in Settings' "Active Devices" list — a live SessionSlot plus whether it's this device's own. */
+export interface BackupResult {
+  filePath: string
+  fileName: string
+  sizeBytes: number
+}
+
+export type RestoreResult =
+  | { ok: true; state: PersistedState; fileName: string; createdAt: number }
+  | { ok: false; cancelled?: boolean; error?: string }
+
+export interface ActivityLogEntry {
+  id: string
+  ts: number
+  action: string
+  detail: string
+}
+
 export interface ActiveSessionInfo extends SessionSlot {
   isThisDevice: boolean
 }
@@ -130,6 +147,8 @@ export const IPC = {
   importAllSheetsFromLink: 'data:importAllSheetsFromLink',
   exportTable: 'data:exportTable',
   exportScheduleA: 'data:exportScheduleA',
+  exportScheduleAPdf: 'data:exportScheduleAPdf',
+  scheduleAPreviewHtml: 'data:scheduleAPreviewHtml',
   exportEvaluationSheet: 'data:exportEvaluationSheet',
   exportEvaluationSheetBatch: 'data:exportEvaluationSheetBatch',
   exportAgreementBundle: 'doc:exportAgreementBundle',
@@ -159,7 +178,6 @@ export const IPC = {
   ocrPhotosToLines: 'tools:ocrPhotosToLines',
   savePhotosAsWord: 'tools:savePhotosAsWord',
   savePhotosAsExcel: 'tools:savePhotosAsExcel',
-  savePdfAsWord: 'tools:savePdfAsWord',
   saveWordDoc: 'tools:saveWordDoc',
   ocrPhotosToLayout: 'tools:ocrPhotosToLayout',
   saveRowsAsExcel: 'tools:saveRowsAsExcel',
@@ -210,6 +228,11 @@ export const IPC = {
   loadState: 'state:load',
   saveState: 'state:save',
   syncNow: 'state:syncNow',
+  createBackup: 'backup:create',
+  revealBackup: 'backup:reveal',
+  saveBackupCopy: 'backup:saveCopy',
+  restoreBackup: 'backup:restore',
+  getActivityLog: 'backup:activityLog',
   remoteStateUpdate: 'state:remoteUpdate',
   updateDownloaded: 'update:downloaded',
   updateProgress: 'update:progress',
@@ -299,12 +322,16 @@ export interface DocuGenApi {
   importAllSheetsFromLink(url: string): Promise<SheetGrid[]>
   exportTable(table: ExcelTable, suggestedName: string): Promise<string | null>
   exportScheduleA(table: ExcelTable, suggestedName: string, meta?: ScheduleAMeta): Promise<string | null>
+  /** Saves the filled Schedule A as a printed PDF (EE template, or the Superintending Engineer one when `isSe`); null if the save dialog is cancelled. */
+  /** The filled Schedule A as the exact page HTML the PDF and Print use (table null = the empty framework before an estimate is uploaded). */
+  scheduleAPreviewHtml(table: ExcelTable | null, meta?: ScheduleAMeta, isSe?: boolean): Promise<string>
+  exportScheduleAPdf(table: ExcelTable, suggestedName: string, meta?: ScheduleAMeta, isSe?: boolean): Promise<string | null>
   /** Build the Bid Capacity Evaluation Sheet (one column per participating bidder) and save it as .xlsx. Returns the written path, or null if cancelled. */
   exportEvaluationSheet(input: EvaluationSheetInput, suggestedName: string): Promise<string | null>
   /** Save several evaluation sheets — one per uploaded tender — into ONE chosen folder in a single go. Returns the written paths, or null if cancelled. */
   exportEvaluationSheetBatch(entries: { input: EvaluationSheetInput; suggestedName: string }[]): Promise<string[] | null>
-  /** Save several agreement-workspace documents into ONE chosen folder, each in its given format (docx/pdf/xlsx). Returns the written paths plus any that failed (e.g. PDF conversion), or null if cancelled. */
-  exportAgreementBundle(files: AgreementBundleFile[]): Promise<{ written: string[]; failed: string[] } | null>
+  /** Save several agreement-workspace documents into ONE chosen folder, each in its given format (docx/pdf/xlsx). With `mergedPdfName`, every pdf-format document is joined, in order, into ONE PDF with that name instead of one PDF each. Returns the written paths plus any that failed (e.g. PDF conversion), or null if cancelled. */
+  exportAgreementBundle(files: AgreementBundleFile[], mergedPdfName?: string): Promise<{ written: string[]; failed: string[] } | null>
   /** Fires as each file in an exportAgreementBundle call is written/converted, so the UI can show live progress instead of a single static "Preparing…". Returns an unsubscribe function. */
   onAgreementBundleProgress(callback: (progress: AgreementBundleProgress) => void): () => void
   exportBoq(table: ExcelTable, suggestedName: string, workName?: string): Promise<string | null>
@@ -329,9 +356,9 @@ export interface DocuGenApi {
   savePdf(bytes: Uint8Array, suggestedName: string): Promise<{ file: string } | null>
   /** Tool (PDF workspace): save several already-built PDFs (name + bytes) into ONE folder the user picks. Returns the folder and written paths, or null if cancelled. */
   savePdfsToFolder(files: { name: string; bytes: Uint8Array }[]): Promise<{ dir: string; files: string[] } | null>
-  /** Tool (Word workspace): convert one .docx (raw bytes) to PDF via LibreOffice, for a page-level preview. Returns the PDF bytes; throws a clear error if LibreOffice isn't installed. */
+  /** Tool (Word workspace): convert one .docx (raw bytes) to PDF with the app's built-in Chromium, for a page-level preview. Returns the PDF bytes. */
   docxToPdf(docxBytes: Uint8Array): Promise<Uint8Array>
-  /** Accurate document preview/print: renders one .docx (raw bytes) as one PNG per page — LibreOffice does the docx→PDF conversion, then Electron's own Chromium/PDFium rasterizes each page to PNG (neither LibreOffice's own PNG export nor pdf.js — see core/docxToPdf.ts's docxToPageImages for why). Throws the same clear error as docxToPdf if LibreOffice isn't installed. */
+  /** Accurate document preview/print: renders one .docx (raw bytes) as one PNG per page — Electron's own Chromium converts it to PDF and its PDFium rasterizes each page to PNG (not pdf.js — see core/docxToPdf.ts's docxToPageImages for why). */
   docxToPageImages(docxBytes: Uint8Array): Promise<Uint8Array[]>
   /** Tool (Word workspace): merge several .docx files (raw bytes, in order) into one .docx and save it via a dialog. Returns the saved path, or null if cancelled. */
   mergeDocx(docxBytesList: Uint8Array[]): Promise<{ file: string } | null>
@@ -355,8 +382,6 @@ export interface DocuGenApi {
   savePhotosAsWord(text: string, suggestedName: string): Promise<string | null>
   /** Tool (Photos/PDF → Word/Excel): save the reviewed text as an .xlsx (one row per line, split into columns on wide gaps). Returns the written path, or null if cancelled. */
   savePhotosAsExcel(text: string, suggestedName: string): Promise<string | null>
-  /** Tool (Photos/PDF → Word): convert uploaded PDF(s) to a LAYOUT-PRESERVING .docx via LibreOffice (writer_pdf_import) — tables/borders/positioning kept as editable Word content — merging multiple PDFs in order. Returns the written path, or null if cancelled. Needs LibreOffice installed. */
-  savePdfAsWord(pdfs: { name: string; bytes: Uint8Array }[], suggestedName: string): Promise<string | null>
   /** Tool (Photos/PDF → Word): save a reconstructed doc-model (real paragraphs/tables rebuilt from a text-PDF's geometry, or plain OCR lines) as a directly-built, Word-valid .docx (core/docxBuilder — not html-to-docx). Returns the written path, or null if cancelled. */
   saveWordDoc(blocks: DocBlock[], suggestedName: string): Promise<string | null>
   /** Tool (Photos/PDF → Word/Excel): OCR each page image and return its text lines WITH bounding boxes, per page — the input to offline image-based table reconstruction (core/ocrReconstruct). */
@@ -478,6 +503,16 @@ export interface DocuGenApi {
   saveState(state: PersistedState, skipCloud?: boolean): Promise<void>
   /** Saves locally and pushes the whole workspace to the cloud right now (the profile menu's Sync button); an empty string when everything was written, otherwise the reason it failed. */
   syncNow(state: PersistedState): Promise<string>
+  /** Encrypts the whole workspace (tied to this login) into a .dhbak file in the app's backups folder. */
+  createBackup(state: PersistedState): Promise<BackupResult>
+  /** Shows a backup file (one this app made) in the system file manager. */
+  revealBackup(filePath: string): Promise<void>
+  /** Lets the user save a copy of a backup anywhere (USB drive, shared folder…) to move it to another device; the saved path, or null if cancelled. */
+  saveBackupCopy(filePath: string): Promise<string | null>
+  /** Picks a backup file, decrypts it with this login and, on success, returns the workspace to apply. `currentState` is first sealed into a "before restore" backup so the restore can be undone. */
+  restoreBackup(currentState: PersistedState): Promise<RestoreResult>
+  /** The most recent activity-log entries for this login, newest first. */
+  getActivityLog(): Promise<ActivityLogEntry[]>
   /** Fires when the other signed-in device changes the workspace, so this one can merge it in live. Returns an unsubscribe function. */
   onRemoteStateUpdate(callback: (partial: Partial<PersistedState>) => void): () => void
   /** Fires once a new version has finished downloading in the background and is ready to install. Returns an unsubscribe function. */
@@ -505,7 +540,7 @@ export interface AgreementBundleFile {
   format: 'docx' | 'pdf' | 'xlsx'
   /** Filled .docx (base64) — required for 'docx' and 'pdf' (converted to PDF in main). */
   docxBase64?: string
-  /** Schedule A source — required for 'xlsx' (the workbook is built in main). */
+  /** Schedule A source — required for 'xlsx'; with 'pdf' it makes Schedule A a printed PDF instead of docx-converted (the workbook is built in main). */
   scheduleATable?: ExcelTable
   scheduleAMeta?: ScheduleAMeta
   /** True for a Zone-level (SE) office's Schedule A — uses the Superintending Engineer template/signature instead of the Executive Engineer one. Only meaningful alongside scheduleATable. */
