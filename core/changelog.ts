@@ -16,6 +16,13 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.47.1',
+    changes: [
+      'MB Measurement scan: sideways or upside-down pages are now turned upright automatically.',
+      'MB Measurement scan: table lines are found more reliably on faint or unevenly lit photos, and empty cells are no longer mistaken for filled ones.',
+    ],
+  },
+  {
     version: '1.47.0',
     changes: [
       'QC Intimation/Completion: page 4 is now the new 4th-party letter; its table fills the Work Order number, and a new "AE name & phone number" box under the upload buttons fills the AE column.',

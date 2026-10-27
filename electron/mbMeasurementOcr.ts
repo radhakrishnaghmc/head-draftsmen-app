@@ -1,7 +1,8 @@
-import { recognizeImages } from './ocr'
+import { recognizeImage, recognizeImages } from './ocr'
 import { buildMbMeasurementRows } from '../core/mbMeasurementExtract'
 import type { MbMeasurementRow } from '../core/mbMeasurementExtract'
 import { detectGrid } from '../core/mbGridDetect'
+import { detectGridAuto } from '../core/mbGridAuto'
 import type { GrayImage } from '../core/mbGridDetect'
 
 const CELL_UPSCALE = 3
@@ -23,7 +24,7 @@ async function toGrayscale(imageBuffer: Buffer): Promise<GrayImage> {
   return { data, width: info.width, height: info.height }
 }
 
-async function cropCell(
+export async function cropCell(
   sharpInstance: import('sharp').Sharp,
   x0: number,
   x1: number,
@@ -62,9 +63,19 @@ async function cropCell(
   // threshold: contrast-stretching a blank cell first would amplify paper
   // grain into "ink" and put the cell back in front of the model.
   const { data, info } = await crop.clone().raw().toBuffer({ resolveWithObject: true })
+  // Only the cell interior counts: the padded crop also holds the ruled lines
+  // around the cell, which would make every empty cell look inked.
+  const insetX = padX + 4
+  const insetY = padY + 4
   let dark = 0
-  for (let i = 0; i < data.length; i++) if (data[i] < darkThreshold) dark++
-  const darkFraction = dark / data.length
+  let total = 0
+  for (let y = insetY; y < info.height - insetY; y++) {
+    for (let x = insetX; x < info.width - insetX; x++) {
+      total++
+      if (data[y * info.width + x] < darkThreshold) dark++
+    }
+  }
+  const darkFraction = total > 0 ? dark / total : 0
   if (darkFraction < BLANK_CELL_DARK_FRACTION) return { buffer: Buffer.alloc(0), darkFraction }
 
   // Phone photos of a book page carry uneven lighting and yellowed paper;
@@ -84,11 +95,61 @@ async function cropCell(
   return { buffer, darkFraction }
 }
 
+/**
+ * Ink mask: a pixel is ink when it is clearly darker than its local
+ * surroundings. Faint ruled lines and uneven phone/scanner lighting survive
+ * this where a single global threshold loses them.
+ */
+async function inkMask(imageBuffer: Buffer, delta = 25): Promise<GrayImage> {
+  const sharp = (await import('sharp')).default
+  const g = await sharp(imageBuffer).grayscale().raw().toBuffer({ resolveWithObject: true })
+  const bg = await sharp(imageBuffer).grayscale().blur(18).raw().toBuffer()
+  const bin = Buffer.alloc(g.data.length, 255)
+  for (let i = 0; i < bin.length; i++) if (bg[i] - g.data[i] > delta) bin[i] = 0
+  return { data: bin, width: g.info.width, height: g.info.height }
+}
+
+// The printed header words: how many show up decides which way up a page is.
+async function headerWordCount(imageBuffer: Buffer): Promise<number> {
+  const lines = await recognizeImage(imageBuffer)
+  const text = lines.map((l) => l.text).join(' ')
+  return (text.match(/measurement|description|contents|masure|work ect/gi) ?? []).length
+}
+
+interface OrientedPage {
+  buffer: Buffer
+  grid: { colBounds: number[]; rowBounds: number[] }
+}
+
+/**
+ * Find which of the four orientations the page is in (books get scanned
+ * sideways), returning the buffer turned upright plus its grid. An upright
+ * page costs one extra whole-page read of the header.
+ */
+export async function orientPage(imageBuffer: Buffer): Promise<OrientedPage | undefined> {
+  const sharp = (await import('sharp')).default
+  let best: { page: OrientedPage; words: number } | undefined
+  for (const deg of [0, 270, 90, 180]) {
+    const buffer = deg === 0 ? imageBuffer : await sharp(imageBuffer).rotate(deg).png().toBuffer()
+    const grid = detectGridAuto(await inkMask(buffer))
+    if (!grid) continue
+    const words = await headerWordCount(buffer)
+    const page = { buffer, grid }
+    if (words >= 2) return page
+    if (!best || words > best.words) best = { page, words }
+  }
+  return best?.page
+}
+
 /** Extract the MB measurement grid (as raw string cells, 7 columns) from one page image. */
 async function extractPageGrid(imageBuffer: Buffer, onProgress?: (done: number, total: number) => void): Promise<string[][]> {
   const sharp = (await import('sharp')).default
+  const oriented = await orientPage(imageBuffer)
+  if (oriented) imageBuffer = oriented.buffer
   const gray = await toGrayscale(imageBuffer)
-  const { colBounds, rowBounds, darkThreshold } = detectGrid(gray)
+  const fallback = oriented ? undefined : detectGrid(gray)
+  const { colBounds, rowBounds } = oriented?.grid ?? fallback!
+  const darkThreshold = fallback?.darkThreshold ?? detectGrid(gray).darkThreshold
   const sharpInstance = sharp(imageBuffer)
 
   interface CellSlot {
