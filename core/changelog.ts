@@ -16,6 +16,10 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.47.2',
+    changes: ['Stability issues fixed.'],
+  },
+  {
     version: '1.47.1',
     changes: [
       'MB Measurement scan: sideways or upside-down pages are now turned upright automatically.',
