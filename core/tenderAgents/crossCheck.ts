@@ -1,6 +1,7 @@
 import { detectTenderId } from './tenderId'
 import { detectNitNoAndDate } from './nitNoAndDate'
 import { detectNameOfWork } from './nameOfWork'
+import { stripItemNoTag } from './shared'
 import { detectEcv } from './ecv'
 import { detectTenderPercentage } from './tenderPercentage'
 import { detectContractValue } from './contractValue'
@@ -116,7 +117,7 @@ export function runTenderAgents(lines: string[]): TenderFields {
     tenderId,
     noticeNo,
     noticeDate,
-    nameOfWork,
+    nameOfWork: nameOfWork ? stripItemNoTag(nameOfWork) || undefined : undefined,
     ecvRupees,
     tenderPercentage: detectTenderPercentage(lines),
     contractRupees: detectContractValue(lines),

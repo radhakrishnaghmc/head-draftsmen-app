@@ -177,3 +177,22 @@ describe('parseSupplierDetailsText', () => {
     expect(detectTenderId(LINES)).toBe('728662')
   })
 })
+
+describe('parseIntimationNoticeText — "Dated:" after the NIT No', () => {
+  it('keeps ", Dated:" out of the NIT No and reads the date, even when both wrap', () => {
+    const r = parseIntimationNoticeText([
+      'To',
+      'SRI GANESH CONSTRUCTIONS',
+      'This is notify you that the bid for execution of the NIT No. 27/15/DB/EE/Gajularamaram Circle-57/CMC/2026-',
+      '27, Dated:',
+      '09.10.2026 at contract price of Rs. 1586358.07'
+    ])
+    expect(r.nitNo).toBe('27/15/DB/EE/Gajularamaram Circle-57/CMC/2026-27')
+    expect(r.nitDate).toBe('09.10.2026')
+  })
+  it('handles the Ref-line form "E-Proc Nit No : … , Dated: …, Tender Id"', () => {
+    const r = parseIntimationNoticeText(['Ref : 1) E-Proc Nit No : 27/3/DB/EE/Gajularamaram Circle-57/CMC/2026-27, Dated:', '09.10.2026, Tender Id: 741316'])
+    expect(r.nitNo).toBe('27/3/DB/EE/Gajularamaram Circle-57/CMC/2026-27')
+    expect(r.nitDate).toBe('09.10.2026')
+  })
+})

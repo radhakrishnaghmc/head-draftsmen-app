@@ -171,6 +171,8 @@ export interface PendingNoticeItem {
   workName?: string
   nitNo?: string
   nitDate?: string
+  /** The portal's own Tender ID (e.g. "741316") — the identity used to spot duplicate notices. Absent on notices made before it was recorded. */
+  tenderId?: string
   itemNo?: string
   ecvRupees?: number
   contractRupees?: number

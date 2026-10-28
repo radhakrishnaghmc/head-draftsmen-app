@@ -7,7 +7,7 @@ import * as firebaseSync from './firebaseSync'
 import { readActivityLog, logActivity, mergeIntoActivityLog } from './activityLog'
 import { encryptBackup, decryptBackup, BackupError, BACKUP_EXTENSION, describeStateChange } from '../core/backup'
 import { initAutoUpdate, restartToUpdate, checkForUpdatesManually } from './autoUpdate'
-import { IPC } from './ipc-contract'
+import { IPC, AUTO_SYNC_BYTES } from './ipc-contract'
 import type {
   ManualCheckResult,
   AgreementBundleFile,
@@ -30,7 +30,14 @@ import {
   civilTenderTemplateFileName
 } from '../core/workOrderTemplateVariants'
 import { buildAbstractWorkbookBuffer } from '../core/abstractExcel'
-import { parseExcelFile, readExcelGrid, readAllSheetGrids, buildWorkbookBuffer, buildPrintReadyWorkbookBuffer, readSheetPreviews } from '../core/excel'
+import {
+  parseExcelFile,
+  readExcelGrid,
+  readAllSheetGrids,
+  buildWorkbookBuffer,
+  buildPrintReadyWorkbookBuffer,
+  readSheetPreviews
+} from '../core/excel'
 import type { SheetPreview } from '../core/excel'
 import { recognizeImages } from './ocr'
 import { extractMbMeasurementSheet } from './mbMeasurementOcr'
@@ -58,7 +65,7 @@ import { parseCalendarHtml } from '../core/calendar'
 import { importTableFromGoogleLink, importAllSheetsFromGoogleLink } from '../core/googleImport'
 import { validateLogin, listCorporationUsers } from '../core/auth'
 import type { LoginResult } from '../core/auth'
-import { rememberOfflineAuth, checkOfflineAuth } from './offlineAuth'
+import { rememberOfflineAuth, checkOfflineAuth, hasOfflineAuth } from './offlineAuth'
 import { fillTenderNotice } from '../core/tenderNotice'
 import type { TenderNoticeInput } from '../core/tenderNotice'
 import { fillBidDocument, fillSeBidDocument } from '../core/bidDocument'
@@ -100,12 +107,7 @@ import {
   combineVerify
 } from '../core/documentVerify'
 import type { PlaceholderMatch } from '../core/createDocument'
-import type {
-  ExcelTable,
-  TenderQuery,
-  TenderResult,
-  PersistedState
-} from '../core/types'
+import type { ExcelTable, TenderQuery, TenderResult, PersistedState } from '../core/types'
 import { pruneLegacyDocuments } from '../core/types'
 import type { TenderConditionsEntry, ShareResult } from '../core/types'
 import { mergeQcParties } from '../core/mergeQcParties'
@@ -481,87 +483,104 @@ function registerHandlers(): void {
     return importAllSheetsFromGoogleLink(url)
   })
 
-  ipcMain.handle(IPC.login, async (_e, loginId: string, password: string, forceLogout?: boolean): Promise<LoginResult> => {
-    let result: LoginResult
-    try {
-      result = await validateLogin(loginId, password)
-      if (result.ok) rememberOfflineAuth(loginId, password)
-    } catch (e) {
-      // The credentials sheet is unreachable — almost always no internet.
-      // Only let this through if THIS SAME loginId/password has already
-      // been verified online on this device before; a different login ID,
-      // or one that's never succeeded online here, still gets the original
-      // network error surfaced (never a blanket offline bypass).
-      if (checkOfflineAuth(loginId, password)) {
-        result = { ok: true, offline: true }
-      } else {
-        throw e
-      }
-    }
-    if (!result.ok) return result
+  // How long a login waits on the online credentials check before falling back to this device's offline record.
+  const ONLINE_LOGIN_CHECK_MS = 4000
 
-    // Point the local cache at THIS login's own file before anything reads or
-    // writes it, so we never load the previous user's state and never write
-    // this user's over theirs.
-    currentLoginId = firebaseSync.normalizeId(loginId)
-    currentLoginPassword = password
-    activitySigs = {}
-
-    // forceLogout only ever reaches here after the password above has
-    // already been re-verified — the login screen only offers it once a
-    // normal attempt has already come back maxSessions, using the same
-    // loginId/password the user just typed. It immediately ends every other
-    // device's session, so it's never applied silently.
-    const { claim, remoteState } = await firebaseSync.startSession(
-      loginId,
-      os.hostname(),
-      (partial) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send(IPC.remoteStateUpdate, partial)
-        }
-      },
-      forceLogout
-    )
-    if (!claim.ok) return { ok: false, maxSessions: true }
-    logActivity(currentLoginId, 'login', `Signed in on ${os.hostname()}${result.offline ? ' (offline)' : ''}`)
-
-    if (remoteState) {
+  ipcMain.handle(
+    IPC.login,
+    async (_e, loginId: string, password: string, forceLogout?: boolean): Promise<LoginResult> => {
+      let result: LoginResult
       try {
-        const file = stateFile()
-        // A record entered on this device but not yet reflected in the cloud
-        // (pushState is fire-and-forget and swallows failures — a network
-        // hiccup, or the app quitting/logging out before that push finished)
-        // must not vanish just because THIS login's remote pull raced ahead
-        // of it. Union the per-item lists with whatever this login's own
-        // on-disk cache already has, keeping any local-only record instead of
-        // letting a stale-but-present cloud copy silently overwrite it.
-        let merged: PersistedState = remoteState
-        try {
-          const existing = JSON.parse(fs.readFileSync(file, 'utf8')) as PersistedState
-          const unionById = <T extends { id: string }>(remote: T[] | undefined, local: T[] | undefined): T[] => {
-            const remoteList = remote ?? []
-            const seen = new Set(remoteList.map((it) => it.id))
-            return [...remoteList, ...(local ?? []).filter((it) => !seen.has(it.id))]
-          }
-          merged = {
-            ...remoteState,
-            todos: unionById(remoteState.todos, existing.todos),
-            mbScrutiny: unionById(remoteState.mbScrutiny, existing.mbScrutiny),
-            createdDocuments: unionById(remoteState.createdDocuments, existing.createdDocuments),
-            // Agencies entered just before logout/quit may not have reached the cloud yet — keep them.
-            qcParties: mergeQcParties(remoteState.qcParties, existing.qcParties)
-          }
-        } catch {
-          // No readable existing cache for this login (fresh machine/first
-          // login here) — remote alone is all there is.
+        // On a weak connection the credentials-sheet download (3 attempts, 20 s idle timeout each) can take a
+        // minute or more. If this device already has a verified offline record for this login ID, stop waiting
+        // after a few seconds and let the offline check below decide — same rule as a hard network failure.
+        const check = validateLogin(loginId, password)
+        result = hasOfflineAuth(loginId)
+          ? await Promise.race([
+              check,
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Credentials check is slow')), ONLINE_LOGIN_CHECK_MS)
+              )
+            ])
+          : await check
+        if (result.ok) rememberOfflineAuth(loginId, password)
+      } catch (e) {
+        // The credentials sheet is unreachable — almost always no internet.
+        // Only let this through if THIS SAME loginId/password has already
+        // been verified online on this device before; a different login ID,
+        // or one that's never succeeded online here, still gets the original
+        // network error surfaced (never a blanket offline bypass).
+        if (checkOfflineAuth(loginId, password)) {
+          result = { ok: true, offline: true }
+        } else {
+          throw e
         }
-        fs.writeFileSync(file, JSON.stringify(merged), 'utf8')
-      } catch {
-        // Non-fatal: local cache write is best-effort.
       }
+      if (!result.ok) return result
+
+      // Point the local cache at THIS login's own file before anything reads or
+      // writes it, so we never load the previous user's state and never write
+      // this user's over theirs.
+      currentLoginId = firebaseSync.normalizeId(loginId)
+      currentLoginPassword = password
+      activitySigs = {}
+
+      // forceLogout only ever reaches here after the password above has
+      // already been re-verified — the login screen only offers it once a
+      // normal attempt has already come back maxSessions, using the same
+      // loginId/password the user just typed. It immediately ends every other
+      // device's session, so it's never applied silently.
+      const { claim, remoteState } = await firebaseSync.startSession(
+        loginId,
+        os.hostname(),
+        (partial) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC.remoteStateUpdate, partial)
+          }
+        },
+        forceLogout
+      )
+      if (!claim.ok) return { ok: false, maxSessions: true }
+      logActivity(currentLoginId, 'login', `Signed in on ${os.hostname()}${result.offline ? ' (offline)' : ''}`)
+
+      if (remoteState) {
+        try {
+          const file = stateFile()
+          // A record entered on this device but not yet reflected in the cloud
+          // (pushState is fire-and-forget and swallows failures — a network
+          // hiccup, or the app quitting/logging out before that push finished)
+          // must not vanish just because THIS login's remote pull raced ahead
+          // of it. Union the per-item lists with whatever this login's own
+          // on-disk cache already has, keeping any local-only record instead of
+          // letting a stale-but-present cloud copy silently overwrite it.
+          let merged: PersistedState = remoteState
+          try {
+            const existing = JSON.parse(fs.readFileSync(file, 'utf8')) as PersistedState
+            const unionById = <T extends { id: string }>(remote: T[] | undefined, local: T[] | undefined): T[] => {
+              const remoteList = remote ?? []
+              const seen = new Set(remoteList.map((it) => it.id))
+              return [...remoteList, ...(local ?? []).filter((it) => !seen.has(it.id))]
+            }
+            merged = {
+              ...remoteState,
+              todos: unionById(remoteState.todos, existing.todos),
+              mbScrutiny: unionById(remoteState.mbScrutiny, existing.mbScrutiny),
+              createdDocuments: unionById(remoteState.createdDocuments, existing.createdDocuments),
+              // Agencies entered just before logout/quit may not have reached the cloud yet — keep them.
+              qcParties: mergeQcParties(remoteState.qcParties, existing.qcParties)
+            }
+          } catch {
+            // No readable existing cache for this login (fresh machine/first
+            // login here) — remote alone is all there is.
+          }
+          fs.writeFileSync(file, JSON.stringify(merged), 'utf8')
+        } catch {
+          // Non-fatal: local cache write is best-effort.
+        }
+      }
+      return result
     }
-    return result
-  })
+  )
 
   ipcMain.handle(IPC.logout, async (): Promise<void> => {
     logActivity(currentLoginId, 'logout', `Signed out on ${os.hostname()}`)
@@ -598,7 +617,12 @@ function registerHandlers(): void {
 
   ipcMain.handle(
     IPC.shareTenderConditions,
-    async (_e, corporation: string, targets: string[], entries: Record<string, TenderConditionsEntry>): Promise<ShareResult[]> => {
+    async (
+      _e,
+      corporation: string,
+      targets: string[],
+      entries: Record<string, TenderConditionsEntry>
+    ): Promise<ShareResult[]> => {
       if (!currentLoginId) throw new Error('NOT_SIGNED_IN')
       // Only users the login sheet lists under this corporation may be written to — never an arbitrary ID from the renderer.
       const allowed = new Set((await listCorporationUsers(corporation, currentLoginId)).map((u) => u.toLowerCase()))
@@ -617,19 +641,23 @@ function registerHandlers(): void {
     return checkForUpdatesManually()
   })
 
-  ipcMain.handle(
-    IPC.exportTable,
-    async (_e, table: ExcelTable, suggestedName: string): Promise<string | null> => {
-      const result = await dialog.showSaveDialog(mainWindow!, {
-        title: `Save ${suggestedName}`,
-        defaultPath: `${suggestedName}.xlsx`,
-        filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
-      })
-      if (result.canceled || !result.filePath) return null
-      fs.writeFileSync(result.filePath, table.abstractLayout ? await buildAbstractWorkbookBuffer(table.abstractLayout.summary, table.abstractLayout.title) : table.printReady ? await buildPrintReadyWorkbookBuffer(table) : buildWorkbookBuffer(table))
-      return result.filePath
-    }
-  )
+  ipcMain.handle(IPC.exportTable, async (_e, table: ExcelTable, suggestedName: string): Promise<string | null> => {
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: `Save ${suggestedName}`,
+      defaultPath: `${suggestedName}.xlsx`,
+      filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
+    })
+    if (result.canceled || !result.filePath) return null
+    fs.writeFileSync(
+      result.filePath,
+      table.abstractLayout
+        ? await buildAbstractWorkbookBuffer(table.abstractLayout.summary, table.abstractLayout.title)
+        : table.printReady
+          ? await buildPrintReadyWorkbookBuffer(table)
+          : buildWorkbookBuffer(table)
+    )
+    return result.filePath
+  })
 
   ipcMain.handle(
     IPC.exportScheduleA,
@@ -655,12 +683,20 @@ function registerHandlers(): void {
   ipcMain.handle(
     IPC.scheduleAPreviewHtml,
     async (_e, table: ExcelTable | null, meta?: ScheduleAMeta, isSe?: boolean): Promise<string> =>
-      scheduleAPageHtml(await buildScheduleABuffer(table ?? { id: '', name: '', path: '', headers: [], rows: [] }, meta, isSe))
+      scheduleAPageHtml(
+        await buildScheduleABuffer(table ?? { id: '', name: '', path: '', headers: [], rows: [] }, meta, isSe)
+      )
   )
 
   ipcMain.handle(
     IPC.exportScheduleAPdf,
-    async (_e, table: ExcelTable, suggestedName: string, meta?: ScheduleAMeta, isSe?: boolean): Promise<string | null> => {
+    async (
+      _e,
+      table: ExcelTable,
+      suggestedName: string,
+      meta?: ScheduleAMeta,
+      isSe?: boolean
+    ): Promise<string | null> => {
       const result = await dialog.showSaveDialog(mainWindow!, {
         title: `Save ${suggestedName}`,
         defaultPath: `${suggestedName}.pdf`,
@@ -757,7 +793,11 @@ function registerHandlers(): void {
   // from the Schedule A table). A unique-name guard avoids clobbering.
   ipcMain.handle(
     IPC.exportAgreementBundle,
-    async (_e, files: AgreementBundleFile[], mergedPdfName?: string): Promise<{ written: string[]; failed: string[] } | null> => {
+    async (
+      _e,
+      files: AgreementBundleFile[],
+      mergedPdfName?: string
+    ): Promise<{ written: string[]; failed: string[] } | null> => {
       if (!files || files.length === 0) return null
       const result = await dialog.showOpenDialog(mainWindow!, {
         title: 'Choose a folder to save all agreement documents into',
@@ -783,7 +823,11 @@ function registerHandlers(): void {
       const mergedParts: Buffer[] = []
       let doneCount = 0
       for (const f of files) {
-        mainWindow?.webContents.send(IPC.agreementBundleProgress, { done: doneCount, total: files.length, name: f.name })
+        mainWindow?.webContents.send(IPC.agreementBundleProgress, {
+          done: doneCount,
+          total: files.length,
+          name: f.name
+        })
         try {
           if (f.scheduleATable) {
             // Schedule A: the workbook is built here, then saved as is (Excel) or printed (PDF).
@@ -852,9 +896,7 @@ function registerHandlers(): void {
   async function buildBoqBuffer(table: ExcelTable, workName?: string): Promise<Buffer> {
     const rows = rowsToBoqData(table)
     const templatePath = boqTemplateFile()
-    return templatePath
-      ? fillBoqTemplate(fs.readFileSync(templatePath), rows, workName)
-      : buildWorkbookBuffer(table) // fallback if the bundled template is missing
+    return templatePath ? fillBoqTemplate(fs.readFileSync(templatePath), rows, workName) : buildWorkbookBuffer(table) // fallback if the bundled template is missing
   }
 
   ipcMain.handle(
@@ -991,7 +1033,11 @@ function registerHandlers(): void {
 
   ipcMain.handle(
     IPC.splitPdf,
-    async (_e, srcPath: string, ranges: [number, number][] | null): Promise<{ dir: string; files: string[] } | null> => {
+    async (
+      _e,
+      srcPath: string,
+      ranges: [number, number][] | null
+    ): Promise<{ dir: string; files: string[] } | null> => {
       const folder = await dialog.showOpenDialog(mainWindow!, {
         title: 'Choose where to save the separated PDFs',
         buttonLabel: 'Save PDFs here',
@@ -1008,17 +1054,20 @@ function registerHandlers(): void {
   // PDF workspace — the renderer builds the output PDF(s) with pdf-lib (the same
   // pages the user selected across the uploaded files) and hands the raw bytes
   // here just to be written to disk via the OS save/folder dialog.
-  ipcMain.handle(IPC.savePdf, async (_e, bytes: Uint8Array, suggestedName: string): Promise<{ file: string } | null> => {
-    const save = await dialog.showSaveDialog(mainWindow!, {
-      title: 'Save the PDF',
-      defaultPath: suggestedName || 'Document.pdf',
-      filters: [{ name: 'PDF', extensions: ['pdf'] }]
-    })
-    if (save.canceled || !save.filePath) return null
-    const file = save.filePath.toLowerCase().endsWith('.pdf') ? save.filePath : `${save.filePath}.pdf`
-    fs.writeFileSync(file, Buffer.from(bytes))
-    return { file }
-  })
+  ipcMain.handle(
+    IPC.savePdf,
+    async (_e, bytes: Uint8Array, suggestedName: string): Promise<{ file: string } | null> => {
+      const save = await dialog.showSaveDialog(mainWindow!, {
+        title: 'Save the PDF',
+        defaultPath: suggestedName || 'Document.pdf',
+        filters: [{ name: 'PDF', extensions: ['pdf'] }]
+      })
+      if (save.canceled || !save.filePath) return null
+      const file = save.filePath.toLowerCase().endsWith('.pdf') ? save.filePath : `${save.filePath}.pdf`
+      fs.writeFileSync(file, Buffer.from(bytes))
+      return { file }
+    }
+  )
 
   ipcMain.handle(
     IPC.savePdfsToFolder,
@@ -1101,52 +1150,43 @@ function registerHandlers(): void {
     return out
   })
 
-  ipcMain.handle(
-    IPC.savePhotosAsWord,
-    async (_e, text: string, suggestedName: string): Promise<string | null> => {
-      const result = await dialog.showSaveDialog(mainWindow!, {
-        title: 'Save as Word',
-        defaultPath: `${suggestedName || 'Document'}.docx`,
-        filters: [{ name: 'Word Document', extensions: ['docx'] }]
-      })
-      if (result.canceled || !result.filePath) return null
-      const buffer = await convertHtmlToDocx(textToParagraphsHtml(text))
-      fs.writeFileSync(result.filePath, buffer)
-      return result.filePath
-    }
-  )
+  ipcMain.handle(IPC.savePhotosAsWord, async (_e, text: string, suggestedName: string): Promise<string | null> => {
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: 'Save as Word',
+      defaultPath: `${suggestedName || 'Document'}.docx`,
+      filters: [{ name: 'Word Document', extensions: ['docx'] }]
+    })
+    if (result.canceled || !result.filePath) return null
+    const buffer = await convertHtmlToDocx(textToParagraphsHtml(text))
+    fs.writeFileSync(result.filePath, buffer)
+    return result.filePath
+  })
 
-  ipcMain.handle(
-    IPC.savePhotosAsExcel,
-    async (_e, text: string, suggestedName: string): Promise<string | null> => {
-      const result = await dialog.showSaveDialog(mainWindow!, {
-        title: 'Save as Excel',
-        defaultPath: `${suggestedName || 'Spreadsheet'}.xlsx`,
-        filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
-      })
-      if (result.canceled || !result.filePath) return null
-      fs.writeFileSync(result.filePath, buildPhotosWorkbook(text, suggestedName))
-      return result.filePath
-    }
-  )
+  ipcMain.handle(IPC.savePhotosAsExcel, async (_e, text: string, suggestedName: string): Promise<string | null> => {
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: 'Save as Excel',
+      defaultPath: `${suggestedName || 'Spreadsheet'}.xlsx`,
+      filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
+    })
+    if (result.canceled || !result.filePath) return null
+    fs.writeFileSync(result.filePath, buildPhotosWorkbook(text, suggestedName))
+    return result.filePath
+  })
 
   // Photos/PDF → Word (offline reconstruction): the renderer rebuilds a text
   // PDF's layout (or plain OCR lines) into a doc-model of real paragraphs +
   // tables; this writes it as a directly-built, Word-valid .docx (core/docxBuilder
   // — NOT html-to-docx, whose output Microsoft Word refuses to open).
-  ipcMain.handle(
-    IPC.saveWordDoc,
-    async (_e, blocks: DocBlock[], suggestedName: string): Promise<string | null> => {
-      const result = await dialog.showSaveDialog(mainWindow!, {
-        title: 'Save as Word',
-        defaultPath: `${suggestedName || 'Document'}.docx`,
-        filters: [{ name: 'Word Document', extensions: ['docx'] }]
-      })
-      if (result.canceled || !result.filePath) return null
-      fs.writeFileSync(result.filePath, buildDocx(blocks))
-      return result.filePath
-    }
-  )
+  ipcMain.handle(IPC.saveWordDoc, async (_e, blocks: DocBlock[], suggestedName: string): Promise<string | null> => {
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: 'Save as Word',
+      defaultPath: `${suggestedName || 'Document'}.docx`,
+      filters: [{ name: 'Word Document', extensions: ['docx'] }]
+    })
+    if (result.canceled || !result.filePath) return null
+    fs.writeFileSync(result.filePath, buildDocx(blocks))
+    return result.filePath
+  })
 
   // Photos/PDF → Word/Excel (offline image-based reconstruction): OCR each page
   // and return the recognised lines WITH their bounding boxes, per page, so the
@@ -1162,19 +1202,16 @@ function registerHandlers(): void {
     }))
   })
 
-  ipcMain.handle(
-    IPC.saveRowsAsExcel,
-    async (_e, rows: string[][], suggestedName: string): Promise<string | null> => {
-      const result = await dialog.showSaveDialog(mainWindow!, {
-        title: 'Save as Excel',
-        defaultPath: `${suggestedName || 'Spreadsheet'}.xlsx`,
-        filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
-      })
-      if (result.canceled || !result.filePath) return null
-      fs.writeFileSync(result.filePath, buildWorkbookFromRows(rows, suggestedName))
-      return result.filePath
-    }
-  )
+  ipcMain.handle(IPC.saveRowsAsExcel, async (_e, rows: string[][], suggestedName: string): Promise<string | null> => {
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: 'Save as Excel',
+      defaultPath: `${suggestedName || 'Spreadsheet'}.xlsx`,
+      filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
+    })
+    if (result.canceled || !result.filePath) return null
+    fs.writeFileSync(result.filePath, buildWorkbookFromRows(rows, suggestedName))
+    return result.filePath
+  })
 
   // Word workspace — a .docx has no addressable pages until it's laid out, so the
   // page-level preview is driven off a conversion to PDF. The renderer
@@ -1185,7 +1222,9 @@ function registerHandlers(): void {
   })
 
   ipcMain.handle(IPC.docxToPageImages, async (_e, docxBytes: Uint8Array): Promise<Uint8Array[]> => {
-    const images = await docxToPageImages(Buffer.from(docxBytes), convertDocxToPdf, (pdf, sizes) => rasterizePdfPages(pdf, sizes))
+    const images = await docxToPageImages(Buffer.from(docxBytes), convertDocxToPdf, (pdf, sizes) =>
+      rasterizePdfPages(pdf, sizes)
+    )
     return images.map((buf) => new Uint8Array(buf))
   })
 
@@ -1236,12 +1275,7 @@ function registerHandlers(): void {
 
   ipcMain.handle(
     IPC.exportDeviation,
-    async (
-      _e,
-      items: DeviationItem[],
-      meta: DeviationMeta,
-      suggestedName: string
-    ): Promise<string | null> => {
+    async (_e, items: DeviationItem[], meta: DeviationMeta, suggestedName: string): Promise<string | null> => {
       const templatePath = deviationTemplateFile()
       if (!templatePath) throw new Error('Deviation Statement template is missing from the app bundle.')
 
@@ -1298,22 +1332,19 @@ function registerHandlers(): void {
     }
   )
 
-  ipcMain.handle(
-    IPC.searchTenders,
-    async (_e, query: TenderQuery): Promise<TenderResult> => {
-      const raw = await fetchTenders(query)
-      let json: { aaData?: string[][]; iTotalRecords?: number; iTotalDisplayRecords?: number }
-      try {
-        json = JSON.parse(raw)
-      } catch {
-        throw new Error('The tender portal returned an unexpected response. Please try again.')
-      }
-      return {
-        data: json.aaData ?? [],
-        total: json.iTotalDisplayRecords ?? json.iTotalRecords ?? -1
-      }
+  ipcMain.handle(IPC.searchTenders, async (_e, query: TenderQuery): Promise<TenderResult> => {
+    const raw = await fetchTenders(query)
+    let json: { aaData?: string[][]; iTotalRecords?: number; iTotalDisplayRecords?: number }
+    try {
+      json = JSON.parse(raw)
+    } catch {
+      throw new Error('The tender portal returned an unexpected response. Please try again.')
     }
-  )
+    return {
+      data: json.aaData ?? [],
+      total: json.iTotalDisplayRecords ?? json.iTotalRecords ?? -1
+    }
+  })
 
   ipcMain.handle(
     IPC.viewTenderDetails,
@@ -1443,30 +1474,32 @@ function registerHandlers(): void {
   // renders the filled .docx) rather than raw pasted content — this avoids
   // needing LibreOffice for printing (only creating a document and PDF
   // export need it).
-  ipcMain.handle(IPC.printCreatedDocument, async (_e, renderedHtml: string, pageMarginsMm?: PageMarginsMm): Promise<void> => {
-    // docx-preview output already renders a full A4 page (section.docx) with the
-    // document's own 1-inch margins baked in, so it must print at zero page
-    // margin — otherwise the browser's default ~0.4-inch print margin makes the
-    // page wider than the printable area and clips the right edge. Plain-HTML
-    // documents (Note Submitted, Schedule A) carry no page margin, so they get
-    // a printed page margin instead. Detected by docx-preview's wrapper class.
-    const isDocx = /docx-wrapper/.test(renderedHtml)
-    const m = { top: 14, right: 16, bottom: 14, left: 16, ...pageMarginsMm }
-    // Pre-paginated sheets (Note Submitted): each .note-sheet is already one A4
-    // page with its own margins, so the page itself has none and the screen view
-    // is the same sheets on a gray desk.
-    const isSheets = /class="note-a4"/.test(renderedHtml)
-    const printStyle = isSheets
-      ? `@page { size: A4; margin: 0 }
+  ipcMain.handle(
+    IPC.printCreatedDocument,
+    async (_e, renderedHtml: string, pageMarginsMm?: PageMarginsMm): Promise<void> => {
+      // docx-preview output already renders a full A4 page (section.docx) with the
+      // document's own 1-inch margins baked in, so it must print at zero page
+      // margin — otherwise the browser's default ~0.4-inch print margin makes the
+      // page wider than the printable area and clips the right edge. Plain-HTML
+      // documents (Note Submitted, Schedule A) carry no page margin, so they get
+      // a printed page margin instead. Detected by docx-preview's wrapper class.
+      const isDocx = /docx-wrapper/.test(renderedHtml)
+      const m = { top: 14, right: 16, bottom: 14, left: 16, ...pageMarginsMm }
+      // Pre-paginated sheets (Note Submitted): each .note-sheet is already one A4
+      // page with its own margins, so the page itself has none and the screen view
+      // is the same sheets on a gray desk.
+      const isSheets = /class="note-a4"/.test(renderedHtml)
+      const printStyle = isSheets
+        ? `@page { size: A4; margin: 0 }
          html, body { margin: 0; padding: 0 }
          @media screen { html { background: #d8d8dc } body { padding: 20px 0 0 } .note-a4 { box-shadow: 0 0 0 1px rgba(16,24,40,.12), 0 2px 10px rgba(16,24,40,.18) } }
          @media print { html, body { background: #fff } .note-a4 { margin: 0 !important; box-shadow: none !important } }`
-      : isDocx
-      ? `@page { size: A4; margin: 0 }
+        : isDocx
+          ? `@page { size: A4; margin: 0 }
          html, body { margin: 0; padding: 0; background: #fff }
          .docx-wrapper { background: #fff !important; padding: 0 !important; margin: 0 !important }
          .docx-wrapper > section.docx { box-shadow: none !important; margin: 0 auto !important }`
-      : `@page { size: A4; margin: 0 }
+          : `@page { size: A4; margin: 0 }
          html, body { margin: 0; background: #fff }
          body { padding: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm }
          @media screen {
@@ -1477,64 +1510,65 @@ function registerHandlers(): void {
              background: repeating-linear-gradient(to bottom, #fff 0, #fff calc(297mm - 12px), #d8d8dc calc(297mm - 12px), #d8d8dc 297mm);
            }
          }`
-    const head = `<head><meta charset="utf-8"><style>${printStyle}</style></head>`
-    const body = /<html/i.test(renderedHtml)
-      ? renderedHtml
-      : `<!DOCTYPE html><html>${head}<body>${renderedHtml}</body></html>`
-    const file = path.join(app.getPath('temp'), `docugen-print-${Date.now()}.html`)
-    fs.writeFileSync(file, body, 'utf8')
+      const head = `<head><meta charset="utf-8"><style>${printStyle}</style></head>`
+      const body = /<html/i.test(renderedHtml)
+        ? renderedHtml
+        : `<!DOCTYPE html><html>${head}<body>${renderedHtml}</body></html>`
+      const file = path.join(app.getPath('temp'), `docugen-print-${Date.now()}.html`)
+      fs.writeFileSync(file, body, 'utf8')
 
-    if (printWindow && !printWindow.isDestroyed()) printWindow.close()
-    // The OS print dialog (a sheet on macOS) needs a real, visible parent
-    // window to attach to — a `show: false` window let the print call
-    // silently go nowhere, with no dialog and no error, which read as
-    // "print does nothing".
-    printWindow = new BrowserWindow({
-      width: 900,
-      height: 1000,
-      title: 'Print',
-      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false }
-    })
-    const win = printWindow
-    win.on('closed', () => {
-      if (printWindow === win) printWindow = null
-      fs.rm(file, { force: true }, () => {})
-    })
-    await win.loadFile(file)
-    // loadFile only waits for the DOM to parse (did-finish-load) — it does
-    // not wait for the @font-face Carlito fallback (declared as a `data:`
-    // URI in a <style> tag inside the printed HTML, see addFontFallbacks in
-    // docPage.ts) to actually finish decoding and get applied. Printing
-    // immediately after loadFile could snapshot the page mid-FOUT, still
-    // laid out with the browser's wider default sans substitute for
-    // "Calibri" — which is exactly what wraps the corp-title letterhead to
-    // two lines in the print output even though the on-screen preview (open
-    // long enough for the font swap to already have happened) looks fine.
-    await win.webContents.executeJavaScript('document.fonts.ready.then(() => undefined)').catch(() => {})
-    // Plain-HTML documents: round the on-screen sheet up to whole A4 pages so the
-    // preview shows the same page count the printer will produce (seams are
-    // drawn by the screen-only background above; print output is unaffected).
-    if (!isDocx && !isSheets) {
-      await win.webContents
-        .executeJavaScript(
-          `(() => { const mm = 96 / 25.4 * 297; const b = document.body; b.style.minHeight = (Math.max(1, Math.ceil(b.scrollHeight / mm)) * mm) + 'px' })()`
-        )
-        .catch(() => {})
-    }
-    win.show()
-    win.focus()
-    // Deliberately not closing the window from the print() callback: on
-    // this Electron/macOS combination that callback can fire as soon as the
-    // print sheet appears, not once the user has actually finished with it
-    // — closing the window right then yanked the sheet away with it,
-    // which looked like the dialog "opening and closing immediately". The
-    // window is left open for the user to dismiss once they're done.
-    win.webContents.print({ margins: { marginType: 'none' } }, (success, failureReason) => {
-      if (!success && failureReason !== 'cancelled') {
-        console.error('Print failed:', failureReason)
+      if (printWindow && !printWindow.isDestroyed()) printWindow.close()
+      // The OS print dialog (a sheet on macOS) needs a real, visible parent
+      // window to attach to — a `show: false` window let the print call
+      // silently go nowhere, with no dialog and no error, which read as
+      // "print does nothing".
+      printWindow = new BrowserWindow({
+        width: 900,
+        height: 1000,
+        title: 'Print',
+        webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false }
+      })
+      const win = printWindow
+      win.on('closed', () => {
+        if (printWindow === win) printWindow = null
+        fs.rm(file, { force: true }, () => {})
+      })
+      await win.loadFile(file)
+      // loadFile only waits for the DOM to parse (did-finish-load) — it does
+      // not wait for the @font-face Carlito fallback (declared as a `data:`
+      // URI in a <style> tag inside the printed HTML, see addFontFallbacks in
+      // docPage.ts) to actually finish decoding and get applied. Printing
+      // immediately after loadFile could snapshot the page mid-FOUT, still
+      // laid out with the browser's wider default sans substitute for
+      // "Calibri" — which is exactly what wraps the corp-title letterhead to
+      // two lines in the print output even though the on-screen preview (open
+      // long enough for the font swap to already have happened) looks fine.
+      await win.webContents.executeJavaScript('document.fonts.ready.then(() => undefined)').catch(() => {})
+      // Plain-HTML documents: round the on-screen sheet up to whole A4 pages so the
+      // preview shows the same page count the printer will produce (seams are
+      // drawn by the screen-only background above; print output is unaffected).
+      if (!isDocx && !isSheets) {
+        await win.webContents
+          .executeJavaScript(
+            `(() => { const mm = 96 / 25.4 * 297; const b = document.body; b.style.minHeight = (Math.max(1, Math.ceil(b.scrollHeight / mm)) * mm) + 'px' })()`
+          )
+          .catch(() => {})
       }
-    })
-  })
+      win.show()
+      win.focus()
+      // Deliberately not closing the window from the print() callback: on
+      // this Electron/macOS combination that callback can fire as soon as the
+      // print sheet appears, not once the user has actually finished with it
+      // — closing the window right then yanked the sheet away with it,
+      // which looked like the dialog "opening and closing immediately". The
+      // window is left open for the user to dismiss once they're done.
+      win.webContents.print({ margins: { marginType: 'none' } }, (success, failureReason) => {
+        if (!success && failureReason !== 'cancelled') {
+          console.error('Print failed:', failureReason)
+        }
+      })
+    }
+  )
 
   ipcMain.handle(
     IPC.noteSubmittedDocx,
@@ -1566,7 +1600,8 @@ function registerHandlers(): void {
     const regularPath = bundledResourceFile('fonts/Carlito-Regular.ttf')
     const boldPath = bundledResourceFile('fonts/Carlito-Bold.ttf')
     const teluguPath = bundledResourceFile('fonts/NotoSansTelugu-Regular.ttf')
-    if (!regularPath || !boldPath || !teluguPath) throw new Error('Font fallback files are missing from the app bundle.')
+    if (!regularPath || !boldPath || !teluguPath)
+      throw new Error('Font fallback files are missing from the app bundle.')
     return {
       regular: fs.readFileSync(regularPath).toString('base64'),
       bold: fs.readFileSync(boldPath).toString('base64'),
@@ -1642,7 +1677,9 @@ function registerHandlers(): void {
 
   ipcMain.handle(IPC.zonalWorkOrderTemplate, async (_e, variantId?: string): Promise<string> => {
     const templatePath = bundledResourceFile(
-      zonalTemplateVariant(variantId) ? `zonal-work-order-template-${zonalTemplateVariant(variantId)}.docx` : 'zonal-work-order-template.docx'
+      zonalTemplateVariant(variantId)
+        ? `zonal-work-order-template-${zonalTemplateVariant(variantId)}.docx`
+        : 'zonal-work-order-template.docx'
     )
     if (!templatePath) throw new Error('SE Work Order format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
@@ -1651,7 +1688,9 @@ function registerHandlers(): void {
   ipcMain.handle(IPC.zonalConcludingAgreementTemplate, async (_e, variantId?: string): Promise<string> => {
     const templatePath = bundledResourceFile(
       `zonal-concluding-agreement-template-${
-        zonalTemplateVariant(variantId) && zonalTemplateVariant(variantId) !== 'header2' ? zonalTemplateVariant(variantId) : 'cmc'
+        zonalTemplateVariant(variantId) && zonalTemplateVariant(variantId) !== 'header2'
+          ? zonalTemplateVariant(variantId)
+          : 'cmc'
       }.docx`
     )
     if (!templatePath) throw new Error('SE Concluding Agreement format is missing from the app bundle.')
@@ -1906,15 +1945,12 @@ function registerHandlers(): void {
     }
   )
 
-  ipcMain.handle(
-    IPC.previewTenderNotice,
-    async (_e, input: TenderNoticeInput): Promise<string> => {
-      const templatePath = tenderNoticeTemplateFile()
-      if (!templatePath) throw new Error('Tender Notice template is missing from the app bundle.')
-      const filled = fillTenderNotice(fs.readFileSync(templatePath), input)
-      return filled.toString('base64')
-    }
-  )
+  ipcMain.handle(IPC.previewTenderNotice, async (_e, input: TenderNoticeInput): Promise<string> => {
+    const templatePath = tenderNoticeTemplateFile()
+    if (!templatePath) throw new Error('Tender Notice template is missing from the app bundle.')
+    const filled = fillTenderNotice(fs.readFileSync(templatePath), input)
+    return filled.toString('base64')
+  })
 
   ipcMain.handle(
     IPC.generateBidDocument,
@@ -1936,10 +1972,7 @@ function registerHandlers(): void {
 
   ipcMain.handle(
     IPC.generateBidDocumentBatch,
-    async (
-      _e,
-      entries: { input: BidDocumentInput; suggestedName: string }[]
-    ): Promise<string[] | null> => {
+    async (_e, entries: { input: BidDocumentInput; suggestedName: string }[]): Promise<string[] | null> => {
       const result = await dialog.showOpenDialog(mainWindow!, {
         title: 'Choose a folder to save all Bid Documents into',
         properties: ['openDirectory', 'createDirectory']
@@ -1976,14 +2009,11 @@ function registerHandlers(): void {
     }
   )
 
-  ipcMain.handle(
-    IPC.previewBidDocument,
-    async (_e, input: BidDocumentInput): Promise<string> => {
-      const { templatePath, fill } = resolveBidDocumentFiller(input.work)
-      const filled = fill(fs.readFileSync(templatePath), input)
-      return filled.toString('base64')
-    }
-  )
+  ipcMain.handle(IPC.previewBidDocument, async (_e, input: BidDocumentInput): Promise<string> => {
+    const { templatePath, fill } = resolveBidDocumentFiller(input.work)
+    const filled = fill(fs.readFileSync(templatePath), input)
+    return filled.toString('base64')
+  })
 
   ipcMain.handle(
     IPC.generateTechnicalSanction,
@@ -2084,40 +2114,14 @@ function registerHandlers(): void {
   // v26: Work Order / forwarding-letter Work Order No. leave a two-character gap to write the number in; the AE/Dy.EE letter has an extra signature line.
   // v25: AE/Dy.EE forwarding letters greet "Sir/Mam,".
   // v24: QC letters' work name no longer bold; AE/Dy.EE EOT rows take the typed TS No and the full Agreement No/Date.
-  const CURRENT_DEFAULT_DOC_VERSION = 26
-  const DEFAULT_DOCUMENTS: { id: string; name: string; file: string; officeScope?: 'zonal' | 'circle' }[] = [
-    { id: 'doc_public_participation', name: 'Public Participation Log Book', file: 'public-participation-book-template.docx', officeScope: 'circle' },
-    { id: 'doc_action_taken_report', name: 'Action Taken Report', file: 'action-taken-report-template.docx', officeScope: 'circle' },
-    { id: 'doc_completion_report', name: 'Completion Report', file: 'completion-report-template.docx', officeScope: 'circle' },
-    // The Superintending Engineer's EOT proposal belongs to the zone (SE) office;
-    // the Executive Engineer's variant to a circle (EE) office. Scoped so each
-    // shows only where it applies — see CreatedDocument.officeScope.
-    { id: 'doc_eot_se', name: 'EOT Proposal (SE Office)', file: 'eot-se-template.docx', officeScope: 'zonal' },
-    { id: 'doc_eot_ee', name: 'EOT Proposal (EE Office)', file: 'eot-ee-template.docx', officeScope: 'circle' },
-    // Bill-stage forwarding notes at the Executive Engineer (circle) office: the
-    // Dy.EE's covering letter forwarding the AE's bill, and the office note that
-    // tabulates the bill for approval. Both circle-scoped on the Issue Documents
-    // tab; the Tools tab shows them (and every doc) regardless of office.
-    { id: 'doc_dy_ee_forwarding_note', name: 'Dy. EE Forwarding Note', file: 'dy-ee-forwarding-note-template.docx', officeScope: 'circle' },
-    { id: 'doc_bill_forwarding_note', name: 'Bill Forwarding Note', file: 'bill-forwarding-note-template.docx', officeScope: 'circle' },
-    // QCC (Quality Control Cell) letters to the Quality Control Division: the
-    // Dy.EE's Intimation before a work starts, and the EE's Completion letter
-    // once it's done. Both circle-scoped (EE office). The Intimation is also
-    // offered on the Work Order/Agreement tab — same bundled template.
-    { id: 'doc_qcc_intimation', name: 'QCC Intimation', file: 'qcc-intimation-template.docx', officeScope: 'circle' },
-    { id: 'doc_qcc_completion', name: 'QCC Completion', file: 'qcc-completion-template.docx', officeScope: 'circle' },
-    // EE letters to the 3rd-party (QC college) and 4th-party (testing lab). The
-    // party agency (name/address/phone) changes yearly, so it's typed in at
-    // issue time on the Issue Documents tab (see PrintDocumentTab's party fields),
-    // not drawn from the Works List. Both circle-scoped.
-    { id: 'doc_3rd_party_qc', name: '3rd Party QC', file: 'qcc-3rd-party-template.docx', officeScope: 'circle' },
-    { id: 'doc_4th_party_intimation', name: '4th Party Intimation', file: 'qcc-4th-party-template.docx', officeScope: 'circle' }
-  ]
+  // v27: the Issue Documents workspace ships empty — every bundled/created document is cleared once.
+  const CURRENT_DEFAULT_DOC_VERSION = 27
+  const DEFAULT_DOCUMENTS: { id: string; name: string; file: string; officeScope: 'zonal' | 'circle' | undefined }[] = []
 
   function injectDefaultDocuments(state: PersistedState): PersistedState {
     if ((state.seededDocVersion ?? 0) >= CURRENT_DEFAULT_DOC_VERSION) return state
     // Remove the superseded legacy example documents before (re)adding defaults.
-    const docs = pruneLegacyDocuments([...(state.createdDocuments ?? [])])
+    const docs = pruneLegacyDocuments([] as NonNullable<PersistedState['createdDocuments']>)
     const createdDate = new Date().toISOString().slice(0, 10)
     for (const def of DEFAULT_DOCUMENTS) {
       const templatePath = bundledResourceFile(def.file)
@@ -2169,7 +2173,7 @@ function registerHandlers(): void {
   // echo) doesn't re-serialize and rewrite ~1MB to disk for nothing.
   let lastWrittenJson: string | null = null
   let lastWrittenPath: string | null = null
-  ipcMain.handle(IPC.saveState, async (_e, state: PersistedState, skipCloud?: boolean): Promise<void> => {
+  ipcMain.handle(IPC.saveState, async (_e, state: PersistedState, skipCloud?: boolean): Promise<number> => {
     const file = stateFile()
     const json = JSON.stringify(state)
     if (json !== lastWrittenJson || file !== lastWrittenPath) {
@@ -2183,7 +2187,11 @@ function registerHandlers(): void {
         // The first save after sign-in only sets the baseline; later ones log what changed.
         const { sigs, detail } = describeStateChange(activitySigs, state)
         if (Object.keys(activitySigs).length > 0 && detail) {
-          logActivity(currentLoginId, skipCloud ? 'sync' : 'save', skipCloud ? `Updated from another device: ${detail}` : detail)
+          logActivity(
+            currentLoginId,
+            skipCloud ? 'sync' : 'save',
+            skipCloud ? `Updated from another device: ${detail}` : detail
+          )
         }
         activitySigs = sigs
       } catch {
@@ -2196,9 +2204,16 @@ function registerHandlers(): void {
     // straight back would echo it to the other sessions, which echo it back
     // again — a write storm in which a slightly-stale copy can clobber a task
     // another session just added. So persist locally but don't re-push.
-    if (!skipCloud) void firebaseSync.pushState(state)
+    // Cloud pushes are manual (the header Sync button) until the unsynced data reaches AUTO_SYNC_BYTES, then they
+    // happen automatically. Logout and the idle logout always sync first (see App.tsx).
+    if (skipCloud) return firebaseSync.pendingBytes(state)
+    const pending = firebaseSync.pendingBytes(state)
+    if (pending >= AUTO_SYNC_BYTES) {
+      await firebaseSync.pushState(state)
+      return firebaseSync.pendingBytes(state)
+    }
+    return pending
   })
-
 
   // ── Backup / Restore ────────────────────────────────────────────────
   const backupsDir = () => {
@@ -2206,13 +2221,22 @@ function registerHandlers(): void {
     fs.mkdirSync(dir, { recursive: true })
     return dir
   }
-  const writeBackupFile = (state: PersistedState, label: string): { filePath: string; fileName: string; sizeBytes: number } => {
+  const writeBackupFile = (
+    state: PersistedState,
+    label: string
+  ): { filePath: string; fileName: string; sizeBytes: number } => {
     if (!currentLoginId || !currentLoginPassword) throw new Error('Sign in first to back up your data.')
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
     const fileName = `${label}-${currentLoginId}-${stamp}.${BACKUP_EXTENSION}`
     const filePath = path.join(backupsDir(), fileName)
     const bytes = encryptBackup(
-      { appVersion: app.getVersion(), createdAt: Date.now(), loginId: currentLoginId, state, activityLog: readActivityLog(currentLoginId) },
+      {
+        appVersion: app.getVersion(),
+        createdAt: Date.now(),
+        loginId: currentLoginId,
+        state,
+        activityLog: readActivityLog(currentLoginId)
+      },
       currentLoginId,
       currentLoginPassword
     )
@@ -2279,7 +2303,11 @@ function registerHandlers(): void {
     }
     mergeIntoActivityLog(currentLoginId, payload.activityLog ?? [])
     activitySigs = describeStateChange({}, state).sigs
-    logActivity(currentLoginId, 'restore', `Restored backup ${path.basename(chosen)} made ${new Date(payload.createdAt).toLocaleString()}`)
+    logActivity(
+      currentLoginId,
+      'restore',
+      `Restored backup ${path.basename(chosen)} made ${new Date(payload.createdAt).toLocaleString()}`
+    )
     return { ok: true, state, fileName: path.basename(chosen), createdAt: payload.createdAt }
   })
 
@@ -2490,13 +2518,8 @@ async function openTenderDetailsWindow(
       if (!clicked) await new Promise((resolve) => setTimeout(resolve, 200))
     }
     if (!clicked) throw new Error('Could not reach the tender portal. Please try again.')
-    const listingLoaded = new Promise<void>((resolve) =>
-      win.webContents.once('did-finish-load', () => resolve())
-    )
-    await Promise.race([
-      listingLoaded,
-      new Promise<void>((resolve) => setTimeout(resolve, 15000))
-    ])
+    const listingLoaded = new Promise<void>((resolve) => win.webContents.once('did-finish-load', () => resolve()))
+    await Promise.race([listingLoaded, new Promise<void>((resolve) => setTimeout(resolve, 15000))])
     const reached = await win.webContents.executeJavaScript(`typeof viewBtn === 'function'`)
     if (!reached) throw new Error('Could not reach the tender portal. Please try again.')
     await win.webContents.executeJavaScript(`viewBtn(${ids.join(',')})`)
@@ -2507,11 +2530,7 @@ async function openTenderDetailsWindow(
   }
 }
 
-async function openTenderDetails(
-  indentId: string,
-  category: string,
-  procurementId: string
-): Promise<void> {
+async function openTenderDetails(indentId: string, category: string, procurementId: string): Promise<void> {
   await openTenderDetailsWindow(indentId, category, procurementId, true)
 }
 
@@ -2577,7 +2596,9 @@ async function fetchTenderConditions(tenderId: string): Promise<string[]> {
       if (!popup.isDestroyed()) popup.destroy()
     }
   }
-  throw new Error(lastErr instanceof Error ? `${lastErr.message} (tender ${id})` : `Could not read the tender page for tender ${id}.`)
+  throw new Error(
+    lastErr instanceof Error ? `${lastErr.message} (tender ${id})` : `Could not read the tender page for tender ${id}.`
+  )
 }
 
 async function fetchTenders(query: TenderQuery): Promise<string> {
@@ -2599,4 +2620,3 @@ async function fetchTenders(query: TenderQuery): Promise<string> {
   }
   return body
 }
-

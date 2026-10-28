@@ -18,6 +18,7 @@ import type { PendingNoticeItem, ExcelTable } from '@core/types'
 import { computeWorkAmounts, tenderPercentFromRow, lakhsToRupees, formatRupees } from '@core/worksAmounts'
 import { findWorksRowByName } from '@core/scheduleA'
 import { agencyKey, canonicalAgencyNames } from '@core/agencyName'
+import { duplicateNoticeIds } from '@core/massNotices'
 import { inferTypeOfWork } from '@core/workTypeClassifier'
 import { parsePct } from '@core/intimationFill'
 import { stripItemNoTag, extractItemNo } from '@core/bidDocument'
@@ -43,7 +44,7 @@ interface Props {
 }
 
 /** office block a Notice's letterhead carries — resolved from the work name. */
-interface DetectedOffice {
+export interface DetectedOffice {
   circle: string
   cno: string
   zone: string
@@ -58,7 +59,7 @@ interface DetectedOffice {
  * and Work Order tabs use. Looks up the EE circle for its zone too; bare
  * Zone name only, in SE mode, since no single circle goes with it.
  */
-function detectOffice(
+export function detectOffice(
   entries: typeof CMC_ZONE_CIRCLES,
   ev: TenderEvaluation | null,
   notice: IntimationNotice | null,
@@ -291,6 +292,12 @@ function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore, dr
             <div>{draft ? 'New Notice — click to fill in' : 'Notice for Non-conclusion of Agreement'}</div>
           ) : (
             <>
+              <div>
+                <span>NIT No:</span> {item.nitNo || '—'}
+              </div>
+              <div>
+                <span>NIT date:</span> {item.nitDate || '—'}
+              </div>
               <div>
                 <span>Name of the agency:</span> {summary.agency || '—'}
               </div>
@@ -694,17 +701,27 @@ function AgreementNotConcludedWorkspace({ office, worksTable, items, onChange, v
 
   // Group tiles by NIT No — a NIT can carry several items (e.g. multiple
   // agencies), each work with no NIT falls into its own "No NIT No." group.
+  // Group by the date the Intimation/LOA was issued (newest first), not by NIT No — each tile shows its own NIT.
   const groups = useMemo(() => {
     const map = new Map<string, PendingNoticeItem[]>()
     for (const it of activeItems) {
-      const key = it.nitNo?.trim() || 'No NIT No.'
+      const key = it.intimationDate || ''
       const list = map.get(key)
       if (list) list.push(it)
       else map.set(key, [it])
     }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
+    for (const list of map.values()) list.sort((a, b) => (a.nitNo ?? '').localeCompare(b.nitNo ?? '', undefined, { numeric: true }))
+    return [...map.entries()].sort(([a], [b]) => b.localeCompare(a))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeItems])
+
+  // Duplicates of the same tender (by Tender ID, else NIT + agency + work) — all but the one worth keeping.
+  const duplicateIds = useMemo(() => duplicateNoticeIds(items), [items])
+  function removeDuplicates() {
+    const ids = new Set(duplicateIds)
+    const now = new Date().toISOString()
+    onChange(items.map((it) => (ids.has(it.id) ? { ...it, deletedAt: now } : it)))
+  }
 
   function saveItem(id: string, patch: Partial<PendingNoticeItem>) {
     onChange(items.map((it) => (it.id === id ? { ...it, ...patch } : it)))
@@ -904,6 +921,15 @@ function AgreementNotConcludedWorkspace({ office, worksTable, items, onChange, v
           <span className="ntc-chip-label">Resolved</span>
           <span className="ntc-chip-value">{resolvedCount}</span>
         </div>
+        {duplicateIds.length > 0 && (
+          <button
+            className="ghost"
+            onClick={removeDuplicates}
+            title="Moves repeat notices for the same tender (same Tender ID, or same NIT + agency + work) to the bin, keeping one of each"
+          >
+            <IconTrash /> Remove {duplicateIds.length} duplicate{duplicateIds.length === 1 ? '' : 's'}
+          </button>
+        )}
       </div>
       )}
 
@@ -946,10 +972,10 @@ function AgreementNotConcludedWorkspace({ office, worksTable, items, onChange, v
         </div>
       )}
 
-      {!issueView && groups.map(([nitNo, groupItems]) => (
-        <div key={nitNo} className="notice-nit-group">
+      {!issueView && groups.map(([issued, groupItems]) => (
+        <div key={issued} className="notice-nit-group">
           <div className="ntc-group-head">
-            <span className="ntc-group-title">NIT No. {nitNo}</span>
+            <span className="ntc-group-title">Intimation issued {issued ? issued.split('-').reverse().join('.') : '— date not known'}</span>
             <span className="ntc-group-count">{groupItems.length}</span>
           </div>
           <div className="wo-tiles">

@@ -182,6 +182,8 @@ export async function buildPrintReadyWorkbookBuffer(table: ExcelTable): Promise<
   ws.columns = table.headers.map((_, c) => {
     const longest = Math.max(...data.map((r) => String(r[c] ?? '').length), 4)
     const longestWord = Math.max(...data.map((r) => Math.max(...String(r[c] ?? '').split(/\s+/).map((w) => w.length), 0)), 4)
+    // The Name of Work column is always the widest, so its long titles wrap onto few lines when printed.
+    if (/name.*work/i.test(table.headers[c])) return { width: Math.max(Math.min(longest + 2, 70), 50) }
     return { width: Math.min(Math.max(Math.min(longest, 45) + 2, longestWord + 2, 6), 60) }
   })
   const border = { style: 'thin' as const, color: { argb: 'FF000000' } }

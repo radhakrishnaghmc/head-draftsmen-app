@@ -22,7 +22,7 @@ const NAME_RE = /name\s*of\s*(the\s*)?work/i
 interface SheetRowProps {
   ri: number
   row: string[]
-  headerCount: number
+  cols: number[]
   nameIndex: number
   onCell: (ri: number, ci: number, value: string) => void
   onDelete: (ri: number) => void
@@ -34,7 +34,7 @@ interface SheetRowProps {
 const SheetRow = memo(function SheetRow({
   ri,
   row,
-  headerCount,
+  cols,
   nameIndex,
   onCell,
   onDelete,
@@ -47,14 +47,10 @@ const SheetRow = memo(function SheetRow({
     <Fragment>
       <tr ref={isFirstFlash ? firstFlashRef : undefined} className={flashed ? 'row-flash' : ''}>
         <td className="rownum">{ri + 1}</td>
-        {Array.from({ length: headerCount }, (_, ci) =>
+        {cols.map((ci) =>
           ci === nameIndex ? (
             <td key={ci}>
-              <textarea
-                className="cell-wrap"
-                value={row[ci] ?? ''}
-                onChange={(e) => onCell(ri, ci, e.target.value)}
-              />
+              <textarea className="cell-wrap" value={row[ci] ?? ''} onChange={(e) => onCell(ri, ci, e.target.value)} />
             </td>
           ) : (
             <td key={ci}>
@@ -70,7 +66,7 @@ const SheetRow = memo(function SheetRow({
       </tr>
       {flashed && flashMessage && (
         <tr className="row-flash-msg">
-          <td colSpan={headerCount + 2}>✓ {flashMessage}</td>
+          <td colSpan={cols.length + 2}>✓ {flashMessage}</td>
         </tr>
       )}
     </Fragment>
@@ -92,6 +88,10 @@ interface Props {
   flashMessage?: string
   /** Rendered above the search bar, inside this same card — e.g. the Works List link-import row. */
   header?: React.ReactNode
+  /** Always-visible buttons in the toolbar, after the works count — e.g. Clear / Delete database. */
+  toolbarActions?: React.ReactNode
+  /** Downloads exactly the rows the column filters leave (and without the deleted columns) as a table. Resolves when saved. */
+  onDownloadFiltered?: (table: ExcelTable) => Promise<unknown> | void
 }
 
 const WIN_RE = /win/
@@ -122,17 +122,79 @@ function orderHeaders(hs: string[]): string[] {
  * Rename headers, edit cells, and add/delete rows & columns — every valid edit
  * is committed straight back to the workspace (and persisted).
  */
-export default function ExcelInline({ table, onChange, autofillRow, flashRows, flashMessage, header }: Props) {
+export default function ExcelInline({
+  table,
+  onChange,
+  autofillRow,
+  flashRows,
+  flashMessage,
+  header,
+  toolbarActions,
+  onDownloadFiltered
+}: Props) {
   const orderedHeaders = orderHeaders(table.headers)
   const [headers, setHeaders] = useState<string[]>(() => orderedHeaders)
-  const [matrix, setMatrix] = useState<string[][]>(() =>
-    table.rows.map((r) => orderedHeaders.map((h) => r[h] ?? ''))
-  )
+  const [matrix, setMatrix] = useState<string[][]>(() => table.rows.map((r) => orderedHeaders.map((h) => r[h] ?? '')))
   const [query, setQuery] = useState('')
   // The link-import row (`header`) is rare and destructive, so it stays folded away
   // behind a toolbar button instead of pushing the table down the page.
   const [importOpen, setImportOpen] = useState(false)
   const nameIndex = useMemo(() => headers.findIndex((h) => NAME_RE.test(h)), [headers])
+
+  // Column filters (one per column, opened from the funnel on the heading) and "delete columns" — the same toolbar
+  // behaviour as the Monitoring Format table. Deleting a column here only hides it from this view and from the
+  // filtered download; the database itself keeps it (use the trash button on a heading to really delete it).
+  const [colMode, setColMode] = useState<'filter' | 'delete' | null>(null)
+  const [colFilters, setColFilters] = useState<Record<number, string>>({})
+  const [hiddenCols, setHiddenCols] = useState<string[]>([])
+  const [filterCol, setFilterCol] = useState<{ col: number; x: number; y: number } | null>(null)
+  const [downloading, setDownloading] = useState(false)
+  const shownCols = useMemo(
+    () => headers.map((_, i) => i).filter((i) => !hiddenCols.includes(headers[i])),
+    [headers, hiddenCols]
+  )
+  const filtersOn = Object.values(colFilters).some((v) => v.trim() !== '')
+  const isFilterable = (h: string) => !/^(sl\.?\s*no|s\.?\s*no|sr\.?\s*no)/i.test(h.trim())
+  // A column with few distinct values filters from a list; any other one with a "contains" box.
+  const colOptions = useMemo(
+    () =>
+      headers.map((h) => {
+        if (NAME_RE.test(h) || /estimate|amount|ecv|emd|length|remark|address|details/i.test(h)) return null
+        const values = new Set<string>()
+        const ci = headers.indexOf(h)
+        for (const row of matrix) {
+          const v = (row[ci] ?? '').trim()
+          if (v) values.add(v)
+          if (values.size > 40) return null
+        }
+        return [...values].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      }),
+    [headers, matrix]
+  )
+  // Filter / Delete-columns mode switches itself off on a click anywhere else; the toggles, the heading buttons and
+  // the filter pop-up (all data-mf-mode-ui) are left alone so several columns can be handled in a row.
+  useEffect(() => {
+    if (!colMode) return
+    const off = (e: MouseEvent) => {
+      if (!(e.target as Element | null)?.closest?.('[data-mf-mode-ui]')) {
+        setColMode(null)
+        setFilterCol(null)
+      }
+    }
+    document.addEventListener('mousedown', off)
+    return () => document.removeEventListener('mousedown', off)
+  }, [colMode])
+  useEffect(() => {
+    if (!filterCol) return
+    const close = () => setFilterCol(null)
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close()
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [filterCol])
 
   // Blink the just-updated rows, then settle: the "Updated from L1" message and
   // highlight clear after a few seconds so they don't linger over later edits.
@@ -163,10 +225,41 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
   // edits and deletes still target the correct underlying row.
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const indexed = matrix.map((row, ri) => ({ row, ri }))
-    if (!q) return indexed
-    return indexed.filter(({ row }) => row.some((c) => c.toLowerCase().includes(q)))
-  }, [matrix, query])
+    const active = Object.entries(colFilters).filter(([, v]) => v.trim() !== '')
+    return matrix
+      .map((row, ri) => ({ row, ri }))
+      .filter(({ row }) => {
+        for (const [c, v] of active) {
+          const text = (row[Number(c)] ?? '').trim()
+          const ok = colOptions[Number(c)] ? text === v : text.toLowerCase().includes(v.trim().toLowerCase())
+          if (!ok) return false
+        }
+        return !q || row.some((c) => c.toLowerCase().includes(q))
+      })
+  }, [matrix, query, colFilters, colOptions])
+
+  async function downloadFiltered() {
+    if (!onDownloadFiltered || downloading) return
+    const keep = shownCols
+    const outHeaders = keep.map((i) => headers[i].trim())
+    setDownloading(true)
+    try {
+      await onDownloadFiltered({
+        ...table,
+        headers: outHeaders,
+        sourceHeaders: undefined,
+        rows: visible.map(({ row }) => {
+          const obj: Record<string, string> = {}
+          keep.forEach((i, k) => {
+            obj[outHeaders[k]] = row[i] ?? ''
+          })
+          return obj
+        })
+      })
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   const error = useMemo(() => {
     const trimmed = headers.map((h) => h.trim())
@@ -328,6 +421,62 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
         <span className="sheet-count" aria-live="polite">
           {query ? `${visible.length} of ${matrix.length} works` : `${matrix.length} works`}
         </span>
+        <button
+          type="button"
+          data-mf-mode-ui
+          className={`ghost${colMode === 'filter' ? ' mf-mode-on' : ''}${filtersOn ? ' mf-filter-applied' : ''}`}
+          aria-pressed={colMode === 'filter' || filtersOn}
+          onClick={() => {
+            setFilterCol(null)
+            // Clicking Filter again (while it is on, or while filters are applied) removes the filters.
+            if (colMode === 'filter' || filtersOn) {
+              setColFilters({})
+              setColMode(null)
+            } else {
+              setColMode('filter')
+            }
+          }}
+          title={
+            colMode === 'filter' || filtersOn ? 'Remove the applied filters' : 'Show a filter on each column heading'
+          }
+        >
+          Filter
+        </button>
+        <button
+          type="button"
+          data-mf-mode-ui
+          className={`ghost${colMode === 'delete' ? ' mf-mode-on' : ''}`}
+          aria-pressed={colMode === 'delete'}
+          onClick={() => {
+            setFilterCol(null)
+            setColMode((m) => (m === 'delete' ? null : 'delete'))
+          }}
+          title="Show a delete × on each column heading (the column is left out of this view and of the filtered download)"
+        >
+          Delete columns
+        </button>
+        {onDownloadFiltered && (
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => void downloadFiltered()}
+            disabled={!filtersOn || downloading || visible.length === 0}
+            title={filtersOn ? 'Download the works left after filtering' : 'Apply a column filter first'}
+          >
+            {downloading ? 'Preparing…' : 'Download Filtered list'}
+          </button>
+        )}
+        {hiddenCols.length > 0 && (
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => setHiddenCols([])}
+            title="Bring back the deleted columns"
+          >
+            Restore columns ({hiddenCols.length})
+          </button>
+        )}
+        {toolbarActions}
         {header && (
           <button
             type="button"
@@ -342,6 +491,42 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
       </div>
       {header && importOpen && <div className="sheet-inline-header">{header}</div>}
 
+      {filterCol && (
+        <div
+          data-mf-mode-ui
+          className="mf-filter-pop"
+          style={{ left: filterCol.x, top: filterCol.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div className="mf-filter-pop-title">{headers[filterCol.col]}</div>
+          {colOptions[filterCol.col] ? (
+            <div className="mf-filter-pop-list">
+              {['', ...colOptions[filterCol.col]!].map((o) => (
+                <button
+                  type="button"
+                  key={o || '__all'}
+                  className={(colFilters[filterCol.col] ?? '') === o ? 'on' : ''}
+                  onClick={() => {
+                    setColFilters((p) => ({ ...p, [filterCol.col]: o }))
+                    setFilterCol(null)
+                  }}
+                >
+                  {o || 'All'}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <input
+              autoFocus
+              value={colFilters[filterCol.col] ?? ''}
+              placeholder="Contains…"
+              onChange={(e) => setColFilters((p) => ({ ...p, [filterCol.col]: e.target.value }))}
+              onKeyDown={(e) => e.key === 'Enter' && setFilterCol(null)}
+            />
+          )}
+        </div>
+      )}
+
       <div className="sheet-wrap">
         <table
           className="sheet"
@@ -349,14 +534,17 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
             tableLayout: 'fixed',
             width:
               Math.max(
-                ROWNUM_W + headers.length * COL_W + (nameIndex >= 0 ? NAME_COL_W - COL_W : 0) + ROWDEL_W,
+                ROWNUM_W +
+                  shownCols.length * COL_W +
+                  (shownCols.includes(nameIndex) ? NAME_COL_W - COL_W : 0) +
+                  ROWDEL_W,
                 0
               ) || undefined
           }}
         >
           <colgroup>
             <col style={{ width: ROWNUM_W }} />
-            {headers.map((_, ci) => (
+            {shownCols.map((ci) => (
               <col key={ci} style={{ width: ci === nameIndex ? NAME_COL_W : COL_W }} />
             ))}
             <col style={{ width: ROWDEL_W }} />
@@ -364,21 +552,64 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
           <thead>
             <tr>
               <th className="rownum">#</th>
-              {headers.map((h, ci) => (
-                <th key={ci}>
-                  <div className="col-head">
-                    <input
-                      className="col-name"
-                      value={h}
-                      placeholder={`Column ${ci + 1}`}
-                      onChange={(e) => setHeader(ci, e.target.value)}
-                    />
-                    <button className="col-del" title="Delete column" onClick={() => deleteColumn(ci)}>
-                      <IconTrash />
-                    </button>
-                  </div>
-                </th>
-              ))}
+              {shownCols.map((ci) => {
+                const h = headers[ci]
+                return (
+                  <th key={ci} className={`mf-th${(colFilters[ci] ?? '').trim() ? ' mf-th-active' : ''}`}>
+                    <div className="col-head">
+                      <input
+                        className="col-name"
+                        value={h}
+                        placeholder={`Column ${ci + 1}`}
+                        onChange={(e) => setHeader(ci, e.target.value)}
+                      />
+                      <span className="mf-th-tools">
+                        {colMode === 'delete' && (
+                          <button
+                            type="button"
+                            data-mf-mode-ui
+                            className="mf-th-delete"
+                            title={`Delete the ${h} column (left out of this view and the filtered download)`}
+                            aria-label={`Delete the ${h} column`}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={() => {
+                              setColFilters({})
+                              setFilterCol(null)
+                              setHiddenCols((p) => [...p, h])
+                            }}
+                          >
+                            ×
+                          </button>
+                        )}
+                        {colMode === 'filter' && isFilterable(h) && (
+                          <button
+                            type="button"
+                            data-mf-mode-ui
+                            className={`mf-th-filter${(colFilters[ci] ?? '').trim() ? ' on' : ''}${filterCol?.col === ci ? ' open' : ''}`}
+                            title={`Filter ${h}`}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              const r = e.currentTarget.getBoundingClientRect()
+                              setFilterCol(
+                                filterCol?.col === ci
+                                  ? null
+                                  : { col: ci, x: Math.min(r.left, window.innerWidth - 260), y: r.bottom + 4 }
+                              )
+                            }}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                              <path d="M3 4h18l-7 8v6l-4 2v-8L3 4z" />
+                            </svg>
+                          </button>
+                        )}
+                      </span>
+                      <button className="col-del" title="Delete column" onClick={() => deleteColumn(ci)}>
+                        <IconTrash />
+                      </button>
+                    </div>
+                  </th>
+                )
+              })}
               <th className="rowdel">
                 <button className="col-add" title="Add column" onClick={addColumn}>
                   <IconPlus />
@@ -392,7 +623,7 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
                 key={ri}
                 ri={ri}
                 row={row}
-                headerCount={headers.length}
+                cols={shownCols}
                 nameIndex={nameIndex}
                 onCell={onCell}
                 onDelete={onDelete}
@@ -404,8 +635,8 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
             ))}
             {visible.length === 0 && (
               <tr>
-                <td className="sheet-empty" colSpan={headers.length + 2}>
-                  No rows match “{query}”.
+                <td className="sheet-empty" colSpan={shownCols.length + 2}>
+                  No rows match the search / filters.
                 </td>
               </tr>
             )}
@@ -420,9 +651,7 @@ export default function ExcelInline({ table, onChange, autofillRow, flashRows, f
         <button onClick={addColumn}>
           <IconPlus /> Add column
         </button>
-        <span className="hint">
-          Rename headers to change field names. Rows here drive how many documents generate.
-        </span>
+        <span className="hint">Rename headers to change field names. Rows here drive how many documents generate.</span>
       </div>
     </section>
   )

@@ -43,3 +43,8 @@ export function checkOfflineAuth(loginId: string, password: string): boolean {
   const record = readStore()[normalizeId(loginId)]
   return !!record && matchesOfflineAuthRecord(password, record)
 }
+
+/** Whether this device has ever verified this login ID online — i.e. an offline fallback is possible, so the online check needn't be waited on for long. */
+export function hasOfflineAuth(loginId: string): boolean {
+  return !!readStore()[normalizeId(loginId)]
+}

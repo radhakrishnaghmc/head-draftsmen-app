@@ -32,7 +32,7 @@ const fsp = fs.promises
 // always included regardless of what it's called.
 // "eval" alone (not just "commercial eval") — a real file found in
 // Nizampet-58's own folder tree is simply named "evaluation sheet.pdf".
-const RELEVANT_NAME = /l-?1|stage\s*selected|eval|intimation|loa\b/i
+const RELEVANT_NAME = /l-?1|stage\s*selected|eval|intimation|loa\b|supplier/i
 
 const RELEVANT_EXT = new Set(['.pdf', '.html', '.htm'])
 

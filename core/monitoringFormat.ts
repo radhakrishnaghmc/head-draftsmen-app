@@ -5,6 +5,8 @@ export interface OfficeLike {
   zone?: string
   circle?: string
   circleNumber?: string
+  /** For a zone-level office: the circle numbers (CNO) under that zone — lets a workbook that holds EVERY zone's data pick out just this zone's works. */
+  circleNumbers?: string[]
 }
 
 /** One No./Amt pair, as every column group in the Monitoring Format sheet is laid out. */
@@ -192,10 +194,35 @@ const NEW_COLS = {
   tenderProcess: 20
 } as const
 
+// The same template without the Circle column (2025-26 zone/circle tabs of a multi-zone workbook): every column sits one to the left.
+const NEW_COLS_NO_CIRCLE = {
+  circle: -1,
+  category: 1,
+  sub: 2,
+  totalWorks: 7,
+  completed: 9,
+  progressTotal: 11,
+  toBeStarted: 13,
+  heldUp: 15,
+  cancelled: 17,
+  tenderProcess: 19
+} as const
+
 const lc = (v: string | undefined) => (v || '').trim().toLowerCase()
 
 function newLayoutHeaderIdx(grid: string[][]): number {
-  return grid.slice(0, 10).findIndex((r) => lc(r[NEW_COLS.category]) === 'category' && lc(r[4]) === 'status')
+  return grid
+    .slice(0, 10)
+    .findIndex(
+      (r) =>
+        (lc(r[NEW_COLS.category]) === 'category' && lc(r[4]) === 'status') ||
+        (lc(r[NEW_COLS_NO_CIRCLE.category]) === 'category' && lc(r[3]) === 'status')
+    )
+}
+
+/** Which column set a new-layout sheet uses, from its header row. */
+function newLayoutCols(grid: string[][], headerIdx: number): typeof NEW_COLS | typeof NEW_COLS_NO_CIRCLE {
+  return lc(grid[headerIdx]?.[NEW_COLS.category]) === 'category' && lc(grid[headerIdx]?.[4]) === 'status' ? NEW_COLS : NEW_COLS_NO_CIRCLE
 }
 
 function newLayoutRow(label: string, row: string[], cols: { [K in 'totalWorks' | 'completed' | 'progressTotal' | 'toBeStarted' | 'heldUp' | 'cancelled' | 'tenderProcess']: number }): MonitoringFormatRow {
@@ -213,6 +240,7 @@ function newLayoutRow(label: string, row: string[], cols: { [K in 'totalWorks' |
 
 function parseNewLayoutSheet(sheet: SheetGrid, headerIdx: number): MonitoringFormatSummary {
   const grid = sheet.grid
+  const COLS = newLayoutCols(grid, headerIdx)
   const rows: MonitoringFormatRow[] = []
   let totals: MonitoringFormatRow | undefined
   let category = ''
@@ -220,17 +248,17 @@ function parseNewLayoutSheet(sheet: SheetGrid, headerIdx: number): MonitoringFor
   let firstCircle = ''
   for (; i < grid.length; i++) {
     const r = grid[i]
-    const cat = (r[NEW_COLS.category] || '').trim()
-    const sub = (r[NEW_COLS.sub] || '').trim()
-    if (!firstCircle) firstCircle = (r[NEW_COLS.circle] || '').trim()
+    const cat = (r[COLS.category] || '').trim()
+    const sub = (r[COLS.sub] || '').trim()
+    if (!firstCircle) firstCircle = (r[COLS.circle] || '').trim()
     if (lc(cat) === 'total') {
-      totals = newLayoutRow('Total', r, NEW_COLS)
+      totals = newLayoutRow('Total', r, COLS)
       i++
       break
     }
     if (!cat && !sub) break
     if (cat) category = cat
-    rows.push(newLayoutRow(sub ? `${category} – ${sub}` : category, r, NEW_COLS))
+    rows.push(newLayoutRow(sub ? `${category} – ${sub}` : category, r, COLS))
   }
   totals = totals || sumRows(rows)
 
@@ -240,17 +268,17 @@ function parseNewLayoutSheet(sheet: SheetGrid, headerIdx: number): MonitoringFor
   let wardRows: MonitoringFormatRow[] | undefined
   let wardTotals: MonitoringFormatRow | undefined
   let wardPivotKind: 'ward' | 'circle' | undefined
-  const wardHdr = grid.findIndex((r, k) => k >= i && lc(r[NEW_COLS.sub]) === 'ward name')
+  const wardHdr = grid.findIndex((r, k) => k >= i && lc(r[COLS.sub]) === 'ward name')
   if (wardHdr >= 0) {
     wardRows = []
     for (let k = wardHdr + 2; k < grid.length; k++) {
-      const label = (grid[k][NEW_COLS.sub] || '').trim()
+      const label = (grid[k][COLS.sub] || '').trim()
       if (lc(label) === 'total') {
-        wardTotals = newLayoutRow('Total', grid[k], NEW_COLS)
+        wardTotals = newLayoutRow('Total', grid[k], COLS)
         break
       }
       // Blank-named ward rows are an unfilled template (all zeros) — skip them.
-      if (label) wardRows.push(newLayoutRow(label, grid[k], NEW_COLS))
+      if (label) wardRows.push(newLayoutRow(label, grid[k], COLS))
       else if (k > wardHdr + 2 && !grid[k].some((c) => (c || '').trim())) break
     }
     if (wardRows.length === 0) wardRows = undefined
@@ -259,11 +287,11 @@ function parseNewLayoutSheet(sheet: SheetGrid, headerIdx: number): MonitoringFor
       wardPivotKind = 'ward'
     }
   } else {
-    const PIVOT = { totalWorks: 8, completed: 10, progressTotal: 12, toBeStarted: 14, heldUp: 16, cancelled: 18, tenderProcess: 20 }
+    const PIVOT = COLS === NEW_COLS ? { totalWorks: 8, completed: 10, progressTotal: 12, toBeStarted: 14, heldUp: 16, cancelled: 18, tenderProcess: 20 } : { totalWorks: 7, completed: 9, progressTotal: 11, toBeStarted: 13, heldUp: 15, cancelled: 17, tenderProcess: 19 }
     const byCircle = new Map<string, MonitoringFormatRow>()
     let inPivot = false
     for (let k = i; k < grid.length; k++) {
-      const label = (grid[k][7] || '').trim()
+      const label = (grid[k][COLS.sub + 4] || '').trim()
       if (/^(roads|swd|others)$/i.test(label)) inPivot = true
       else if (label && !/^(\d{1,4}|circle|total)$/i.test(label)) inPivot = false // BT / CC sub-pivots repeat Roads' rows
       else if (inPivot && /^\d{1,4}$/.test(label)) {
@@ -407,20 +435,24 @@ export function findMonitoringFormatSheet(sheets: SheetGrid[], office: OfficeLik
     const { office } = readLabelledValues(s.grid)
     const idx = newLayoutHeaderIdx(s.grid)
     // New template: the circle (or zone) is named in the first data row's Circle cell ("11 - Nagole").
-    const fromRow = idx >= 0 ? (s.grid[idx + 4]?.[NEW_COLS.circle] || '').trim() : ''
+    const fromRow = idx >= 0 ? (s.grid[idx + 4]?.[newLayoutCols(s.grid, idx).circle] || '').trim() : ''
     return { sheet: s, label: (office || fromRow).toLowerCase() }
   })
 
   if (office.circle) {
     const cno = (office.circleNumber || '').trim()
     const circle = office.circle.trim().toLowerCase()
-    const byLabel = withLabel.find(
-      ({ label }) => label && ((cno && new RegExp(`^0*${cno}\\s*[-–]`).test(label)) || label.includes(circle))
+    // A workbook has several tabs per circle (MF, Spill AB, Current AB …): the "MF" one is the summary.
+    const preferMf = (list: SheetGrid[]): SheetGrid | undefined => list.find((x) => /\bmf\b/i.test(x.sheetName)) ?? list[0]
+    const byLabel = preferMf(
+      withLabel
+        .filter(({ label }) => label && ((cno && new RegExp(`^0*${cno}\\s*[-–]`).test(label)) || label.includes(circle)))
+        .map(({ sheet }) => sheet)
     )
-    if (byLabel) return byLabel.sheet
+    if (byLabel) return byLabel
     // Fall back to the tab name itself carrying the circle number, e.g. "C58 MF".
     if (cno) {
-      const byName = candidates.find((s) => new RegExp(`(^|[^0-9])0*${cno}([^0-9]|$)`).test(s.sheetName))
+      const byName = preferMf(candidates.filter((s) => new RegExp(`(^|[^0-9])0*${cno}([^0-9]|$)`).test(s.sheetName)))
       if (byName) return byName
     }
     return null
@@ -430,6 +462,16 @@ export function findMonitoringFormatSheet(sheets: SheetGrid[], office: OfficeLik
     const zone = office.zone.trim().toLowerCase()
     const byLabel = withLabel.find(({ label }) => label && label.includes(zone) && !/^\d+\s*[-–]/.test(label))
     if (byLabel) return byLabel.sheet
+    // A workbook covering several zones titles each zone's abstract tab with its zone ("Monitoring Format - 2025-26
+    // (Kukatpally Zone)"), so pick the abstract that names this zone before guessing by position.
+    const titled = sheets.find(
+      (x) =>
+        !/list/i.test(x.sheetName) &&
+        !isCircleTabName(x.sheetName) &&
+        /abstract/i.test(x.sheetName) &&
+        x.grid.slice(0, 3).join(' ').toLowerCase().includes(zone)
+    )
+    if (titled) return titled
     // A zone-only office has no circle number. Its tab is often just an
     // abbreviation (e.g. "QBZ MF") that won't textually match the zone name,
     // so among the "MF" sheets that don't look like a per-circle sheet
@@ -545,6 +587,9 @@ export function parseMonitoringFormatWorkSheet(sheet: SheetGrid): MonitoringForm
     const slNo = cellAt(row, col.slNo)
     const workName = cellAt(row, col.workName)
     if (!slNo && !workName) continue
+    // A banner line under the headings ("Circle 50- Madhapur" with only a ward filled in) has a title in the work-name
+    // column but no serial number and no Win code: it is not a work.
+    if (!slNo && !cellAt(row, col.winCode) && cellAt(row, col.workName).length < 40) continue
     // Some circles' sheets carry both a "Status" column (Progress / Completed …) and a
     // "Current status" column holding just the progress % ("upto 25%") — take the first
     // cell that actually names a status, not merely the first non-empty one.
@@ -589,14 +634,29 @@ export function findMonitoringFormatWorkSheets(sheets: SheetGrid[], office: Offi
   )
   if (candidates.length === 0) return []
 
+  // A circle has several tabs ("C60 List", "C60 MF Spillover List AB" …); the one that really holds the works rows wins.
+  const richest = (list: SheetGrid[]): SheetGrid[] => {
+    let best: SheetGrid | null = null
+    let bestCount = 0
+    for (const s of list) {
+      const count = parseMonitoringFormatWorkSheet(s).length
+      if (count > bestCount) {
+        best = s
+        bestCount = count
+      }
+    }
+    return best ? [best] : []
+  }
+
   if (office.circle) {
     const cno = (office.circleNumber || '').trim()
     const circle = office.circle.trim().toLowerCase()
-    const match = candidates.find((s) => {
+    const matches = candidates.filter((s) => {
       if (cno && new RegExp(`(^|[^0-9])0*${cno}([^0-9]|$)`).test(s.sheetName)) return true
       return circle ? s.sheetName.toLowerCase().includes(circle) : false
     })
-    if (match) return [match]
+    const match = richest(matches)
+    if (match.length > 0) return match
     // The tab name doesn't carry the circle (e.g. just "List of works"): a lone list
     // sheet is the one, otherwise pick the sheet whose own Circle column names this circle.
     if (candidates.length === 1) return candidates
@@ -616,6 +676,19 @@ export function findMonitoringFormatWorkSheets(sheets: SheetGrid[], office: Offi
       }
     }
     return best ? [best] : []
+  }
+
+  // A workbook holding every zone's data: keep only this zone's circles. Each circle's own list tab is complete,
+  // so those are used (a zone-wide rollup tab would double-count the same works); with none found, fall back to
+  // the zone's rollup list.
+  if (office.zone && office.circleNumbers && office.circleNumbers.length > 0) {
+    const perCircle = office.circleNumbers
+      .map((cno) => richest(candidates.filter((s) => new RegExp(`^\\s*c[\\s.\\-_#]*0*${cno}([^0-9]|$)`, 'i').test(s.sheetName))))
+      .flat()
+    if (perCircle.length > 0) return perCircle
+    const zone = office.zone.trim().toLowerCase()
+    const inZone = candidates.filter((s) => s.grid.slice(0, 3).join(' ').toLowerCase().includes(zone))
+    return inZone.length > 0 ? richest(inZone) : []
   }
 
   return candidates
@@ -663,7 +736,29 @@ export function filterMonitoringFormatWorksByWard(
  * Sheets whose headings differ are merged into one column set, matched by heading text. Rows saved
  * before `cells` existed fall back to the fixed columns.
  */
+const headerKey = (h: string): string => h.toLowerCase().replace(/\s+/g, ' ').trim()
+
+/** monitoringFormatWorksTable with the user's deleted columns (matched by heading text) left out — used by the screen and every download alike. */
 export function monitoringFormatWorksTable(
+  works: MonitoringFormatWorkRow[],
+  allWorks: MonitoringFormatWorkRow[] = works,
+  hiddenHeaders: string[] = []
+): ReturnType<typeof fullMonitoringFormatWorksTable> {
+  const full = fullMonitoringFormatWorksTable(works, allWorks)
+  if (hiddenHeaders.length === 0) return full
+  const hidden = new Set(hiddenHeaders.map(headerKey))
+  const keep = full.headers.map((h, c) => c).filter((c) => !hidden.has(headerKey(full.headers[c])))
+  if (keep.length === full.headers.length) return full
+  const indexOf = (old: number) => keep.indexOf(old)
+  return {
+    headers: keep.map((c) => full.headers[c]),
+    rows: full.rows.map((r) => keep.map((c) => r[c])),
+    slNoCol: indexOf(full.slNoCol),
+    statusCol: indexOf(full.statusCol)
+  }
+}
+
+function fullMonitoringFormatWorksTable(
   works: MonitoringFormatWorkRow[],
   allWorks: MonitoringFormatWorkRow[] = works
 ): {

@@ -1,4 +1,4 @@
-import { cnoOf, corporationOf } from './zoneCircleDirectory'
+import { cnoOf, corporationOf, circlesOf } from './zoneCircleDirectory'
 
 /**
  * The Head Draughtsman's chosen office — Corporation → Zone → Circle — selected in
@@ -84,6 +84,18 @@ export function officeKey(office: Office): string | undefined {
 export function officeScopedKey(base: string, office?: Office): string {
   const key = office ? officeKey(office) : undefined
   return key ? `${base}:${key}` : base
+}
+
+/**
+ * The office as the Monitoring Format importer wants it: a zone-level office also carries its circles' numbers, so
+ * a workbook holding every zone's data (e.g. all of CMC) yields only this zone's works. Circle offices pass through.
+ */
+export function withZoneCircles<T extends Office>(office: T): T & { circleNumbers?: string[] } {
+  if (!isZoneOnlyOffice(office)) return office
+  const circleNumbers = circlesOf(office.corporation, office.zone)
+    .map((c) => c.cno)
+    .filter((c): c is string => !!c)
+  return circleNumbers.length > 0 ? { ...office, circleNumbers } : office
 }
 
 /** A Zone chosen with no Circle of its own — a zone-level (SE) office, as opposed to a Circle (EE) office. Same test used throughout the app (WorkOrderAgreementTab's `seMode`, GiveIntimationTab, etc). */

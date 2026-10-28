@@ -22,7 +22,7 @@ import {
   type Unsubscribe
 } from 'firebase/firestore'
 import { canClaimSlot, claimSlot, releaseSlot, touchSlot, clearSlots, liveSlots, HEARTBEAT_MS, type SessionSlot } from '../core/sessionSlots'
-import type { PersistedState, CreatedDocument, TodoItem, MBScrutinyItem, TenderConditionsEntry, ShareResult } from '../core/types'
+import type { PersistedState, CreatedDocument, TodoItem, MBScrutinyItem, PendingNoticeItem, TenderConditionsEntry, ShareResult } from '../core/types'
 import { cleanTenderConditionsForCloud } from '../core/tenderConditions'
 import { LEGACY_SEED_DOC_IDS, pruneLegacyDocuments } from '../core/types'
 
@@ -77,6 +77,8 @@ interface ActiveSession {
   /** MB Scrutiny record ids this session last saw in the cloud — same per-item
    * delete safety as knownTodoIds (see pushState). */
   knownMbIds: Set<string>
+  /** Non-conclusion Notice ids this session last saw in the cloud — same per-item delete safety (see pushState). */
+  knownNoticeIds: Set<string>
   /**
    * Signature (order|name|docx) of each document as last written to the cloud,
    * so pushState re-uploads only the documents that actually changed instead of
@@ -88,6 +90,7 @@ interface ActiveSession {
   /** Signature of each To Do / MB record as last seen in / written to the cloud, so a push sends only the items that changed here — a stale device can no longer overwrite items another device edited. */
   pushedTodoSig: Map<string, string>
   pushedMbSig: Map<string, string>
+  pushedNoticeSig: Map<string, string>
   /** Signature of the shared tables / misc documents as last written from here, so an autosave that changed nothing in them skips both writes (each is a billed write, and a stale rewrite could clobber another device's edit). */
   pushedTablesSig: string
   pushedMiscSig: string
@@ -98,6 +101,8 @@ interface ActiveSession {
 let active: ActiveSession | null = null
 /** Saved-tender IDs the cloud is known to hold. The misc write merges maps, so a removed ID must be deleted explicitly. */
 let knownCloudTenderIds = new Set<string>()
+/** Office keys the cloud holds a Monitoring Format summary for. The misc write merges maps, so a deleted office's summary must be removed with deleteField(). */
+let knownCloudMfKeys = new Set<string>()
 /** Why the last pushState failed (shown by the Sync button instead of a vague "check connection"). */
 let lastPushError = ''
 export function getLastPushError(): string {
@@ -151,7 +156,7 @@ export async function startSession(
     })
     if (!claimed) return { claim: { ok: false, maxSessions: true }, remoteState: null }
 
-    active = { loginId: id, sessionId, knownDocIds: new Set(), knownTodoIds: new Set(), knownMbIds: new Set(), pushedDocSig: new Map(), pushedWorksSig: new Map(), pushedTodoSig: new Map(), pushedMbSig: new Map(), pushedTablesSig: '', pushedMiscSig: '', unsubscribes: [], heartbeatTimer: null }
+    active = { loginId: id, sessionId, knownDocIds: new Set(), knownTodoIds: new Set(), knownMbIds: new Set(), knownNoticeIds: new Set(), pushedDocSig: new Map(), pushedWorksSig: new Map(), pushedTodoSig: new Map(), pushedMbSig: new Map(), pushedNoticeSig: new Map(), pushedTablesSig: '', pushedMiscSig: '', unsubscribes: [], heartbeatTimer: null }
     active.heartbeatTimer = setInterval(() => void heartbeatTick(), HEARTBEAT_MS)
 
     const remoteState = await pullRemoteState(id)
@@ -159,6 +164,7 @@ export async function startSession(
       active.knownDocIds = new Set((remoteState.createdDocuments ?? []).map((d) => d.id))
       active.knownTodoIds = new Set((remoteState.todos ?? []).map((t) => t.id))
       active.knownMbIds = new Set((remoteState.mbScrutiny ?? []).map((it) => it.id))
+      active.knownNoticeIds = new Set((remoteState.pendingNotices ?? []).map((it) => it.id))
       // Seed the doc signatures from what the cloud already has, so the first
       // push after login doesn't needlessly re-upload documents that match.
       active.pushedDocSig = new Map(
@@ -291,7 +297,19 @@ function mbFields(it: MBScrutinyItem, order: number) {
   }
 }
 
+/** A Non-conclusion Notice as stored in its own Firestore doc. Round-tripped through JSON so Firestore never sees `undefined`. */
+function noticeFields(it: PendingNoticeItem, order: number) {
+  return { ...(JSON.parse(JSON.stringify(it)) as PendingNoticeItem), order }
+}
+
 type DocLike = { data(): unknown }
+
+function noticesFromDocs(docs: DocLike[]): PendingNoticeItem[] {
+  return docs
+    .map((d) => d.data() as PendingNoticeItem & { order?: number; updatedAt?: unknown; lastWriter?: unknown })
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map(({ order: _o, updatedAt: _u, lastWriter: _l, ...item }) => item as PendingNoticeItem)
+}
 
 function todosFromDocs(docs: DocLike[]): TodoItem[] {
   return docs
@@ -340,7 +358,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
     // These reads are independent of one another — fetched in parallel
     // instead of one-after-another so login/sync only pays for the slowest
     // round trip, not the sum of all of them.
-    const [tablesSnap, miscSnap, docsSnap, todosSnap, mbSnap, worksSnap] = await Promise.all([
+    const [tablesSnap, miscSnap, docsSnap, todosSnap, mbSnap, noticesSnap, worksSnap] = await Promise.all([
       getDoc(doc(db!, 'users', id, 'meta', 'tables')),
       getDoc(doc(db!, 'users', id, 'meta', 'misc')),
       // A Firestore collection has no inherent array order — getDocs()
@@ -359,6 +377,8 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       // misc.mbScrutiny write used to let a concurrent session's stale copy wipe
       // a record another device had just added. `order` keeps receipt order.
       getDocs(collection(db!, 'users', id, 'mbScrutiny')),
+      // Notices sync per-item too: a bulk run of notices on one device must not be wiped by another device's stale whole-blob write.
+      getDocs(collection(db!, 'users', id, 'pendingNotices')),
       // One document per office's Works List (see worksDocId).
       getDocs(collection(db!, 'users', id, 'worksByOffice'))
     ])
@@ -382,6 +402,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
     }
     const m = miscSnap.exists() ? miscSnap.data() : {}
     knownCloudTenderIds = new Set(Object.keys((m.tenderConditions as Record<string, unknown> | undefined) ?? {}))
+    knownCloudMfKeys = new Set(Object.keys((m.monitoringFormatByOffice as Record<string, unknown> | undefined) ?? {}))
     // Prefer the per-item todos collection; fall back to the legacy misc.todos
     // blob for a workspace that predates per-item sync (migrated up on next push).
     const todosFromCollection: TodoItem[] = todosFromDocs(todosSnap.docs)
@@ -391,6 +412,9 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
     // sync (migrated up on next push). Firestore rejects `undefined`, so the
     // optional fields were only written when present — re-spread just those.
     const mbFromCollection: MBScrutinyItem[] = mbFromDocs(mbSnap.docs)
+    // Notices: prefer the per-item collection, falling back to the legacy misc.pendingNotices blob for a workspace that predates it (migrated up on next push).
+    const noticesFromCollection: PendingNoticeItem[] = noticesFromDocs(noticesSnap.docs)
+    const pendingNotices = noticesFromCollection.length > 0 ? noticesFromCollection : (m.pendingNotices ?? [])
     const mbScrutiny = mbFromCollection.length > 0 ? mbFromCollection : (m.mbScrutiny ?? [])
     // What the cloud holds right now — the next push skips any item still identical to this.
     if (active) {
@@ -399,6 +423,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       active.pushedMiscSig = ''
       active.pushedTodoSig = new Map(todosFromCollection.map((v, i) => [v.id, JSON.stringify(todoFields(v, i))]))
       active.pushedMbSig = new Map(mbFromCollection.map((v, i) => [v.id, JSON.stringify(mbFields(v, i))]))
+      active.pushedNoticeSig = new Map(noticesFromCollection.map((v, i) => [v.id, JSON.stringify(noticeFields(v, i))]))
     }
     return {
       // The persisted schema version must round-trip through Firebase, or the
@@ -424,7 +449,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       monitoringFormatLinks: m.monitoringFormatLinks ?? {},
       tenderConditions: m.tenderConditions ?? undefined,
       tenderReminders: m.tenderReminders ?? [],
-      pendingNotices: m.pendingNotices ?? [],
+      pendingNotices,
       createdDocuments,
       bidDocumentBatches: m.bidDocumentBatches ?? [],
       mbScrutiny
@@ -461,6 +486,7 @@ function subscribeRemote(
   const docsRef = collection(db!, 'users', id, 'documents')
   const todosRef = collection(db!, 'users', id, 'todos')
   const mbRef = collection(db!, 'users', id, 'mbScrutiny')
+  const noticesRef = collection(db!, 'users', id, 'pendingNotices')
 
   // Firestore invokes onSnapshot callbacks from its own internal retry/
   // dispatch timers, outside any request this module's caller made — an
@@ -518,10 +544,11 @@ function subscribeRemote(
       if (snap.metadata.hasPendingWrites) return
       const data = snap.data()
       if (!data || data.lastWriter === sessionId) return
-      // NOTE: todos and mbScrutiny are intentionally NOT read from the misc blob
+      // NOTE: todos, mbScrutiny and pendingNotices are intentionally NOT read from the misc blob
       // here — they sync via their own per-item collections below, so a stale
       // whole-blob misc write can't clobber either list.
       knownCloudTenderIds = new Set(Object.keys((data.tenderConditions as Record<string, unknown> | undefined) ?? {}))
+      knownCloudMfKeys = new Set(Object.keys((data.monitoringFormatByOffice as Record<string, unknown> | undefined) ?? {}))
       // Another device changed this document: a later local change back to what we last wrote must still be pushed.
       if (active) active.pushedMiscSig = ''
       safeUpdate({
@@ -535,7 +562,6 @@ function subscribeRemote(
         // An explicit {} (not undefined) so a tender deleted on the other device is removed here too.
         tenderConditions: data.tenderConditions ?? {},
         tenderReminders: data.tenderReminders ?? [],
-        pendingNotices: data.pendingNotices ?? [],
         bidDocumentBatches: data.bidDocumentBatches ?? []
       })
     })
@@ -621,6 +647,23 @@ function subscribeRemote(
       }
     })
   )
+
+  let firstNoticeSnap = true
+  active.unsubscribes.push(
+    onSnapshot(noticesRef, (snap) => {
+      if (firstNoticeSnap) {
+        firstNoticeSnap = false
+        return
+      }
+      if (!hasRemoteChange(snap, sessionId)) return
+      // Same rule as MB Scrutiny: an EMPTY collection never wipes the on-screen list (a workspace still on the legacy blob has none until its first push migrates it).
+      const pendingNotices = noticesFromDocs(snap.docs)
+      if (pendingNotices.length > 0) {
+        if (active) active.pushedNoticeSig = new Map(pendingNotices.map((v, i) => [v.id, JSON.stringify(noticeFields(v, i))]))
+        safeUpdate({ pendingNotices })
+      }
+    })
+  )
 }
 
 /**
@@ -674,6 +717,42 @@ export async function shareTenderConditions(
 }
 
 /** Push the current workspace to the cloud, tagged as written by this device. Resolves true once everything was written, false if signed out or the push failed (autosave ignores this; the manual Sync button reports it). */
+/** The shared meta/misc document's fields; `tenderConditions` is passed in because a push swaps removed IDs for deleteField(). */
+/** Firestore rejects `undefined` anywhere in a document, and a record built with optional fields left unset (e.g. a pending Notice's itemNo/zone) carries them as explicit undefined keys — a JSON round-trip drops them. */
+function plain<T>(v: T): T {
+  return JSON.parse(JSON.stringify(v))
+}
+
+function buildMiscFields(state: PersistedState, tenderConditions: Record<string, unknown>, monitoringFormatByOffice: Record<string, unknown> = state.monitoringFormatByOffice ?? {}) {
+  return {
+        // Round-trip the schema version so one-time migrations run only once (see
+        // pullRemoteState) instead of re-running — and compounding — every launch.
+        version: state.version,
+        resolution: plain(state.resolution ?? {}),
+        todos: plain(state.todos ?? []),
+        lastGoogleLink: plain(state.lastGoogleLink ?? null),
+        worksListLinks: plain(state.worksListLinks ?? {}),
+        // merge:true merges this map key by key, so a device with fewer saved contacts never wipes another's.
+        contacts: plain(state.contacts ?? {}),
+        qcParties: plain(state.qcParties ?? {}),
+        monitoringFormatByOffice,
+        monitoringFormatLinks: plain(state.monitoringFormatLinks ?? {}),
+        tenderConditions,
+        tenderReminders: plain(state.tenderReminders ?? []),
+        pendingNotices: plain(state.pendingNotices ?? []),
+        bidDocumentBatches: plain(state.bidDocumentBatches ?? []),
+        mbScrutiny: plain(state.mbScrutiny ?? []),
+        // Deliberately omitted (not written as null) when not yet chosen —
+        // `merge: true` below then leaves whatever office is already stored in
+        // the cloud untouched, matching PersistedState.office's own LWW
+        // contract ("never let an empty office overwrite a good one already
+        // stored"). Every other field above is unconditional/defaulted, so
+        // switching this write to merge:true doesn't change their behavior.
+        // Round-tripped through JSON so a zone-level office's undefined circle / circle number is dropped: Firestore rejects undefined values, which failed every misc push for such offices.
+        ...(state.office ? { office: JSON.parse(JSON.stringify(state.office)) } : {})
+    }
+}
+
 export async function pushState(state: PersistedState): Promise<boolean> {
   if (!active) {
     lastPushError = 'Not signed in to the cloud (the app started offline) — log out and log in again.'
@@ -723,34 +802,19 @@ export async function pushState(state: PersistedState): Promise<boolean> {
         deletedTenders.push(id)
       }
     }
-    const miscFields = {
-        // Round-trip the schema version so one-time migrations run only once (see
-        // pullRemoteState) instead of re-running — and compounding — every launch.
-        version: state.version,
-        resolution: state.resolution ?? {},
-        todos: state.todos ?? [],
-        lastGoogleLink: state.lastGoogleLink ?? null,
-        worksListLinks: state.worksListLinks ?? {},
-        // merge:true merges this map key by key, so a device with fewer saved contacts never wipes another's.
-        contacts: state.contacts ?? {},
-        qcParties: state.qcParties ?? {},
-        monitoringFormatByOffice: state.monitoringFormatByOffice ?? {},
-        monitoringFormatLinks: state.monitoringFormatLinks ?? {},
-        tenderConditions: tenderConditionsForPush,
-        tenderReminders: state.tenderReminders ?? [],
-        pendingNotices: state.pendingNotices ?? [],
-        bidDocumentBatches: state.bidDocumentBatches ?? [],
-        mbScrutiny: state.mbScrutiny ?? [],
-        // Deliberately omitted (not written as null) when not yet chosen —
-        // `merge: true` below then leaves whatever office is already stored in
-        // the cloud untouched, matching PersistedState.office's own LWW
-        // contract ("never let an empty office overwrite a good one already
-        // stored"). Every other field above is unconditional/defaulted, so
-        // switching this write to merge:true doesn't change their behavior.
-        ...(state.office ? { office: state.office } : {})
+    // A Monitoring Format deleted here is removed from the cloud's merged map too, or the next pull would bring it back.
+    const mfPlain = plain(state.monitoringFormatByOffice ?? {})
+    const mfForPush: Record<string, unknown> = { ...mfPlain }
+    const deletedMf: string[] = []
+    for (const k of knownCloudMfKeys) {
+      if (!(k in mfPlain)) {
+        mfForPush[k] = deleteField()
+        deletedMf.push(k)
+      }
     }
+    const miscFields = buildMiscFields(state, tenderConditionsForPush, mfForPush)
     // The deleteField() markers don't serialise, so the signature carries the plain saved-tenders map and the ids being deleted.
-    const miscSig = JSON.stringify({ ...miscFields, tenderConditions: cleanedTenders, deletedTenders })
+    const miscSig = JSON.stringify({ ...miscFields, tenderConditions: cleanedTenders, monitoringFormatByOffice: mfPlain, deletedTenders, deletedMf })
     if (active && active.pushedMiscSig !== miscSig) {
       await setDoc(
         doc(db!, 'users', loginId, 'meta', 'misc'),
@@ -760,6 +824,7 @@ export async function pushState(state: PersistedState): Promise<boolean> {
       active.pushedMiscSig = miscSig
     }
     knownCloudTenderIds = new Set(Object.keys(cleanedTenders))
+    knownCloudMfKeys = new Set(Object.keys(mfPlain))
 
     const currentIds = new Set((state.createdDocuments ?? []).map((d) => d.id))
     const orderedDocs = state.createdDocuments ?? []
@@ -872,10 +937,94 @@ export async function pushState(state: PersistedState): Promise<boolean> {
       }
       active.knownMbIds = currentMbIds
     }
+    // Non-conclusion Notices: one Firestore doc per notice (mirrors MB Scrutiny), so a stale whole-blob
+    // push can't wipe notices another device just generated. The legacy misc.pendingNotices stays dual-written.
+    const orderedNotices = state.pendingNotices ?? []
+    const currentNoticeIds = new Set(orderedNotices.map((it) => it.id))
+    for (let i = 0; i < orderedNotices.length; i++) {
+      const it = orderedNotices[i]
+      const fields = noticeFields(it, i)
+      const sig = JSON.stringify(fields)
+      if (active?.pushedNoticeSig.get(it.id) === sig) continue
+      try {
+        await setDoc(doc(db!, 'users', loginId, 'pendingNotices', it.id), {
+          ...fields,
+          updatedAt: serverTimestamp(),
+          lastWriter: sessionId
+        })
+        active?.pushedNoticeSig.set(it.id, sig)
+      } catch (e) {
+        console.error(`pushState: failed to sync notice "${it.nitNo}"`, e)
+        lastPushError = e instanceof Error ? e.message : String(e)
+      }
+    }
+    if (active) {
+      for (const oldId of active.knownNoticeIds) {
+        if (!currentNoticeIds.has(oldId)) {
+          await deleteDoc(doc(db!, 'users', loginId, 'pendingNotices', oldId))
+          active.pushedNoticeSig.delete(oldId)
+        }
+      }
+      active.knownNoticeIds = currentNoticeIds
+    }
     return lastPushError === ''
   } catch (e) {
     console.error('pushState failed', e)
     lastPushError = e instanceof Error ? e.message : String(e)
     return false
   }
+}
+
+/**
+ * How many bytes the next push would upload: the same change detection as pushState (only what differs from what
+ * was last read from / written to the cloud), so the UI can show it and auto-sync once it grows large. Deletions
+ * count a token amount so they are not invisible. 0 means everything is already online (or not signed in).
+ */
+export function pendingBytes(state: PersistedState): number {
+  if (!active) return 0
+  const size = (v: string) => Buffer.byteLength(v, 'utf8')
+  let total = 0
+  for (const [officeK, list] of Object.entries(state.tablesByOffice ?? {})) {
+    const json = JSON.stringify(list ?? [])
+    const known = active.pushedWorksSig.get(officeK)
+    if (known === json || (known === undefined && json === '[]')) continue
+    total += size(json)
+  }
+  const tablesSig = JSON.stringify(state.tables ?? [])
+  if (active.pushedTablesSig !== tablesSig) total += size(tablesSig)
+  const cleanedTenders = cleanTenderConditionsForCloud(state.tenderConditions)
+  const deletedTenders = [...knownCloudTenderIds].filter((id) => !(id in cleanedTenders))
+  const mfPlain = state.monitoringFormatByOffice ?? {}
+  const deletedMf = [...knownCloudMfKeys].filter((k) => !(k in mfPlain))
+  const miscSig = JSON.stringify({ ...buildMiscFields(state, cleanedTenders), monitoringFormatByOffice: mfPlain, deletedTenders, deletedMf })
+  if (active.pushedMiscSig !== miscSig) total += size(miscSig)
+  const docs = state.createdDocuments ?? []
+  docs.forEach((d, i) => {
+    const sig = `${i}|${d.name}|${d.docx}`
+    if (active!.pushedDocSig.get(d.id) !== sig) total += size(sig)
+  })
+  const docIds = new Set(docs.map((d) => d.id))
+  total += 100 * [...active.knownDocIds].filter((id) => !docIds.has(id)).length
+  const todos = state.todos ?? []
+  todos.forEach((t, i) => {
+    const sig = JSON.stringify(todoFields(t, i))
+    if (active!.pushedTodoSig.get(t.id) !== sig) total += size(sig)
+  })
+  const todoIds = new Set(todos.map((t) => t.id))
+  total += 100 * [...active.knownTodoIds].filter((id) => !todoIds.has(id)).length
+  const mb = state.mbScrutiny ?? []
+  mb.forEach((it, i) => {
+    const sig = JSON.stringify(mbFields(it, i))
+    if (active!.pushedMbSig.get(it.id) !== sig) total += size(sig)
+  })
+  const mbIds = new Set(mb.map((it) => it.id))
+  total += 100 * [...active.knownMbIds].filter((id) => !mbIds.has(id)).length
+  const notices = state.pendingNotices ?? []
+  notices.forEach((it, i) => {
+    const sig = JSON.stringify(noticeFields(it, i))
+    if (active!.pushedNoticeSig.get(it.id) !== sig) total += size(sig)
+  })
+  const noticeIds = new Set(notices.map((it) => it.id))
+  total += 100 * [...active.knownNoticeIds].filter((id) => !noticeIds.has(id)).length
+  return total
 }

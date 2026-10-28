@@ -76,6 +76,8 @@ export async function buildWorksListPdf(opts: WorksListPdfOpts): Promise<Uint8Ar
 
 /** Each works-list PDF page should carry at least this many works; the font shrinks until it does. */
 const MIN_WORKS_PER_PAGE = 9
+/** Share of the page width the Name of Work column is given at least. */
+const NAME_COL_SHARE = 0.34
 
 interface WorksListPdfOpts {
   title: string
@@ -141,6 +143,23 @@ async function renderWorksList(opts: WorksListPdfOpts): Promise<{ bytes: Uint8Ar
     widths.forEach((w, i) => {
       widths[i] = w < minWidths[i] ? minWidths[i] : w - (Math.max(0, w - minWidths[i]) / spare) * Math.min(short, spare)
     })
+  }
+  // The Name of Work column always gets the largest share of the page (at least NAME_COL_SHARE of the width), so
+  // the long titles wrap onto few lines. The room comes from the other columns, never below their minimum widths.
+  const nameCol = COLUMNS.findIndex((c) => /name.*work/i.test(c.title))
+  if (nameCol >= 0) {
+    const want = tableW * NAME_COL_SHARE
+    let need = want - widths[nameCol]
+    if (need > 0) {
+      const spare = widths.reduce((sum, w, i) => (i === nameCol ? sum : sum + Math.max(0, w - minWidths[i])), 0)
+      const take = Math.min(need, spare)
+      if (take > 0) {
+        widths.forEach((w, i) => {
+          if (i !== nameCol) widths[i] = w - (Math.max(0, w - minWidths[i]) / spare) * take
+        })
+        widths[nameCol] += take
+      }
+    }
   }
   // If even the minimums don't fit (very many columns), scale everything down so the table never runs off the page.
   const sumW = widths.reduce((a, w) => a + w, 0)

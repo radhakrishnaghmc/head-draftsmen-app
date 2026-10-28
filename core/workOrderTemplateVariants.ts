@@ -60,17 +60,17 @@ export function zonalTemplateVariant(variantId: string | undefined): string | un
   return variantId === 'header2' || (variantId && CORPORATION_VARIANT_ID_SET.has(variantId)) ? variantId : undefined
 }
 
-// Work Order types 1-2, File Backer types 1-2, Tender Document types 1-2, Intimation / Notice / QC Intimation type 1
+// Work Order types 1-3, Intimation / Notice template 1-2, File Backer types 1-2, Tender Document types 1-2, Intimation / Notice / QC Intimation type 1
 // are retired: their .docx files live in legacy-templates/ (not bundled with the app). Remaining types keep their numbers.
 export const WORK_ORDER_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
-  { id: 'header2', label: 'Work Order type 3' },
   // Corporation-only: type 3's layout with that corporation's horizontal logo as the whole header (types 4-6).
   { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Work Order type 4 (MMC)' },
   { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Work Order type 5 (CMC)' },
   { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Work Order type 6 (GHMC)' }
 ]
 
-export const DEFAULT_WORK_ORDER_TEMPLATE_VARIANT = 'header2'
+/** Work Order type 3 is retired (legacy-templates/); an office with no corporation header gets the CMC one. */
+export const DEFAULT_WORK_ORDER_TEMPLATE_VARIANT = CMC_WORK_ORDER_TEMPLATE_VARIANT
 
 /**
  * SE (zone-level) Concluding Agreement and Memo to EE: the default letterhead,
@@ -135,14 +135,14 @@ export function agreementTemplateFileName(variantId: string | undefined): string
  * CMC logo) instead of the app's own plain-text "{{Corp Full Caps}}" header.
  */
 export const INTIMATION_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
-  { id: '2', label: 'Intimation template 2' },
-  // Corporation-only: template 2's body with that corporation's horizontal logo as the whole header (Work Order types 4-6).
+  // Corporation-only: the retired template 2's body with that corporation's horizontal logo as the whole header (Work Order types 4-6).
   { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Intimation template 3 (MMC)' },
   { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Intimation template 4 (CMC)' },
   { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Intimation template 5 (GHMC)' }
 ]
 
-export const DEFAULT_INTIMATION_TEMPLATE_VARIANT = '2'
+/** Intimation template 2 is retired (legacy-templates/); an office with no corporation header gets the CMC one. */
+export const DEFAULT_INTIMATION_TEMPLATE_VARIANT = CMC_WORK_ORDER_TEMPLATE_VARIANT
 
 /** Same naming convention as workOrderTemplateFileName, for intimation-template*.docx. */
 export function intimationTemplateFileName(variantId: string | undefined): string {
@@ -156,13 +156,13 @@ export function intimationTemplateFileName(variantId: string | undefined): strin
  * that corporation's logo header over the original wording.
  */
 export const NOTICE_TEMPLATE_VARIANTS: TemplateVariantOption[] = [
-  { id: '2', label: 'Notice template 2' },
   { id: MMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Notice template 3 (MMC)' },
   { id: CMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Notice template 4 (CMC)' },
   { id: GHMC_WORK_ORDER_TEMPLATE_VARIANT, label: 'Notice template 5 (GHMC)' }
 ]
 
-export const DEFAULT_NOTICE_TEMPLATE_VARIANT = '2'
+/** Notice template 2 is retired (legacy-templates/); an office with no corporation header gets the CMC one. */
+export const DEFAULT_NOTICE_TEMPLATE_VARIANT = CMC_WORK_ORDER_TEMPLATE_VARIANT
 
 /** Filename suffix for issue-notice[-ee]-template*.docx: '-<variant id>' (an unknown id gets the default's). */
 export function noticeTemplateSuffix(variantId: string | undefined): string {

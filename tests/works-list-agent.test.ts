@@ -85,7 +85,8 @@ function mfRow(itemType: string, no: number, amt: number): MonitoringFormatSumma
   return {
     itemType,
     totalWorks: { no, amt },
-    completed: zeroBucket(),
+    // Every test work is "Completed", so the Abstract's completed column matches its total.
+    completed: { no, amt },
     upto25: zeroBucket(),
     upto50: zeroBucket(),
     upto75: zeroBucket(),
@@ -104,7 +105,7 @@ function summary(rows: MonitoringFormatSummary['rows'], wardRows?: MonitoringFor
     sheetName: 'C58 MF',
     asOfDate: '23.07.2026',
     rows,
-    totals: mfRow('Total', 0, 0),
+    totals: mfRow('Total', rows.reduce((n, r) => n + r.totalWorks.no, 0), rows.reduce((a, r) => a + r.totalWorks.amt, 0)),
     wardRows,
     wardTotals: wardRows ? mfRow('Total', 0, 0) : undefined
   }
@@ -145,17 +146,19 @@ describe('findMonitoringFormatMismatches', () => {
     const s = summary([mfRow('CC Roads', 3, 30)])
     const works = [workRow('CC Roads', 10), workRow('CC Roads', 20)]
     const violations = findMonitoringFormatMismatches(s, works)
-    expect(violations).toHaveLength(1)
-    expect(violations[0]).toMatchObject({ type: 'mf-abstract-mismatch', key: 'CC Roads', rowIndices: [] })
-    expect(violations[0].message).toContain('3 works in the Abstract vs 2 in the list of works')
+    // The grand total, the work type, and each of those rows' Completed status all disagree.
+    expect(violations.length).toBeGreaterThanOrEqual(2)
+    const typeTotal = violations.find((v) => v.key === 'CC Roads|Total works')
+    expect(typeTotal).toMatchObject({ type: 'mf-abstract-mismatch', rowIndices: [] })
+    expect(typeTotal!.message).toContain('3 works in the Abstract vs 2 in the list of works')
+    expect(violations.some((v) => v.key === 'total|Total works')).toBe(true)
   })
 
   it('flags an amount mismatch even when the count matches', () => {
     const s = summary([mfRow('SWD', 2, 100)])
     const works = [workRow('SWD', 10), workRow('SWD', 20)]
     const violations = findMonitoringFormatMismatches(s, works)
-    expect(violations).toHaveLength(1)
-    expect(violations[0].message).toContain('Rs 100 in the Abstract vs Rs 30 in the list of works')
+    expect(violations.some((v) => v.message.includes('Rs 100 in the Abstract vs Rs 30 in the list of works'))).toBe(true)
   })
 
   it('matches item types case/whitespace-insensitively', () => {
@@ -166,7 +169,8 @@ describe('findMonitoringFormatMismatches', () => {
 
   it('never flags the sheet\'s own "Total" row', () => {
     const s = summary([mfRow('Total', 5, 500)])
-    expect(findMonitoringFormatMismatches(s, [])).toEqual([])
+    // Only the grand-total check speaks up; the "Total" row is never treated as a group of its own.
+    expect(findMonitoringFormatMismatches(s, []).filter((v) => v.key.startsWith('Total|'))).toEqual([])
   })
 
   it('skips the ward-wise tally when the sheet has no ward-wise block', () => {
@@ -190,10 +194,26 @@ describe('findMonitoringFormatMismatches', () => {
       workRow('CC Roads', 10, { ward: 'Bachupally' }),
       workRow('CC Roads', 20, { ward: 'Bachupally' })
     ]
-    const violations = findMonitoringFormatMismatches(s, works)
-    expect(violations).toHaveLength(1)
-    expect(violations[0].key).toBe('Bachupally')
+    const violations = findMonitoringFormatMismatches(s, works).filter((v) => v.key.startsWith('Bachupally'))
+    expect(violations.length).toBeGreaterThan(0)
+    expect(violations[0].key).toBe('Bachupally|Total works')
+    expect(violations[0].message).toContain('Ward "Bachupally"')
     expect(violations[0].message).toContain('3 works in the Abstract vs 2 in the list of works')
+  })
+
+  it('checks every status per group, not just the total', () => {
+    const row = { ...mfRow('CC Roads', 2, 30), completed: { no: 1, amt: 10 }, heldUp: { no: 1, amt: 20 } }
+    const s = summary([row])
+    const works = [workRow('CC Roads', 10), workRow('CC Roads', 20)] // both Completed
+    const violations = findMonitoringFormatMismatches(s, works)
+    expect(violations.some((v) => v.key === 'CC Roads|Completed')).toBe(true)
+    expect(violations.some((v) => v.key === 'CC Roads|Held Up')).toBe(true)
+  })
+
+  it("flags an Abstract whose statuses don't add up to its total works", () => {
+    const row = { ...mfRow('CC Roads', 5, 30), completed: { no: 2, amt: 30 } }
+    const violations = findMonitoringFormatMismatches(summary([row]), [workRow('CC Roads', 10), workRow('CC Roads', 20)])
+    expect(violations.some((v) => v.key === 'CC Roads|sum')).toBe(true)
   })
 })
 

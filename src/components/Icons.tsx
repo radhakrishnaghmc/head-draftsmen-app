@@ -294,3 +294,11 @@ export const IconMist = (p: P) => (
     <path d="M3 7h13M3 11h18M6 15h13M3 19h13" />
   </svg>
 )
+
+export const IconBook = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Z" />
+    <path d="M4 21.5A2.5 2.5 0 0 1 6.5 19H20" />
+    <path d="M9 8h7M9 12h5" />
+  </svg>
+)

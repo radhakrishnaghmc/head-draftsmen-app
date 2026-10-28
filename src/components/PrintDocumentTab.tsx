@@ -417,6 +417,14 @@ export default function PrintDocumentTab({ tables, documents, onChange, onGoToWo
     return items
   }
 
+  if (documents.length === 0) {
+    return (
+      <section className="card">
+        <p className="estimate-hint">No documents here yet.</p>
+      </section>
+    )
+  }
+
   return (
     <>
       <div ref={printScratchRef} style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }} aria-hidden />

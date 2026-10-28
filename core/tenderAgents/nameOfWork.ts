@@ -61,6 +61,15 @@ function isFieldLabelLine(line: string): boolean {
   )
 }
 
+// Whether a line above the "Name of Work" label is plausibly the first half of the title rather than the wrapped
+// tail of the NIT / Notice Number cell (digits-and-slash codes, "Dt:", "(Item", a bare "no.6)").
+function looksLikeTitleLine(line: string): boolean {
+  const t = line.trim()
+  if (t.length < 25) return false
+  if (isFieldLabelLine(t) || isWorkNameBoundary(t)) return false
+  return !/\bNIT\b|\d{2,4}-\d{2}\b|\bdt[:.]|dated|\(item\b|^no\.?\s*\d/i.test(t)
+}
+
 /**
  * Pull the "Name of Work" value out of the reconstructed page lines. Two
  * layouts occur: the label and value on one line ("Name of Work <value> …
@@ -95,7 +104,18 @@ function extractFromLabelBlock(lines: string[]): string | undefined {
   // opening words wrapped onto the line ABOVE the label (the third layout
   // above), not a fresh title starting right at the label. A real work name
   // starts capitalized, so this never misfires on the plain single-line case.
-  if (!after || /^[a-z]/.test(after)) {
+  // A capitalized `after` can still be the SECOND line of a long title whose first line sits above the label
+  // ("…at Ganesh" / "Name of Work Nagar under Ganesh Nagar-284…"), so the line above is checked for being real
+  // title text rather than the NIT cell's wrapped tail ("NIT No.21/DB/…", "no.6)") before it is skipped.
+  const lineAbove = (() => {
+    for (let j = li - 1; j >= 0; j--) {
+      const t = (lines[j] ?? '').trim()
+      if (t) return t
+    }
+    return ''
+  })()
+  const titleContinues = !!after && looksLikeTitleLine(lineAbove)
+  if (!after || /^[a-z]/.test(after) || titleContinues) {
     // Collect EVERY preceding value line (a long title routinely spans two or
     // more), walking up until the previous field label (e.g. "Notice Number")
     // or a boundary — not just the single line immediately above, which used
@@ -106,6 +126,7 @@ function extractFromLabelBlock(lines: string[]): string | undefined {
       const t = (lines[j] ?? '').trim()
       if (!t) continue
       if (isFieldLabelLine(t) || isWorkNameBoundary(t)) break
+      if (titleContinues && !looksLikeTitleLine(t)) break
       above.push(t)
     }
     above.reverse()

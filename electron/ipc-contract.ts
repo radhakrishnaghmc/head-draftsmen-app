@@ -119,6 +119,9 @@ export interface BidDocumentBatchProgress {
   total: number
 }
 
+/** Unsynced data at which the app pushes to the cloud by itself. Firestore caps a single document at 1 MiB, so a backlog this size is the point where waiting for a manual sync stops being sensible. */
+export const AUTO_SYNC_BYTES = 1024 * 1024
+
 export const IPC = {
   pickExcels: 'dialog:pickExcels',
   pickExcelGrids: 'dialog:pickExcelGrids',
@@ -499,8 +502,8 @@ export interface DocuGenApi {
   /** Reads the bundled Notice format (.docx) — issued to an L-1 bidder who hasn't concluded the agreement within the stipulated time after the LOA. `ee` picks the Circle-level (EE office) variant over the default Zone-level (SE office) one. `version` 2 picks the alternate format that also prints the Intimation/LOA's own Lr.No/Date near the "To" block (same {{LOA No}}/{{LOA Date}} values as Ref 2) plus a "Gentleman," salutation; defaults to 1, the original format. Base64-encoded, for filling its {{placeholders}}. */
   issueNoticeTemplate(ee: boolean, variantId?: string): Promise<string>
   loadState(): Promise<PersistedState | null>
-  /** Persist the workspace. `skipCloud` writes only to local disk and does NOT push to the cloud — used when the change being saved *came from* a remote sync, so it isn't echoed straight back and made to ping-pong between concurrent sessions. */
-  saveState(state: PersistedState, skipCloud?: boolean): Promise<void>
+  /** Persist the workspace; resolves the bytes still waiting to be synced online (cloud pushes are manual until that reaches AUTO_SYNC_BYTES). `skipCloud` writes only to local disk and does NOT push to the cloud — used when the change being saved *came from* a remote sync, so it isn't echoed straight back and made to ping-pong between concurrent sessions. */
+  saveState(state: PersistedState, skipCloud?: boolean): Promise<number>
   /** Saves locally and pushes the whole workspace to the cloud right now (the profile menu's Sync button); an empty string when everything was written, otherwise the reason it failed. */
   syncNow(state: PersistedState): Promise<string>
   /** Encrypts the whole workspace (tied to this login) into a .dhbak file in the app's backups folder. */

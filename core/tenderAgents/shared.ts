@@ -72,7 +72,7 @@ export function joinLines(lines: string[]): string {
 }
 
 /**
- * Removes a "(Item No.N)" tag from the start or end of a work name — the tag
+ * Removes a "(Item No.N)" tag from the start or end of a work name (and a trailing "(Completion Period …)" tag) — the tag
  * is pulled out into its own Item No field (see core/bidDocument.ts's
  * extractItemNo), so it shouldn't also print as part of the work name
  * itself. Lives here (not in bidDocument.ts, which re-exports it for every
@@ -83,8 +83,11 @@ export function joinLines(lines: string[]): string {
  * normalizeWorkNameForMatch.
  */
 export function stripItemNoTag(name: string): string {
+  // Both bookkeeping tags go wherever they sit in the name (before or after a "(Reserved for SC)" tag, which stays);
+  // "Period" is matched loosely because real sheets spell it "Peroid".
   return name
-    .replace(/^\s*\(item\s*no\.?\s*\d+\)\s*/i, '')
-    .replace(/\s*\(item\s*no\.?\s*\d+\)\s*$/i, '')
+    .replace(/\s*\(\s*item\s*no\.?\s*\d+\s*\)/gi, ' ')
+    .replace(/\s*\(\s*completion\s+per\w*\s*:?[^()]*\)/gi, ' ')
+    .replace(/\s+/g, ' ')
     .trim()
 }

@@ -15,8 +15,8 @@ import {
 } from './worksSchema'
 import { autofillWorksRow, enforceZoneCircle, fillCircleNumber, splitCircleColumn } from './zoneCircleCheck'
 import { closeOnBackdropMouseDown } from './overlayClose'
-import { entriesOf, corporationByName } from './zoneCircleDirectory'
-import { type Office, officeKey, isOfficeReady, readContacts, applyContacts, CONTACTS_CHANGED_EVENT } from './office'
+import { entriesOf, corporationByName, circlesOf } from './zoneCircleDirectory'
+import { type Office, officeKey, isOfficeReady, isZoneOnlyOffice, normalizeOffice, withZoneCircles, readContacts, applyContacts, CONTACTS_CHANGED_EVENT } from './office'
 import { type ThemeId, getStoredTheme, setStoredTheme } from './theme'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import { findWorksListErrors, findMonitoringFormatErrors } from '@core/worksListAgent'
@@ -35,6 +35,7 @@ import { buildWorksListPdf, buildAbstractPdf } from '@core/worksListPdf'
 import { indianDigitGroups } from '@core/worksAmounts'
 import Skyline from './components/Skyline'
 import ProfileMenu from './components/ProfileMenu'
+import { AUTO_SYNC_BYTES } from '../electron/ipc-contract'
 import TenderNoticeButton from './components/TenderNoticeButton'
 import BidDocumentsPanel from './components/BidDocumentsPanel'
 import SeBidDocumentTile from './components/SeBidDocumentTile'
@@ -46,10 +47,10 @@ import GiveIntimationTab, { type IntimationIssuedSnapshot } from './components/G
 import EvaluationSheetTab from './components/EvaluationSheetTab'
 import WorkOrderAgreementTab from './components/WorkOrderAgreementTab'
 import IssueNoticesTab from './components/IssueNoticesTab'
-import PrintDocumentTab from './components/PrintDocumentTab'
 import ToolsTab from './components/ToolsTab'
 import CementSteelRatesPage from './components/CementSteelRatesPage'
 import SettingsTab from './components/SettingsTab'
+import ManualPage from './components/ManualPage'
 import TodoList from './components/TodoList'
 import MbScrutinyList from './components/MbScrutinyList'
 import MbMeasurementUploadTab from './components/MbMeasurementUploadTab'
@@ -73,6 +74,7 @@ import {
   IconUpload,
   IconTools,
   IconSettings,
+  IconBook,
   IconWarn,
   IconChevronRight,
   IconGrid,
@@ -98,6 +100,7 @@ import type { CalendarData } from '@core/calendar'
 import { nthWorkingDay, dmyToIso } from '@core/calendar'
 import { isNoticeOverdue, defaultLoaNo } from '@core/issueNotice'
 import type { MonitoringFormatSummary, MonitoringFormatWorkRow, MfStatusKey } from '@core/monitoringFormat'
+import type { SheetGrid } from '@core/sheet'
 import {
   filterMonitoringFormatWorksByStatus,
   filterMonitoringFormatWorksByWard,
@@ -331,6 +334,53 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   const [mbScrutiny, setMbScrutiny] = useState<MBScrutinyItem[]>([])
   const [mbMeasurementOpen, setMbMeasurementOpen] = useState(false)
   const [worklistOpenTile, setWorklistOpenTile] = useState<'qc' | 'mf' | 'wl' | null>('wl')
+  // The Works List tab row stays locked under the sticky page header: its `top` is the header's live height.
+  useEffect(() => {
+    const head = document.querySelector<HTMLElement>('.page:has(.wl-workspace) > .page-head')
+    if (!head) return
+    const bar = document.querySelector<HTMLElement>('.wl-tabbar')
+    const set = () => {
+      document.documentElement.style.setProperty('--wl-head-h', `${head.offsetHeight}px`)
+      document.documentElement.style.setProperty('--wl-tabs-h', `${bar?.offsetHeight ?? 0}px`)
+    }
+    set()
+    const ro = new ResizeObserver(set)
+    ro.observe(head)
+    if (bar) ro.observe(bar)
+    return () => ro.disconnect()
+  }, [tab])
+  // The tab row can mount after that effect ran (office/table loads), leaving --wl-tabs-h at 0 so the
+  // pinned toolbar slid up over the tabs; re-measure after every render (two cheap reads).
+  useEffect(() => {
+    const head = document.querySelector<HTMLElement>('.page > .page-head')
+    const bar = document.querySelector<HTMLElement>('.wl-tabbar')
+    if (!head) return
+    document.documentElement.style.setProperty('--wl-head-h', `${head.offsetHeight}px`)
+    document.documentElement.style.setProperty('--wl-tabs-h', `${bar?.offsetHeight ?? 0}px`)
+  })
+  // Works List database fills the window exactly (no empty strip under it, however tall the window):
+  // its height = room left between the table's top and the page's bottom, minus the footer under it.
+  useEffect(() => {
+    const fit = () => {
+      const page = document.querySelector<HTMLElement>('.page:has(.wl-workspace)')
+      if (!page) return
+      const pr = page.getBoundingClientRect()
+      // Each open section's table fills down to the page bottom (minus what sits under it, e.g. the footer line).
+      const fill = (sel: string, footSel: string | null, prop: string) => {
+        const wrap = page.querySelector<HTMLElement>(sel)
+        if (!wrap || wrap.offsetParent === null) return
+        const foot = footSel ? page.querySelector<HTMLElement>(footSel) : null
+        const top = wrap.getBoundingClientRect().top + page.scrollTop
+        const room = pr.bottom - top - (foot?.offsetHeight ?? 0) - 2
+        document.documentElement.style.setProperty(prop, `${Math.max(420, Math.floor(room))}px`)
+      }
+      fill('.wl-panel .sheet-wrap', '.wl-panel .sheet-foot', '--wl-wrap-h')
+      fill('.wl-panel .mf-works-wrap', null, '--wl-mf-wrap-h')
+    }
+    fit()
+    window.addEventListener('resize', fit)
+    return () => window.removeEventListener('resize', fit)
+  })
   // The Monitoring Format panel is built once, in the background shortly after the Works List opens, and
   // then only shown/hidden — so clicking its tab is instant instead of rendering a few hundred rows then.
   const [mfPrewarmed, setMfPrewarmed] = useState(false)
@@ -362,6 +412,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // Works List page sits there looking stuck/slow with no explanation
   // (real report: "selecting circle office is taking time").
   const [officeSwitchBusy, setOfficeSwitchBusy] = useState<string | null>(null)
+  // Name of the office being switched to, from the click until the switch has rendered.
+  const [officeSwitching, setOfficeSwitching] = useState<string | null>(null)
   // Works List link remembered per office (key: officeKey) — synced, so a
   // circle's database reloads on return and follows the user across systems.
   const [worksListLinks, setWorksListLinks] = useState<Record<string, string>>({})
@@ -471,6 +523,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // Builds the workspace snapshot from the latest render's state (set by the save effect below),
   // so Sync / logout can push it right now instead of waiting for the debounce.
   const buildStateRef = useRef<null | (() => PersistedState)>(null)
+  // Bytes of edits not yet in the cloud; cloud pushes are manual (header Sync button) until this reaches AUTO_SYNC_BYTES.
+  const [pendingSyncBytes, setPendingSyncBytes] = useState(0)
 
   // The current Excel shown on the Data tab (single-workbook workflow).
   const currentTable = tables[0] ?? null
@@ -775,7 +829,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     buildStateRef.current = build
     const save = () => {
       pendingSaveRef.current = null
-      api.saveState(build(), skipCloud)
+      void api.saveState(build(), skipCloud).then(setPendingSyncBytes)
     }
     pendingSaveRef.current = save
     const handle = setTimeout(save, 400)
@@ -889,8 +943,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       .importAllSheetsFromLink(link)
       .then((sheets) => {
         // `key` and `office` are captured for this office, so the result lands on the right one even if the user has since switched.
-        const works = extractMonitoringFormatWorksForOffice(sheets, office)
-        setMonitoringFormatByOffice((prev) => ({ ...prev, [key]: extractMonitoringFormatForOffice(sheets, office) }))
+        const works = extractMonitoringFormatWorksForOffice(sheets, withZoneCircles(office))
+        setMonitoringFormatByOffice((prev) => ({ ...prev, [key]: extractMonitoringFormatForOffice(sheets, withZoneCircles(office)) }))
         setMonitoringFormatWorksByOffice((prev) => ({ ...prev, [key]: works }))
       })
       .catch(() => {
@@ -899,6 +953,46 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       .finally(() => setMfWorksLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentOfficeKey, officeMonitoringFormat, officeMonitoringFormatWorks, monitoringFormatLinks])
+
+  // A circle office with no Monitoring Format of its own picks it up from its zone's (SE) link when it is opened:
+  // the zone's workbook has a sheet per circle, so that sheet is imported here. Skipped when the circle already has
+  // data, or when the workbook has no sheet for it. Per login, like everything else in this workspace.
+  const mfZoneFilledRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const key = currentOfficeKey
+    if (!hydrated || !key || !office.circle || !office.zone) return
+    if (mfZoneFilledRef.current.has(key)) return
+    // Totals alone aren't "data": the cloud keeps a circle's totals but not its works rows, so a circle with totals and an
+    // empty works table (and no link of its own) is still filled from its zone's link.
+    if (officeMonitoringFormatWorks && officeMonitoringFormatWorks.length > 0) return
+    const zoneLink = monitoringFormatLinks[[office.corporation ?? '', office.zone, ''].join('|')]
+    // The circle's own link always wins; the zone's link is only a fallback while the circle has none at all (a link
+    // that was removed completely is stored as '', which counts as none).
+    const ownLink = monitoringFormatLinks[key]
+    if (ownLink && ownLink !== zoneLink) return
+    const link = ownLink || zoneLink
+    if (!link) return
+    mfZoneFilledRef.current.add(key)
+    setMfWorksLoading(true)
+    api
+      .importAllSheetsFromLink(link)
+      .then((sheets) => {
+        const summary = extractMonitoringFormatForOffice(sheets, withZoneCircles(office))
+        const works = extractMonitoringFormatWorksForOffice(sheets, withZoneCircles(office))
+        // Applied only if the circle still has nothing of its own: it may have imported its own link while this ran.
+        setMonitoringFormatLinks((prev) => {
+          if (prev[key] && prev[key] !== link) return prev
+          setMonitoringFormatByOffice((p) => (p[key] ? p : { ...p, [key]: summary }))
+          setMonitoringFormatWorksByOffice((p) => ((p[key]?.length ?? 0) > 0 ? p : { ...p, [key]: works }))
+          return prev[key] ? prev : { ...prev, [key]: link }
+        })
+      })
+      .catch(() => {
+        /* no sheet for this circle in the zone's workbook, or offline: stays empty */
+      })
+      .finally(() => setMfWorksLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, currentOfficeKey, monitoringFormatByOffice, officeMonitoringFormatWorks, monitoringFormatLinks])
 
   // Monitoring Format PDFs open in a preview (with Print and Save PDF) instead of going straight to a save dialog.
   const [pdfPreview, setPdfPreview] = useState<{ bytes: Uint8Array; fileName: string; onExcel?: () => Promise<unknown> } | null>(null)
@@ -926,8 +1020,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       if (!link) return false
       try {
         const sheets = await api.importAllSheetsFromLink(link)
-        works = extractMonitoringFormatWorksForOffice(sheets, office)
-        setOfficeMonitoringFormat(extractMonitoringFormatForOffice(sheets, office), works)
+        works = extractMonitoringFormatWorksForOffice(sheets, withZoneCircles(office))
+        setOfficeMonitoringFormat(extractMonitoringFormatForOffice(sheets, withZoneCircles(office)), works)
       } catch {
         return false
       }
@@ -945,8 +1039,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     if (matches.length === 0 && tileCount > 0 && currentOfficeKey && monitoringFormatLinks[currentOfficeKey]) {
       try {
         const sheets = await api.importAllSheetsFromLink(monitoringFormatLinks[currentOfficeKey])
-        works = extractMonitoringFormatWorksForOffice(sheets, office)
-        setOfficeMonitoringFormat(extractMonitoringFormatForOffice(sheets, office), works)
+        works = extractMonitoringFormatWorksForOffice(sheets, withZoneCircles(office))
+        setOfficeMonitoringFormat(extractMonitoringFormatForOffice(sheets, withZoneCircles(office)), works)
         matches = pick(works)
       } catch {
         /* keep the (empty) saved result */
@@ -1002,7 +1096,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     return (h.includes('type') && h.includes('work')) || /\bwin\b/.test(h)
   }
   function worksTableForDownload(works: MonitoringFormatWorkRow[], allWorks: MonitoringFormatWorkRow[], opts?: { dropPdfColumns?: boolean }): { headers: string[]; rows: string[][] } {
-    const t = monitoringFormatWorksTable(works, allWorks)
+    const t = monitoringFormatWorksTable(works, allWorks, currentMfHiddenCols)
     const rows = t.rows.map((r, i) => r.map((cell, c) => (c === t.slNoCol ? String(i + 1) : cell)))
     if (!opts?.dropPdfColumns) return { headers: t.headers, rows }
     // The PDF names the circle in its heading instead of repeating it on every row, and leaves out Type of Work.
@@ -1035,8 +1129,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       if (!link) return false
       try {
         const sheets = await api.importAllSheetsFromLink(link)
-        works = extractMonitoringFormatWorksForOffice(sheets, office)
-        setOfficeMonitoringFormat(extractMonitoringFormatForOffice(sheets, office), works)
+        works = extractMonitoringFormatWorksForOffice(sheets, withZoneCircles(office))
+        setOfficeMonitoringFormat(extractMonitoringFormatForOffice(sheets, withZoneCircles(office)), works)
       } catch {
         return false
       }
@@ -1057,6 +1151,102 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       const { headers, rows } = worksTableForDownload(matches, works)
       return api.exportTable({ id: 'mf-ward-works', printReady: true, name: wardLabel, path: '', headers, rows: rows.map((r) => Object.fromEntries(headers.map((h, c) => [h, r[c]]))) }, baseName)
     })
+  }
+  /**
+   * A zone-level (SE) office's Monitoring Format workbook holds a sheet per circle under it, so once its link is
+   * imported the same link is saved for each of those circles and each circle's own sheet is imported into that
+   * circle's Monitoring Format. A circle with no sheet in the workbook still gets the link. A circle that already has Monitoring Format
+   * data, or has replaced the link with its own (anything other than the zone's previous link), is skipped and left untouched. Returns a note for the card.
+   * (Runs in the same click as saveMonitoringFormatLink, so `monitoringFormatLinks` still holds the zone's previous link here.)
+   */
+  function shareMonitoringFormatWithCircles(sheets: SheetGrid[], url: string): string | void {
+    if (!isZoneOnlyOffice(office)) return
+    const circles = circlesOf(office.corporation, office.zone)
+    const links: Record<string, string> = {}
+    const summaries: Record<string, MonitoringFormatSummary> = {}
+    const works: Record<string, MonitoringFormatWorkRow[]> = {}
+    const missing: string[] = []
+    const keptOwn: string[] = []
+    const zoneKey = currentOfficeKey ? currentOfficeKey : undefined
+    const previousZoneLink = zoneKey ? monitoringFormatLinks[zoneKey] : undefined
+    let imported = 0
+    for (const c of circles) {
+      const circleOffice = normalizeOffice({ corporation: office.corporation, zone: office.zone, circle: c.circle })
+      const key = officeKey(circleOffice)
+      if (!key) continue
+      // A circle that already has its own Monitoring Format imported is left exactly as it is.
+      const own = monitoringFormatLinks[key]
+      // Data that came from the zone's link (this one or its previous one) is refreshed, so each circle's Dashboard
+      // follows the SE's workbook. Left alone: a circle with a link of its own, or data imported without any link (a file).
+      const fromZoneLink = !!own && (own === url || own === previousZoneLink)
+      if ((own && !fromZoneLink) || (!own && monitoringFormatByOffice[key] && (monitoringFormatWorksByOffice[key]?.length ?? 0) > 0)) {
+        keptOwn.push(c.circle)
+        continue
+      }
+      links[key] = url
+      try {
+        summaries[key] = extractMonitoringFormatForOffice(sheets, circleOffice)
+        works[key] = extractMonitoringFormatWorksForOffice(sheets, circleOffice)
+        imported++
+      } catch {
+        missing.push(c.circle)
+      }
+    }
+    setMonitoringFormatLinks((prev) => ({ ...prev, ...links }))
+    setMonitoringFormatByOffice((prev) => ({ ...prev, ...summaries }))
+    setMonitoringFormatWorksByOffice((prev) => ({ ...prev, ...works }))
+    return (
+      `Link also saved for ${Object.keys(links).length} circle${Object.keys(links).length === 1 ? '' : 's'} under this zone; imported ${imported} circle sheet${imported === 1 ? '' : 's'}.` +
+      (missing.length ? ` No sheet found for: ${missing.join(', ')}.` : '') +
+      (keptOwn.length ? ` Skipped (already have their own Monitoring Format): ${keptOwn.join(', ')}.` : '')
+    )
+  }
+  // Columns deleted from the Monitoring Format works table, per office, by heading text. They are left out of the
+  // table and of every download (PDF and Excel). Kept on this machine per login, so another login never sees them.
+  const mfHiddenKey = `hda-mf-hidden-cols:${loginId}`
+  const [mfHiddenCols, setMfHiddenCols] = useState<Record<string, string[]>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(mfHiddenKey) || '{}') as Record<string, string[]>
+    } catch {
+      return {}
+    }
+  })
+  const currentMfHiddenCols = (currentOfficeKey && mfHiddenCols[currentOfficeKey]) || []
+  function setCurrentMfHiddenCols(next: string[]) {
+    if (!currentOfficeKey) return
+    setMfHiddenCols((prev) => {
+      const all = { ...prev, [currentOfficeKey]: next }
+      try {
+        localStorage.setItem(mfHiddenKey, JSON.stringify(all))
+      } catch {
+        /* storage full or blocked: the choice just lasts for this session */
+      }
+      return all
+    })
+  }
+
+  // Deleting a database clears that office's data in this login only (and, through sync, in its cloud copy). The saved
+  // link is blanked (not removed, since the cloud merges maps key by key) so the office doesn't quietly re-import it.
+  function deleteWorksDatabase() {
+    if (!currentOfficeKey) return
+    if (!window.confirm('Delete this office\'s Works List database? Its works and the saved link are removed. Import the link again to get it back.')) return
+    setTables([])
+    setTablesByOffice((prev) => ({ ...prev, [currentOfficeKey]: [] }))
+    setWorksListLinks((prev) => (prev[currentOfficeKey] ? { ...prev, [currentOfficeKey]: '' } : prev))
+    setLastGoogleLink(null)
+  }
+  function deleteMonitoringFormat() {
+    if (!currentOfficeKey) return
+    if (!window.confirm('Delete this office\'s Monitoring Format data? The imported summary, works and saved link are removed. Import the link again to get it back.')) return
+    setMonitoringFormatByOffice((prev) => {
+      const { [currentOfficeKey]: _removed, ...rest } = prev
+      return rest
+    })
+    setMonitoringFormatWorksByOffice((prev) => {
+      const { [currentOfficeKey]: _removed, ...rest } = prev
+      return rest
+    })
+    setMonitoringFormatLinks((prev) => (prev[currentOfficeKey] ? { ...prev, [currentOfficeKey]: '' } : prev))
   }
   function saveMonitoringFormatLink(url: string) {
     if (currentOfficeKey) setMonitoringFormatLinks((prev) => (prev[currentOfficeKey] === url ? prev : { ...prev, [currentOfficeKey]: url }))
@@ -1198,7 +1388,29 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // rows yet, since the point of importing it is often exactly to set up
   // the right columns before adding works.
   async function importFromGoogleLink(url: string): Promise<{ added: number; table: ExcelTable }> {
-    const imported = await api.importFromLink(url)
+    return importWorksData(await api.importFromLink(url), url)
+  }
+
+  // Import file: the same mapping / office checks as the link import, fed from an Excel file on disk. Not tied to a link.
+  const [worksFileBusy, setWorksFileBusy] = useState(false)
+  async function importWorksFile() {
+    if (worksFileBusy) return
+    setWorksFileBusy(true)
+    try {
+      const picked = await api.pickExcels()
+      if (picked.length === 0) return
+      await importWorksData(picked[0])
+    } catch (e) {
+      setRefreshError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setWorksFileBusy(false)
+    }
+  }
+
+  async function importWorksData(
+    imported: Pick<ExcelTable, 'headers' | 'rows'>,
+    url?: string
+  ): Promise<{ added: number; table: ExcelTable }> {
     const rows = imported.rows.filter((row) => Object.values(row).some((v) => (v ?? '').trim() !== ''))
 
     let embeddings: { labelVectors: number[][]; columnVectors: number[][] } | undefined
@@ -1262,12 +1474,12 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     }
     setTables([result])
     setBlockedWorksList(null)
-    setLastGoogleLink(url)
+    setLastGoogleLink(url ?? null)
     setOfficeImportPrompt(null)
     // Remember this link as the current office's own Works List database, so it
     // reloads on return to this circle and syncs to the user's other systems.
     const key = officeKey(office)
-    if (key) setWorksListLinks((prev) => (prev[key] === url ? prev : { ...prev, [key]: url }))
+    if (key && url) setWorksListLinks((prev) => (prev[key] === url ? prev : { ...prev, [key]: url }))
 
     return { added: rows.length, table: result }
   }
@@ -1483,6 +1695,20 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // database (including local edits) is never erased. Only an office we've never
   // loaded before falls back to importing its link / prompting for one.
   function changeOffice(next: Office) {
+    const willSwitch =
+      (next.corporation !== office.corporation || next.zone !== office.zone || next.circle !== office.circle) &&
+      !!next.corporation &&
+      !!next.zone
+    if (!willSwitch) return applyOfficeChange(next)
+    // Show "Switching office…" right away: the switch itself re-renders big tables and can block the UI for a while,
+    // so let the indicator paint first, then do the work, then drop the indicator (unless the office is still importing).
+    setOfficeSwitching(next.circle || next.zone || 'office')
+    setTimeout(() => {
+      applyOfficeChange(next)
+      setTimeout(() => setOfficeSwitching(null), 0)
+    }, 40)
+  }
+  function applyOfficeChange(next: Office) {
     const changed =
       next.corporation !== office.corporation || next.zone !== office.zone || next.circle !== office.circle
     const prevKey = currentOfficeKey
@@ -1560,7 +1786,13 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     const build = buildStateRef.current
     if (!build || !hydrated) return 'The workspace is still loading.'
     pendingSaveRef.current = null // this push supersedes the debounced autosave
-    return api.syncNow(build()).catch((e) => (e instanceof Error ? e.message : String(e)))
+    return api
+      .syncNow(build())
+      .then((err) => {
+        if (!err) setPendingSyncBytes(0)
+        return err
+      })
+      .catch((e) => (e instanceof Error ? e.message : String(e)))
   }
 
   // Every logout (manual or idle) syncs first so the next device sees this session's last edits.
@@ -1602,8 +1834,15 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   return (
     <>
       <Skyline />
+      {(officeSwitching || officeSwitchBusy) && (
+        <div className="office-switching-overlay" role="status" aria-live="polite">
+          <div className="office-switching-box">
+            <IconRefresh className="spin" /> Switching to <strong>{officeSwitching || officeSwitchBusy}</strong>…
+          </div>
+        </div>
+      )}
       {pdfPreview && <PdfPreviewModal bytes={pdfPreview.bytes} fileName={pdfPreview.fileName} onExcel={pdfPreview.onExcel} onClose={() => setPdfPreview(null)} />}
-      <ProfileMenu username={loginId} onLogout={() => logoutRef.current()} onSync={syncNow} />
+      <ProfileMenu username={loginId} onLogout={() => logoutRef.current()} onSync={syncNow} pendingBytes={pendingSyncBytes} autoSyncBytes={AUTO_SYNC_BYTES} />
       <div className="shell">
       <Sidebar
         active={tab}
@@ -1731,50 +1970,27 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                 <IconRefresh className="spin" /> Loading <strong>{officeSwitchBusy}</strong>'s Works List…
               </div>
             )}
-            {officeImportPrompt && (
-              <div className="notice warn">
-                <IconWarn /> You changed your office to <strong>{officeImportPrompt}</strong>. Paste that office's Works
-                List link below and Import to load its database.
-              </div>
-            )}
             {refreshError && <div className="notice error">{refreshError}</div>}
             {refreshSummary && <div className="notice ok">{refreshSummary}</div>}
             {/* Works List workspace: a summary strip, then one tab bar whose selected
                 tab owns the panel directly beneath it — so it is always clear which
                 section the content below belongs to. Tabs never reflow. */}
             <div className="wl-workspace">
-              {currentTable && (
-                <div className="wl-stats" aria-label="Works List summary">
-                  <div className="wl-stat">
-                    <span className="wl-stat-label">Works</span>
-                    <span className="wl-stat-value">{currentTable.rows.length}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={`wl-stat wl-stat-action${worksListErrors.length > 0 ? ' warn' : ' ok'}`}
-                    onClick={() => setShowWincodeViolations(true)}
-                    title="Check the Works List for data problems"
-                  >
-                    <span className="wl-stat-label">To verify</span>
-                    <span className="wl-stat-value">{worksListErrors.length}</span>
-                  </button>
-                </div>
-              )}
               <div className="wl-shell">
               <div className="wl-tabbar" role="tablist" aria-label="Works List sections">
                 {(
                   [
                     {
-                      key: 'wl' as const,
-                      label: 'Works List Database',
-                      Icon: IconTable,
-                      meta: currentTable ? `${currentTable.rows.length} works` : 'Not created'
-                    },
-                    {
                       key: 'mf' as const,
                       label: 'Monitoring Format',
                       Icon: IconGrid,
                       meta: officeMonitoringFormat ? 'Imported' : 'Not imported'
+                    },
+                    {
+                      key: 'wl' as const,
+                      label: 'Works List Database',
+                      Icon: IconTable,
+                      meta: currentTable ? `${currentTable.rows.length} works` : 'Not created'
                     },
                     ...(office.circle
                       ? [{ key: 'qc' as const, label: 'Department QC / 3rd / 4th party', Icon: IconUser, meta: 'Enter once' }]
@@ -1824,6 +2040,10 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                   onImportMonitoringFormat={setOfficeMonitoringFormat}
                   monitoringFormatLink={currentOfficeKey ? monitoringFormatLinks[currentOfficeKey] : undefined}
                   onSaveMonitoringFormatLink={saveMonitoringFormatLink}
+                  onImportedFromLink={shareMonitoringFormatWithCircles}
+                  onDeleteMonitoringFormat={deleteMonitoringFormat}
+                  hiddenColumns={currentMfHiddenCols}
+                  onHiddenColumnsChange={setCurrentMfHiddenCols}
                   onExportStatusPdf={(key, label) => exportMonitoringFormatStatusWorks(key, label, 'pdf')}
                   onExportCombinedPdf={(keys, label) => exportMonitoringFormatStatusWorks(keys, label, 'pdf')}
                   onExportAbstractPdf={exportMonitoringFormatAbstract}
@@ -1842,6 +2062,31 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                     flashRows={worksFlash?.rows}
                     flashMessage={worksFlash?.message}
                     header={<GoogleLinkImport onImport={importFromGoogleLink} />}
+                    onDownloadFiltered={(t) => api.exportTable(t, `${currentTable.name || 'Works List'} (filtered)`)}
+                    toolbarActions={
+                      <>
+                        <button
+                          type="button"
+                          className={`verify-btn${worksListErrors.length > 0 ? ' verify-blinking' : ''}`}
+                          onClick={() => setShowWincodeViolations(true)}
+                          title="Check the Works List for data problems"
+                        >
+                          {worksListErrors.length > 0 ? (
+                            <>
+                              <IconWarn /> {worksListErrors.length} error{worksListErrors.length === 1 ? '' : 's'} — view
+                            </>
+                          ) : (
+                            'Verify'
+                          )}
+                        </button>
+                        <button type="button" className="ghost mf-new-btn" onClick={() => void importWorksFile()} disabled={worksFileBusy}>
+                          <IconPlus /> {worksFileBusy ? 'Importing…' : 'Import file'}
+                        </button>
+                        <button type="button" className="ghost danger-ghost" onClick={deleteWorksDatabase} title="Delete this office's Works List database">
+                          Delete database
+                        </button>
+                      </>
+                    }
                   />
                 ) : (
                   <div className="card worklist-tile-full">
@@ -1928,27 +2173,6 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
               collisions={collisions}
               resolution={resolution}
               onResolve={resolveCollision}
-            />
-          </section>
-        </KeepAlive>
-
-        <KeepAlive active={tab === 'printDoc'} mounted={mountedTabs.has('printDoc')}>
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic sky">
-                <IconPrint />
-              </div>
-              <div className="page-head-text">
-                <h1>Issue Documents</h1>
-              </div>
-            </div>
-            <PrintDocumentTab
-              tables={tables}
-              documents={bakedDocuments}
-              onChange={reorderDocuments}
-              onGoToWorksList={() => setTab('data')}
-              office={office}
-              qcParties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
             />
           </section>
         </KeepAlive>
@@ -2250,7 +2474,33 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                 <h1>Settings</h1>
               </div>
             </div>
-            <SettingsTab office={office} theme={theme} onThemeChange={changeTheme} getState={() => buildStateRef.current?.() ?? null} onRestored={applyLoadedState} />
+            <SettingsTab
+              office={office}
+              active={tab === 'settings'}
+              theme={theme}
+              onThemeChange={changeTheme}
+              getState={() => buildStateRef.current?.() ?? null}
+              onRestored={applyLoadedState}
+              monitoringWorks={officeMonitoringFormatWorks}
+              calendar={calendar}
+              noticeItems={officePendingNotices}
+              onNoticesChange={setOfficePendingNotices}
+            />
+          </section>
+        </KeepAlive>
+
+        <KeepAlive active={tab === 'manual'} mounted={mountedTabs.has('manual')}>
+          <section className="page">
+            <div className="page-head">
+              <div className="page-ic">
+                <IconBook />
+              </div>
+              <div className="page-head-text">
+                <h1>User Guide</h1>
+                <p>What the app does and how to use each feature, step by step.</p>
+              </div>
+            </div>
+            <ManualPage />
           </section>
         </KeepAlive>
         </Fragment>

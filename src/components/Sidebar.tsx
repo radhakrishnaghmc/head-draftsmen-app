@@ -23,14 +23,14 @@ import {
   IconSettings,
   IconWhatsApp,
   IconDoc,
-  IconGrid
+  IconGrid,
+  IconBook
 } from './Icons'
 
 export type TabKey =
   | 'overview'
   | 'dashboard'
   | 'data'
-  | 'printDoc'
   | 'estimateWorkspace'
   | 'techSanction'
   | 'intimation'
@@ -42,6 +42,7 @@ export type TabKey =
   | 'tools'
   | 'cementSteel'
   | 'settings'
+  | 'manual'
 
 interface Props {
   active: TabKey
@@ -157,13 +158,6 @@ export default function Sidebar(props: Props) {
       blinkRed: props.noticesOverdue
     },
     {
-      key: 'printDoc',
-      label: 'Issue Documents',
-      icon: <IconPrint />,
-      badge: props.createdDocCount || undefined,
-      tone: 'sky'
-    },
-    {
       key: 'estimateWorkspace',
       label: 'BOQ, Schedule A, Deviation & Material Quantity',
       icon: <IconDownload />,
@@ -208,6 +202,11 @@ export default function Sidebar(props: Props) {
       label: 'Settings',
       icon: <IconSettings />,
       section: 'System'
+    },
+    {
+      key: 'manual',
+      label: 'User Guide',
+      icon: <IconBook />
     }
   ]
 

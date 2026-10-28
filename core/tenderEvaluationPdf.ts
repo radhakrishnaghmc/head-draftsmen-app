@@ -1,5 +1,6 @@
 import type { NoteBidder } from './noteSubmitted'
-import { joinLines } from './tenderAgents/shared'
+import { joinLines, stripItemNoTag } from './tenderAgents/shared'
+import { extractItemNo } from './bidDocument'
 import { detectTenderId } from './tenderAgents/tenderId'
 import { detectNitNoAndDate } from './tenderAgents/nitNoAndDate'
 import { detectNameOfWork } from './tenderAgents/nameOfWork'
@@ -59,7 +60,11 @@ export interface TenderEvaluation {
  */
 export function parseTenderEvaluation(lines: string[]): TenderEvaluation {
   const joined = joinLines(lines)
-  const { noticeNo, noticeDate, itemNo } = detectNitNoAndDate(lines)
+  const { noticeNo, noticeDate, itemNo: nitItemNo } = detectNitNoAndDate(lines)
+  // The "(Item No.N)" and "(Completion Period …)" tags are bookkeeping, not part of the title: the item number is
+  // kept as its own field (the name's tag is its fallback source) and both tags are dropped from the name.
+  const rawName = detectNameOfWork(lines)
+  const itemNo = nitItemNo ?? (rawName ? extractItemNo(rawName) : undefined)
 
   // The page footer (bottom-right) prints "Server Time: 02/07/2026 03:59:31 PM"
   // — when this L1 sheet was generated. Anchored on the "Server Time"/"Server
@@ -76,7 +81,7 @@ export function parseTenderEvaluation(lines: string[]): TenderEvaluation {
     noticeDate,
     itemNo,
     serverDate: server ? `${server[1]}.${server[2]}.${server[3]}` : undefined,
-    nameOfWork: detectNameOfWork(lines),
+    nameOfWork: rawName ? stripItemNoTag(rawName) || undefined : undefined,
     ecvRupees: detectEcv(lines),
     l1AgencyName: detectL1Agency(lines),
     tenderPercentage: detectTenderPercentage(lines),

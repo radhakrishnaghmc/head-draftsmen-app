@@ -63,10 +63,10 @@ describe('corporation logo-header templates (CMC / GHMC)', () => {
 
   it('offers each office only its own corporation header', () => {
     const ids = (c?: string) => variantsForCorporation(WORK_ORDER_TEMPLATE_VARIANTS, c).map((v) => v.id)
-    expect(ids('CMC')).toEqual(['header2', 'cmc'])
-    expect(ids('GHMC')).toEqual(['header2', 'ghmc'])
-    expect(ids('MMC')).toEqual(['header2', 'mmc'])
-    expect(ids(undefined)).toEqual(['header2'])
+    expect(ids('CMC')).toEqual(['cmc'])
+    expect(ids('GHMC')).toEqual(['ghmc'])
+    expect(ids('MMC')).toEqual(['mmc'])
+    expect(ids(undefined)).toEqual([])
     expect(variantForCorporation('mmc', 'CMC')).toBeUndefined()
     expect(variantForCorporation('cmc', 'CMC')).toBe('cmc')
     expect(variantForCorporation('header2', 'GHMC')).toBe('header2')
@@ -115,7 +115,7 @@ describe('Notice logo-header templates', () => {
       expect(fs.existsSync(res(`issue-notice-template${noticeTemplateSuffix(v)}.docx`))).toBe(true)
       expect(fs.existsSync(res(`issue-notice-ee-template${noticeTemplateSuffix(v)}.docx`))).toBe(true)
     }
-    expect(variantsForCorporation(NOTICE_TEMPLATE_VARIANTS, 'GHMC').map((v) => v.id)).toEqual(['2', 'ghmc'])
-    expect(noticeTemplateSuffix('bogus')).toBe('-2')
+    expect(variantsForCorporation(NOTICE_TEMPLATE_VARIANTS, 'GHMC').map((v) => v.id)).toEqual(['ghmc'])
+    expect(noticeTemplateSuffix('bogus')).toBe('-cmc')
   })
 })

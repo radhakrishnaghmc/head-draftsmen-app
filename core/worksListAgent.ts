@@ -8,7 +8,7 @@
 import type { ExcelTable } from './types'
 import { normalizeWorkNameForMatch } from './tenderAgents/nameOfWork'
 import { lakhsToRupees, rupeesFromCell } from './worksAmounts'
-import type { MonitoringFormatSummary, MonitoringFormatWorkRow, MonitoringFormatRow } from './monitoringFormat'
+import type { MonitoringFormatSummary, MonitoringFormatWorkRow, MonitoringFormatRow, MfStatusKey } from './monitoringFormat'
 
 export interface WorksListViolation {
   type:
@@ -209,7 +209,8 @@ function normalizeAbstractLabel(s: string): string {
 function findAbstractTallyMismatches(
   abstractRows: MonitoringFormatRow[],
   works: MonitoringFormatWorkRow[],
-  groupOf: (w: MonitoringFormatWorkRow) => string
+  groupOf: (w: MonitoringFormatWorkRow) => string,
+  groupKind = 'Group'
 ): WorksListViolation[] {
   const violations: WorksListViolation[] = []
   const byGroup = new Map<string, MonitoringFormatWorkRow[]>()
@@ -224,26 +225,64 @@ function findAbstractTallyMismatches(
   for (const row of abstractRows) {
     const key = normalizeAbstractLabel(row.itemType)
     if (!key || key === 'total') continue
-    const matches = byGroup.get(key) ?? []
-    const actualNo = matches.length
-    const actualAmt = matches.reduce((sum, w) => sum + w.estimateAmt, 0)
-    const noMismatch = actualNo !== row.totalWorks.no
-    // Amounts come off a spreadsheet, so allow for float/rounding noise rather
-    // than flagging a paise-level difference that isn't a real data problem.
-    const amtMismatch = Math.abs(actualAmt - row.totalWorks.amt) >= 1
-    if (!noMismatch && !amtMismatch) continue
+    // A new-layout abstract labels a row "Category – Sub category"; the list of works usually carries just the sub category.
+    const subKey = key.includes('–') ? normalizeAbstractLabel(key.split('–').pop() ?? '') : ''
+    const matches = byGroup.get(key) ?? (subKey ? byGroup.get(subKey) : undefined) ?? []
+    violations.push(...compareBucketsToWorks(row, matches, `${groupKind} "${row.itemType}"`, row.itemType))
+  }
+  return violations
+}
+
+/** The Abstract's status columns that are real statuses (Total works is checked on its own). */
+const STATUS_COLUMNS: { key: MfStatusKey; label: string }[] = [
+  { key: 'completed', label: 'Completed' },
+  { key: 'progressTotal', label: 'In Progress' },
+  { key: 'toBeStarted', label: 'To Be Started' },
+  { key: 'tenderProcess', label: 'Tender Process' },
+  { key: 'heldUp', label: 'Held Up' },
+  { key: 'cancelled', label: 'Cancelled' }
+]
+
+/**
+ * One Abstract row (a group, or the sheet's grand total) against the list-of-works rows that belong to it: the total
+ * works, then each status — count and amount for both. Amounts come off a spreadsheet, so allow for float/rounding
+ * noise (under Rs 1 lakh-unit rounding) rather than flagging a paise-level difference that isn't a real data problem.
+ */
+function compareBucketsToWorks(
+  row: MonitoringFormatRow,
+  matches: MonitoringFormatWorkRow[],
+  subject: string,
+  key: string
+): WorksListViolation[] {
+  const violations: WorksListViolation[] = []
+  const check = (label: string, abstractNo: number, abstractAmt: number, subset: MonitoringFormatWorkRow[]) => {
+    const actualNo = subset.length
+    const actualAmt = subset.reduce((sum, w) => sum + w.estimateAmt, 0)
+    const noMismatch = actualNo !== abstractNo
+    const amtMismatch = Math.abs(actualAmt - abstractAmt) >= 1
+    if (!noMismatch && !amtMismatch) return
     const parts: string[] = []
-    if (noMismatch) {
-      parts.push(`${row.totalWorks.no} work${row.totalWorks.no === 1 ? '' : 's'} in the Abstract vs ${actualNo} in the list of works`)
-    }
-    if (amtMismatch) {
-      parts.push(`Rs ${rupeeFigure(row.totalWorks.amt)} in the Abstract vs Rs ${rupeeFigure(actualAmt)} in the list of works`)
-    }
+    if (noMismatch) parts.push(`${abstractNo} work${abstractNo === 1 ? '' : 's'} in the Abstract vs ${actualNo} in the list of works`)
+    if (amtMismatch) parts.push(`Rs ${rupeeFigure(abstractAmt)} in the Abstract vs Rs ${rupeeFigure(actualAmt)} in the list of works`)
     violations.push({
       type: 'mf-abstract-mismatch',
-      key: row.itemType,
+      key: `${key}|${label}`,
       rowIndices: [],
-      message: `"${row.itemType}": ${parts.join(' and ')} — Abstract and list of works don't tally.`
+      message: `${subject} — ${label}: ${parts.join(' and ')}.`
+    })
+  }
+  check('Total works', row.totalWorks.no, row.totalWorks.amt, matches)
+  for (const st of STATUS_COLUMNS) {
+    check(st.label, row[st.key].no, row[st.key].amt, matches.filter((w) => w.statusKey === st.key))
+  }
+  // The Abstract's own arithmetic: the statuses should add up to the total works.
+  const statusSum = STATUS_COLUMNS.reduce((sum, st) => sum + row[st.key].no, 0)
+  if (statusSum !== row.totalWorks.no) {
+    violations.push({
+      type: 'mf-abstract-mismatch',
+      key: `${key}|sum`,
+      rowIndices: [],
+      message: `${subject}: the Abstract's statuses add up to ${statusSum} work${statusSum === 1 ? '' : 's'} but its Total works says ${row.totalWorks.no}.`
     })
   }
   return violations
@@ -258,10 +297,13 @@ export function findMonitoringFormatMismatches(
   summary: MonitoringFormatSummary,
   works: MonitoringFormatWorkRow[]
 ): WorksListViolation[] {
-  const violations = findAbstractTallyMismatches(summary.rows, works, (w) => w.typeOfWork)
+  // The sheet's grand total (total works and every status) against every work in the list.
+  const violations = compareBucketsToWorks(summary.totals, works, 'Abstract total', 'total')
+  violations.push(...findAbstractTallyMismatches(summary.rows, works, (w) => w.typeOfWork, 'Work type'))
   if (summary.wardRows) {
-    const groupOf = summary.wardPivotKind === 'circle' ? (w: MonitoringFormatWorkRow) => w.circle : (w: MonitoringFormatWorkRow) => w.ward
-    violations.push(...findAbstractTallyMismatches(summary.wardRows, works, groupOf))
+    const byCircle = summary.wardPivotKind === 'circle'
+    const groupOf = byCircle ? (w: MonitoringFormatWorkRow) => w.circle : (w: MonitoringFormatWorkRow) => w.ward
+    violations.push(...findAbstractTallyMismatches(summary.wardRows, works, groupOf, byCircle ? 'Circle' : 'Ward'))
   }
   return violations
 }

@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import { type Office, officeScopedKey, TEMPLATE_KEYS, TEMPLATE_VARIANT_CHANGED_EVENT, isZoneOnlyOffice } from '../office'
 import { corporationByName } from '../zoneCircleDirectory'
+import MassNoticesWorkspace from './MassNoticesWorkspace'
+import type { MonitoringFormatWorkRow } from '@core/monitoringFormat'
+import type { CalendarData } from '@core/calendar'
+import type { PendingNoticeItem } from '@core/types'
 import {
   WORK_ORDER_TEMPLATE_VARIANTS,
   variantsForCorporation,
@@ -44,16 +48,26 @@ import { THEME_OPTIONS, type ThemeId } from '../theme'
 import type { ActiveSessionInfo, ActivityLogEntry, BackupResult } from '../../electron/ipc-contract'
 import type { PersistedState } from '@core/types'
 import { base64ToUint8, renderDocPreview } from './docPage'
-import { IconSettings, IconCheck, IconWarn, IconOpen, IconUser, IconLogout, IconChevronRight } from './Icons'
+import { IconSettings, IconCheck, IconWarn, IconOpen, IconUser, IconLogout, IconChevronRight, IconChevronLeft, IconBell, IconFolder, IconCloud, IconSun, IconDoc } from './Icons'
+
+type SettingsSection = 'devices' | 'backup' | 'themes' | 'templates' | 'massNotices'
 
 interface Props {
   office: Office
+  /** False while another top-level tab is showing — the Mass Notices workspace resets then. */
+  active: boolean
   theme: ThemeId
   onThemeChange: (theme: ThemeId) => void
   /** The workspace as it is on screen right now (including edits not yet autosaved). */
   getState: () => PersistedState | null
   /** Applies a restored workspace to the live screen (App's applyLoadedState). */
   onRestored: (state: PersistedState) => void
+  /** This office's Monitoring Format work rows — Generate Mass Notices reads the Agreement column. */
+  monitoringWorks?: MonitoringFormatWorkRow[]
+  calendar: CalendarData | null
+  /** This office's Notice tiles (Issue Notices → Agreement not Concluded) and their setter. */
+  noticeItems: PendingNoticeItem[]
+  onNoticesChange: (next: PendingNoticeItem[]) => void
 }
 
 // Deliberately long/realistic values (not blank, not short) — a preview built
@@ -656,42 +670,20 @@ function ThemeSection({ theme, onThemeChange }: { theme: ThemeId; onThemeChange:
  * (see CONTACT_KEYS). One TemplateSection per document type — a future
  * document type is just another entry in the list below.
  */
-export default function SettingsTab({ office, theme, onThemeChange, getState, onRestored }: Props) {
+export default function SettingsTab({ office, active, theme, onThemeChange, getState, onRestored, monitoringWorks, calendar, noticeItems, onNoticesChange }: Props) {
   const fields = useMemo(
     () => sampleFields(office),
     [office.circle, office.circleNumber, office.zone, office.corporation]
   )
-  const [themesOpen, setThemesOpen] = useState(false)
+  // Settings opens as a list of section tiles (like the Tools tab); each opens as a workspace with Back.
+  const [section, setSection] = useState<SettingsSection | null>(null)
+  // Settings stays mounted across tab switches; leaving it returns to the list (and resets Mass Notices).
+  useEffect(() => {
+    if (!active) setSection(null)
+  }, [active])
   const currentTheme = THEME_OPTIONS.find((o) => o.id === theme)
 
-  return (
-    <>
-      <ActiveDevicesCard />
-      <BackupRestoreCard getState={getState} onRestored={onRestored} />
-
-      <div className="card">
-        <button
-          type="button"
-          className="card-head settings-section-toggle settings-card-head-toggle"
-          onClick={() => setThemesOpen((o) => !o)}
-          aria-expanded={themesOpen}
-        >
-          <div className="head-ic">
-            <IconSettings />
-          </div>
-          <span className="settings-section-toggle-titles">
-            <h2>Themes</h2>
-            <p className="sub">Try a different look for this app on this device.</p>
-          </span>
-          <div className="settings-section-head-actions">
-            {currentTheme && <span className="settings-section-current">{currentTheme.label}</span>}
-            <IconChevronRight className={`settings-section-chevron ${themesOpen ? 'open' : ''}`} />
-          </div>
-        </button>
-
-        {themesOpen && <ThemeSection theme={theme} onThemeChange={onThemeChange} />}
-      </div>
-
+  const templatesCard = (
       <div className="card">
         <div className="card-head">
           <div className="head-ic">
@@ -807,6 +799,74 @@ export default function SettingsTab({ office, theme, onThemeChange, getState, on
           placeholders={noticeSettingsPlaceholders}
         />
       </div>
-    </>
+  )
+
+  const tiles: { key: SettingsSection; icon: ReactNode; name: string; meta: string }[] = [
+    { key: 'devices', icon: <IconUser />, name: 'Active Devices', meta: 'See where you are signed in and sign devices out' },
+    { key: 'backup', icon: <IconCloud />, name: 'Backup & Restore', meta: 'Save your workspace to a file or restore it' },
+    { key: 'themes', icon: <IconSun />, name: 'Themes', meta: `Look of the app on this device${currentTheme ? ` · ${currentTheme.label}` : ''}` },
+    { key: 'templates', icon: <IconDoc />, name: 'Document Templates', meta: "Choose this office's default style for each document" },
+    { key: 'massNotices', icon: <IconBell />, name: 'Mass Notices', meta: 'Generate non-conclusion notices from a folder' }
+  ]
+
+  if (section === 'massNotices') {
+    return (
+      <MassNoticesWorkspace
+        office={office}
+        monitoringWorks={monitoringWorks}
+        calendar={calendar}
+        items={noticeItems}
+        onChange={onNoticesChange}
+        onBack={() => setSection(null)}
+      />
+    )
+  }
+
+  if (section) {
+    const current = tiles.find((t) => t.key === section)!
+    return (
+      <>
+        <div className="pdf-ws-topbar">
+          <div className="pdf-ws-title">{current.name}</div>
+          <button className="ghost pdf-ws-back" onClick={() => setSection(null)}>
+            <IconChevronLeft /> Back
+          </button>
+        </div>
+        {section === 'devices' && <ActiveDevicesCard />}
+        {section === 'backup' && <BackupRestoreCard getState={getState} onRestored={onRestored} />}
+        {section === 'themes' && (
+          <div className="card">
+            <div className="card-head">
+              <div className="head-ic">
+                <IconSettings />
+              </div>
+              <div className="titles">
+                <h2>Themes</h2>
+                <p className="sub">Try a different look for this app on this device.</p>
+              </div>
+            </div>
+            <ThemeSection theme={theme} onThemeChange={onThemeChange} />
+          </div>
+        )}
+        {section === 'templates' && templatesCard}
+      </>
+    )
+  }
+
+  return (
+    <div className="card">
+      <div className="doc-tile-grid tools-grid notice-kind-grid">
+        {tiles.map((t) => (
+          <button key={t.key} className="doc-tile-card tone-green tool-card" onClick={() => setSection(t.key)}>
+            <span className="tool-card-ic">{t.icon}</span>
+            <span className="doc-tile-card-name">{t.name}</span>
+            <span className="doc-tile-card-meta">{t.meta}</span>
+            <span className="tool-card-cta">
+              <IconFolder /> Open workspace
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }

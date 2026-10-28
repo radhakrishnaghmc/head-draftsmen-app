@@ -453,6 +453,39 @@ body.theme-cyan .sidebar-art-bg {
   top: 28px;
   right: 24px;
   z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.profile-sync:disabled {
+  cursor: default;
+}
+.profile-sync-busy svg {
+  animation: profile-sync-spin 0.9s linear infinite;
+}
+.profile-sync-done {
+  color: var(--success, #16a34a);
+}
+.profile-sync-failed {
+  color: var(--danger);
+}
+.profile-sync-pending {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.profile-sync-error {
+  max-width: 260px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--danger);
+}
+@keyframes profile-sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 /* Paper theme: offset by the floating shell's 18px canvas inset (see
    #root/.shell above) so the badge still sits just inside the shell's
@@ -12036,7 +12069,12 @@ body.theme-aurora .pdf-ws-page.on {
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
   text-align: left;
-  padding: 8px 10px;
+  /* Compact, auto-height heading: as tall as its wrapped text needs and no more. */
+  height: auto;
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1.25;
+  vertical-align: middle;
   font-weight: 650;
   color: var(--muted);
   white-space: normal;
@@ -12065,10 +12103,9 @@ body.theme-aurora .pdf-ws-page.on {
   position: relative;
 }
 .mf-th-filter {
-  display: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: 6px;
   padding: 2px 4px;
   vertical-align: middle;
   border: 1px solid var(--border);
@@ -12076,11 +12113,6 @@ body.theme-aurora .pdf-ws-page.on {
   background: var(--surface);
   color: var(--muted);
   cursor: pointer;
-}
-.mf-th:hover .mf-th-filter,
-.mf-th-filter.on,
-.mf-th-filter.open {
-  display: inline-flex;
 }
 .mf-th-filter.on {
   color: var(--teal-500);
@@ -13495,6 +13527,14 @@ mark.doc-hl {
 }
 .ntc-board .notice-nit-group .wo-tiles {
   margin-top: 12px;
+  /* Same side-by-side tile grid as the Agreement / Work Order pages. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.ntc-board .notice-nit-group .wo-tiles > .wo-tile {
+  min-width: 0;
 }
 
 /* Issue Notices — compact command-bar variant (supersedes the sidebar layout above) */
@@ -16110,4 +16150,478 @@ body.theme-play .cal-month-missing {
   min-width: 52px;
   font-weight: 700;
   text-transform: capitalize;
+}
+
+/* A ghost button whose action destroys data (e.g. Delete database). */
+button.ghost.danger-ghost {
+  color: var(--danger);
+}
+button.ghost.danger-ghost:hover:not(:disabled) {
+  background: var(--danger-bg);
+}
+
+/* Filter / delete-column buttons on the works-table headings: only shown while the matching toolbar button (Filter / Delete columns) is switched on, tucked into the heading's top-right corner. */
+.mf-th-tools {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: inline-flex;
+  gap: 3px;
+}
+body .mf-th .mf-th-tools button {
+  /* !important: the Play theme's blanket pill-button rule (40px tall, 24px side padding) is more specific than this and was stretching the funnel / × buttons out of shape. */
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  margin: 0;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border) !important;
+  border-radius: 4px !important;
+  background: var(--surface) !important;
+  color: var(--muted) !important;
+  font-size: 14px;
+  line-height: 1;
+  box-shadow: none !important;
+  cursor: pointer;
+}
+body .mf-th .mf-th-tools button:hover {
+  background: var(--surface-2, rgba(0, 0, 0, 0.06)) !important;
+}
+body .mf-th .mf-th-tools .mf-th-delete:hover {
+  color: var(--danger) !important;
+  background: var(--danger-bg) !important;
+}
+body .mf-th .mf-th-tools .mf-th-filter.on {
+  color: var(--teal-500) !important;
+  border-color: var(--teal-500) !important;
+}
+/* A toolbar toggle (Filter / Delete columns) that is currently switched on. */
+button.ghost.mf-mode-on {
+  background: var(--surface-2, rgba(0, 0, 0, 0.08));
+  border-color: var(--teal-500);
+  color: var(--teal-500);
+}
+
+/* The funnel / × glyphs keep their own size inside the 20px buttons (no stretching by global svg / button rules). */
+body .mf-th .mf-th-tools button svg {
+  display: block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+/* The Monitoring Format Verify results popup: wide, scrolls inside, errors grouped by part of the sheet. */
+.confirm-modal.mf-verify-modal {
+  position: relative;
+  width: min(760px, 92vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+.mf-verify-groups {
+  overflow-y: auto;
+  min-height: 0;
+  text-align: left;
+}
+.mf-verify-groups h4 {
+  margin: 12px 0 4px;
+  font-size: 13px;
+}
+body .mf-verify-modal .mf-verify-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none !important;
+  border-radius: 50% !important;
+  background: transparent !important;
+  color: var(--muted) !important;
+  box-shadow: none !important;
+  cursor: pointer;
+}
+body .mf-verify-modal .mf-verify-close:hover {
+  background: var(--surface-2, rgba(0, 0, 0, 0.08)) !important;
+  color: var(--text) !important;
+}
+.mf-verify-modal .mf-verify-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Placeholder / example text ("e.g. 57") is kept clearly lighter than typed text, so an empty field is never mistaken for a filled one. */
+body input::placeholder,
+body textarea::placeholder,
+body.theme-play input::placeholder,
+body.theme-play textarea::placeholder {
+  color: rgba(100, 108, 120, 0.42);
+  opacity: 1;
+  font-style: italic;
+}
+
+/* The Filter toolbar button turns solid blue while the database is filtered, so a filtered list is never mistaken for the full one. */
+button.ghost.mf-filter-applied,
+body.theme-play button.ghost.mf-filter-applied {
+  background: #0b57d0 !important;
+  border-color: #0b57d0 !important;
+  color: #fff !important;
+}
+button.ghost.mf-filter-applied:hover:not(:disabled) {
+  background: #0a49ad !important;
+}
+
+/* In the Works List database a heading's filter / delete buttons sit inline in the heading, not pinned to the corner. */
+.sheet .mf-th-tools {
+  position: static;
+}
+
+/* The sidebar's office line (Corporation · Zone · Circle · No.) wraps onto a second line instead of being cut with "…", so the circle's full name always shows. */
+body .side-brand p,
+body.theme-play .side-brand p {
+  max-width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Works List page: the tab row (Monitoring Format / Works List Database / QC) sits right under the page header, no gap. */
+body.theme-play .page:has(.wl-workspace) {
+  gap: 0;
+}
+body.theme-play .page:has(.wl-workspace) > .page-head {
+  padding-bottom: 8px;
+  margin-bottom: 0;
+}
+body.theme-play .page:has(.wl-workspace) .wl-workspace {
+  gap: 0;
+  margin-top: 0;
+}
+
+/* The Works List tab row (Monitoring Format / Works List Database / QC) is locked: it stays under the page header while the database below scrolls. overflow: clip (not hidden) keeps the rounded corners without making the card a scroll container, which would break the sticky. */
+.wl-shell {
+  overflow: clip;
+}
+.wl-tabbar {
+  position: sticky;
+  top: var(--wl-head-h, 0px);
+  z-index: 4;
+}
+
+/* Lock the contents too: the tab row is opaque, and the toolbar of the open section (Filter / Delete columns / … ) stays pinned right under it, so scrolled content passes beneath them instead of showing through. */
+.wl-tabbar {
+  background: var(--surface-2, #f1f3f4) !important;
+  box-shadow: 0 1px 0 var(--border);
+}
+.wl-panel .sheet-inline {
+  overflow: clip;
+}
+.wl-panel .sheet-toolbar,
+.wl-panel .mf-body-toolbar {
+  position: sticky;
+  top: calc(var(--wl-head-h, 0px) + var(--wl-tabs-h, 0px));
+  z-index: 3;
+  background: var(--surface, #fff);
+  margin-bottom: 0;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+/* Every page's tab row (Intimation / Estimate doc tabs, To Do and MB Scrutiny tabs) is locked under the page header too, so it stays put while the content below scrolls. */
+.page .doc-tabs,
+.page .mb-tabs {
+  position: sticky;
+  top: var(--wl-head-h, 0px);
+  z-index: 4;
+}
+.page .mb-tabs {
+  background: var(--surface, #fff);
+  padding: 6px 0;
+}
+
+/* The Works List workspace page hides its own scrollbar (it still scrolls with wheel / trackpad); the database table keeps its own scrollbars. */
+.page:has(.wl-workspace) {
+  scrollbar-width: none;
+  padding-right: 0;
+}
+.page:has(.wl-workspace)::-webkit-scrollbar {
+  display: none;
+  width: 0;
+}
+
+/* Reaching the end of the database list must not hand the scroll to the page behind it (which made the whole workspace scroll up). */
+.wl-panel .sheet-wrap,
+.wl-panel .sheet-inline {
+  overscroll-behavior: contain;
+}
+.page:has(.wl-workspace) {
+  overscroll-behavior: none;
+}
+
+/* The database table fills the window down to the bottom, however tall (maximized): the old 900px cap left an empty strip under it. */
+.wl-panel .sheet-inline .sheet-wrap {
+  height: var(--wl-wrap-h, max(420px, calc(100vh - 440px)));
+}
+
+/* Monitoring Format database: same fill-to-the-bottom sizing as the Works List database, and its scroll end doesn't pass to the page. */
+.wl-panel .mf-works-wrap {
+  max-height: none;
+  height: var(--wl-mf-wrap-h, max(420px, calc(100vh - 440px)));
+  overscroll-behavior: contain;
+}
+
+/* "Switching to <office>…" — shown the moment another office is clicked, over every page, until its data has loaded. */
+.office-switching-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.18);
+  cursor: progress;
+}
+.office-switching-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 22px;
+  font-size: 15px;
+  color: var(--text, #1f2937);
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+.office-switching-box svg.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+/* ---- Usage Manual ---- */
+.man-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; align-items: start; }
+.man-toc { position: sticky; top: 120px; max-height: calc(100vh - 200px); overflow: auto; padding: 12px; }
+.man-search { width: 100%; margin-bottom: 8px; }
+.man-toc-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 12px 0 2px; }
+.man-toc .man-toc-link { display: block; width: 100%; height: auto; min-height: 0; text-align: left; background: none; border: 0; border-radius: 4px; box-shadow: none; padding: 4px 6px; font-size: 13px; font-weight: 400; color: var(--text-2); cursor: pointer; }
+.man-toc .man-toc-link:hover { background: var(--indigo-50); color: var(--indigo-700); }
+.man-content { min-width: 0; }
+.man-intro p, .man-summary { color: var(--text-2); line-height: 1.55; }
+.man-group { margin: 26px 0 12px; font-size: 20px; padding-bottom: 6px; border-bottom: 2px solid var(--indigo-200); scroll-margin-top: 120px; }
+.man-feature { margin-bottom: 16px; scroll-margin-top: 120px; }
+.man-feature h3 { margin: 0 0 4px; font-size: 17px; }
+.man-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 360px); gap: 20px; margin-top: 12px; align-items: start; }
+@media (max-width: 1100px) { .man-layout, .man-body { grid-template-columns: 1fr; } .man-toc { position: static; max-height: none; } }
+.man-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.man-steps li { display: flex; gap: 8px; line-height: 1.5; font-size: 13.5px; }
+.man-badge { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--indigo-600); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.man-tip { margin: 12px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); color: var(--warn); font-size: 13px; }
+.man-shot { width: 100%; border-radius: 10px; border: 1px solid var(--border-strong); box-shadow: var(--shadow-md); }
+.man-mock { border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 10px; overflow: hidden; background: #fff; box-shadow: var(--shadow-md); font-size: 11px; color: #333; }
+.man-mock-main { padding: 10px 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.man-mock-crumb { font-size: 11px; color: #888; padding-bottom: 6px; border-bottom: 1px solid #eee; }
+.man-mock-crumb b { color: var(--indigo-700); }
+.man-mock-row { display: flex; gap: 8px; align-items: flex-start; }
+.man-mock-row > :last-child { flex: 1; min-width: 0; }
+.man-mock-row .man-badge { width: 18px; height: 18px; font-size: 10px; margin-top: 2px; }
+.man-mock-btn { display: inline-block; padding: 5px 12px; border-radius: 6px; background: var(--indigo-600); color: #fff; font-weight: 600; flex: none !important; }
+.man-mock-upload { display: block; padding: 10px; border: 1.5px dashed var(--indigo-500); border-radius: 6px; text-align: center; color: var(--indigo-700); }
+.man-mock-tiles { display: flex; flex-wrap: wrap; gap: 6px; }
+.man-mock-tile { padding: 9px 8px; border-radius: 6px; background: var(--indigo-50); border: 1px solid var(--indigo-200); min-width: 70px; text-align: center; }
+.man-mock-table { display: grid; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; }
+.man-mock-table b { background: #eef0f3; padding: 4px 5px; font-weight: 600; }
+.man-mock-table i { height: 14px; border-top: 1px solid #eee; background: linear-gradient(90deg, #e4e4e4 60%, transparent 60%) no-repeat 5px 50% / 70% 4px; }
+.man-mock-fields { display: flex; flex-direction: column; gap: 5px; }
+.man-mock-field { padding: 5px 7px; border: 1px solid #ccc; border-radius: 4px; color: #888; }
+.man-mock-page { background: #fafafa; border: 1px solid #ddd; padding: 8px; border-radius: 3px; display: flex; flex-direction: column; gap: 5px; }
+.man-mock-page span { font-weight: 600; text-align: center; }
+.man-mock-page i { height: 4px; background: #ddd; border-radius: 2px; }
+.man-mock-tabs { display: flex; gap: 5px; }
+.man-mock-tabs span { padding: 3px 9px; border-radius: 12px; background: #eef0f3; }
+.man-mock-tabs span.on { background: var(--indigo-600); color: #fff; }
+.man-mock-list { display: flex; flex-direction: column; gap: 4px; }
+.man-mock-list span { padding: 5px 7px; border: 1px solid #e3e3e3; border-radius: 4px; }
+
+/* Usage guide — step-by-step demo */
+.man-mock-main { position: relative; }
+.man-mock-crumb { display: flex; align-items: center; gap: 4px; }
+.man-caption { margin-left: auto; font-style: normal; font-weight: 700; color: var(--indigo-700); }
+.man-mock-row { transition: opacity 0.4s, transform 0.4s; }
+.man-mock-row.ph-pending { opacity: 0.4; }
+.man-mock-row.ph-active { opacity: 1; transform: scale(1.01); }
+.man-mock-row.ph-active .man-badge { background: var(--rose-500); box-shadow: 0 0 0 5px rgba(236, 58, 96, 0.2); }
+.man-mock-row.ph-done .man-badge { background: var(--ok); }
+.man-steps li { padding: 6px 8px; border-radius: 8px; border-left: 3px solid transparent; transition: background 0.3s, border-color 0.3s; }
+.man-steps li.on { background: var(--indigo-50); border-left-color: var(--indigo-600); }
+.man-steps li.on .man-badge { background: var(--rose-500); }
+.man-mock-upload { position: relative; overflow: hidden; }
+.man-bar { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--indigo-500); }
+.man-bar.go { animation: man-load 2s ease-out forwards; }
+.man-mock-btn { transition: background 0.3s; }
+.ph-active .man-mock-btn { animation: man-press 0.6s ease 0.9s both; }
+.ph-done .man-mock-btn { background: var(--ok); }
+.man-mock-tile { transition: all 0.3s; }
+.man-mock-tile.sel { background: var(--indigo-600); color: #fff; border-color: var(--indigo-600); box-shadow: 0 3px 8px rgba(36, 134, 64, 0.4); }
+.man-mock-table i { background-size: 0 4px; transition: background-size 0.5s ease; }
+.man-mock-table i.full { background-size: 70% 4px; }
+.man-mock-field { transition: border-color 0.3s, background 0.3s; overflow: hidden; white-space: nowrap; }
+.man-mock-field.filled { border-color: var(--indigo-500); background: var(--indigo-50); color: #222; }
+.man-type { display: inline-block; overflow: hidden; vertical-align: bottom; white-space: nowrap; max-width: 0; animation: man-typing 0.9s steps(22, end) forwards; }
+.man-mock-page { position: relative; }
+.man-mock-page i { transform: scaleX(0); transform-origin: left; transition: transform 0.5s ease; }
+.man-mock-page i.full { transform: scaleX(1); background: #bbb; }
+.man-stamp { position: absolute; right: 6px; bottom: 6px; font-style: normal; font-weight: 700; color: var(--ok); border: 1.5px solid var(--ok); border-radius: 4px; padding: 1px 6px; transform: rotate(-6deg); animation: man-pop 0.4s ease both; }
+.man-mock-list span { transition: background 0.4s, border-color 0.4s; }
+.man-mock-list span.hit { background: var(--indigo-50); border-color: var(--indigo-500); }
+.man-mock-tabs span { transition: all 0.3s; }
+.man-cursor { position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none; z-index: 3; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35)); transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s; }
+.man-feature { opacity: 0; transform: translateY(14px); animation: man-card-in 0.5s ease forwards; }
+@keyframes man-load { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@keyframes man-typing { to { max-width: 100%; } }
+@keyframes man-press { 0%, 100% { transform: scale(1); } 50% { transform: scale(0.9); } }
+@keyframes man-pop { from { opacity: 0; transform: rotate(-6deg) scale(1.8); } to { opacity: 1; transform: rotate(-6deg) scale(1); } }
+@keyframes man-card-in { to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .man-feature { opacity: 1; transform: none; animation: none; }
+  .man-mock *, .man-cursor { transition: none !important; animation: none !important; }
+  .man-type { max-width: 100%; }
+}
+
+/* Settings → Mass Notices workspace. Uses the theme's own variables, so under
+   Play it picks up the tonal (#f0f4f9) surfaces, borderless cards and pill shapes. */
+.mass-notices-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.mass-notices-upload {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 28px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.mass-notices-upload .sub {
+  margin: 0;
+  max-width: 460px;
+}
+.mass-notices-upload button {
+  border-radius: 999px;
+}
+.mass-notices-progress {
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.mass-notices-progress-label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.mass-notices-progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--play-active, var(--border));
+  overflow: hidden;
+}
+.mass-notices-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--indigo-600, #2563eb);
+  transition: width 0.2s var(--ease);
+}
+.mass-notices-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+.mass-notice-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  animation: mass-notice-in 0.25s var(--ease);
+}
+body:not(.theme-play) .mass-notice-tile {
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+@keyframes mass-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.mass-notice-tile-work {
+  font-size: 13px;
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mass-notice-tile-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+.mass-notice-badge {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  background: var(--play-active, var(--surface-2));
+  color: var(--indigo-700, var(--text));
+}
+.mass-notice-badge.overdue {
+  background: var(--danger-bg, #fce8e6);
+  color: var(--danger, #dc2626);
+}
+.mass-notices-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.mass-notices-table td {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.mass-notices-skipped {
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.mass-notices-skipped summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* Reminders / Mass Notices: use the whole workspace width so the tile grid fits as many columns as the window allows. */
+.ntc-workspace,
+.ntc-board,
+.ntc-board .notice-nit-group,
+.mass-notices-body .notice-nit-group {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+.ntc-board .notice-nit-group .wo-tiles,
+.mass-notices-tiles {
+  width: 100%;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
 }

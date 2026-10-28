@@ -80,8 +80,6 @@ extraResources:
     to: bid-document-template.docx
   - from: resources/bid-document-se-template.docx
     to: bid-document-se-template.docx
-  - from: resources/intimation-template-2.docx
-    to: intimation-template-2.docx
   - from: resources/intimation-template-mmc.docx
     to: intimation-template-mmc.docx
   - from: resources/intimation-template-cmc.docx
@@ -94,8 +92,6 @@ extraResources:
     to: fonts/Carlito-Bold.ttf
   - from: resources/fonts/NotoSansTelugu-Regular.ttf
     to: fonts/NotoSansTelugu-Regular.ttf
-  - from: resources/work-order-template-header2.docx
-    to: work-order-template-header2.docx
   - from: resources/work-order-template-mmc.docx
     to: work-order-template-mmc.docx
   - from: resources/work-order-template-cmc.docx
@@ -196,10 +192,6 @@ extraResources:
     to: ts-note-template.docx
   - from: resources/eligibility-criteria-template.docx
     to: eligibility-criteria-template.docx
-  - from: resources/issue-notice-template-2.docx
-    to: issue-notice-template-2.docx
-  - from: resources/issue-notice-ee-template-2.docx
-    to: issue-notice-ee-template-2.docx
   - from: resources/issue-notice-template-mmc.docx
     to: issue-notice-template-mmc.docx
   - from: resources/issue-notice-template-cmc.docx

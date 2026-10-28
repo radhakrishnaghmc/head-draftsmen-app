@@ -16,15 +16,26 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.48.0',
+    changes: [
+      'New: Settings → Mass Notices. Pick a folder of L-1 sheets and LOAs and every pending Notice for Non-conclusion of Agreement is made in one go, for your office only.',
+      'A work with no LOA can still get its notice if its Supplier Details page matches the L-1 (same Tender ID and agency). Works whose Agreement date is already in the Monitoring Format are skipped.',
+      'Settings now opens as a list of tiles in the Play style, like the Tools page.',
+      'Reminders: notices are grouped by the date the Intimation was issued, each tile shows its NIT No and date, tiles fill the window width, and a Remove duplicates button clears repeat notices of the same tender.',
+      'Notices now sync across devices without one device overwriting another.',
+      'Fixed: "Dated:" was being left on the end of the NIT No read from Intimation letters.'
+    ]
+  },
+  {
     version: '1.47.2',
-    changes: ['Stability issues fixed.'],
+    changes: ['Stability issues fixed.']
   },
   {
     version: '1.47.1',
     changes: [
       'MB Measurement scan: sideways or upside-down pages are now turned upright automatically.',
-      'MB Measurement scan: table lines are found more reliably on faint or unevenly lit photos, and empty cells are no longer mistaken for filled ones.',
-    ],
+      'MB Measurement scan: table lines are found more reliably on faint or unevenly lit photos, and empty cells are no longer mistaken for filled ones.'
+    ]
   },
   {
     version: '1.47.0',
@@ -58,14 +69,12 @@ export const CHANGELOG: ChangelogEntry[] = [
   },
   {
     version: '1.45.1',
-    changes: [
-      'Works List search bar restyled to match the new look: a single clean pill with no extra box inside.'
-    ]
+    changes: ['Works List search bar restyled to match the new look: a single clean pill with no extra box inside.']
   },
   {
     version: '1.45.0',
     changes: [
-      'Monitoring Format: the works list now follows the sheet\'s own column order (up to Remarks), wraps Remarks, and loads quickly. If only the totals were saved, the works are re-read from your link automatically.',
+      "Monitoring Format: the works list now follows the sheet's own column order (up to Remarks), wraps Remarks, and loads quickly. If only the totals were saved, the works are re-read from your link automatically.",
       'Monitoring Format PDFs: Legal landscape, Circle and Ward in the heading, at least 9 works per page, and a new Abstract tile that downloads the one-page Abstract exactly like the online sheet.',
       'New "Custom" tile in Monitoring Format: tick any combination of statuses (for example In Progress + Tender Process + Completed) and download them together as one PDF.',
       'Zone-level PDFs now include the circle and ward of every work.',
@@ -75,7 +84,7 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: '1.44.0',
     changes: [
-      'Sync fix: each office\'s Works List is now stored online separately, so syncing no longer fails once several offices have data. Saved tender conditions and everything else now reach your other devices again.',
+      "Sync fix: each office's Works List is now stored online separately, so syncing no longer fails once several offices have data. Saved tender conditions and everything else now reach your other devices again.",
       'The Sync across devices button now shows the exact reason if a sync fails.',
       'Update every device to this version so they all sync with each other.'
     ]
@@ -110,7 +119,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '1.41.0',
     changes: [
       'Evaluation Sheet: the tender conditions now show on screen under each uploaded tender — add, remove or reword them before downloading.',
-      'Evaluation Sheet: type a Tender ID to save that tender\'s conditions in the app while the tender is still open; they are reused when you evaluate it after bidding closes, and removed a week after the sheet is made.',
+      "Evaluation Sheet: type a Tender ID to save that tender's conditions in the app while the tender is still open; they are reused when you evaluate it after bidding closes, and removed a week after the sheet is made.",
       'Evaluation Sheet: the caste-certificate and one-work-per-agency conditions appear only for reserved works (SC, ST, Waddera or any other category).',
       'Evaluation Sheet: when the ECV is below ₹5 lakhs you are asked whether the estimate is too — Yes removes the 3AN-B conditions and rows.',
       'Evaluation Sheet: the file is named "Evaluation Sheet <Tender ID>", rows now fit long work names and conditions, and the Tender ID, work name and bidders are read more reliably from printed portal pages.',
@@ -131,7 +140,7 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: '1.39.0',
     changes: [
-      'Search Tender: a new Action column with a View button opens the tender\'s full details from the portal inside the app.',
+      "Search Tender: a new Action column with a View button opens the tender's full details from the portal inside the app.",
       'Evaluation Sheet: when you upload a View Bidders PDF, the app now finds the tender on the portal and uses its own list of required documents as the conditions, instead of the fixed list.',
       'Evaluation Sheet: the 3AN-B rows now appear only for works whose estimate amount (from the Works List) is above 5 lakhs.',
       'Evaluation Sheet: if the work is not on the Works List and the ECV is 5 lakhs or less, the app asks whether the estimate is below 5 lakhs.',
@@ -162,7 +171,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       'An edited line is marked and can be put back on the uploaded value on its own, or all at once with Reset edits. Edits clear when you move to another work.',
       'Note Submitted: the year the estimate was scrutinised against is now its own field, no longer tied to the administrative sanction year.',
       'Agreement Bond: removed the gap the name of the work started with.',
-      'Tender Document: the GST on the last page is now the estimate\'s own GST amount instead of 18% of the ECV.'
+      "Tender Document: the GST on the last page is now the estimate's own GST amount instead of 18% of the ECV."
     ]
   },
   {
@@ -173,16 +182,16 @@ export const CHANGELOG: ChangelogEntry[] = [
       'Work Order type 2: the date now sits at the right-hand end of the Work Order number line, both on screen and when printed, and the sign-off reads EXECUTIVE ENGINEER.',
       '"No. of pages of Agreement" now defaults to 41 unless a different number is typed in.',
       'The Work Order / Agreement page can now read the agency phone number from an uploaded eGP Supplier Details page, like Give Intimation.',
-      'Measurement Book photo scanning now reads the ruled columns and repairs misread figures using each row\'s own No. x L x B x D check.'
+      "Measurement Book photo scanning now reads the ruled columns and repairs misread figures using each row's own No. x L x B x D check."
     ]
   },
   {
     version: '1.35.0',
     changes: [
       'Fixed Measurement Book photo scanning misreading the No./L/B/D columns on some real photographed pages.',
-      'Notice for Non-conclusion of Agreement: Notice Date is now the 8th working day after the actual Intimation/LOA date (not the day the Intimation was generated), using the app\'s own working-day calendar.',
+      "Notice for Non-conclusion of Agreement: Notice Date is now the 8th working day after the actual Intimation/LOA date (not the day the Intimation was generated), using the app's own working-day calendar.",
       'The Issue Notices sidebar item and each overdue Notice tile now blink red once the Notice Date has passed.',
-      'Notice\'s LOA No. now defaults to the Intimation letter\'s own reference number instead of sitting blank.',
+      "Notice's LOA No. now defaults to the Intimation letter's own reference number instead of sitting blank.",
       'Give Technical Sanction now also looks up rates from the Schedule of Rates PDF, not the Data Sheet alone.',
       'Give Intimation can now fill the agency phone number from an uploaded eGP Supplier Details page.'
     ]
@@ -225,7 +234,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '1.30.0',
     changes: [
       'Dashboard status tiles (Completed, In Progress, To Be Started, etc.) can now be clicked to download an Excel of just the works behind that count.',
-      'Works List errors now also flag when the Monitoring Format Abstract\'s totals for an item type or ward don\'t match the actual list of works.',
+      "Works List errors now also flag when the Monitoring Format Abstract's totals for an item type or ward don't match the actual list of works.",
       'Cement & Steel Rates tool now picks the latest circular by the rate period it actually covers, not by its upload date — fixes wrong rates being shown when several months are posted the same day.',
       'Fixed some documents (with an embedded Telugu font in the letterhead) showing Word\'s "unreadable content, recover?" prompt.',
       'Fixed occasional blank/garbled pages in document previews and PDF exports.'
@@ -276,30 +285,30 @@ export const CHANGELOG: ChangelogEntry[] = [
     changes: [
       'Settings: added "Themes" — choose how Issue Documents tiles look on this device (Default, Colured, Windows theme, or Dark mode).',
       'Fixed: uploading a scanned or complex PDF/image could get stuck on "Reading…" forever with no error — it now gives up after a wait and shows a clear message instead.',
-      'PDF conversion (Print/Preview) now shows a clear message if LibreOffice isn\'t installed, and converts multi-page documents noticeably faster.',
+      "PDF conversion (Print/Preview) now shows a clear message if LibreOffice isn't installed, and converts multi-page documents noticeably faster.",
       'Issue Documents: batch document generation now shows a live progress percentage instead of appearing frozen.',
       'Work Order/Agreement: fixed Schedule A saving with the wrong (Executive Engineer) format for a Zone-level (SE) office when saved together with the bundle.',
-      'Estimate BOQ files are now named using the work\'s actual name instead of the estimate sheet\'s tab name.',
+      "Estimate BOQ files are now named using the work's actual name instead of the estimate sheet's tab name.",
       'Give Intimation (SE/Zone offices): fixed reference-list numbering alignment in the TS Note, Eligibility, Bid Evaluation, and Agency Approval notes.',
-      'Faster document previews — the first Issue Documents preview no longer waits on the matching model to load, and repeated previews skip re-matching columns that haven\'t changed.'
+      "Faster document previews — the first Issue Documents preview no longer waits on the matching model to load, and repeated previews skip re-matching columns that haven't changed."
     ]
   },
   {
     version: '1.26.0',
     changes: [
-      'Login: if you\'ve successfully signed in on this computer before, you can now sign in again with no internet connection — only for that same login, not anyone else\'s.',
+      "Login: if you've successfully signed in on this computer before, you can now sign in again with no internet connection — only for that same login, not anyone else's.",
       'Fixed: picking a large folder for "Update from L1/LOA" or "Address from Intimation" could freeze the whole app while it scanned — it no longer blocks the app, and the button now fills in with a live percentage while it reads.'
     ]
   },
   {
     version: '1.25.0',
     changes: [
-      'Works List: added an Errors button that checks your database for a duplicate Wincode/Tender ID, a work entered under two different Wincodes, an ECV greater than the Amount of estimate, or an EMD 1.5% that isn\'t greater than EMD 1% — it blinks when it finds a problem, tap it to see exactly which rows.',
+      "Works List: added an Errors button that checks your database for a duplicate Wincode/Tender ID, a work entered under two different Wincodes, an ECV greater than the Amount of estimate, or an EMD 1.5% that isn't greater than EMD 1% — it blinks when it finds a problem, tap it to see exactly which rows.",
       'Works List: "Update from L1/LOA" and "Address from Intimation" now accept a whole folder (or several files/folders at once), not just one file at a time — pick your office\'s Tender Evaluations folder and every L1/Intimation sheet inside it (including subfolders) gets scanned in one go.',
       'Works List: fixed the table not scrolling sideways to show every column — it now scrolls properly and the scrollbar is visible.',
       'Fixed: your office could get silently forgotten and asked again after logging out and back in.',
       'The "Log" link at the bottom of the sidebar now shows the full update history, not just the latest version.',
-      'Note Submitted: corrected the wording used for a reserved-category work\'s EMD exemption note.'
+      "Note Submitted: corrected the wording used for a reserved-category work's EMD exemption note."
     ]
   },
   {
@@ -313,7 +322,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '1.23.3',
     changes: [
       'Windows: reverted the bundled-LibreOffice change from the last two updates — it made previews slower and broke saving a document as PDF for some users. Document preview, print, and Save as PDF now work the same way they did before 1.23.1; if you use those features, please make sure LibreOffice is installed separately (libreoffice.org) as before.',
-      'Work Order/Agreement document tiles go back to their fast preview — the exact-match preview from the last update wasn\'t worth the slow-down it caused.'
+      "Work Order/Agreement document tiles go back to their fast preview — the exact-match preview from the last update wasn't worth the slow-down it caused."
     ]
   },
   {
@@ -347,8 +356,8 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: '1.22.0',
     changes: [
-      'Agreement/Work Order: the EMD Details line can now be filled automatically by uploading either the CURE portal\'s Balance EMD payment receipt or a Bank Guarantee certificate (for offices that pay EMD/ASD via BG instead) — the BG\'s amounts are matched to EMD vs. ASD automatically from the work\'s ECV.',
-      'Works List import: works whose Circle differs from your office\'s own (e.g. left over from a circle reorganisation, like Moosapet\'s wards merging into Kukatpally) are now accepted instead of rejecting the whole import. If more than a fifth of the works belong to another circle, you\'ll be asked to confirm before importing.',
+      "Agreement/Work Order: the EMD Details line can now be filled automatically by uploading either the CURE portal's Balance EMD payment receipt or a Bank Guarantee certificate (for offices that pay EMD/ASD via BG instead) — the BG's amounts are matched to EMD vs. ASD automatically from the work's ECV.",
+      "Works List import: works whose Circle differs from your office's own (e.g. left over from a circle reorganisation, like Moosapet's wards merging into Kukatpally) are now accepted instead of rejecting the whole import. If more than a fifth of the works belong to another circle, you'll be asked to confirm before importing.",
       'Added the Serilingampally zone abbreviation (SLP) alongside Quthbullapur (QBZ) and Kukatpally (KPZ).',
       'Fixed: document previews (opening a single document, or Print) could show garbled text for some fonts — now renders accurately.',
       'Fixed: the app could feel very slow while previews were showing — live thumbnails are fast again; full-accuracy rendering is now used only when you open a single document or print.'
@@ -370,14 +379,14 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: '1.21.0',
     changes: [
-      'Fixed: Note Submitted could show a different work\'s name, agency, ECV, tender %, NIT No, and contract amount than the rest of the Agreement/Work Order documents — every field now comes from the uploaded L-1 sheet / Online Intimation, same as every other document.',
+      "Fixed: Note Submitted could show a different work's name, agency, ECV, tender %, NIT No, and contract amount than the rest of the Agreement/Work Order documents — every field now comes from the uploaded L-1 sheet / Online Intimation, same as every other document.",
       'Fixed: an unrelated work could occasionally get matched to the uploaded L-1 sheet in the Works List, Schedule A, and Note Submitted — matching now requires a much closer name match.',
       'New: "Clear" button on the Intimation and Agreement/Work Order pages to start a fresh work without switching tabs.',
       'Fixed: office (Corporation/Zone/Circle) was remembered per computer — logging in as a different person on the same machine skipped the office picker. Now remembered per login.',
       'Fixed: the Works List search box could hide the scrollbar, making rows below the visible area unreachable while searching.',
       'Fixed: an "ITEM N Dated:" tag from the L-1 sheet could leak into the printed Name of Work.',
       'Fixed: a Tender Notice No. with no separator before "Circle" (e.g. "NizampetCircle58") wasn\'t recognized — Circle came back blank.',
-      'Fixed: Amount of Estimate could show blank on the Intimation and Agreement/Work Order pages even when the L-1 sheet\'s own ECV was available.',
+      "Fixed: Amount of Estimate could show blank on the Intimation and Agreement/Work Order pages even when the L-1 sheet's own ECV was available.",
       'Fixed: the Agreement/Work Order page could feel slow to respond to clicks after uploading the Online Intimation and L-1 sheet.',
       'SE Agreement Bond: further signature-block position adjustment.'
     ]
@@ -482,7 +491,5 @@ export function compareVersions(a: string, b: string): number {
  */
 export function changesSince(seen: string | null | undefined, current: string): ChangelogEntry[] {
   if (!seen) return []
-  return CHANGELOG.filter(
-    (e) => compareVersions(e.version, seen) > 0 && compareVersions(e.version, current) <= 0
-  )
+  return CHANGELOG.filter((e) => compareVersions(e.version, seen) > 0 && compareVersions(e.version, current) <= 0)
 }

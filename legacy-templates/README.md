@@ -7,13 +7,15 @@ and nothing in `src/`, `core/` or `electron/` loads them. A few tests read them 
 | --- | --- |
 | `work-order-template.docx` | Work Order type 1 |
 | `work-order-template-kompally.docx` | Work Order type 2 |
+| `work-order-template-header2.docx` | Work Order type 3 |
 | `file-backer-template.docx` | File Backer type 1 |
 | `file-backer-template-header2.docx` | File Backer type 2 |
 | `civil-tender-template.docx` | Tender Document type 1 |
 | `civil-tender-template-header2.docx` | Tender Document type 2 |
-| `intimation-template.docx` | Intimation template 1 |
+| `intimation-template.docx`, `intimation-template-2.docx` | Intimation template 1 / 2 |
 | `qc-intimation-completion-template.docx` | QC Intimation/Completion type 1 |
 | `issue-notice-template.docx`, `issue-notice-ee-template.docx` | Notice template 1 (SE / EE) |
+| `issue-notice-template-2.docx`, `issue-notice-ee-template-2.docx` | Notice template 2 (SE / EE) |
 | `zonal-memo-ee-template.docx` | Memo to EE type 1 (SE office) |
 | `zonal-concluding-agreement-template.docx`, `zonal-concluding-agreement-template-header2.docx` | Concluding Agreement type 1 / type 3 (SE office) |
 

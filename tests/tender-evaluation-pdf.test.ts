@@ -309,8 +309,10 @@ describe('parseTenderEvaluation', () => {
     expect(r.nameOfWork).not.toMatch(/^number/i)
     expect(r.nameOfWork).not.toContain('Number Laying')
     expect(r.nameOfWork).toBe(
-      'Laying of CC roads in internal lanes of Bathukamma banda 01/113/ER/446, S.no 1247, 1-113/A/ER/466, 1-113/ER/530/1, 1-113/A/ER/151C, graveyard) of ward no. 277, Mahadevapuram, Gajularamaram Circle-57, CMC (Reserved for SC Only) (Item No.8)'
+      'Laying of CC roads in internal lanes of Bathukamma banda 01/113/ER/446, S.no 1247, 1-113/A/ER/466, 1-113/ER/530/1, 1-113/A/ER/151C, graveyard) of ward no. 277, Mahadevapuram, Gajularamaram Circle-57, CMC (Reserved for SC Only)'
     )
+    // The tag leaves the name but the number is kept as its own field.
+    expect(r.itemNo).toBe('8')
   })
 
   it('drops an "ITEM <n> ,Dated:<date>" tag punctuated with a comma before the label', () => {

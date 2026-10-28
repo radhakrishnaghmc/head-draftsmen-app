@@ -141,8 +141,8 @@ export function parseIntimationNoticeText(lines: string[]): IntimationNotice {
   // the stitch precisely when it's needed most.
   const nitIdx = lines.findIndex((l) => /Nit\s*No/i.test(l))
   if (nitIdx >= 0) {
-    const nitRe = /Nit\s*No\.?\s*:?\s*(.+?)\s*(?:\d\s*\)|Your\s+Tender|Date\s*:|Dt\b|Item\b|at\s+contract|$)/i
-    const capture = (text: string): string => nitRe.exec(text)?.[1].replace(/\s+/g, ' ').trim() ?? ''
+    const nitRe = /Nit\s*No\.?\s*:?\s*(.+?)\s*(?:\d\s*\)|Your\s+Tender|Dated?\s*:?|Dt\b|Item\b|at\s+contract|$)/i
+    const capture = (text: string): string => nitRe.exec(text)?.[1].replace(/\s+/g, ' ').replace(/[\s,;:]+$/, '').replace(/([-/])\s+(?=\d)/g, '$1').trim() ?? ''
     let value = capture(lines[nitIdx])
     if (!/20\d\d\s*-\s*\d{2}/.test(value) && lines[nitIdx + 1]) {
       const stitched = capture(`${lines[nitIdx]} ${lines[nitIdx + 1]}`)
@@ -158,7 +158,7 @@ export function parseIntimationNoticeText(lines: string[]): IntimationNotice {
     // which a word boundary would reject (digit-into-letter isn't a
     // boundary) — the lookbehind instead just rules out landing inside
     // another word ("Updated"/"Mandated").
-    const dateWindow = `${lines[nitIdx]} ${lines[nitIdx + 1] ?? ''}`
+    const dateWindow = `${lines[nitIdx]} ${lines[nitIdx + 1] ?? ''} ${lines[nitIdx + 2] ?? ''}`
     const nitDate = /(?<![A-Za-z])(?:Dated|Dt)\b\.?\s*:?\s*(\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4})/i.exec(dateWindow)
     if (nitDate) result.nitDate = nitDate[1]
   }
