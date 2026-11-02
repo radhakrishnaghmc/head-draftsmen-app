@@ -181,7 +181,12 @@ describe('sanitizeDocxForWord2007', () => {
     // rebuild, so this regression test now reproduces the bug against
     // eligibility-criteria-template.docx (still bundled, still affected)
     // instead.
-    const buf = readFileSync(resolve(__dirname, '../resources/eligibility-criteria-template.docx'))
+    // The bundled template has since been repaired at the source, so re-inject the typo
+    // (as the sanitizer must still handle it for any file that carries it).
+    const clean = readFileSync(resolve(__dirname, '../resources/eligibility-criteria-template.docx'))
+    const zip = new PizZip(clean)
+    zip.file('word/document.xml', part(clean, 'word/document.xml').replace(/<w:szCs w:val="20"\/>/g, '<w:sz-cs w:val="20"/>'))
+    const buf = zip.generate({ type: 'nodebuffer' })
     expect(part(buf, 'word/document.xml')).toMatch(/<w:sz-cs\b/)
 
     const out = sanitizeDocxForWord2007(buf)
@@ -189,6 +194,37 @@ describe('sanitizeDocxForWord2007', () => {
     expect(fixedDoc).not.toMatch(/<w:sz-cs\b/)
     expect(fixedDoc).not.toMatch(/<\/w:sz-cs>/)
     expect(fixedDoc).toContain('<w:szCs w:val="20"/>')
+  })
+
+  it('rewrites hyphenated w:first-line, adds missing pgMar/zoom attributes and drops the orphan meta.xml — why TS Note / Eligibility Criteria opened as "unreadable content" in Word', () => {
+    // Real bug: the same earlier edit that wrote <w:sz-cs> also wrote w:first-line= on <w:ind>
+    // (real name firstLine; a negative value is really a hanging indent). Schema-validated with
+    // the docx skill's validator: ts-note and eligibility-criteria were the only SE docs failing.
+    const buf = readFileSync(resolve(__dirname, '../resources/eligibility-criteria-template.docx'))
+    const zip = new PizZip(buf)
+    zip.file(
+      'word/document.xml',
+      part(buf, 'word/document.xml')
+        .replace('<w:body>', '<w:body><w:p><w:pPr><w:ind w:first-line="-720" w:left="720"/></w:pPr></w:p>')
+        .replace(/<w:pgMar\b[^>]*\/>/, '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>')
+    )
+    zip.file('word/settings.xml', '<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:zoom w:val="bestFit"/></w:settings>')
+    zip.file('docProps/meta.xml', '<meta xmlns="http://schemas.apple.com/cocoa/2006/metadata"/>')
+    const out = sanitizeDocxForWord2007(zip.generate({ type: 'nodebuffer' }))
+
+    const doc = part(out, 'word/document.xml')
+    expect(doc).not.toContain('w:first-line=')
+    expect(doc).toContain('<w:ind w:hanging="720" w:left="720"/>')
+    expect(doc).toMatch(/<w:pgMar [^>]*w:header="720"[^>]*w:footer="720"[^>]*w:gutter="0"/)
+    expect(part(out, 'word/settings.xml')).toContain('<w:zoom w:percent="100"')
+    expect(new PizZip(out).file('docProps/meta.xml')).toBeNull()
+  })
+
+  it('ships the TS Note and Eligibility Criteria templates free of the hyphenated-name typos', () => {
+    for (const name of ['ts-note-template.docx', 'eligibility-criteria-template.docx', 'eligibility-criteria-reserved-template.docx']) {
+      const doc = part(readFileSync(resolve(__dirname, '../resources', name)), 'word/document.xml')
+      expect(doc, name).not.toMatch(/<w:sz-cs\b|w:first-line=/)
+    }
   })
 
   it('no longer embeds a font in the logo-header template variants — the Telugu caption uses the Windows-native Gautami font instead', () => {

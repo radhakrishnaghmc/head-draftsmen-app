@@ -126,6 +126,10 @@ interface LoaManualFields {
   memoRef: string
   memoDate: string
   rateMonth: string
+  /** Estimate amount (Rs. Lakhs) typed in when the Works List row has none — never derived from the ECV. */
+  estimateLakhs: string
+  /** TS Note Ref 2's Lr. No — left blank it prints a four-space gap to hand-write into. */
+  lrNo: string
   /** Eligibility Criteria — clauses that vary per work; defaults match the office's usual wording. */
   classOfRegistration: string
   emdValidity: string
@@ -135,7 +139,12 @@ interface LoaManualFields {
   equipment1: string
   equipment2: string
   equipment3: string
+  /** Slots 4-5 are only used by the reserved Eligibility Criteria template (five-item equipment list). */
+  equipment4: string
+  equipment5: string
   goMsNo: string
+  /** Reserved Eligibility Criteria Ref 1 — e-office file number of the AS, appended after the authority. */
+  eOfficeNo: string
 }
 
 const LOA_MANUAL_DEFAULTS: LoaManualFields = {
@@ -156,6 +165,8 @@ const LOA_MANUAL_DEFAULTS: LoaManualFields = {
   memoRef: '',
   memoDate: '',
   rateMonth: '',
+  estimateLakhs: '',
+  lrNo: '',
   classOfRegistration: 'Appropriate class of registration as per existing G.O.s in Telangana State.',
   emdValidity: '6 Months',
   solvencyValidity: '1 year',
@@ -164,8 +175,16 @@ const LOA_MANUAL_DEFAULTS: LoaManualFields = {
   equipment1: 'Tipper',
   equipment2: 'Hydraulic Excavator',
   equipment3: 'Water tanker',
-  goMsNo: '66'
+  equipment4: '',
+  equipment5: '',
+  goMsNo: '66',
+  eOfficeNo: ''
 }
+
+/** Critical-equipment lists: the open template carries 3 slots, the reserved one the office's usual five. Swapped in only while the user hasn't edited the list. */
+const OPEN_EQUIPMENT = { equipment1: 'Tipper', equipment2: 'Hydraulic Excavator', equipment3: 'Water tanker', equipment4: '', equipment5: '' }
+const RESERVED_EQUIPMENT = { equipment1: 'JCB/Loader', equipment2: 'Tipper', equipment3: 'Hydraulic Excavator', equipment4: 'Air compressor', equipment5: 'Water tanker' }
+const sameEquipment = (m: LoaManualFields, e: typeof OPEN_EQUIPMENT) => (Object.keys(e) as (keyof typeof e)[]).every((k) => m[k] === e[k])
 
 /** A staffing count typed as 0 ("0", "0 No.", "Nil") means the post isn't required — its line is left out of the document. */
 function isZeroCount(v: string): boolean {
@@ -252,6 +271,8 @@ function reservedInfo(
   if (!cat) cat = (paren?.[1] ?? bare?.[1] ?? '').replace(/\bonly\b/i, '').trim()
   // The item number (SE multi-item NITs tag it onto the name, e.g. "...(Item
   // No.3)") has its own field elsewhere — never print it as part of the name.
+  // "Reserved for General/Open" is the unreserved pool, not a category.
+  if (/^(general|gen|open|unreserved|ur|all)(\s*\/\s*(general|gen|open|unreserved|ur|all))*$/i.test(cat)) cat = ''
   return { name: stripItemNoTag(name), tag: cat ? `(Reserved for ${cat} only)` : '', isReserved: !!cat }
 }
 
@@ -335,7 +356,14 @@ function resolveLoaValue(
       // price bid was opened), not the NIT date.
       return pdf.serverDate || pdf.noticeDate || ''
     case 'admin sanction value': {
-      const raw = manual.adminSanction.trim()
+      // Hand-typed value wins; otherwise the administrative sanction is the estimate amount (Works List row, else the one
+      // entered in the estimate popup), converted from Lakhs to rupees. Never derived from the ECV.
+      const raw =
+        manual.adminSanction.trim() ||
+        (() => {
+          const lakhs = Number((row['Amount of estimate'] ?? '').replace(/,/g, '').trim() || manual.estimateLakhs.trim())
+          return Number.isFinite(lakhs) && lakhs > 0 ? String(Math.round(lakhs * 100000)) : ''
+        })()
       if (!raw) return ''
       const n = Number(raw.replace(/[,\s₹]/g, '').replace(/rs\.?/i, ''))
       return Number.isFinite(n) && /\d/.test(raw) ? formatIndianAmount(n, 2) : raw
@@ -404,12 +432,9 @@ function resolveTsNoteValue(
   const zoneAbbrCode = zoneAbbr(office.zone)
   const est = computeWorkAmounts(row)
   const ecv = pdf.ecvRupees ?? est.ecv ?? null
-  // No Works List row (or a blank "Amount of estimate" cell) shouldn't leave
-  // the SE companion notes' Estimate Cost printing blank when the uploaded L-1
-  // sheet's own Estimated Contract Value is right there — same fallback
-  // deriveFields/standaloneRowFromSources use for the Agreement/Work Order.
-  const rowEstimateLakhs = (row['Amount of estimate'] ?? '').replace(/,/g, '').trim()
-  const estimateLakhs = rowEstimateLakhs || (ecv != null ? (ecv / 100000).toFixed(2) : '')
+  // The estimate amount is the Works List row's own, else the one typed in at download time — the ECV is never
+  // substituted for it.
+  const estimateLakhs = (row['Amount of estimate'] ?? '').replace(/,/g, '').trim() || manual.estimateLakhs.trim()
 
   const key = norm(label)
   switch (key) {
@@ -431,6 +456,8 @@ function resolveTsNoteValue(
       return circleLine(row, work.name, office)
     case 'estimate lakhs':
       return estimateLakhs
+    case 'lr no':
+      return manual.lrNo.trim() ? ` ${manual.lrNo.trim()}` : '\u00a0'.repeat(4)
     case 'ecv':
       return ecv != null ? formatIndianAmount(ecv, 2) : ''
     case 'ecv lakhs':
@@ -445,6 +472,27 @@ function resolveTsNoteValue(
       return asRefLineText(zoneAbbrCode, manual, (office.corporation ?? '').trim() || 'CMC')
     case 'ts no':
       return manual.tsNo.trim()
+    // Reserved Eligibility Criteria header: MMC's SE is the SE (Maintenance), whose TS numbers read "<No>/SE(M)/<Zone>Zone/MMC/<FY>".
+    case 'ts ref no': {
+      const corp = (office.corporation ?? '').trim() || 'CMC'
+      const fy = financialYearFromDate(pdf.noticeDate)
+      return corp === 'MMC' ? `${manual.tsNo.trim()}/SE(M)/${zoneAbbrCode}Zone/${corp}/${fy}` : `${manual.tsNo.trim()}/SE/${zoneAbbrCode}/${corp}/${fy}`
+    }
+    case 'ts authority': {
+      const corp = (office.corporation ?? '').trim() || 'CMC'
+      return `${corp === 'MMC' ? 'SE (M)' : 'Superintending Engineer'}, ${office.zone ?? ''} Zone, ${corp}`
+    }
+    case 'se designation':
+      return (office.corporation ?? '').trim() === 'MMC' ? 'SE (M)' : 'Superintending Engineer'
+    // Zonal AS has no date in its Ref line; the reserved Eligibility Criteria cites the date and the e-office file after it.
+    case 'as e-office ref': {
+      const date = manual.asAuthority === 'zonal' && manual.asDate.trim() ? ` dated: ${manual.asDate.trim()}` : ''
+      const file = manual.eOfficeNo.trim() ? `, vide e-office file no.${manual.eOfficeNo.trim()}` : ''
+      return date + file
+    }
+    // TS Note's last paragraph only: a three-space gap to hand-write the TS number into when none is entered.
+    case 'ts no gap':
+      return manual.tsNo.trim() ? '' : '\u00a0'.repeat(3)
     case 'ts date':
       return manual.tsDate.trim()
     case 'cement rate':
@@ -475,8 +523,14 @@ function resolveTsNoteValue(
       return manual.equipment2.trim()
     case 'equipment 3':
       return manual.equipment3.trim()
+    case 'equipment 4':
+      return manual.equipment4.trim() || DROP_PARAGRAPH_MARKER
+    case 'equipment 5':
+      return manual.equipment5.trim() || DROP_PARAGRAPH_MARKER
     case 'go ms no':
       return manual.goMsNo.trim()
+    case 'reserved tag':
+      return work.tag
     default:
       return ''
   }
@@ -493,13 +547,12 @@ function seRefsFor(
   const work = reservedInfo(row, pdf)
   const zoneAbbrCode = zoneAbbr(office.zone)
   const corp = (office.corporation ?? row['Corporation'] ?? '').trim() || 'CMC'
-  const ecv = pdf.ecvRupees ?? computeWorkAmounts(row).ecv ?? null
   const rowEstimateLakhs = (row['Amount of estimate'] ?? '').replace(/,/g, '').trim()
   return {
     zoneAbbr: zoneAbbrCode,
     corp,
     workName: work.name,
-    estimateLakhs: rowEstimateLakhs || (ecv != null ? (ecv / 100000).toFixed(2) : ''),
+    estimateLakhs: rowEstimateLakhs || manual.estimateLakhs.trim(),
     asAuthority: asAuthorityText(zoneAbbrCode, manual, corp),
     asRefLine: asRefLineText(zoneAbbrCode, manual, corp),
     tsNo: manual.tsNo.trim(),
@@ -720,7 +773,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     let cancelled = false
     void (async () => {
       try {
-        const [tsB64, eligB64] = await Promise.all([api.tsNoteTemplate(), api.eligibilityCriteriaTemplate()])
+        const [tsB64, eligB64] = await Promise.all([api.tsNoteTemplate(), api.eligibilityCriteriaTemplate(seReserved)])
         const [tsLabels, eligLabels] = await Promise.all([
           api.findPlaceholdersInDocument(tsB64),
           api.findPlaceholdersInDocument(eligB64)
@@ -735,7 +788,15 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     return () => {
       cancelled = true
     }
-  }, [seMode])
+  }, [seMode, seReserved])
+
+  // Swap the Critical Equipment list to match the template in use (reserved = five items), unless the user already edited it.
+  useEffect(() => {
+    setManual((m) => {
+      const from = seReserved ? OPEN_EQUIPMENT : RESERVED_EQUIPMENT
+      return sameEquipment(m, from) ? { ...m, ...(seReserved ? RESERVED_EQUIPMENT : OPEN_EQUIPMENT) } : m
+    })
+  }, [seReserved])
 
   // Re-fill every placeholder whenever the row / notice / PDF / manual fields change.
   useEffect(() => {
@@ -1129,7 +1190,24 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded, values, intimationEdits, seDocValues, bidEvalData, agencyApprovalData, docMargins])
 
-  async function downloadSeDoc(kind: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval', formats: ('docx' | 'pdf')[]) {
+  // The SE notes all print the Estimate amount. When neither the Works List row nor an earlier entry supplies it,
+  // ask for it in a popup first, then run the download the user clicked (via actionsRef, so it sees the new value).
+  const estimateBlank = !(detailsRow['Amount of estimate'] ?? '').replace(/,/g, '').trim() && !manual.estimateLakhs.trim()
+  const [estimatePrompt, setEstimatePrompt] = useState<
+    { action: { kind: 'doc'; doc: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval'; formats: ('docx' | 'pdf')[] } | { kind: 'loa'; formats: ('docx' | 'pdf')[] } | { kind: 'all' }; value: string } | null
+  >(null)
+  const [estimateRun, setEstimateRun] = useState<NonNullable<typeof estimatePrompt>['action'] | null>(null)
+  const actionsRef = useRef<{ doc: typeof downloadSeDoc; all: typeof downloadAll; loa: typeof downloadIntimation } | null>(null)
+
+  async function downloadSeDoc(
+    kind: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval',
+    formats: ('docx' | 'pdf')[],
+    skipEstimateCheck = false
+  ) {
+    if (!skipEstimateCheck && estimateBlank) {
+      setEstimatePrompt({ action: { kind: 'doc', doc: kind, formats }, value: '' })
+      return
+    }
     setBusy(formats[0] === 'pdf' ? 'pdf' : 'download')
     setActionError(null)
     setActionSaved(null)
@@ -1231,7 +1309,11 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
 
   // Bundle every ready document into one saved folder — same bundle API and
   // "Download all documents" bar as the Agreement page.
-  async function downloadAll() {
+  async function downloadAll(skipEstimateCheck = false) {
+    if (!skipEstimateCheck && seMode && seDocsReady && estimateBlank) {
+      setEstimatePrompt({ action: { kind: 'all' }, value: '' })
+      return
+    }
     setBusy('bundle')
     setActionError(null)
     setActionSaved(null)
@@ -1275,7 +1357,11 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
         return
       }
       setBundleProgress({ phase: 'saving', done: 0, total: files.length })
-      const res = await api.exportAgreementBundle(files)
+      // Wrapper folder "Intimation Doc of <agency> <estimate> Lakhs" — the estimate is the Works List's own
+      // Amount of estimate (never the ECV), left out when the row has none.
+      const estLakhs = (detailsRow['Amount of estimate'] ?? '').replace(/,/g, '').trim()
+      const folderName = ['Intimation Doc of', agencyName?.trim(), estLakhs && `${estLakhs} Lakhs`].filter(Boolean).join(' ')
+      const res = await api.exportAgreementBundle(files, undefined, folderName)
       if (!res) {
         setActionSaved('Cancelled.')
       } else if (res.failed.length > 0) {
@@ -1296,6 +1382,17 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       setBusy(null)
     }
   }
+
+  actionsRef.current = { doc: downloadSeDoc, all: downloadAll, loa: downloadIntimation }
+  // Runs the download that was waiting on the estimate prompt, once the typed value has re-rendered into `manual`.
+  useEffect(() => {
+    if (!estimateRun) return
+    const a = estimateRun
+    setEstimateRun(null)
+    if (a.kind === 'all') void actionsRef.current?.all(true)
+    else if (a.kind === 'loa') void actionsRef.current?.loa(a.formats, true)
+    else void actionsRef.current?.doc(a.doc, a.formats, true)
+  }, [estimateRun])
 
   /** Shared by the manual upload and the auto-fetch below: OCRs a Cement &
    * Steel rate circular's page images and fills the editable rate fields
@@ -1385,7 +1482,12 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     }
   }
 
-  async function downloadIntimation(formats: ('docx' | 'pdf')[]) {
+  async function downloadIntimation(formats: ('docx' | 'pdf')[], skipEstimateCheck = false) {
+    // The SE Letter of Acceptance prints the Administrative Sanction value (= the estimate amount).
+    if (!skipEstimateCheck && seMode && estimateBlank && !manual.adminSanction.trim()) {
+      setEstimatePrompt({ action: { kind: 'loa', formats }, value: '' })
+      return
+    }
     setBusy(formats[0] === 'pdf' ? 'pdf' : 'download')
     setActionError(null)
     setActionSaved(null)
@@ -1447,6 +1549,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
     },
     ...(manual.asAuthority !== 'zonal' ? [mf('asDate', 'Admin Sanction Date', 'e.g. 21.07.2026')] : [])
   ]
+  const estimateField = mf('estimateLakhs', 'Estimate Amount (Rs. Lakhs)', 'e.g. 25.00')
   const tsNoDateFields: DocField[] = [mf('tsNo', 'TS No', 'e.g. 33'), mf('tsDate', 'TS Date', 'e.g. 04.07.2026')]
   const techBidOpenField = mf('techBidOpenDate', 'Technical Bid Opened Date', 'e.g. 06.08.2026')
   const bidEvalApprovedField = mf('bidEvalApprovedDate', 'Bid Evaluation Approved Date', 'e.g. 06.08.2026')
@@ -1457,7 +1560,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   // `manual:` prefix so edits route to `manual` rather than the letter's overrides.
   const seManualGroups: Partial<Record<ExpandedDoc, DocFieldGroup[]>> = {
     tsNote: [
-      { title: 'References', fields: [...tsNoDateFields, mf('ssrYear', 'SSR Year', 'e.g. 2026-27'), ...asAuthorityFields] },
+      { title: 'References', fields: [estimateField, mf('lrNo', 'Lr. No (Ref 2)', 'blank = space to hand-write'), ...tsNoDateFields, mf('ssrYear', 'SSR Year', 'e.g. 2026-27'), ...asAuthorityFields] },
       {
         title: 'Rates',
         fields: [
@@ -1471,7 +1574,17 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       }
     ],
     eligibility: [
-      { title: 'The work', fields: [itemNoField, periodField, ...asAuthorityFields, ...tsNoDateFields] },
+      {
+        title: 'The work',
+        fields: [
+          estimateField,
+          itemNoField,
+          periodField,
+          ...asAuthorityFields,
+          ...(seReserved ? [...(manual.asAuthority === 'zonal' ? [mf('asDate', 'Admin Sanction Date', 'e.g. 27-05-2026')] : []), mf('eOfficeNo', 'AS e-office file no.', 'e.g. 403845')] : []),
+          ...tsNoDateFields
+        ]
+      },
       {
         title: 'Eligibility clauses',
         fields: [
@@ -1483,11 +1596,12 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
           mf('equipment1', 'Critical Equipment 1'),
           mf('equipment2', 'Critical Equipment 2'),
           mf('equipment3', 'Critical Equipment 3'),
+          ...(seReserved ? [mf('equipment4', 'Critical Equipment 4'), mf('equipment5', 'Critical Equipment 5')] : []),
           mf('goMsNo', 'G.O. MS No.', 'e.g. 66')
         ]
       }
     ],
-    bidEval: [{ title: 'References and dates', fields: [...asAuthorityFields, ...tsNoDateFields, itemNoField, techBidOpenField] }],
+    bidEval: [{ title: 'References and dates', fields: [estimateField, ...asAuthorityFields, ...tsNoDateFields, itemNoField, techBidOpenField] }],
     agencyApproval: [
       { title: 'References and dates', fields: [...asAuthorityFields, ...tsNoDateFields, itemNoField, techBidOpenField, bidEvalApprovedField] }
     ]
@@ -1592,7 +1706,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       <button
         className="primary"
         disabled={busy === 'bundle'}
-        onClick={downloadAll}
+        onClick={() => downloadAll()}
         title={`Letter of Acceptance, TS Note, Eligibility Criteria, Bid Evaluation & Agency Approval — all as ${bundleFormat === 'pdf' ? 'PDF' : 'Word'}, into one folder you choose`}
       >
         <IconDownload /> {busy === 'bundle' ? bundleProgressLabel : 'Download all documents'}
@@ -1653,7 +1767,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
             </button>
           </div>
         )}
-        <div className="boq-actions boq-actions--grid">
+        <div className="boq-actions boq-actions--grid cement-steel-grid">
           <button
             className="primary upload-btn"
             onClick={() => noticeInputRef.current?.click()}
@@ -1965,6 +2079,49 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
               )}
             </div>
           </div>
+          </div>,
+          document.body
+        )}
+
+      {estimatePrompt &&
+        createPortal(
+          <div className="wo-modal-overlay" onClick={() => setEstimatePrompt(null)}>
+            <div className="wo-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="wo-modal-head">
+                <span className="wo-modal-title">Estimate amount needed</span>
+                <button className="wo-modal-close" onClick={() => setEstimatePrompt(null)} title="Close" aria-label="Close">
+                  ×
+                </button>
+              </div>
+              <div className="wo-modal-body">
+                <p>
+                  The Works List has no Estimate amount for this work, and the ECV is not used in its place. Enter the
+                  Estimate amount (Rs. Lakhs) to print in the notes.
+                </p>
+                <input
+                  autoFocus
+                  inputMode="decimal"
+                  placeholder="e.g. 25.00"
+                  value={estimatePrompt.value}
+                  onChange={(e) => setEstimatePrompt((p) => (p ? { ...p, value: e.target.value } : p))}
+                />
+              </div>
+              <div className="wo-modal-foot">
+                <button onClick={() => setEstimatePrompt(null)}>Cancel</button>
+                <button
+                  className="primary"
+                  disabled={!estimatePrompt.value.trim() || !Number.isFinite(Number(estimatePrompt.value.replace(/,/g, '')))}
+                  onClick={() => {
+                    const { action, value } = estimatePrompt
+                    setManual((m) => ({ ...m, estimateLakhs: value.replace(/,/g, '').trim() }))
+                    setEstimatePrompt(null)
+                    setEstimateRun(action)
+                  }}
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
           </div>,
           document.body
         )}

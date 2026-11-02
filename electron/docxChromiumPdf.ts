@@ -3,6 +3,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { paginateFlowSections } from '../core/paginateFlow'
+import { tightenLineHeight } from '../core/docxScale'
 
 /**
  * The app's docx → PDF converter. Renders the .docx with docx-preview
@@ -34,7 +35,26 @@ function getWindow(): BrowserWindow {
   return win
 }
 
+// A long document whose last page holds only a line or two (the Civil Tender Document's signature line spilling onto page 42
+// when a long work name adds lines upstream) is tightened by the smallest step that pulls it back; if no step does, the
+// original layout is kept.
+const ORPHAN_MIN_SHEETS = 8
+const ORPHAN_MAX_CHARS = 160
+// Line height only, so the font size (and so how the lines wrap) never changes.
+const SHRINK_STEPS = [0.995, 0.99, 0.985, 0.98, 0.97, 0.96, 0.95]
+
 async function convert(docxBuffer: Buffer): Promise<Buffer> {
+  const first = await convertOnce(docxBuffer)
+  if (!first.orphan) return first.pdf
+  for (const factor of SHRINK_STEPS) {
+    const tightened = Buffer.from(tightenLineHeight(docxBuffer.toString('base64'), factor), 'base64')
+    const next = await convertOnce(tightened)
+    if (next.sheets < first.sheets) return next.pdf
+  }
+  return first.pdf
+}
+
+async function convertOnce(docxBuffer: Buffer): Promise<{ pdf: Buffer; sheets: number; orphan: boolean }> {
   // Packaged builds keep these two unpacked (electron-builder.yml asarUnpack) so the page can load them by file:// URL.
   const unpacked = (p: string) => p.replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep)
   const jszipPath = unpacked(require.resolve('jszip/dist/jszip.min.js'))
@@ -63,7 +83,7 @@ async function convert(docxBuffer: Buffer): Promise<Buffer> {
   try {
     await w.loadFile(page)
     // Same render options as the on-screen preview (src/components/docPage.ts DOCX_PREVIEW_OPTIONS).
-    await w.webContents.executeJavaScript(`(async () => {
+    const stats: { sheets: number; lastChars: number } = await w.webContents.executeJavaScript(`(async () => {
       const b64 = ${JSON.stringify(docxBuffer.toString('base64'))}
       const bin = atob(b64)
       const bytes = new Uint8Array(bin.length)
@@ -74,6 +94,16 @@ async function convert(docxBuffer: Buffer): Promise<Buffer> {
         renderHeaders: true, renderFooters: true, renderFootnotes: true, renderEndnotes: true, renderChanges: false
       })
       await document.fonts.ready
+      // docx-preview sizes every tab stop (right-aligned "Date:" on the Work Order number line, etc.) in a pass it schedules
+      // 500ms after renderAsync resolves. Printing before it fires leaves each tab a bare space, so right-tabbed text hugs
+      // the text before it instead of sitting at the stop. Wait it out, before pagination moves paragraphs around.
+      // Only for short documents (the letters with a right-tabbed "Date:"): in the 41-page Civil Tender Document the pass
+      // only resizes the hanging-indent clause numbers ("8.1<tab>text"), which wraps ~16 clauses onto an extra line and
+      // pushes the count to 43; with the tabs left unsized it prints at its fixed 41 pages. Its only right/center stops
+      // are never the target of a tab character, so nothing in it needs them.
+      const renderedHeight = [...document.querySelectorAll('.docx-wrapper > section.docx')]
+        .reduce((h, s) => h + s.getBoundingClientRect().height, 0)
+      if (renderedHeight < 8 * 1123) await new Promise(r => setTimeout(r, 700))
       // docx-preview stretches Word text boxes (the WordArt letterhead) to full page width and leaves curved WordArt
       // absolutely positioned off-page; same fix the on-screen preview applies (docPage.ts normalizeDocxTextboxes).
       for (const d of document.querySelectorAll('div[style*="text-indent: 0px"]')) {
@@ -140,8 +170,11 @@ async function convert(docxBuffer: Buffer): Promise<Buffer> {
         if (used <= 1122) Object.assign(sec.style, { height: '1122px', minHeight: '1122px', overflow: 'hidden' })
         else sec.style.zoom = String(Math.min(1, 1120 / used))
       }
+      const lastSheet = sheets[sheets.length - 1]
+      return { sheets: sheets.length, lastChars: (lastSheet?.querySelector('article')?.textContent ?? '').trim().length }
     })()`)
-    return await w.webContents.printToPDF({ printBackground: true, preferCSSPageSize: true })
+    const pdf = await w.webContents.printToPDF({ printBackground: true, preferCSSPageSize: true })
+    return { pdf, sheets: stats.sheets, orphan: stats.sheets >= ORPHAN_MIN_SHEETS && stats.lastChars < ORPHAN_MAX_CHARS }
   } finally {
     fs.rm(dir, { recursive: true, force: true }, () => {})
   }

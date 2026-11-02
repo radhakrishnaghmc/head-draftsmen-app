@@ -36,6 +36,7 @@ export type TabKey =
   | 'intimation'
   | 'workOrder'
   | 'issueNotices'
+  | 'letters'
   | 'mbScrutiny'
   | 'search'
   | 'todo'
@@ -156,6 +157,11 @@ export default function Sidebar(props: Props) {
       label: 'Issue Notices',
       icon: <IconWarn />,
       blinkRed: props.noticesOverdue
+    },
+    {
+      key: 'letters',
+      label: 'Forwarding Slips & QC Intimations',
+      icon: <IconDoc />
     },
     {
       key: 'estimateWorkspace',

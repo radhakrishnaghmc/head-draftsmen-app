@@ -179,6 +179,22 @@ export function standaloneRowFromSources(pdf: TenderEvaluation, notice: Intimati
   }
 }
 
+/**
+ * Fills a standalone row's gaps from the work's Monitoring Format entry (used when the Works List has no such work):
+ * the sanctioned estimate (MF lists it in Rs. Lakhs, unlike the ECV stand-in) and the Win code.
+ */
+export function withMonitoringWork(
+  row: Record<string, string>,
+  mf: { estimateAmt: number; winCode: string } | null | undefined
+): Record<string, string> {
+  if (!mf) return row
+  return {
+    ...row,
+    ...(mf.estimateAmt > 0 ? { 'Amount of estimate': String(mf.estimateAmt) } : {}),
+    ...(mf.winCode.trim() ? { Wincode: mf.winCode.trim() } : {})
+  }
+}
+
 /** Indian financial year for a date (1 April boundary): 2026-07-27 -> "2026-27". */
 export function indianFinancialYear(d = new Date()): string {
   const y = d.getFullYear()
@@ -486,6 +502,9 @@ export function zonalDocsPlaceholders(f: WorkOrderAgreementFields, notice: Intim
     'Agency Phone': f.phone,
     'Tender Date': tenderDate,
     'CE Letter No Date': f.ceLetterNoDate,
+    // The Work Order's letter-reference line: the SE's own office by default; the editor's dropdown offers the CE's.
+    'Letter Office': `Superintending Engineer, ${zoneAbbr(zone)}, ${f.corporation}`,
+    'Letter Office CE': `Chief Engineer, ${f.corporation}`,
     // Uploaded/typed if present; otherwise a ruled hand-write blank, same as
     // the rest of the EMD/payment-particulars paragraph (see the doc comment
     // above) — so the line still reads as fill-in-ready when nothing's been
@@ -508,7 +527,13 @@ export function fileBackerPlaceholders(f: WorkOrderAgreementFields): Record<stri
   const ecv = num(f.ecvRupees)
   const pct = num(f.tenderPercent)
   const contract = num(f.contractRupees)
-  const circleHeader = f.circle ? `${f.circle.toUpperCase()} CIRCLE${f.cno ? `-${f.cno}` : ''}` : ''
+  // A Zone-level (SE) office has no circle: the line under the corporation header names the SE's own office instead.
+  const zone = (f.zone ?? '').trim()
+  const circleHeader = f.circle
+    ? `${f.circle.toUpperCase()} CIRCLE${f.cno ? `-${f.cno}` : ''}`
+    : zone
+      ? `Office of Superintending Engineer, ${zone} Zone${f.corporation ? `, ${f.corporation}` : ''}`
+      : ''
   return {
     'Corp Full Caps': (f.corporationFullName ?? '').toUpperCase(),
     'Circle Header': circleHeader,

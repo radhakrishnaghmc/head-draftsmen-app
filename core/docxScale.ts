@@ -1,13 +1,13 @@
 import PizZip from 'pizzip'
 
-/** Smallest run size ever written, in half-points (8pt) — below this a printed page is unreadable. */
+/** Smallest size scaling will shrink a run to, in half-points (8pt) — below this a printed page is unreadable. A run already smaller (spacer lines) is left as it is, never enlarged. */
 const MIN_HALF_POINTS = 16
 
 const scaleSizes = (xml: string, factor: number): string =>
   xml
     .replace(
       /<w:(sz|szCs) w:val="(\d+)"/g,
-      (_m, tag: string, v: string) => `<w:${tag} w:val="${Math.max(MIN_HALF_POINTS, Math.round(Number(v) * factor))}"`
+      (_m, tag: string, v: string) => `<w:${tag} w:val="${Math.min(Number(v), Math.max(MIN_HALF_POINTS, Math.round(Number(v) * factor)))}"`
     )
     .replace(
       /(<w:spacing\b[^>]*?\sw:(?:before|after)=")(\d+)(")/g,
@@ -56,6 +56,28 @@ export function scaleDocxText(docxB64: string, factor: number): string {
   if (styles) {
     const withSize = withDefaultSize(styles.asText())
     zip.file('word/styles.xml', factor < 1 ? scaleSizes(withSize, factor) : withSize)
+  }
+  return zip.generate({ type: 'base64', compression: 'DEFLATE' })
+}
+
+/**
+ * Tightens the line height of every proportional-spaced paragraph (`w:line` with the "auto" rule, in 240ths of a line) by `factor`,
+ * leaving font sizes, paragraph spacing and fixed-height lines alone. A document that spills a line or two onto a new page needs
+ * far less than scaleDocxText takes, and nothing about how its lines wrap changes.
+ */
+export function tightenLineHeight(docxB64: string, factor: number): string {
+  const zip = new PizZip(docxB64, { base64: true })
+  for (const part of ['word/document.xml', 'word/styles.xml']) {
+    const file = zip.file(part)
+    if (!file) continue
+    zip.file(
+      part,
+      file.asText().replace(/<w:spacing\b[^>]*?\/>/g, (tag) =>
+        /\sw:lineRule="(?!auto")/.test(tag)
+          ? tag
+          : tag.replace(/(\sw:line=")(\d+)(")/, (_m, a: string, v: string, c: string) => `${a}${Math.round(Number(v) * factor)}${c}`)
+      )
+    )
   }
   return zip.generate({ type: 'base64', compression: 'DEFLATE' })
 }

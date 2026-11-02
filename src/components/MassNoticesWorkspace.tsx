@@ -58,7 +58,7 @@ function isoToday(): string {
 const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 /**
- * Settings → Generate Mass Notices workspace. Pick a folder of tender
+ * Settings → Generate Bulk Notices workspace. Pick a folder of tender
  * documents: every L-1 selection sheet is paired with the LOA (Online
  * Intimation) of the SAME work (agency + NIT — core/sameWorkCheck.ts, as in the
  * Intimation and Work Order tabs), or — when there's no LOA — with the bidder's
@@ -385,7 +385,7 @@ export default function MassNoticesWorkspace({ office, monitoringWorks, calendar
     <>
       <div className="pdf-ws-topbar">
         <div className="pdf-ws-title">
-          <IconBell /> Mass Notices
+          <IconBell /> Bulk Notices
         </div>
         {phase !== 'idle' && (
           <button className="ghost" onClick={clear} title="Clear this run and start again from Upload folder (notices already in Reminders stay)">

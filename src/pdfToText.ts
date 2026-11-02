@@ -206,3 +206,32 @@ export async function pdfToPositionedLines(file: File): Promise<PositionedLine[]
     await loadingTask.destroy()
   }
 }
+
+/** One text item with its position: `y` grows downward and is offset per page so reading order holds across pages. */
+export interface PositionedItem {
+  text: string
+  x: number
+  y: number
+}
+
+/** Every text item of a PDF with its x / y — for tables whose columns pdfToTextLines would run together. */
+export async function pdfToPositionedItems(file: File): Promise<PositionedItem[]> {
+  const { pdfjsLib } = await import('./pdfjsSetup')
+  const loadingTask = pdfjsLib.getDocument({ data: await file.arrayBuffer() })
+  const pdf = await loadingTask.promise
+  try {
+    const out: PositionedItem[] = []
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum)
+      const content = await page.getTextContent()
+      const pageOffset = (pageNum - 1) * 100000
+      for (const item of content.items as TextItem[]) {
+        if (!item.str || !item.str.trim()) continue
+        out.push({ text: item.str, x: item.transform[4], y: pageOffset + (100000 - item.transform[5]) })
+      }
+    }
+    return out
+  } finally {
+    await loadingTask.destroy()
+  }
+}

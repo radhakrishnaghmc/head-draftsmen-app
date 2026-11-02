@@ -45,7 +45,8 @@ const api: DocuGenApi = {
   scheduleAPreviewHtml: (table, meta, isSe) => ipcRenderer.invoke(IPC.scheduleAPreviewHtml, table, meta, isSe),
   exportScheduleAPdf: (table, suggestedName, meta, isSe) =>
     ipcRenderer.invoke(IPC.exportScheduleAPdf, table, suggestedName, meta, isSe),
-  exportAgreementBundle: (files, mergedPdfName) => ipcRenderer.invoke(IPC.exportAgreementBundle, files, mergedPdfName),
+  exportAgreementBundle: (files, mergedPdfName, subfolder) =>
+    ipcRenderer.invoke(IPC.exportAgreementBundle, files, mergedPdfName, subfolder),
   exportBoq: (table, suggestedName, workName) =>
     ipcRenderer.invoke(IPC.exportBoq, table, suggestedName, workName),
   exportBoqBatch: (entries) => ipcRenderer.invoke(IPC.exportBoqBatch, entries),
@@ -148,7 +149,7 @@ const api: DocuGenApi = {
   loaSeTemplate: (reserved, corporation) => ipcRenderer.invoke(IPC.loaSeTemplate, reserved, corporation),
   verifyDocuments: (items) => ipcRenderer.invoke(IPC.verifyDocuments, items),
   tsNoteTemplate: () => ipcRenderer.invoke(IPC.tsNoteTemplate),
-  eligibilityCriteriaTemplate: () => ipcRenderer.invoke(IPC.eligibilityCriteriaTemplate),
+  eligibilityCriteriaTemplate: (reserved) => ipcRenderer.invoke(IPC.eligibilityCriteriaTemplate, reserved),
   issueNoticeTemplate: (ee, variantId) => ipcRenderer.invoke(IPC.issueNoticeTemplate, ee, variantId),
   loadState: () => ipcRenderer.invoke(IPC.loadState),
   saveState: (state, skipCloud) => ipcRenderer.invoke(IPC.saveState, state, skipCloud),

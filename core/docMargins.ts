@@ -46,3 +46,45 @@ export function applyPageMargins(docxB64: string, m: PageMargins | null, a4 = fa
   zip.file('word/document.xml', xml)
   return zip.generate({ type: 'base64', compression: 'DEFLATE' })
 }
+
+/**
+ * SE (Zone-level) File Backer header: trims the blank spacer lines around the corporation banner (about three lines in
+ * all) and sets the office line below it at 14pt so "Office of Superintending Engineer, <Zone> Zone, <Corp>" stays on
+ * one line. The EE templates keep their own spacing — this is applied to the SE File Backer only.
+ */
+export function tightenSeFileBackerHeader(docxB64: string): string {
+  const zip = new PizZip(docxB64, { base64: true })
+  const file = zip.file('word/document.xml')
+  if (!file) return docxB64
+  let xml = file.asText()
+  // The top spacer paragraph above the banner (24pt) and the empty 20pt paragraph between banner and office line.
+  xml = xml.replace('<w:sz w:val="48"/><w:szCs w:val="48"/>', '<w:sz w:val="8"/><w:szCs w:val="8"/>')
+  xml = xml.replace(
+    '<w:pPr><w:jc w:val="center"/><w:rPr><w:b/><w:sz w:val="40"/><w:szCs w:val="36"/></w:rPr></w:pPr></w:p>',
+    '<w:pPr><w:jc w:val="center"/><w:rPr><w:b/><w:sz w:val="8"/><w:szCs w:val="8"/></w:rPr></w:pPr></w:p>'
+  )
+  xml = xml.replace(
+    '<w:rPr><w:b/><w:sz w:val="40"/><w:szCs w:val="36"/></w:rPr><w:t>{{Circle Header}}',
+    '<w:rPr><w:b/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr><w:t>{{Circle Header}}'
+  )
+  zip.file('word/document.xml', xml)
+  return zip.generate({ type: 'base64', compression: 'DEFLATE' })
+}
+
+/** Deletes the first paragraph whose text contains `needle` (e.g. an optional line of a template). No-op if absent. */
+export function removeDocParagraph(docxB64: string, needle: string): string {
+  const zip = new PizZip(docxB64, { base64: true })
+  const file = zip.file('word/document.xml')
+  if (!file) return docxB64
+  const xml = file.asText()
+  const para = /<w:p(?: [^>]*)?>(?:(?!<w:p[ >]).)*?<\/w:p>/gs
+  let hit: RegExpExecArray | null
+  while ((hit = para.exec(xml))) {
+    const text = [...hit[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((m) => m[1]).join('')
+    if (text.includes(needle)) {
+      zip.file('word/document.xml', xml.slice(0, hit.index) + xml.slice(hit.index + hit[0].length))
+      return zip.generate({ type: 'base64', compression: 'DEFLATE' })
+    }
+  }
+  return docxB64
+}

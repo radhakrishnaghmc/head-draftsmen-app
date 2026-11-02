@@ -27,8 +27,13 @@ describe('scaleDocxText on the Agreement Bond templates', () => {
     expect(gap(body(scaleDocxText(bond, 0.8)))).toEqual(gap(body(bond)))
   })
 
-  it('never writes a size below 8pt', () => {
-    expect(Math.min(...sizes(part(scaleDocxText(bond, 0.1), 'word/document.xml')))).toBeGreaterThanOrEqual(16)
+  it('never shrinks a size below 8pt, and never enlarges one (tiny spacer lines stay as they were)', () => {
+    const before = sizes(part(bond, 'word/document.xml'))
+    const after = sizes(part(scaleDocxText(bond, 0.1), 'word/document.xml'))
+    after.forEach((size, i) => {
+      expect(size).toBeLessThanOrEqual(before[i])
+      expect(size).toBeGreaterThanOrEqual(Math.min(before[i], 16))
+    })
   })
 
   it("writes Word's implicit 10pt default in when no size is set anywhere (factor 1 changes nothing else)", () => {

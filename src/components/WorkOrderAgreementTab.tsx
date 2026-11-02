@@ -38,6 +38,7 @@ import {
   aeDyeeForwardingPlaceholders,
   civilTenderPlaceholders,
   standaloneRowFromSources,
+  withMonitoringWork,
   circleFromNit,
   indianFinancialYear,
   DEFAULT_PAGES_OF_AGREEMENT
@@ -48,7 +49,12 @@ import { corporationByName, resolveFromDirectory, entriesOf, CORPORATIONS } from
 import { type Office, officeScopedKey, TEMPLATE_KEYS, TEMPLATE_VARIANT_CHANGED_EVENT } from '../office'
 import { boqToScheduleA, buildBoqFromEstimate, extractWorkNameFromBoq } from '../boqTransform'
 import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
-import { extractEstimateItems, extractEstimateCharges, extractWorkName, type EstimateCharges } from '@core/estimateExtract'
+import {
+  extractEstimateItems,
+  extractEstimateCharges,
+  extractWorkName,
+  type EstimateCharges
+} from '@core/estimateExtract'
 import { buildScheduleARows, rowsToScheduleAItems, metaFromWorksRow, findWorksRowByName } from '@core/scheduleA'
 import { indianDigitGroups } from '@core/worksAmounts'
 import { compareWorkNames, workNameMismatchMessage, normWorkName } from '@core/workNameMatch'
@@ -72,11 +78,14 @@ import {
   type NoteMargins
 } from '../notePagination'
 import PageMarginGuides from './PageMarginGuides'
-import { applyPageMargins, type PageMargins } from '@core/docMargins'
+import { applyPageMargins, removeDocParagraph, tightenSeFileBackerHeader, type PageMargins } from '@core/docMargins'
 import DocFieldsEditor, { groupLabels, type DocFieldGroup } from './DocFieldsEditor'
 import { mismatchHint } from '../docClassify'
 import type { PlaceholderMatch } from '@core/createDocument'
-import type { ScheduleAMeta, AgreementBundleFile, VerifyDocItem } from '../../electron/ipc-contract'
+import type { ScheduleAMeta, AgreementBundleFile, VerifyDocItem, VerifyDocResult } from '../../electron/ipc-contract'
+import { verifyWorkFigures, type DocFigures } from '../../core/agreementVerify'
+import type { MonitoringFormatWorkRow } from '../../core/monitoringFormat'
+import { findMonitoringWork } from '../../core/massNotices'
 import { VerifyButton } from './VerifyButton'
 import type { ExcelTable, QcOfficeParties } from '@core/types'
 import { pdfToTextLinesOrOcr, pdfToPositionedLines } from '../pdfToText'
@@ -92,6 +101,8 @@ import { renderAsync } from '../lazyDocxPreview'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconCheck, IconClipboard, IconTable } from './Icons'
 
 interface Props {
+  /** The office's imported Monitoring Format works — Verify checks the work's name is listed there. */
+  monitoringWorks?: MonitoringFormatWorkRow[]
   tables: ExcelTable[]
   onChange: (table: ExcelTable) => void
   /**
@@ -411,7 +422,12 @@ const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
       fields: [
         { label: 'Amount of estimate', title: 'Estimate amount' },
         { label: 'Work Order No', title: 'Work order no.', wide: true },
-        { label: 'AS File No', title: 'Admin sanction — e-Office reference no.', placeholder: 'e.g. 1234567', wide: true },
+        {
+          label: 'AS File No',
+          title: 'Admin sanction — e-Office reference no.',
+          placeholder: 'e.g. 1234567',
+          wide: true
+        },
         { label: 'TS No', title: 'Technical sanction — TS no.', placeholder: 'e.g. 33/SE/QBZ/CMC' },
         { label: 'Financial year', title: 'Financial year' },
         { label: 'TS No and Date', title: 'Technical sanction no. & date' },
@@ -657,6 +673,15 @@ const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
   ]
 }
 
+/** Overlays the estimate (Rs. Lakhs) and Win code the office typed in, when neither the Works List nor the Monitoring Format had them. */
+function withTypedWorkDetails(row: Record<string, string>, estimate: string, wincode: string): Record<string, string> {
+  return {
+    ...row,
+    ...(estimate.trim() ? { 'Amount of estimate': estimate.trim() } : {}),
+    ...(wincode.trim() ? { Wincode: wincode.trim() } : {})
+  }
+}
+
 // Tools "Fill details manually" mode: every Work Order / Agreement field the
 // office types in by hand instead of uploading the L1 + Intimation. Dates are
 // held as the date-input's ISO value and converted to dd.mm.yyyy for the docs.
@@ -761,6 +786,7 @@ export default function WorkOrderAgreementTab({
   zoneLogin = false,
   office,
   qcParties,
+  monitoringWorks,
   headerActionRef
 }: Props) {
   const standalone = standaloneProp || scheduleAOnly || !!only
@@ -857,6 +883,16 @@ export default function WorkOrderAgreementTab({
   // tiles are gated until the work is added to the Works List. null = not yet
   // determined (no L1 uploaded, or no works to match against).
   const [worksRowMatched, setWorksRowMatched] = useState<boolean | null>(null)
+  // The Monitoring Format row for the L-1's work, looked up when the Works List has no such work — supplies the
+  // estimate amount and Win code the uploads don't carry.
+  const [mfWork, setMfWork] = useState<MonitoringFormatWorkRow | null>(null)
+  // Typed in below the upload buttons when neither the Works List nor the Monitoring Format supplied them.
+  const [typedEstimate, setTypedEstimate] = useState('')
+  const [typedWincode, setTypedWincode] = useState('')
+  useEffect(() => {
+    setTypedEstimate('')
+    setTypedWincode('')
+  }, [pdfEval?.nameOfWork])
 
   // A previously-uploaded Online Intimation left over in state from a
   // different work must never lend its agency name/address to this L-1's
@@ -890,7 +926,11 @@ export default function WorkOrderAgreementTab({
   // file) the main process writing/converting them — so the button reads
   // "Preparing 3 of 8…" / "Saving 3 of 8…" instead of a single static
   // "Preparing…" that looks frozen on a big bundle.
-  const [bundleProgress, setBundleProgress] = useState<{ phase: 'preparing' | 'saving'; done: number; total: number } | null>(null)
+  const [bundleProgress, setBundleProgress] = useState<{
+    phase: 'preparing' | 'saving'
+    done: number
+    total: number
+  } | null>(null)
   const [expandedPages, setExpandedPages] = useState(0)
 
   // Schedule A (from an uploaded technical-sanctioned estimate / BOQ).
@@ -954,9 +994,13 @@ export default function WorkOrderAgreementTab({
     try {
       const saved = JSON.parse(localStorage.getItem('noteSubmittedMargins') ?? 'null')
       if (saved && (['top', 'bottom', 'left', 'right'] as const).every((k) => Number.isFinite(saved[k]))) {
-        const untouched = (Object.keys(PREVIOUS_NOTE_MARGINS) as (keyof NoteMargins)[]).every((k) => saved[k] === PREVIOUS_NOTE_MARGINS[k])
+        const untouched = (Object.keys(PREVIOUS_NOTE_MARGINS) as (keyof NoteMargins)[]).every(
+          (k) => saved[k] === PREVIOUS_NOTE_MARGINS[k]
+        )
         const interim =
-          saved.top === 3.5 && saved.bottom === 6.35 && ((saved.left === 22 && saved.right === 22) || (saved.left === 3.5 && saved.right === 3.5))
+          saved.top === 3.5 &&
+          saved.bottom === 6.35 &&
+          ((saved.left === 22 && saved.right === 22) || (saved.left === 3.5 && saved.right === 3.5))
         return untouched || interim ? DEFAULT_NOTE_MARGINS : saved
       }
     } catch {
@@ -1053,23 +1097,27 @@ export default function WorkOrderAgreementTab({
     () =>
       deriveFromUploads
         ? notice || pdfEval
-          ? standaloneRowFromSources(pdfEval ?? {}, effectiveNotice ?? {})
+          ? withTypedWorkDetails(
+              withMonitoringWork(standaloneRowFromSources(pdfEval ?? {}, effectiveNotice ?? {}), mfWork),
+              typedEstimate,
+              typedWincode
+            )
           : null
         : !notice && !pdfEval
           ? null // Neither uploaded yet — stay blank rather than leaking row 0's
-            // unrelated work (SE mode shows its document catalog before either
+          : // unrelated work (SE mode shows its document catalog before either
             // upload; see docsReady).
-          : worksRowMatched === null
+            worksRowMatched === null
             ? null // An L-1/Notice upload just landed and its Works List match
-              // (syncWorksListRow's embedding check) hasn't resolved yet — stay
+            : // (syncWorksListRow's embedding check) hasn't resolved yet — stay
               // blank for this brief async window rather than leaking whatever
               // row[rowIndex] currently points to (often row 0's unrelated work).
               // Note Submitted's own seeding effect watches selectedRow, so this
               // is what actually stops it momentarily showing the wrong work.
-            : table && table.rows.length > 0
+              table && table.rows.length > 0
               ? table.rows[Math.min(rowIndex, table.rows.length - 1)]
               : null,
-    [deriveFromUploads, notice, effectiveNotice, pdfEval, worksRowMatched, table, rowIndex]
+    [deriveFromUploads, notice, effectiveNotice, pdfEval, worksRowMatched, table, rowIndex, mfWork, typedEstimate, typedWincode]
   )
 
   // Load both bundled formats, and read their placeholders.
@@ -1186,50 +1234,63 @@ export default function WorkOrderAgreementTab({
   useEffect(() => {
     if (!seMode) return
     let cancelled = false
-    const load = () => void (async () => {
-      try {
-        // The office's Work Order pick (Settings → Document Templates) applies here too:
-        // type 3 is the logo-header layout, anything else the default SE letterhead.
-        // Concluding Agreement / Memo to EE have their own picks of the same two.
-        // The corporation logo headers (types 4-6) are per-corporation — ignore a stale saved choice anywhere else.
-        const corp = office?.corporation
-        const workOrderVariant = variantForCorporation(localStorage.getItem(workOrderVariantKey) ?? corporationDefaultVariant(corp, undefined), corp, WORK_ORDER_TEMPLATE_VARIANTS)
-        // An MMC / CMC / GHMC office with no saved pick gets its own header on these two by default.
-        const concludingVariant = variantForCorporation(localStorage.getItem(concludingVariantKey) ?? corporationDefaultVariant(corp, undefined), corp, CONCLUDING_AGREEMENT_TEMPLATE_VARIANTS)
-        const memoEeVariant = variantForCorporation(localStorage.getItem(memoEeVariantKey) ?? corporationDefaultVariant(corp, undefined), corp, MEMO_EE_TEMPLATE_VARIANTS)
-        const [bondB64, woB64, caB64, meB64, noteB64, deedB64] = await Promise.all([
-          api.seAgreementBondTemplate(),
-          api.zonalWorkOrderTemplate(workOrderVariant),
-          api.zonalConcludingAgreementTemplate(concludingVariant),
-          api.zonalMemoEeTemplate(memoEeVariant),
-          api.seAgreementNoteTemplate(),
-          api.contractDeedTemplate()
-        ])
-        const [bondLabels, woLabels, caLabels, meLabels, noteLabels, deedLabels] = await Promise.all([
-          api.findPlaceholdersInDocument(bondB64),
-          api.findPlaceholdersInDocument(woB64),
-          api.findPlaceholdersInDocument(caB64),
-          api.findPlaceholdersInDocument(meB64),
-          api.findPlaceholdersInDocument(noteB64),
-          api.findPlaceholdersInDocument(deedB64)
-        ])
-        if (cancelled) return
-        setSeAgreementBondB64(bondB64)
-        setZonalWorkOrderB64(woB64)
-        setZonalConcludingAgreementB64(caB64)
-        setZonalMemoEeB64(meB64)
-        setSeAgreementNoteB64(noteB64)
-        setContractDeedB64(deedB64)
-        setSeAgreementBondLabels(bondLabels)
-        setZonalWorkOrderLabels(woLabels)
-        setZonalConcludingAgreementLabels(caLabels)
-        setZonalMemoEeLabels(meLabels)
-        setSeAgreementNoteLabels(noteLabels)
-        setContractDeedLabels(deedLabels)
-      } catch (e) {
-        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
-      }
-    })()
+    const load = () =>
+      void (async () => {
+        try {
+          // The office's Work Order pick (Settings → Document Templates) applies here too:
+          // type 3 is the logo-header layout, anything else the default SE letterhead.
+          // Concluding Agreement / Memo to EE have their own picks of the same two.
+          // The corporation logo headers (types 4-6) are per-corporation — ignore a stale saved choice anywhere else.
+          const corp = office?.corporation
+          const workOrderVariant = variantForCorporation(
+            localStorage.getItem(workOrderVariantKey) ?? corporationDefaultVariant(corp, undefined),
+            corp,
+            WORK_ORDER_TEMPLATE_VARIANTS
+          )
+          // An MMC / CMC / GHMC office with no saved pick gets its own header on these two by default.
+          const concludingVariant = variantForCorporation(
+            localStorage.getItem(concludingVariantKey) ?? corporationDefaultVariant(corp, undefined),
+            corp,
+            CONCLUDING_AGREEMENT_TEMPLATE_VARIANTS
+          )
+          const memoEeVariant = variantForCorporation(
+            localStorage.getItem(memoEeVariantKey) ?? corporationDefaultVariant(corp, undefined),
+            corp,
+            MEMO_EE_TEMPLATE_VARIANTS
+          )
+          const [bondB64, woB64, caB64, meB64, noteB64, deedB64] = await Promise.all([
+            api.seAgreementBondTemplate(),
+            api.zonalWorkOrderTemplate(workOrderVariant),
+            api.zonalConcludingAgreementTemplate(concludingVariant),
+            api.zonalMemoEeTemplate(memoEeVariant),
+            api.seAgreementNoteTemplate(),
+            api.contractDeedTemplate()
+          ])
+          const [bondLabels, woLabels, caLabels, meLabels, noteLabels, deedLabels] = await Promise.all([
+            api.findPlaceholdersInDocument(bondB64),
+            api.findPlaceholdersInDocument(woB64),
+            api.findPlaceholdersInDocument(caB64),
+            api.findPlaceholdersInDocument(meB64),
+            api.findPlaceholdersInDocument(noteB64),
+            api.findPlaceholdersInDocument(deedB64)
+          ])
+          if (cancelled) return
+          setSeAgreementBondB64(bondB64)
+          setZonalWorkOrderB64(woB64)
+          setZonalConcludingAgreementB64(caB64)
+          setZonalMemoEeB64(meB64)
+          setSeAgreementNoteB64(noteB64)
+          setContractDeedB64(deedB64)
+          setSeAgreementBondLabels(bondLabels)
+          setZonalWorkOrderLabels(woLabels)
+          setZonalConcludingAgreementLabels(caLabels)
+          setZonalMemoEeLabels(meLabels)
+          setSeAgreementNoteLabels(noteLabels)
+          setContractDeedLabels(deedLabels)
+        } catch (e) {
+          if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
+        }
+      })()
     load()
     function onVariantChanged(e: Event) {
       const key = (e as CustomEvent).detail?.storageKey
@@ -1376,8 +1437,28 @@ export default function WorkOrderAgreementTab({
   // Contract Amount), and select that row so the documents fill from it.
   // Re-run whenever either file changes, so a field only one of them carries
   // (e.g. the address, from the intimation) lands whichever is uploaded second.
+  async function lookupMonitoringWork(name: string): Promise<MonitoringFormatWorkRow | null> {
+    const rows = monitoringWorks ?? []
+    if (rows.length === 0) return null
+    let embeddings: { workNameVector: number[]; rowNameVectors: number[][] } | undefined
+    try {
+      const [rowNameVectors, [workNameVector]] = await Promise.all([
+        api.embedTexts(rows.map((r) => r.workName)),
+        api.embedTexts([name])
+      ])
+      embeddings = { workNameVector, rowNameVectors }
+    } catch {
+      embeddings = undefined
+    }
+    return findMonitoringWork(rows, name, embeddings)?.row ?? null
+  }
+
   async function syncWorksListRow(ev: TenderEvaluation, noticeVal: IntimationNotice | null): Promise<void> {
-    if (!table || !ev.nameOfWork) return
+    if (!ev.nameOfWork) return
+    if (!table) {
+      setMfWork(await lookupMonitoringWork(ev.nameOfWork))
+      return
+    }
     let embeddings: { rowNameVectors: number[][]; evalNameVectors: number[][] } | undefined
     const nameHeader = table.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
     if (nameHeader) {
@@ -1402,21 +1483,29 @@ export default function WorkOrderAgreementTab({
     // agency name/address into this row — only pass it through once it's
     // confirmed to describe the same work as this L-1.
     const noticeForRow = noticeVal && checkSameWork(noticeVal, ev).status !== 'mismatch' ? noticeVal : undefined
-    const { table: updated, matchedCount, matchedRowIndices } = updateWorksListFromEvaluations(
-      table,
-      [ev],
-      embeddings,
-      noticeForRow
-    )
+    const {
+      table: updated,
+      matchedCount,
+      matchedRowIndices
+    } = updateWorksListFromEvaluations(table, [ev], embeddings, noticeForRow)
     if (matchedCount > 0) {
       const idx = matchedRowIndices[0]
       if (idx != null && idx >= 0) setRowIndex(idx)
       setWorksRowMatched(true)
+      setMfWork(null)
       onChange(updated)
-      setPdfStatus(`Matched "${ev.nameOfWork}" to a Works List row — its details fill the documents and the Works List is updated.`)
+      setPdfStatus(
+        `Matched "${ev.nameOfWork}" to a Works List row — its details fill the documents and the Works List is updated.`
+      )
     } else {
+      const mf = await lookupMonitoringWork(ev.nameOfWork)
+      setMfWork(mf)
       setWorksRowMatched(false)
-      setPdfStatus(`Read the PDF. "${ev.nameOfWork}" isn't in the Works List — the documents fill from the uploaded L1 / Intimation.`)
+      setPdfStatus(
+        mf
+          ? `Read the PDF. "${ev.nameOfWork}" isn't in the Works List — found in the Monitoring Format; the documents fill from the uploaded L1 / Intimation plus the Monitoring Format.`
+          : `Read the PDF. "${ev.nameOfWork}" isn't in the Works List — the documents fill from the uploaded L1 / Intimation.`
+      )
     }
   }
 
@@ -1507,7 +1596,9 @@ export default function WorkOrderAgreementTab({
       const lines = await pdfToTextLinesOrOcr(file)
       const ev = parseTenderEvaluation(lines)
       if (!ev.nameOfWork && !ev.tenderId) {
-        throw new Error("Couldn't read tender details from that PDF — is it the Commercial Evaluation / Stage Selected page?")
+        throw new Error(
+          "Couldn't read tender details from that PDF — is it the Commercial Evaluation / Stage Selected page?"
+        )
       }
       setPdfEval(ev)
       setPdfName(file.name)
@@ -1605,9 +1696,7 @@ export default function WorkOrderAgreementTab({
     setActionError(null)
     try {
       const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
-      const lines = isPdf
-        ? await pdfToTextLinesOrOcr(file)
-        : await api.ocrPhotosToLines([await readAsDataUrl(file)])
+      const lines = isPdf ? await pdfToTextLinesOrOcr(file) : await api.ocrPhotosToLines([await readAsDataUrl(file)])
       const r = parseBalanceEmdReceipt(lines)
       if (r.balanceEmdRupees == null && !r.receiptNo) {
         const summary = composeBankGuaranteeSummary(lines)
@@ -1615,7 +1704,7 @@ export default function WorkOrderAgreementTab({
           throw new Error(
             "Couldn't read that receipt — is it the CURE portal's Balance EMD payment Receipt or a Bank Guarantee? " +
               "If it's a Bank Guarantee, make sure this work's ECV and Tender Percentage are filled in first " +
-              '(the amounts on the certificate are matched to EMD/ASD by the work\'s expected figures) — ' +
+              "(the amounts on the certificate are matched to EMD/ASD by the work's expected figures) — " +
               'otherwise type the BG details into EMD Details by hand.'
           )
         }
@@ -1696,17 +1785,45 @@ export default function WorkOrderAgreementTab({
     }
   }
 
-  async function fillDoc(kind: DocKind, opts?: { blankDate?: boolean }): Promise<string> {
-    const b64 =
+  function labelsFor(kind: DocKind): string[] {
+    return (
       {
-        workOrder: workOrderB64, fileBacker: fileBackerB64, agreement: agreementB64, qccIntimation: qccIntimationB64, forwardingSlip: forwardingSlipB64, workBillNote: workBillNoteB64, aeDyeeForwarding: aeDyeeB64, civilTender: civilTenderB64, seAgreementBond: seAgreementBondB64,
-        zonalWorkOrder: zonalWorkOrderB64, zonalConcludingAgreement: zonalConcludingAgreementB64, zonalMemoEe: zonalMemoEeB64, seAgreementNote: seAgreementNoteB64, contractDeed: contractDeedB64
-      }[kind]
-    const labels =
-      {
-        workOrder: workOrderLabels, fileBacker: fileBackerLabels, agreement: agreementLabels, qccIntimation: qccIntimationLabels, forwardingSlip: forwardingSlipLabels, workBillNote: workBillNoteLabels, aeDyeeForwarding: aeDyeeLabels, civilTender: civilTenderLabels, seAgreementBond: seAgreementBondLabels,
-        zonalWorkOrder: zonalWorkOrderLabels, zonalConcludingAgreement: zonalConcludingAgreementLabels, zonalMemoEe: zonalMemoEeLabels, seAgreementNote: seAgreementNoteLabels, contractDeed: contractDeedLabels
+        workOrder: workOrderLabels,
+        fileBacker: fileBackerLabels,
+        agreement: agreementLabels,
+        qccIntimation: qccIntimationLabels,
+        forwardingSlip: forwardingSlipLabels,
+        workBillNote: workBillNoteLabels,
+        aeDyeeForwarding: aeDyeeLabels,
+        civilTender: civilTenderLabels,
+        seAgreementBond: seAgreementBondLabels,
+        zonalWorkOrder: zonalWorkOrderLabels,
+        zonalConcludingAgreement: zonalConcludingAgreementLabels,
+        zonalMemoEe: zonalMemoEeLabels,
+        seAgreementNote: seAgreementNoteLabels,
+        contractDeed: contractDeedLabels
       }[kind] ?? []
+    )
+  }
+
+  async function fillDoc(kind: DocKind, opts?: { blankDate?: boolean }): Promise<string> {
+    const b64 = {
+      workOrder: workOrderB64,
+      fileBacker: fileBackerB64,
+      agreement: agreementB64,
+      qccIntimation: qccIntimationB64,
+      forwardingSlip: forwardingSlipB64,
+      workBillNote: workBillNoteB64,
+      aeDyeeForwarding: aeDyeeB64,
+      civilTender: civilTenderB64,
+      seAgreementBond: seAgreementBondB64,
+      zonalWorkOrder: zonalWorkOrderB64,
+      zonalConcludingAgreement: zonalConcludingAgreementB64,
+      zonalMemoEe: zonalMemoEeB64,
+      seAgreementNote: seAgreementNoteB64,
+      contractDeed: contractDeedB64
+    }[kind]
+    const labels = labelsFor(kind)
     if (!b64) throw new Error('Format not loaded yet.')
     // "Download all" asks for the Work Order / Agreement Bond date to be blank
     // (hand-written on the printed copy), regardless of any date picked for a
@@ -1726,11 +1843,17 @@ export default function WorkOrderAgreementTab({
       }
     }
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
-    const filled = await api.fillPlaceholdersInDocument(b64, resolved, values)
+    let source = kind === 'fileBacker' && seMode ? tightenSeFileBackerHeader(b64) : b64
+    // The Work Order's "Copy submitted to … The Chief Engineer" line only belongs when the letter is the CE office's.
+    if (kind === 'zonalWorkOrder' && !(values['Letter Office'] ?? '').startsWith('Chief Engineer'))
+      source = removeDocParagraph(source, 'The Chief Engineer, {{Corp}} for favour of kind information')
+    const filled = await api.fillPlaceholdersInDocument(source, resolved, values)
     // File Backer is a single A4 sheet (the templates are still US Letter).
     const sized = applyPageMargins(filled, docMargins[kind] ?? null, A4_DOCS.includes(kind))
     // The Agreement Bond is a single A4 sheet — long names/addresses shrink the text rather than spill onto a second page.
-    return kind === 'agreement' || kind === 'seAgreementBond' ? fitDocxToOnePage(sized) : sized
+    // The Agreement Bonds sit on pre-printed letterhead paper: any room left goes into the top margin so only one line remains below.
+    if (kind === 'agreement' || kind === 'seAgreementBond') return fitDocxToOnePage(sized, { pushToBottom: true })
+    return kind === 'zonalWorkOrder' ? fitDocxToOnePage(sized) : sized
   }
 
   // The full-size, accurate (Chromium-rendered) render — used only for the
@@ -1744,7 +1867,9 @@ export default function WorkOrderAgreementTab({
     const host = container.parentElement
     if (!host || container.childElementCount === 0) {
       if (seq !== renderSeqRef.current) return 0
-      const { pageCount } = await renderDocPreview(base64ToUint8(filled), container, { flowPages: FLOW_PAGE_DOCS.includes(kind) })
+      const { pageCount } = await renderDocPreview(base64ToUint8(filled), container, {
+        flowPages: FLOW_PAGE_DOCS.includes(kind)
+      })
       normalizeDocxTextboxes(container)
       return pageCount
     }
@@ -1753,7 +1878,9 @@ export default function WorkOrderAgreementTab({
     stage.style.cssText = `position:absolute;left:-99999px;top:0;visibility:hidden;width:${container.clientWidth}px`
     host.appendChild(stage)
     try {
-      const { pageCount } = await renderDocPreview(base64ToUint8(filled), stage, { flowPages: FLOW_PAGE_DOCS.includes(kind) })
+      const { pageCount } = await renderDocPreview(base64ToUint8(filled), stage, {
+        flowPages: FLOW_PAGE_DOCS.includes(kind)
+      })
       // A newer render started while this one was busy — drop this result instead of overwriting it.
       if (seq !== renderSeqRef.current) return pageCount
       container.replaceChildren(...Array.from(stage.childNodes))
@@ -1778,8 +1905,39 @@ export default function WorkOrderAgreementTab({
         zonalMemoEe: zonalMemoEeLabels,
         seAgreementNote: seAgreementNoteLabels,
         contractDeed: contractDeedLabels
-      }[kind as 'seAgreementBond' | 'zonalWorkOrder' | 'forwardingSlip' | 'civilTender' | 'zonalConcludingAgreement' | 'zonalMemoEe' | 'seAgreementNote' | 'contractDeed'] ?? []
-    return groupLabels(labels)
+      }[
+        kind as
+          | 'seAgreementBond'
+          | 'zonalWorkOrder'
+          | 'forwardingSlip'
+          | 'civilTender'
+          | 'zonalConcludingAgreement'
+          | 'zonalMemoEe'
+          | 'seAgreementNote'
+          | 'contractDeed'
+      ] ?? []
+    const groups = groupLabels(labels)
+    if (kind !== 'zonalWorkOrder') return groups
+    // The letter-reference line (point 3): which office's letter it cites — SE's own (default) or the CE's.
+    const se = derivedPlaceholders('zonalWorkOrder', fields)['Letter Office']
+    const ce = derivedPlaceholders('zonalWorkOrder', fields)['Letter Office CE']
+    return groups.map((g) => ({
+      ...g,
+      fields: g.fields.map((fl) =>
+        fl.label === 'Letter Office'
+          ? {
+              ...fl,
+              title: 'Letter issued by',
+              options: [
+                { value: se, label: `SE office — ${se}` },
+                { value: ce, label: `CE office — ${ce}` }
+              ]
+            }
+          : fl.label === 'CE Letter No Date'
+            ? { ...fl, title: 'Letter No & Date' }
+            : fl
+      )
+    }))
   }
 
   // Hand edits are kept per work in memory (see saveDocEdits), so closing the
@@ -1879,16 +2037,15 @@ export default function WorkOrderAgreementTab({
         if (zcaTileRef.current) void renderTileThumbnail('zonalConcludingAgreement', zcaTileRef.current).catch(() => {})
         if (zmeTileRef.current) void renderTileThumbnail('zonalMemoEe', zmeTileRef.current).catch(() => {})
         if (seNoteTileRef.current) void renderTileThumbnail('seAgreementNote', seNoteTileRef.current).catch(() => {})
-        if (contractDeedTileRef.current) void renderTileThumbnail('contractDeed', contractDeedTileRef.current).catch(() => {})
+        if (contractDeedTileRef.current)
+          void renderTileThumbnail('contractDeed', contractDeedTileRef.current).catch(() => {})
         return
       }
       if (woTileRef.current) void renderTileThumbnail('workOrder', woTileRef.current).catch(() => {})
       if (fbTileRef.current) void renderTileThumbnail('fileBacker', fbTileRef.current).catch(() => {})
       if (agTileRef.current) void renderTileThumbnail('agreement', agTileRef.current).catch(() => {})
-      if (qccIntTileRef.current) void renderTileThumbnail('qccIntimation', qccIntTileRef.current).catch(() => {})
       if (fsTileRef.current) void renderTileThumbnail('forwardingSlip', fsTileRef.current).catch(() => {})
       if (wbnTileRef.current) void renderTileThumbnail('workBillNote', wbnTileRef.current).catch(() => {})
-      if (aeTileRef.current) void renderTileThumbnail('aeDyeeForwarding', aeTileRef.current).catch(() => {})
       if (ctTileRef.current) void renderTileThumbnail('civilTender', ctTileRef.current).catch(() => {})
     }, 600)
     return () => clearTimeout(timer)
@@ -1902,6 +2059,8 @@ export default function WorkOrderAgreementTab({
     const container = expandedRef.current
     if (!container) return
     setActionError(null)
+    // Drop the previous document's count so a stale "— N pages" never shows while this one renders.
+    setExpandedPages(0)
     const kind = expanded
     // The editable documents (File Backer) re-render on every keystroke in
     // their editor panel — debounce so typing isn't one docx fill + render per
@@ -1911,10 +2070,14 @@ export default function WorkOrderAgreementTab({
     const timer = setTimeout(() => {
       void renderDocInto(kind, container)
         .then(async (pages) => {
-          setExpandedPages(pages)
           // The preview counts explicit page-break sections, which badly undercounts the
-          // 41-page Tender Document — take the real count from the LibreOffice PDF instead.
-          if (kind !== 'civilTender') return
+          // 41-page Tender Document (it showed "12 pages" until the PDF count landed, or for
+          // good if the conversion failed) — take the real count from the LibreOffice PDF
+          // instead, and never show the undercount.
+          if (kind !== 'civilTender') {
+            setExpandedPages(pages)
+            return
+          }
           const pdf = await PDFDocument.load(await api.docxToPdf(base64ToUint8(await fillDoc(kind))))
           if (!cancelled) setExpandedPages(pdf.getPageCount())
         })
@@ -2014,12 +2177,20 @@ export default function WorkOrderAgreementTab({
       const filled = await fillDoc(kind)
       const container = printScratchRef.current
       if (!container) throw new Error('Print failed to initialize.')
-      await renderDocPreview(base64ToUint8(filled), container, { forSnapshot: true, flowPages: FLOW_PAGE_DOCS.includes(kind) })
+      await renderDocPreview(base64ToUint8(filled), container, {
+        forSnapshot: true,
+        flowPages: FLOW_PAGE_DOCS.includes(kind)
+      })
       if (kind === 'fileBacker') centerFileBackerForPrint(container)
       normalizeDocxTextboxes(container)
       const __fo = container.querySelector('foreignObject')
       const __span = __fo?.firstElementChild?.firstElementChild as HTMLElement | undefined
-      ;(window as any).__wadDebug = { transform: __span?.style.transform, fontSize: __span?.style.fontSize, textAlign: __span?.parentElement?.style.textAlign, fontsStatus: (document.fonts as any).status }
+      ;(window as any).__wadDebug = {
+        transform: __span?.style.transform,
+        fontSize: __span?.style.fontSize,
+        textAlign: __span?.parentElement?.style.textAlign,
+        fontsStatus: (document.fonts as any).status
+      }
       await api.printCreatedDocument(container.innerHTML)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
@@ -2033,6 +2204,44 @@ export default function WorkOrderAgreementTab({
   // figure, that too) from the current source uploads, so the Verify button
   // can cross-check them against what's actually baked into each generated
   // document. No AI involved.
+  // The Works List database row for the L-1's work — looked up by the L-1's own name, independent of whichever row the
+  // documents are currently filling from, so a wrongly selected row shows up as a mismatch.
+  function worksDbRow(): Record<string, string> | undefined {
+    const name = (pdfEval?.nameOfWork ?? '').trim()
+    return name && table ? findWorksRowByName(table, name)?.row : undefined
+  }
+
+  // Source figures every document is checked against: name of work / ECV / contract / tender % straight from the L-1
+  // sheet, the estimate from the Works List database, wincode and period as the documents are filled with them.
+  function sourceFigures(): DocFigures {
+    const dbEst = (worksDbRow()?.['Amount of estimate'] ?? '').replace(/,/g, '').trim()
+    return {
+      workName: (pdfEval?.nameOfWork ?? '').trim() || fields.nameOfWork,
+      estimateLakhs: dbEst && Number.isFinite(Number(dbEst)) ? Number(dbEst) : null,
+      ecv: pdfEval?.ecvRupees ?? null,
+      contract: pdfEval?.contractRupees ?? null,
+      tenderPct: pdfEval?.tenderPercentage ?? null,
+      wincode: fields.wincode,
+      completionMonths: fields.completionMonths,
+      reserved: fields.reservation.trim() !== ''
+    }
+  }
+
+  // Checks on the source figures themselves (not any one document): estimate vs the database, ECV/contract/tender %
+  // consistency, EMD/ASD, wincode, period of completion, and the Monitoring Format.
+  async function getVerifyExtra(): Promise<{ results: VerifyDocResult[]; skipped: string[] }> {
+    const row = worksDbRow()
+    const fe = fields.estimateLakhs.trim()
+    const { issues, skipped } = verifyWorkFigures({
+      ...sourceFigures(),
+      fieldsEstimateLakhs: fe && Number.isFinite(Number(fe)) ? Number(fe) : null,
+      worksRowFound: !!row,
+      rowEmdAsd: row ? { emd1: row['EMD 1%'], emd1_5: row['EMD 1.5%'], asd: row['ASD'] } : undefined,
+      monitoringWorks
+    })
+    return { results: [{ name: 'This work', ok: issues.length === 0, issues }], skipped }
+  }
+
   async function getVerifyItems(): Promise<VerifyDocItem[]> {
     const ecv = fields.ecvRupees.trim() ? Number(fields.ecvRupees.replace(/,/g, '')) : null
     const tenderPct = fields.tenderPercent.trim() ? Number(fields.tenderPercent) : null
@@ -2060,7 +2269,8 @@ export default function WorkOrderAgreementTab({
         values: {},
         amounts: { ecv, contract, tenderPct, emdPct: emdPctFor[kind] },
         corporation,
-        reserved
+        reserved,
+        figures: { labels: labelsFor(kind), expected: sourceFigures() }
       })
     }
 
@@ -2077,7 +2287,6 @@ export default function WorkOrderAgreementTab({
       await add('civilTender', civilTenderB64)
       await add('forwardingSlip', forwardingSlipB64)
       await add('agreement', agreementB64)
-      await add('qccIntimation', qccIntimationB64)
       await add('workOrder', workOrderB64)
     }
     return items
@@ -2118,24 +2327,29 @@ export default function WorkOrderAgreementTab({
         // File Backer — the cover page — first, then the Work Order, then the Agreement
         // Bond, then its two forwarding memos and the put-up note.
         if (fileBackerB64 && wants('fileBacker')) await add(docName('fileBacker'), await fillDoc('fileBacker'))
-        if (zonalWorkOrderB64 && wants('zonalWorkOrder')) await add(docName('zonalWorkOrder'), await fillDoc('zonalWorkOrder'))
+        if (zonalWorkOrderB64 && wants('zonalWorkOrder'))
+          await add(docName('zonalWorkOrder'), await fillDoc('zonalWorkOrder'))
         // Same "blank, hand-writable date" policy as the EE Work Order / Agreement Bond bundle.
-        if (seAgreementBondB64 && wants('seAgreementBond')) await add(docName('seAgreementBond'), await fillDoc('seAgreementBond', { blankDate: true }))
-        if (seAgreementNoteB64 && wants('seAgreementNote')) await add(docName('seAgreementNote'), await fillDoc('seAgreementNote'))
-        if (zonalConcludingAgreementB64 && wants('zonalConcludingAgreement')) await add(docName('zonalConcludingAgreement'), await fillDoc('zonalConcludingAgreement'))
+        if (seAgreementBondB64 && wants('seAgreementBond'))
+          await add(docName('seAgreementBond'), await fillDoc('seAgreementBond', { blankDate: true }))
+        if (seAgreementNoteB64 && wants('seAgreementNote'))
+          await add(docName('seAgreementNote'), await fillDoc('seAgreementNote'))
+        if (zonalConcludingAgreementB64 && wants('zonalConcludingAgreement'))
+          await add(docName('zonalConcludingAgreement'), await fillDoc('zonalConcludingAgreement'))
         if (zonalMemoEeB64 && wants('zonalMemoEe')) await add(docName('zonalMemoEe'), await fillDoc('zonalMemoEe'))
         if (contractDeedB64 && wants('contractDeed')) await add(docName('contractDeed'), await fillDoc('contractDeed'))
       } else {
         // File Backer — the cover page — first in the bundle.
         if (fileBackerB64 && wants('fileBacker')) await add(docName('fileBacker'), await fillDoc('fileBacker'))
         if (workBillNoteB64 && wants('workBillNote')) await add(docName('workBillNote'), await fillDoc('workBillNote'))
-        if (aeDyeeB64 && wants('aeDyeeForwarding')) await add(docName('aeDyeeForwarding'), await fillDoc('aeDyeeForwarding'))
         if (civilTenderB64 && wants('civilTender')) await add(docName('civilTender'), await fillDoc('civilTender'))
-        if (forwardingSlipB64 && wants('forwardingSlip')) await add(docName('forwardingSlip'), await fillDoc('forwardingSlip'))
+        if (forwardingSlipB64 && wants('forwardingSlip'))
+          await add(docName('forwardingSlip'), await fillDoc('forwardingSlip'))
         // Work Order & Agreement Bond print a blank, hand-writable date in the bundle.
-        if (agreementB64 && wants('agreement')) await add(docName('agreement'), await fillDoc('agreement', { blankDate: true }))
-        if (qccIntimationB64 && wants('qccIntimation')) await add(docName('qccIntimation'), await fillDoc('qccIntimation'))
-        if (workOrderB64 && wants('workOrder')) await add(docName('workOrder'), await fillDoc('workOrder', { blankDate: true }))
+        if (agreementB64 && wants('agreement'))
+          await add(docName('agreement'), await fillDoc('agreement', { blankDate: true }))
+        if (workOrderB64 && wants('workOrder'))
+          await add(docName('workOrder'), await fillDoc('workOrder', { blankDate: true }))
         if (noteReady && wants('note'))
           await add(
             `${noteSubmittedFileName(noteData?.workName)}${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`,
@@ -2151,11 +2365,15 @@ export default function WorkOrderAgreementTab({
           scheduleAIsSe: seMode
         })
       if (files.length === 0) {
-        setActionError(bundleSkipped.size > 0 ? 'No documents are selected.' : 'No documents are ready to download yet.')
+        setActionError(
+          bundleSkipped.size > 0 ? 'No documents are selected.' : 'No documents are ready to download yet.'
+        )
         return
       }
       setBundleProgress({ phase: 'saving', done: 0, total: files.length })
-      const res = await api.exportAgreementBundle(files)
+      // One folder per tender inside the chosen location: "Agreement Docs of <Tender Id>".
+      const tid = (fields.tenderId || pdfEval?.tenderId || '').trim()
+      const res = await api.exportAgreementBundle(files, undefined, tid ? `Agreement Docs of ${tid}` : 'Agreement Docs')
       const unresolvedNote =
         unresolvedWarnings.length > 0
           ? ` Warning: ${unresolvedWarnings.length} document(s) have an unfilled field — ${unresolvedWarnings.join('; ')}.`
@@ -2269,11 +2487,9 @@ export default function WorkOrderAgreementTab({
       : [
           ['fileBacker', fileBackerB64],
           ['workBillNote', workBillNoteB64],
-          ['aeDyeeForwarding', aeDyeeB64],
           ['civilTender', civilTenderB64],
           ['forwardingSlip', forwardingSlipB64],
           ['agreement', agreementB64],
-          ['qccIntimation', qccIntimationB64],
           ['workOrder', workOrderB64],
           ['note', noteReady]
         ]
@@ -2384,7 +2600,12 @@ export default function WorkOrderAgreementTab({
 
       // If the source names its own work and it matches a Works List row, hop
       // the selection there so the whole tab (documents + Schedule A) lines up.
-      if (detected && table) {
+      // Only when no L-1 is loaded: once it is, the L-1 alone decides the work (and
+      // so the row every document's estimate amount comes from). A wrong estimate
+      // would otherwise hop the row to ITS work and push that work's estimate amount
+      // into the File Backer, Work Order, Note Submitted, Forwarding Slip, etc., even
+      // though the mismatch check above rejects its Schedule A.
+      if (detected && table && !pdfEval) {
         const match = findWorksRowByName(table, detected)
         if (match) {
           const idx = table.rows.indexOf(match.row)
@@ -2451,7 +2672,9 @@ export default function WorkOrderAgreementTab({
       corporation: fields.corporation,
       ecvAmount: ecvNum != null && Number.isFinite(ecvNum) ? `${indianDigitGroups(ecvNum)}/-` : base.ecvAmount,
       contractAmount:
-        contractNum != null && Number.isFinite(contractNum) ? `${indianDigitGroups(contractNum)}/-` : base.contractAmount
+        contractNum != null && Number.isFinite(contractNum)
+          ? `${indianDigitGroups(contractNum)}/-`
+          : base.contractAmount
     }
   }, [scheduleAOnly, detectedWorkName, boq, scheduleA, uploadedIsEstimate, table, selectedRow, fields])
 
@@ -2644,8 +2867,12 @@ export default function WorkOrderAgreementTab({
         {bundlePickerOpen && (
           <div className="bundle-picker-pop" role="group" aria-label="Documents to download">
             <div className="bundle-picker-actions">
-              <button type="button" onClick={() => setBundleSkipped(new Set())}>All</button>
-              <button type="button" onClick={() => setBundleSkipped(new Set(bundleDocs.map((d) => d.key)))}>None</button>
+              <button type="button" onClick={() => setBundleSkipped(new Set())}>
+                All
+              </button>
+              <button type="button" onClick={() => setBundleSkipped(new Set(bundleDocs.map((d) => d.key)))}>
+                None
+              </button>
             </div>
             {bundleDocs.map((d) => (
               <label key={d.key}>
@@ -2676,14 +2903,18 @@ export default function WorkOrderAgreementTab({
         title={`${bundleSkipped.size > 0 ? 'The selected documents' : 'Every document'} as ${bundleFormat === 'pdf' ? 'separate PDFs' : 'Word (Schedule A as Excel)'}, into one folder you choose`}
       >
         <IconDownload />{' '}
-        {busy === 'bundle' ? bundleProgressLabel : bundleSkipped.size > 0 ? 'Download selected' : 'Download all documents'}
+        {busy === 'bundle'
+          ? bundleProgressLabel
+          : bundleSkipped.size > 0
+            ? 'Download selected'
+            : 'Download all documents'}
       </button>
     </div>
   )
 
   // Same "required documents uploaded and document is generated" gate as the
   // download-all bar — Verify has nothing to check before that.
-  const verifyBlock = docsReady && !only && <VerifyButton getItems={getVerifyItems} />
+  const verifyBlock = docsReady && !only && <VerifyButton getItems={getVerifyItems} getExtra={getVerifyExtra} />
   const headerActions = (
     <>
       {downloadAllButton}
@@ -2694,7 +2925,11 @@ export default function WorkOrderAgreementTab({
   return (
     <div className={only ? 'wo-compact' : 'card'}>
       {headerMounted && headerActionRef?.current && createPortal(headerActions, headerActionRef.current)}
-      <div ref={printScratchRef} style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }} aria-hidden />
+      <div
+        ref={printScratchRef}
+        style={{ position: 'fixed', top: -99999, left: -99999, width: PAGE_WIDTH }}
+        aria-hidden
+      />
 
       <div className={only ? 'wo-compact-body' : 'empty empty--tight'}>
         {!only && <IconClipboard />}
@@ -2710,7 +2945,8 @@ export default function WorkOrderAgreementTab({
               onClick={() => noticeInputRef.current?.click()}
               disabled={!templatesReady || busy === 'notice'}
             >
-              <IconFolder /> {busy === 'notice' ? 'Reading…' : notice ? 'Change Online Intimation' : 'Upload Online Intimation'}
+              <IconFolder />{' '}
+              {busy === 'notice' ? 'Reading…' : notice ? 'Change Online Intimation' : 'Upload Online Intimation'}
             </button>
           )}
           {!scheduleAOnly && !(only && manualMode) && (
@@ -2721,16 +2957,25 @@ export default function WorkOrderAgreementTab({
               title="eGP portal's 'Supplier Details' page — fills the agency's phone number, which the Online Intimation letter never carries"
             >
               <IconFolder />{' '}
-              {busy === 'supplier' ? 'Reading…' : supplierDetailsName ? 'Change Supplier Details' : 'Upload Supplier Details'}
+              {busy === 'supplier'
+                ? 'Reading…'
+                : supplierDetailsName
+                  ? 'Change Supplier Details'
+                  : 'Upload Supplier Details'}
             </button>
           )}
           {!scheduleAOnly && !(only && manualMode) && (
-            <button className="primary upload-btn" onClick={() => pdfInputRef.current?.click()} disabled={!templatesReady || busy === 'pdf'}>
-              <IconFolder /> {busy === 'pdf' ? 'Reading PDF…' : pdfEval ? 'Change L1 selection form' : 'Upload L1 selection form'}
+            <button
+              className="primary upload-btn"
+              onClick={() => pdfInputRef.current?.click()}
+              disabled={!templatesReady || busy === 'pdf'}
+            >
+              <IconFolder />{' '}
+              {busy === 'pdf' ? 'Reading PDF…' : pdfEval ? 'Change L1 selection form' : 'Upload L1 selection form'}
             </button>
           )}
           {!only && (
-            <button className="primary upload-btn" onClick={uploadBoq} disabled={noWorks}>
+            <button className="primary upload-btn" onClick={uploadBoq}>
               <IconTable /> {boq ? 'Change Technical sanctioned Estimate' : 'Upload Technical sanctioned Estimate'}
             </button>
           )}
@@ -2808,6 +3053,30 @@ export default function WorkOrderAgreementTab({
             }}
           />
         </div>
+        {!manualMode && deriveFromUploads && (notice || pdfEval) && (!(mfWork && mfWork.estimateAmt > 0) || !mfWork?.winCode.trim()) && (
+          <div className="wo-manual-form">
+            <span className="estimate-hint wo-manual-wide">
+              Not in the Works List or the Monitoring Format — enter them for this work:
+            </span>
+            {!(mfWork && mfWork.estimateAmt > 0) && (
+              <label className="wo-date-field">
+                <span>Amount of estimate (Lakhs)</span>
+                <input
+                  type="text"
+                  placeholder="45.00"
+                  value={typedEstimate}
+                  onChange={(e) => setTypedEstimate(e.target.value)}
+                />
+              </label>
+            )}
+            {!mfWork?.winCode.trim() && (
+              <label className="wo-date-field">
+                <span>Wincode</span>
+                <input type="text" value={typedWincode} onChange={(e) => setTypedWincode(e.target.value)} />
+              </label>
+            )}
+          </div>
+        )}
         {!scheduleAOnly && !only && (
           <div className="wo-manual-form">
             <label className="wo-date-field wo-manual-wide">
@@ -2834,20 +3103,36 @@ export default function WorkOrderAgreementTab({
             </label>
             <label className="wo-date-field">
               <span>Name of the agency</span>
-              <input type="text" value={manual.agencyName} onChange={(e) => setManual((p) => ({ ...p, agencyName: e.target.value }))} />
+              <input
+                type="text"
+                value={manual.agencyName}
+                onChange={(e) => setManual((p) => ({ ...p, agencyName: e.target.value }))}
+              />
             </label>
             <label className="wo-date-field">
               <span>Agency phone</span>
-              <input type="text" value={manual.phone} onChange={(e) => setManual((p) => ({ ...p, phone: e.target.value }))} />
+              <input
+                type="text"
+                value={manual.phone}
+                onChange={(e) => setManual((p) => ({ ...p, phone: e.target.value }))}
+              />
             </label>
             <label className="wo-date-field wo-manual-wide">
               <span>Agency address</span>
-              <input type="text" value={manual.address} onChange={(e) => setManual((p) => ({ ...p, address: e.target.value }))} />
+              <input
+                type="text"
+                value={manual.address}
+                onChange={(e) => setManual((p) => ({ ...p, address: e.target.value }))}
+              />
             </label>
             {(office?.corporation || office?.zone || office?.circle) && (
               <span className="estimate-hint wo-manual-wide">
                 Using office:{' '}
-                {[office?.corporation, office?.zone && `${office.zone} Zone`, office?.circle && `${office.circle} Circle${office?.circleNumber ? `-${office.circleNumber}` : ''}`]
+                {[
+                  office?.corporation,
+                  office?.zone && `${office.zone} Zone`,
+                  office?.circle && `${office.circle} Circle${office?.circleNumber ? `-${office.circleNumber}` : ''}`
+                ]
                   .filter(Boolean)
                   .join(' · ')}{' '}
                 — Circle / Zone aren’t asked below.
@@ -2856,58 +3141,115 @@ export default function WorkOrderAgreementTab({
             {!(office?.zone ?? '').trim() && (
               <label className="wo-date-field">
                 <span>Zone</span>
-                <input type="text" placeholder="Quthbullapur" value={manual.zone} onChange={(e) => setManual((p) => ({ ...p, zone: e.target.value }))} />
+                <input
+                  type="text"
+                  placeholder="Quthbullapur"
+                  value={manual.zone}
+                  onChange={(e) => setManual((p) => ({ ...p, zone: e.target.value }))}
+                />
               </label>
             )}
             {!(office?.circle ?? '').trim() && (
               <label className="wo-date-field">
                 <span>Circle</span>
-                <input type="text" placeholder="Gajularamaram" value={manual.circle} onChange={(e) => setManual((p) => ({ ...p, circle: e.target.value }))} />
+                <input
+                  type="text"
+                  placeholder="Gajularamaram"
+                  value={manual.circle}
+                  onChange={(e) => setManual((p) => ({ ...p, circle: e.target.value }))}
+                />
               </label>
             )}
             {!(office?.circle ?? '').trim() && (
               <label className="wo-date-field">
                 <span>Circle number</span>
-                <input type="text" placeholder="57" value={manual.cno} onChange={(e) => setManual((p) => ({ ...p, cno: e.target.value }))} />
+                <input
+                  type="text"
+                  placeholder="57"
+                  value={manual.cno}
+                  onChange={(e) => setManual((p) => ({ ...p, cno: e.target.value }))}
+                />
               </label>
             )}
             {!(office?.corporation ?? '').trim() && (
               <label className="wo-date-field">
                 <span>Corporation</span>
-                <input type="text" placeholder="CMC" value={manual.corporation} onChange={(e) => setManual((p) => ({ ...p, corporation: e.target.value }))} />
+                <input
+                  type="text"
+                  placeholder="CMC"
+                  value={manual.corporation}
+                  onChange={(e) => setManual((p) => ({ ...p, corporation: e.target.value }))}
+                />
               </label>
             )}
             <label className="wo-date-field">
               <span>Financial year</span>
-              <input type="text" placeholder="2026-27" value={manual.financialYear} onChange={(e) => setManual((p) => ({ ...p, financialYear: e.target.value }))} />
+              <input
+                type="text"
+                placeholder="2026-27"
+                value={manual.financialYear}
+                onChange={(e) => setManual((p) => ({ ...p, financialYear: e.target.value }))}
+              />
             </label>
             <label className="wo-date-field">
               <span>Wincode</span>
-              <input type="text" value={manual.wincode} onChange={(e) => setManual((p) => ({ ...p, wincode: e.target.value }))} />
+              <input
+                type="text"
+                value={manual.wincode}
+                onChange={(e) => setManual((p) => ({ ...p, wincode: e.target.value }))}
+              />
             </label>
             <label className="wo-date-field">
               <span>Amount of estimate (Lakhs)</span>
-              <input type="text" placeholder="45.00" value={manual.estimateLakhs} onChange={(e) => setManual((p) => ({ ...p, estimateLakhs: e.target.value }))} />
+              <input
+                type="text"
+                placeholder="45.00"
+                value={manual.estimateLakhs}
+                onChange={(e) => setManual((p) => ({ ...p, estimateLakhs: e.target.value }))}
+              />
             </label>
             <label className="wo-date-field">
               <span>ECV (₹)</span>
-              <input type="text" placeholder="4149409" value={manual.ecvRupees} onChange={(e) => setManual((p) => ({ ...p, ecvRupees: e.target.value }))} />
+              <input
+                type="text"
+                placeholder="4149409"
+                value={manual.ecvRupees}
+                onChange={(e) => setManual((p) => ({ ...p, ecvRupees: e.target.value }))}
+              />
             </label>
             <label className="wo-date-field">
               <span>Contract amount (₹)</span>
-              <input type="text" placeholder="3114647.29" value={manual.contractRupees} onChange={(e) => setManual((p) => ({ ...p, contractRupees: e.target.value }))} />
+              <input
+                type="text"
+                placeholder="3114647.29"
+                value={manual.contractRupees}
+                onChange={(e) => setManual((p) => ({ ...p, contractRupees: e.target.value }))}
+              />
             </label>
             <label className="wo-date-field">
               <span>Tender %</span>
-              <input type="text" placeholder="25.01" value={manual.tenderPercent} onChange={(e) => setManual((p) => ({ ...p, tenderPercent: e.target.value }))} />
+              <input
+                type="text"
+                placeholder="25.01"
+                value={manual.tenderPercent}
+                onChange={(e) => setManual((p) => ({ ...p, tenderPercent: e.target.value }))}
+              />
             </label>
             <label className="wo-date-field">
               <span>Agreement date</span>
-              <input type="date" value={manual.agreementDate} onChange={(e) => setManual((p) => ({ ...p, agreementDate: e.target.value }))} />
+              <input
+                type="date"
+                value={manual.agreementDate}
+                onChange={(e) => setManual((p) => ({ ...p, agreementDate: e.target.value }))}
+              />
             </label>
             <label className="wo-date-field">
               <span>Admin sanction date</span>
-              <input type="date" value={manual.adminSanctionDate} onChange={(e) => setManual((p) => ({ ...p, adminSanctionDate: e.target.value }))} />
+              <input
+                type="date"
+                value={manual.adminSanctionDate}
+                onChange={(e) => setManual((p) => ({ ...p, adminSanctionDate: e.target.value }))}
+              />
             </label>
             <label className="wo-date-field">
               <span>Budget number</span>
@@ -2915,11 +3257,19 @@ export default function WorkOrderAgreementTab({
             </label>
             <label className="wo-date-field">
               <span>Period of completion (months)</span>
-              <input type="text" placeholder="03" value={manual.completionMonths} onChange={(e) => setManual((p) => ({ ...p, completionMonths: e.target.value }))} />
+              <input
+                type="text"
+                placeholder="03"
+                value={manual.completionMonths}
+                onChange={(e) => setManual((p) => ({ ...p, completionMonths: e.target.value }))}
+              />
             </label>
             <label className="wo-date-field">
               <span>Reservation</span>
-              <select value={manual.reservation} onChange={(e) => setManual((p) => ({ ...p, reservation: e.target.value }))}>
+              <select
+                value={manual.reservation}
+                onChange={(e) => setManual((p) => ({ ...p, reservation: e.target.value }))}
+              >
                 <option value="">None</option>
                 <option value="SC">SC</option>
                 <option value="ST">ST</option>
@@ -2927,8 +3277,8 @@ export default function WorkOrderAgreementTab({
               </select>
             </label>
             <span className="estimate-hint wo-manual-wide">
-              Enter the details, then click the {only === 'agreement' ? 'Agreement Bond' : 'Work Order'} tile below to preview. Blank
-              fields print blank.
+              Enter the details, then click the {only === 'agreement' ? 'Agreement Bond' : 'Work Order'} tile below to
+              preview. Blank fields print blank.
             </span>
           </div>
         )}
@@ -2940,7 +3290,12 @@ export default function WorkOrderAgreementTab({
             </label>
             <label className="wo-date-field">
               <span>Agreement number</span>
-              <input type="text" placeholder="12" value={agreementNo} onChange={(e) => setAgreementNo(e.target.value)} />
+              <input
+                type="text"
+                placeholder="12"
+                value={agreementNo}
+                onChange={(e) => setAgreementNo(e.target.value)}
+              />
             </label>
             <label className="wo-date-field">
               <span>Technical Sanction No &amp; Date</span>
@@ -2987,7 +3342,9 @@ export default function WorkOrderAgreementTab({
                 onChange={(e) => setEOfficeFileNo(e.target.value)}
               />
             </label>
-            <span className="estimate-hint wo-manual-wide">For the Forwarding Slip, Tender Document &amp; AE/Dy.EE letters.</span>
+            <span className="estimate-hint wo-manual-wide">
+              For the Forwarding Slip, Tender Document &amp; AE/Dy.EE letters.
+            </span>
           </div>
         )}
         {!only && noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
@@ -3034,9 +3391,9 @@ export default function WorkOrderAgreementTab({
       )}
       {noWorksRowMatch && !circleMismatch && pdfEval && (
         <div className="notice">
-          <IconWarn /> “{pdfEval.nameOfWork}” isn’t in your Works List, so the documents fill the name of work, agency and
-          amounts from the uploaded L1 / Intimation (Circle/CNO from the NIT No). Add it to the Works List if you want its
-          extra columns (Wincode, estimate, TS No/date, …) filled in automatically.
+          <IconWarn /> “{pdfEval.nameOfWork}” isn’t in your Works List, so the documents fill the name of work, agency
+          and amounts from the uploaded L1 / Intimation (Circle/CNO from the NIT No). Add it to the Works List if you
+          want its extra columns (Wincode, estimate, TS No/date, …) filled in automatically.
         </div>
       )}
       {(noteWorkMismatch || noteEstimateMismatch) && (
@@ -3078,172 +3435,154 @@ export default function WorkOrderAgreementTab({
           )}
           {!headerMounted && headerActions}
           <div className="wo-tiles">
-          {/* Order (main tab): File Backer, Note Submitted, Forwarding Slip,
+            {/* Order (main tab): File Backer, Note Submitted, Forwarding Slip,
               Agreement Bond, Schedule A, Work Order, Tender Document, QCC
               Intimation. The Tools single-document panels (`only`) still show
               just their one tile via the `only ===` guards. */}
-          {docsReady && !only && fileBackerB64 && (
-            <button className="wo-tile" onClick={() => openDoc('fileBacker')}>
-              <div className="wo-tile-preview">
-                <div ref={fbTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.fileBacker}</div>
-            </button>
-          )}
-          {noteVisible && !only && !seMode && (
-            <button className="wo-tile" onClick={() => setExpanded('note')}>
-              <div className="wo-tile-preview">
-                <div className="wo-tile-doc ns-tile-doc" dangerouslySetInnerHTML={{ __html: notePreviewHtml }} />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.note}</div>
-            </button>
-          )}
-          {docsReady && !only && !seMode && workBillNoteB64 && (
-            <button className="wo-tile" onClick={() => openDoc('workBillNote')}>
-              <div className="wo-tile-preview">
-                <div ref={wbnTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.workBillNote}</div>
-            </button>
-          )}
-          {docsReady && !only && !seMode && aeDyeeB64 && (
-            <button className="wo-tile" onClick={() => openDoc('aeDyeeForwarding')}>
-              <div className="wo-tile-preview">
-                <div ref={aeTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.aeDyeeForwarding}</div>
-            </button>
-          )}
-          {docsReady && !only && !seMode && (
-            <button className="wo-tile" onClick={() => openDoc('forwardingSlip')}>
-              <div className="wo-tile-preview">
-                <div ref={fsTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.forwardingSlip}</div>
-            </button>
-          )}
-          {docsReady && !seMode && (!only || only === 'agreement') && (
-            <button className="wo-tile" onClick={() => openDoc('agreement')}>
-              <div className="wo-tile-preview">
-                <div ref={agTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.agreement}</div>
-            </button>
-          )}
-          {docsReady && seMode && (
-            <button className="wo-tile" onClick={() => openDoc('zonalWorkOrder')}>
-              <div className="wo-tile-preview">
-                <div ref={zwoTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.zonalWorkOrder}</div>
-            </button>
-          )}
-          {docsReady && seMode && (
-            <button className="wo-tile" onClick={() => openDoc('zonalConcludingAgreement')}>
-              <div className="wo-tile-preview">
-                <div ref={zcaTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.zonalConcludingAgreement}</div>
-            </button>
-          )}
-          {docsReady && seMode && (
-            <button className="wo-tile" onClick={() => openDoc('zonalMemoEe')}>
-              <div className="wo-tile-preview">
-                <div ref={zmeTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.zonalMemoEe}</div>
-            </button>
-          )}
-          {docsReady && seMode && (
-            <button className="wo-tile" onClick={() => openDoc('seAgreementNote')}>
-              <div className="wo-tile-preview">
-                <div ref={seNoteTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.seAgreementNote}</div>
-            </button>
-          )}
-          {docsReady && seMode && (
-            <button className="wo-tile" onClick={() => openDoc('seAgreementBond')}>
-              <div className="wo-tile-preview">
-                <div ref={seBondTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.seAgreementBond}</div>
-            </button>
-          )}
-          {docsReady && seMode && (
-            <button className="wo-tile" onClick={() => openDoc('contractDeed')}>
-              <div className="wo-tile-preview">
-                <div ref={contractDeedTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.contractDeed}</div>
-            </button>
-          )}
-          {!only && !scheduleAMismatch && (
-            <button className="wo-tile" onClick={() => setExpanded('scheduleA')}>
-              <div className="wo-tile-preview sched">
-                <table className="sa-preview-table">
-                  <tbody>
-                    {scheduleAPreview.slice(0, 14).map((row, ri) => {
-                      const cells = Array.from({ length: 6 }, (_, ci) => row[ci] ?? '')
-                      const wide = cells.slice(1).every((c) => c === '')
-                      return (
-                        <tr key={ri}>
-                          {wide ? (
-                            <td colSpan={6} className="sa-wide">
-                              {String(cells[0])}
-                            </td>
-                          ) : (
-                            cells.map((c, ci) => <td key={ci}>{String(c)}</td>)
-                          )}
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.scheduleA}</div>
-            </button>
-          )}
-          {docsReady && !seMode && (!only || only === 'workOrder') && (
-            <button className="wo-tile" onClick={() => openDoc('workOrder')}>
-              <div className="wo-tile-preview">
-                <div ref={woTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.workOrder}</div>
-            </button>
-          )}
-          {docsReady && !only && !seMode && (
-            <button className="wo-tile" onClick={() => openDoc('civilTender')}>
-              <div className="wo-tile-preview">
-                <div ref={ctTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.civilTender}</div>
-            </button>
-          )}
-          {docsReady && !only && !seMode && (
-            <button className="wo-tile" onClick={() => openDoc('qccIntimation')}>
-              <div className="wo-tile-preview">
-                <div ref={qccIntTileRef} className="wo-tile-doc" />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot">{DOC_LABEL.qccIntimation}</div>
-            </button>
-          )}
+            {docsReady && !only && fileBackerB64 && (
+              <button className="wo-tile" onClick={() => openDoc('fileBacker')}>
+                <div className="wo-tile-preview">
+                  <div ref={fbTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.fileBacker}</div>
+              </button>
+            )}
+            {noteVisible && !only && !seMode && (
+              <button className="wo-tile" onClick={() => setExpanded('note')}>
+                <div className="wo-tile-preview">
+                  <div className="wo-tile-doc ns-tile-doc" dangerouslySetInnerHTML={{ __html: notePreviewHtml }} />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.note}</div>
+              </button>
+            )}
+            {docsReady && !only && !seMode && workBillNoteB64 && (
+              <button className="wo-tile" onClick={() => openDoc('workBillNote')}>
+                <div className="wo-tile-preview">
+                  <div ref={wbnTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.workBillNote}</div>
+              </button>
+            )}
+            {docsReady && !only && !seMode && (
+              <button className="wo-tile" onClick={() => openDoc('forwardingSlip')}>
+                <div className="wo-tile-preview">
+                  <div ref={fsTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.forwardingSlip}</div>
+              </button>
+            )}
+            {docsReady && !seMode && (!only || only === 'agreement') && (
+              <button className="wo-tile" onClick={() => openDoc('agreement')}>
+                <div className="wo-tile-preview">
+                  <div ref={agTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.agreement}</div>
+              </button>
+            )}
+            {docsReady && seMode && (
+              <button className="wo-tile" onClick={() => openDoc('zonalWorkOrder')}>
+                <div className="wo-tile-preview">
+                  <div ref={zwoTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.zonalWorkOrder}</div>
+              </button>
+            )}
+            {docsReady && seMode && (
+              <button className="wo-tile" onClick={() => openDoc('zonalConcludingAgreement')}>
+                <div className="wo-tile-preview">
+                  <div ref={zcaTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.zonalConcludingAgreement}</div>
+              </button>
+            )}
+            {docsReady && seMode && (
+              <button className="wo-tile" onClick={() => openDoc('zonalMemoEe')}>
+                <div className="wo-tile-preview">
+                  <div ref={zmeTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.zonalMemoEe}</div>
+              </button>
+            )}
+            {docsReady && seMode && (
+              <button className="wo-tile" onClick={() => openDoc('seAgreementNote')}>
+                <div className="wo-tile-preview">
+                  <div ref={seNoteTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.seAgreementNote}</div>
+              </button>
+            )}
+            {docsReady && seMode && (
+              <button className="wo-tile" onClick={() => openDoc('seAgreementBond')}>
+                <div className="wo-tile-preview">
+                  <div ref={seBondTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.seAgreementBond}</div>
+              </button>
+            )}
+            {docsReady && seMode && (
+              <button className="wo-tile" onClick={() => openDoc('contractDeed')}>
+                <div className="wo-tile-preview">
+                  <div ref={contractDeedTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.contractDeed}</div>
+              </button>
+            )}
+            {!only && !scheduleAMismatch && (
+              <button className="wo-tile" onClick={() => setExpanded('scheduleA')}>
+                <div className="wo-tile-preview sched">
+                  <table className="sa-preview-table">
+                    <tbody>
+                      {scheduleAPreview.slice(0, 14).map((row, ri) => {
+                        const cells = Array.from({ length: 6 }, (_, ci) => row[ci] ?? '')
+                        const wide = cells.slice(1).every((c) => c === '')
+                        return (
+                          <tr key={ri}>
+                            {wide ? (
+                              <td colSpan={6} className="sa-wide">
+                                {String(cells[0])}
+                              </td>
+                            ) : (
+                              cells.map((c, ci) => <td key={ci}>{String(c)}</td>)
+                            )}
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.scheduleA}</div>
+              </button>
+            )}
+            {docsReady && !seMode && (!only || only === 'workOrder') && (
+              <button className="wo-tile" onClick={() => openDoc('workOrder')}>
+                <div className="wo-tile-preview">
+                  <div ref={woTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.workOrder}</div>
+              </button>
+            )}
+            {docsReady && !only && !seMode && (
+              <button className="wo-tile" onClick={() => openDoc('civilTender')}>
+                <div className="wo-tile-preview">
+                  <div ref={ctTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.civilTender}</div>
+              </button>
+            )}
           </div>
         </>
       ) : noWorks ? (
@@ -3256,90 +3595,90 @@ export default function WorkOrderAgreementTab({
       {datePromptOpen &&
         createPortal(
           <div className="wo-modal-overlay" onClick={() => setDatePromptOpen(false)}>
-          <div className="wo-modal wo-date-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="wo-modal-head">
-              <span className="wo-modal-title">
-                {missingCircleZone ? 'Enter the Circle, Zone and agreement date' : 'Enter the agreement date'}
-              </span>
-              <button className="wo-modal-close" onClick={() => setDatePromptOpen(false)} title="Close" aria-label="Close">
-                ×
-              </button>
-            </div>
-            <div className="wo-modal-body wo-date-body">
-              {missingCircleZone && (
-                <>
-                  <p>
-                    The uploaded L-1’s name of work doesn’t name a Circle or Zone, so the office block and the Work Order
-                    number would be blank. Enter them here — they fill both documents.
-                  </p>
-                  <label className="wo-date-field">
-                    <span>Circle</span>
-                    <input
-                      type="text"
-                      placeholder="e.g. Gajularamaram"
-                      value={manualCircle}
-                      onChange={(e) => setManualCircle(e.target.value)}
-                    />
-                  </label>
-                  <label className="wo-date-field">
-                    <span>Circle number</span>
-                    <input
-                      type="text"
-                      placeholder="e.g. 57"
-                      value={manualCno}
-                      onChange={(e) => setManualCno(e.target.value)}
-                    />
-                  </label>
-                  <label className="wo-date-field">
-                    <span>Zone</span>
-                    <input
-                      type="text"
-                      placeholder="e.g. Quthbullapur"
-                      value={manualZone}
-                      onChange={(e) => setManualZone(e.target.value)}
-                    />
-                  </label>
-                </>
-              )}
-              <p>
-                This date fills the Agreement Bond — the <strong>A.B.No line</strong> (as dd.mm.yyyy) and the{' '}
-                <strong>“…day of…”</strong> wording (in words) — and the Work Order date.
-              </p>
-              <input
-                type="date"
-                value={promptDate}
-                onChange={(e) => setPromptDate(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="wo-modal-foot">
-              {/* Skip the date: preview with the date left blank, so the document
+            <div className="wo-modal wo-date-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="wo-modal-head">
+                <span className="wo-modal-title">
+                  {missingCircleZone ? 'Enter the Circle, Zone and agreement date' : 'Enter the agreement date'}
+                </span>
+                <button
+                  className="wo-modal-close"
+                  onClick={() => setDatePromptOpen(false)}
+                  title="Close"
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="wo-modal-body wo-date-body">
+                {missingCircleZone && (
+                  <>
+                    <p>
+                      The uploaded L-1’s name of work doesn’t name a Circle or Zone, so the office block and the Work
+                      Order number would be blank. Enter them here — they fill both documents.
+                    </p>
+                    <label className="wo-date-field">
+                      <span>Circle</span>
+                      <input
+                        type="text"
+                        placeholder="e.g. Gajularamaram"
+                        value={manualCircle}
+                        onChange={(e) => setManualCircle(e.target.value)}
+                      />
+                    </label>
+                    <label className="wo-date-field">
+                      <span>Circle number</span>
+                      <input
+                        type="text"
+                        placeholder="e.g. 57"
+                        value={manualCno}
+                        onChange={(e) => setManualCno(e.target.value)}
+                      />
+                    </label>
+                    <label className="wo-date-field">
+                      <span>Zone</span>
+                      <input
+                        type="text"
+                        placeholder="e.g. Quthbullapur"
+                        value={manualZone}
+                        onChange={(e) => setManualZone(e.target.value)}
+                      />
+                    </label>
+                  </>
+                )}
+                <p>
+                  This date fills the Agreement Bond — the <strong>A.B.No line</strong> (as dd.mm.yyyy) and the{' '}
+                  <strong>“…day of…”</strong> wording (in words) — and the Work Order date.
+                </p>
+                <input type="date" value={promptDate} onChange={(e) => setPromptDate(e.target.value)} autoFocus />
+              </div>
+              <div className="wo-modal-foot">
+                {/* Skip the date: preview with the date left blank, so the document
                   prints its ruled "Dt: ____" line to be hand-dated. Circle/Zone,
                   when the L-1 didn't carry them, are still required. */}
-              <button
-                className="ghost"
-                disabled={missingCircleZone && (!manualCircle.trim() || !manualZone.trim())}
-                onClick={() => {
-                  setAgreementDate('')
-                  setDatePromptOpen(false)
-                  setExpanded(pendingDoc)
-                }}
-              >
-                Continue without date
-              </button>
-              <button
-                className="primary"
-                disabled={!promptDate || (missingCircleZone && (!manualCircle.trim() || !manualZone.trim()))}
-                onClick={() => {
-                  setAgreementDate(promptDate)
-                  setDatePromptOpen(false)
-                  setExpanded(pendingDoc)
-                }}
-              >
-                Continue to preview
-              </button>
+                <button
+                  className="ghost"
+                  disabled={missingCircleZone && (!manualCircle.trim() || !manualZone.trim())}
+                  onClick={() => {
+                    setAgreementDate('')
+                    setDatePromptOpen(false)
+                    setExpanded(pendingDoc)
+                  }}
+                >
+                  Continue without date
+                </button>
+                <button
+                  className="primary"
+                  disabled={!promptDate || (missingCircleZone && (!manualCircle.trim() || !manualZone.trim()))}
+                  onClick={() => {
+                    setAgreementDate(promptDate)
+                    setDatePromptOpen(false)
+                    setExpanded(pendingDoc)
+                  }}
+                >
+                  Continue to preview
+                </button>
+              </div>
             </div>
-          </div>
           </div>,
           document.body
         )}
@@ -3347,159 +3686,174 @@ export default function WorkOrderAgreementTab({
       {expanded &&
         createPortal(
           <div className="wo-modal-overlay" onClick={() => setExpanded(null)}>
-          <div
-            className={`wo-modal ${expanded === 'note' ? 'wide' : ''} ${isEditableDoc(expanded) ? 'wide doc-edit-modal' : ''}`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="wo-modal-head">
-              <span className="wo-modal-title">
-                {DOC_LABEL[expanded]}
-                {isDocKind(expanded) && expandedPages > 1 ? ` — ${expandedPages} pages` : ''}
-              </span>
-              <button className="wo-modal-close" onClick={() => setExpanded(null)} title="Close" aria-label="Close">
-                ×
-              </button>
-            </div>
+            <div
+              className={`wo-modal ${expanded === 'note' ? 'wide' : ''} ${isEditableDoc(expanded) ? 'wide doc-edit-modal' : ''}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="wo-modal-head">
+                <span className="wo-modal-title">
+                  {DOC_LABEL[expanded]}
+                  {isDocKind(expanded) && expandedPages > 1 ? ` — ${expandedPages} pages` : ''}
+                </span>
+                <button className="wo-modal-close" onClick={() => setExpanded(null)} title="Close" aria-label="Close">
+                  ×
+                </button>
+              </div>
 
-            <div className="wo-modal-body">
-              {expanded === 'scheduleA' ? (
-                <iframe
-                  className="sa-page-frame"
-                  title="Schedule A"
-                  srcDoc={scheduleAPageHtml}
-                  style={{ width: '100%', height: '100%', minHeight: '70vh', border: 0, background: '#d8d8dc' }}
-                />
-              ) : expanded === 'note' ? (
-                noteData && (
-                  <NoteSubmittedEditor
-                    data={noteData}
-                    onChange={(next) => {
-                      const seed = noteSeedRef.current
-                      if (seed) saveNoteEdits(noteEditsKey(seed, pdfEval), noteDiff(seed, next))
-                      setNoteData(next)
-                    }}
-                    margins={noteMargins}
-                    onMarginsChange={setNoteMargins}
+              <div className="wo-modal-body">
+                {expanded === 'scheduleA' ? (
+                  <iframe
+                    className="sa-page-frame"
+                    title="Schedule A"
+                    srcDoc={scheduleAPageHtml}
+                    style={{ width: '100%', height: '100%', minHeight: '70vh', border: 0, background: '#d8d8dc' }}
                   />
-                )
-              ) : isEditableDoc(expanded) ? (
-                // Same split as Note Submitted's editor: the document's fields on
-                // the left, the live page on the right.
-                <div className="ns-body">
-                  <DocFieldsEditor
-                    groups={docFieldGroups(expanded)}
-                    derived={derivedPlaceholders(expanded, fields)}
-                    edits={docEdits[expanded] ?? {}}
-                    onChange={(label, value) => setDocEdit(expanded as DocKind, label, value)}
-                    onRevert={(label) => revertDocEdit(expanded as DocKind, label)}
-                    onResetAll={() => commitDocEdits({ ...docEdits, [expanded as DocKind]: {} })}
-                    followPages={expanded === 'aeDyeeForwarding'}
-                  />
-                  <div className="ns-preview">
-                    <div className="ns-preview-scroll">
-                      {MARGIN_DOCS.includes(expanded) ? (
-                        <div className="page-margin-host">
-                          <div
-                            ref={expandedRef}
-                            className={`intimation-docx-preview${A4_DOCS.includes(expanded) ? ' a4-sheet' : ''}`}
-                          />
-                          <PageMarginGuides
-                            containerRef={expandedRef}
-                            margins={docMargins[expanded] ?? null}
-                            onChange={(m) => setMarginsFor(expanded as DocKind, m)}
-                            renderKey={expandedPages}
-                          />
-                          <button
-                            type="button"
-                            className="ghost page-margin-reset"
-                            disabled={!docMargins[expanded]}
-                            onClick={() => setMarginsFor(expanded as DocKind, null)}
-                          >
-                            Reset margins
-                          </button>
-                        </div>
-                      ) : (
-                        <div ref={expandedRef} className="intimation-docx-preview" />
-                      )}
+                ) : expanded === 'note' ? (
+                  noteData && (
+                    <NoteSubmittedEditor
+                      data={noteData}
+                      onChange={(next) => {
+                        const seed = noteSeedRef.current
+                        if (seed) saveNoteEdits(noteEditsKey(seed, pdfEval), noteDiff(seed, next))
+                        setNoteData(next)
+                      }}
+                      margins={noteMargins}
+                      onMarginsChange={setNoteMargins}
+                    />
+                  )
+                ) : isEditableDoc(expanded) ? (
+                  // Same split as Note Submitted's editor: the document's fields on
+                  // the left, the live page on the right.
+                  <div className="ns-body">
+                    <DocFieldsEditor
+                      groups={docFieldGroups(expanded)}
+                      derived={derivedPlaceholders(expanded, fields)}
+                      edits={docEdits[expanded] ?? {}}
+                      onChange={(label, value) => setDocEdit(expanded as DocKind, label, value)}
+                      onRevert={(label) => revertDocEdit(expanded as DocKind, label)}
+                      onResetAll={() => commitDocEdits({ ...docEdits, [expanded as DocKind]: {} })}
+                      followPages={expanded === 'aeDyeeForwarding'}
+                    />
+                    <div className="ns-preview">
+                      <div className="ns-preview-scroll">
+                        {MARGIN_DOCS.includes(expanded) ? (
+                          <div className="page-margin-host">
+                            <div
+                              ref={expandedRef}
+                              className={`intimation-docx-preview${A4_DOCS.includes(expanded) ? ' a4-sheet' : ''}`}
+                            />
+                            <PageMarginGuides
+                              containerRef={expandedRef}
+                              margins={docMargins[expanded] ?? null}
+                              onChange={(m) => setMarginsFor(expanded as DocKind, m)}
+                              renderKey={expandedPages}
+                            />
+                            <button
+                              type="button"
+                              className="ghost page-margin-reset"
+                              disabled={!docMargins[expanded]}
+                              onClick={() => setMarginsFor(expanded as DocKind, null)}
+                            >
+                              Reset margins
+                            </button>
+                          </div>
+                        ) : (
+                          <div ref={expandedRef} className="intimation-docx-preview" />
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ) : MARGIN_DOCS.includes(expanded) ? (
-                <div className="page-margin-host">
-                  <div ref={expandedRef} className={`intimation-docx-preview${A4_DOCS.includes(expanded) ? ' a4-sheet' : ''}`} />
-                  <PageMarginGuides
-                    containerRef={expandedRef}
-                    margins={docMargins[expanded as DocKind] ?? null}
-                    onChange={(m) => setMarginsFor(expanded as DocKind, m)}
-                    renderKey={expandedPages}
-                  />
-                  <button
-                    type="button"
-                    className="ghost page-margin-reset"
-                    disabled={!docMargins[expanded as DocKind]}
-                    onClick={() => setMarginsFor(expanded as DocKind, null)}
-                  >
-                    Reset margins
-                  </button>
-                </div>
-              ) : (
-                <div ref={expandedRef} className="intimation-docx-preview" />
-              )}
-            </div>
+                ) : MARGIN_DOCS.includes(expanded) ? (
+                  <div className="page-margin-host">
+                    <div
+                      ref={expandedRef}
+                      className={`intimation-docx-preview${A4_DOCS.includes(expanded) ? ' a4-sheet' : ''}`}
+                    />
+                    <PageMarginGuides
+                      containerRef={expandedRef}
+                      margins={docMargins[expanded as DocKind] ?? null}
+                      onChange={(m) => setMarginsFor(expanded as DocKind, m)}
+                      renderKey={expandedPages}
+                    />
+                    <button
+                      type="button"
+                      className="ghost page-margin-reset"
+                      disabled={!docMargins[expanded as DocKind]}
+                      onClick={() => setMarginsFor(expanded as DocKind, null)}
+                    >
+                      Reset margins
+                    </button>
+                  </div>
+                ) : (
+                  <div ref={expandedRef} className="intimation-docx-preview" />
+                )}
+              </div>
 
-            <div className="wo-modal-foot">
-              {actionError && (
-                <div className="notice error" style={{ marginRight: 'auto' }}>
-                  <IconWarn /> {actionError}
-                </div>
-              )}
-              <button className="ghost wo-foot-close" onClick={() => setExpanded(null)}>
-                Close
-              </button>
-              {expanded === 'scheduleA' ? (
-                <>
-                  {!scheduleA && (
-                    <span className="estimate-hint" style={{ marginRight: 'auto' }}>
-                      Upload the Technical sanctioned Estimate to fill in the item rows.
-                    </span>
-                  )}
-                  <button className="primary" onClick={downloadScheduleA} disabled={scheduleABusy || !scheduleA}>
-                    <IconDownload /> {scheduleABusy ? 'Working…' : 'Excel'}
-                  </button>
-                  <button className="primary" onClick={downloadScheduleAPdf} disabled={scheduleABusy || !scheduleA}>
-                    <IconDownload /> {scheduleABusy ? 'Working…' : 'PDF'}
-                  </button>
-                  <button className="primary" onClick={printScheduleA} disabled={scheduleABusy}>
-                    <IconPrint /> Print
-                  </button>
-                </>
-              ) : expanded === 'note' ? (
-                <>
-                  <button className="primary" onClick={() => downloadNote(['docx'])} disabled={busy !== null}>
-                    <IconDownload /> {busy === 'download' ? 'Saving…' : 'Word'}
-                  </button>
-                  <button className="primary" onClick={() => downloadNote(['pdf'])} disabled={busy !== null}>
-                    <IconDownload /> {busy === 'pdf' ? 'Saving…' : 'PDF'}
-                  </button>
-                  <button className="primary" onClick={printNote} disabled={busy !== null}>
-                    <IconPrint /> {busy === 'print' ? 'Opening…' : 'Print'}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button className="primary" onClick={() => gated({ type: 'download', kind: expanded, formats: ['docx'] })} disabled={busy !== null}>
-                    <IconDownload /> {busy === 'download' ? 'Saving…' : 'Word'}
-                  </button>
-                  <button className="primary" onClick={() => gated({ type: 'download', kind: expanded, formats: ['pdf'] })} disabled={busy !== null}>
-                    <IconDownload /> {busy === 'pdf' ? 'Saving…' : 'PDF'}
-                  </button>
-                  <button className="primary" onClick={() => gated({ type: 'print', kind: expanded })} disabled={busy !== null}>
-                    <IconPrint /> {busy === 'print' ? 'Opening…' : 'Print'}
-                  </button>
-                </>
-              )}
+              <div className="wo-modal-foot">
+                {actionError && (
+                  <div className="notice error" style={{ marginRight: 'auto' }}>
+                    <IconWarn /> {actionError}
+                  </div>
+                )}
+                <button className="ghost wo-foot-close" onClick={() => setExpanded(null)}>
+                  Close
+                </button>
+                {expanded === 'scheduleA' ? (
+                  <>
+                    {!scheduleA && (
+                      <span className="estimate-hint" style={{ marginRight: 'auto' }}>
+                        Upload the Technical sanctioned Estimate to fill in the item rows.
+                      </span>
+                    )}
+                    <button className="primary" onClick={downloadScheduleA} disabled={scheduleABusy || !scheduleA}>
+                      <IconDownload /> {scheduleABusy ? 'Working…' : 'Excel'}
+                    </button>
+                    <button className="primary" onClick={downloadScheduleAPdf} disabled={scheduleABusy || !scheduleA}>
+                      <IconDownload /> {scheduleABusy ? 'Working…' : 'PDF'}
+                    </button>
+                    <button className="primary" onClick={printScheduleA} disabled={scheduleABusy}>
+                      <IconPrint /> Print
+                    </button>
+                  </>
+                ) : expanded === 'note' ? (
+                  <>
+                    <button className="primary" onClick={() => downloadNote(['docx'])} disabled={busy !== null}>
+                      <IconDownload /> {busy === 'download' ? 'Saving…' : 'Word'}
+                    </button>
+                    <button className="primary" onClick={() => downloadNote(['pdf'])} disabled={busy !== null}>
+                      <IconDownload /> {busy === 'pdf' ? 'Saving…' : 'PDF'}
+                    </button>
+                    <button className="primary" onClick={printNote} disabled={busy !== null}>
+                      <IconPrint /> {busy === 'print' ? 'Opening…' : 'Print'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="primary"
+                      onClick={() => gated({ type: 'download', kind: expanded, formats: ['docx'] })}
+                      disabled={busy !== null}
+                    >
+                      <IconDownload /> {busy === 'download' ? 'Saving…' : 'Word'}
+                    </button>
+                    <button
+                      className="primary"
+                      onClick={() => gated({ type: 'download', kind: expanded, formats: ['pdf'] })}
+                      disabled={busy !== null}
+                    >
+                      <IconDownload /> {busy === 'pdf' ? 'Saving…' : 'PDF'}
+                    </button>
+                    <button
+                      className="primary"
+                      onClick={() => gated({ type: 'print', kind: expanded })}
+                      disabled={busy !== null}
+                    >
+                      <IconPrint /> {busy === 'print' ? 'Opening…' : 'Print'}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
           </div>,
           document.body
         )}
@@ -3510,7 +3864,12 @@ export default function WorkOrderAgreementTab({
             <div className="wo-modal wo-date-modal" onClick={(e) => e.stopPropagation()}>
               <div className="wo-modal-head">
                 <span className="wo-modal-title">Enter the period of completion</span>
-                <button className="wo-modal-close" onClick={() => setPeriodPrompt(null)} title="Cancel" aria-label="Cancel">
+                <button
+                  className="wo-modal-close"
+                  onClick={() => setPeriodPrompt(null)}
+                  title="Cancel"
+                  aria-label="Cancel"
+                >
                   ×
                 </button>
               </div>

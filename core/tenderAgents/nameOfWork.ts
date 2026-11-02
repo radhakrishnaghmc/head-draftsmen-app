@@ -185,6 +185,7 @@ export function detectNameOfWork(lines: string[]): string | undefined {
 // a separate Reservation column. A trailing "only"/closing paren is common
 // but not captured — the category itself is the run of slash-joined
 // word(s)/abbreviation(s) right after "for".
+const GENERAL_CATEGORY = /^(general|gen|open|unreserved|ur|all)(\s*\/\s*(general|gen|open|unreserved|ur|all))*$/i
 const RESERVED_FOR = /reserved\s+for\s+([A-Za-z]+(?:\s*\/\s*[A-Za-z]+)*)/i
 
 /**
@@ -199,12 +200,15 @@ const RESERVED_FOR = /reserved\s+for\s+([A-Za-z]+(?:\s*\/\s*[A-Za-z]+)*)/i
  * exactly the same as an open one.
  */
 export function isReservedWork(workName: string): boolean {
-  return RESERVED_FOR.test(workName ?? '')
+  return reservationCategory(workName) !== ''
 }
 
 /** The reservation category tag itself ("SC", "ST", "Waddera", "Vaddera", "WLCCS", …) as written in the work name — "" when isReservedWork is false. */
 export function reservationCategory(workName: string): string {
-  return RESERVED_FOR.exec(workName ?? '')?.[1] ?? ''
+  const cat = RESERVED_FOR.exec(workName ?? '')?.[1] ?? ''
+  // "Reserved for General" / "Open" is the unreserved pool, not a category —
+  // EMD applies as normal, so it must not read as a reservation.
+  return GENERAL_CATEGORY.test(cat.trim()) ? '' : cat
 }
 
 // A Works List "Reservation" column value that only flags WHETHER a work is
@@ -226,7 +230,9 @@ export function reservationCategoryFromRow(row: Record<string, string>): string 
   const fromName = reservationCategory(row['Name of the work'] ?? '')
   if (fromName) return fromName
   const explicit = (row['Reservation'] ?? '').trim()
-  return explicit && !RESERVATION_FLAG_ONLY.test(explicit) ? explicit : ''
+  const bare = explicit.replace(/^reserved\s*(for)?\s*/i, '').replace(/\bonly\b/i, '').replace(/[()]/g, '').trim()
+  if (!bare || RESERVATION_FLAG_ONLY.test(explicit) || GENERAL_CATEGORY.test(bare)) return ''
+  return explicit
 }
 
 // A trailing "(Reserved for SC)" / "Reserved for Waddera Only" tag — stripped

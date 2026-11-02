@@ -79,6 +79,7 @@ import { buildDocx, type DocBlock } from '../core/docxBuilder'
 import type { OcrPage } from '../core/ocrReconstruct'
 import { docxToPageImages } from '../core/docxToPdf'
 import { convertDocxToPdfWithChromium as convertDocxToPdf } from './docxChromiumPdf'
+import { verifyDocFigures } from '../core/agreementVerify'
 import { scheduleAWorkbookToPdf, scheduleAPageHtml } from './scheduleAPdf'
 import { PDFDocument } from 'pdf-lib'
 import { rasterizePdfPages } from './pdfRaster'
@@ -796,7 +797,8 @@ function registerHandlers(): void {
     async (
       _e,
       files: AgreementBundleFile[],
-      mergedPdfName?: string
+      mergedPdfName?: string,
+      subfolder?: string
     ): Promise<{ written: string[]; failed: string[] } | null> => {
       if (!files || files.length === 0) return null
       const result = await dialog.showOpenDialog(mainWindow!, {
@@ -804,7 +806,13 @@ function registerHandlers(): void {
         properties: ['openDirectory', 'createDirectory']
       })
       if (result.canceled || result.filePaths.length === 0) return null
-      const dir = result.filePaths[0]
+      let dir = result.filePaths[0]
+      // Optional wrapper folder inside the chosen one (e.g. "Bulk Intimations"), reused if it already exists.
+      const wrapper = subfolder?.replace(/\s*:\s*/g, ' - ').replace(/[/\\*?"<>|]/g, '-').slice(0, 100).trim()
+      if (wrapper) {
+        dir = path.join(dir, wrapper)
+        fs.mkdirSync(dir, { recursive: true })
+      }
 
       const used = new Set<string>()
       const uniquePath = (base: string, ext: string): string => {
@@ -1418,6 +1426,7 @@ function registerHandlers(): void {
       if (item.amounts) checks.push(verifyAmountMath({ docText: text, ...item.amounts }))
       if (item.corporation) checks.push(verifyCorporationWording(text, item.corporation.expected, item.corporation.all))
       if (item.reserved != null) checks.push(verifyReservedTag(text, item.reserved))
+      if (item.figures) checks.push(verifyDocFigures(text, item.figures.labels, item.figures.expected))
       const result = combineVerify(...checks)
       return { name: item.name, ok: result.ok, issues: result.issues }
     })
@@ -1741,8 +1750,8 @@ function registerHandlers(): void {
     return fs.readFileSync(templatePath).toString('base64')
   })
 
-  ipcMain.handle(IPC.eligibilityCriteriaTemplate, async (): Promise<string> => {
-    const templatePath = bundledResourceFile('eligibility-criteria-template.docx')
+  ipcMain.handle(IPC.eligibilityCriteriaTemplate, async (_e, reserved?: boolean): Promise<string> => {
+    const templatePath = bundledResourceFile(reserved ? 'eligibility-criteria-reserved-template.docx' : 'eligibility-criteria-template.docx')
     if (!templatePath) throw new Error('Eligibility Criteria format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })

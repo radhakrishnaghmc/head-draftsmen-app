@@ -1,4 +1,9 @@
-import { markEvaluationGenerated, mergeRemoteTenderConditions, normalizeTenderConditions, purgeExpiredTenderConditions } from '@core/tenderConditions'
+import {
+  markEvaluationGenerated,
+  mergeRemoteTenderConditions,
+  normalizeTenderConditions,
+  purgeExpiredTenderConditions
+} from '@core/tenderConditions'
 import { useEffect, useMemo, useRef, useState, Fragment, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from './ipc'
@@ -16,7 +21,17 @@ import {
 import { autofillWorksRow, enforceZoneCircle, fillCircleNumber, splitCircleColumn } from './zoneCircleCheck'
 import { closeOnBackdropMouseDown } from './overlayClose'
 import { entriesOf, corporationByName, circlesOf } from './zoneCircleDirectory'
-import { type Office, officeKey, isOfficeReady, isZoneOnlyOffice, normalizeOffice, withZoneCircles, readContacts, applyContacts, CONTACTS_CHANGED_EVENT } from './office'
+import {
+  type Office,
+  officeKey,
+  isOfficeReady,
+  isZoneOnlyOffice,
+  normalizeOffice,
+  withZoneCircles,
+  readContacts,
+  applyContacts,
+  CONTACTS_CHANGED_EVENT
+} from './office'
 import { type ThemeId, getStoredTheme, setStoredTheme } from './theme'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
 import { findWorksListErrors, findMonitoringFormatErrors } from '@core/worksListAgent'
@@ -46,6 +61,7 @@ import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
 import GiveIntimationTab, { type IntimationIssuedSnapshot } from './components/GiveIntimationTab'
 import EvaluationSheetTab from './components/EvaluationSheetTab'
 import WorkOrderAgreementTab from './components/WorkOrderAgreementTab'
+import LettersTab from './components/LettersTab'
 import IssueNoticesTab from './components/IssueNoticesTab'
 import ToolsTab from './components/ToolsTab'
 import CementSteelRatesPage from './components/CementSteelRatesPage'
@@ -93,6 +109,7 @@ import type {
   BidDocumentWork,
   QcOfficeParties,
   PendingNoticeItem,
+  StoredLetter,
   TenderConditionsEntry,
   PersistedState
 } from '@core/types'
@@ -175,7 +192,11 @@ const CEMENT_STEEL_REFRESH_MS = 60 * 60 * 1000
  */
 function KeepAlive({ active, mounted, children }: { active: boolean; mounted: boolean; children: ReactNode }) {
   if (!active && !mounted) return null
-  return <div className="tab-pane" style={{ display: active ? 'block' : 'none' }}>{children}</div>
+  return (
+    <div className="tab-pane" style={{ display: active ? 'block' : 'none' }}>
+      {children}
+    </div>
+  )
 }
 
 export default function App({ onLogout, office, onOfficeChange, loginId }: Props) {
@@ -317,6 +338,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   const [evaluationInstanceKey, setEvaluationInstanceKey] = useState(0)
   const [workOrderInstanceKey, setWorkOrderInstanceKey] = useState(0)
   const [issueNoticesWorkspaceOpen, setIssueNoticesWorkspaceOpen] = useState(false)
+  const [lettersWorkspaceOpen, setLettersWorkspaceOpen] = useState(false)
   // Sub-tabs within the Intimation workspace: the Intimation letter, or the
   // Bid Capacity Evaluation Sheet issued from a "View Bidders" PDF.
   const [intimationSubTab, setIntimationSubTab] = useState<'intimation' | 'evaluation'>('intimation')
@@ -386,8 +408,11 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   const [mfPrewarmed, setMfPrewarmed] = useState(false)
   useEffect(() => {
     if (mfPrewarmed) return
-    const idle = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback
-    const id = idle ? idle(() => setMfPrewarmed(true), { timeout: 3000 }) : window.setTimeout(() => setMfPrewarmed(true), 1500)
+    const idle = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number })
+      .requestIdleCallback
+    const id = idle
+      ? idle(() => setMfPrewarmed(true), { timeout: 3000 })
+      : window.setTimeout(() => setMfPrewarmed(true), 1500)
     return () => {
       if (idle) (window as unknown as { cancelIdleCallback?: (n: number) => void }).cancelIdleCallback?.(id)
       else window.clearTimeout(id)
@@ -427,7 +452,9 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // alongside monitoringFormatByOffice so the Dashboard's "download this
   // status's works" tiles keep working after a restart without forcing a
   // re-import; otherwise re-derived from the workbook each time it's imported.
-  const [monitoringFormatWorksByOffice, setMonitoringFormatWorksByOffice] = useState<Record<string, MonitoringFormatWorkRow[]>>({})
+  const [monitoringFormatWorksByOffice, setMonitoringFormatWorksByOffice] = useState<
+    Record<string, MonitoringFormatWorkRow[]>
+  >({})
   // A remembered link queued to auto-import once the office prop has updated to
   // the newly-selected office (so the import validates against the new office).
   const [pendingOfficeImport, setPendingOfficeImport] = useState<string | null>(null)
@@ -448,7 +475,10 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   const [pendingNotices, setPendingNotices] = useState<PendingNoticeItem[]>([])
   // Saved tender conditions expire a week after their evaluation sheet is made; sweep hourly while the app stays open.
   useEffect(() => {
-    const id = window.setInterval(() => setTenderConditions((prev) => purgeExpiredTenderConditions(prev, Date.now())), 60 * 60 * 1000)
+    const id = window.setInterval(
+      () => setTenderConditions((prev) => purgeExpiredTenderConditions(prev, Date.now())),
+      60 * 60 * 1000
+    )
     return () => window.clearInterval(id)
   }, [])
   // The raw, unbaked templates (office placeholders like {{circle}} still intact)
@@ -462,6 +492,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // injection never repeats (and a default the user deletes stays deleted).
   const [seededDocVersion, setSeededDocVersion] = useState(0)
   const [bidDocumentBatches, setBidDocumentBatches] = useState<BidDocumentBatch[]>([])
+  const [storedLetters, setStoredLetters] = useState<StoredLetter[]>([])
   // Notice contact details (e-mail / phones), mirrored from localStorage so they sync like everything else.
   const [contacts, setContacts] = useState<Record<string, string>>(readContacts)
   useEffect(() => {
@@ -690,6 +721,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     setCreatedDocuments(s.createdDocuments ?? [])
     setSeededDocVersion(s.seededDocVersion ?? 0)
     setBidDocumentBatches(s.bidDocumentBatches ?? [])
+    setStoredLetters(s.storedLetters ?? [])
   }
 
   useEffect(() => {
@@ -746,14 +778,28 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       }
       if (partial.resolution) setResolution(partial.resolution)
       if (partial.todos) setTodos(partial.todos)
-      if (partial.mbScrutiny)
-        setMbScrutiny(assignMissingSerialNos(partial.mbScrutiny.map(migrateMbScrutinyItem)))
+      if (partial.mbScrutiny) {
+        // Merge, never replace: a record entered here but not yet pushed (autosave is debounced) must survive
+        // another device's update. Records are never hard-deleted (Bin = deletedAt), so a local-only id is
+        // always a not-yet-synced record, not a deleted one. For ids on both sides the remote copy wins.
+        const remote = partial.mbScrutiny.map(migrateMbScrutinyItem)
+        setMbScrutiny((prev) => {
+          const remoteIds = new Set(remote.map((it) => it.id))
+          return assignMissingSerialNos([...remote, ...prev.filter((it) => !remoteIds.has(it.id))])
+        })
+      }
       if (partial.lastGoogleLink !== undefined) setLastGoogleLink(partial.lastGoogleLink ?? null)
       if (partial.worksListLinks) setWorksListLinks(partial.worksListLinks)
       if (partial.qcParties) setQcParties(partial.qcParties)
       if (partial.tenderConditions)
-        setTenderConditions((prev) => purgeExpiredTenderConditions(mergeRemoteTenderConditions(prev, normalizeTenderConditions(partial.tenderConditions), Date.now()), Date.now()))
-      if (partial.monitoringFormatByOffice) setMonitoringFormatByOffice((prev) => ({ ...prev, ...partial.monitoringFormatByOffice }))
+        setTenderConditions((prev) =>
+          purgeExpiredTenderConditions(
+            mergeRemoteTenderConditions(prev, normalizeTenderConditions(partial.tenderConditions), Date.now()),
+            Date.now()
+          )
+        )
+      if (partial.monitoringFormatByOffice)
+        setMonitoringFormatByOffice((prev) => ({ ...prev, ...partial.monitoringFormatByOffice }))
       if (partial.monitoringFormatWorksByOffice)
         setMonitoringFormatWorksByOffice((prev) => ({ ...prev, ...partial.monitoringFormatWorksByOffice }))
       if (partial.monitoringFormatLinks) setMonitoringFormatLinks(partial.monitoringFormatLinks)
@@ -762,6 +808,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       if (partial.createdDocuments) setCreatedDocuments(partial.createdDocuments)
       if (partial.seededDocVersion !== undefined) setSeededDocVersion(partial.seededDocVersion)
       if (partial.bidDocumentBatches) setBidDocumentBatches(partial.bidDocumentBatches)
+      if (partial.storedLetters) setStoredLetters(partial.storedLetters)
       if (partial.contacts) {
         applyContacts(partial.contacts)
         setContacts(readContacts())
@@ -799,31 +846,32 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       // only this office's entry is updated — other offices stay put.
       const byOffice = currentOfficeKey ? { ...tablesByOffice, [currentOfficeKey]: currentTables } : tablesByOffice
       return {
-          version: ECV_RUPEES_STATE_VERSION,
-          tables: currentTables,
-          tablesByOffice: byOffice,
-          currentOfficeKey: currentOfficeKey || undefined,
-          // Persist the chosen office so it's restored on the next login / a
-          // fresh machine (AuthGate reads it back when localStorage has none).
-          // Only save a real selection — never let an empty office overwrite a
-          // good one already stored (LWW) for other sessions.
-          office: isOfficeReady(office) ? office : undefined,
-          resolution,
-          todos,
-          lastGoogleLink: lastGoogleLink ?? undefined,
-          worksListLinks,
-          qcParties,
-          tenderConditions,
-          monitoringFormatByOffice,
-          monitoringFormatWorksByOffice,
-          monitoringFormatLinks,
-          tenderReminders,
-          pendingNotices,
-          createdDocuments,
-          seededDocVersion,
-          bidDocumentBatches,
-          contacts,
-          mbScrutiny
+        version: ECV_RUPEES_STATE_VERSION,
+        tables: currentTables,
+        tablesByOffice: byOffice,
+        currentOfficeKey: currentOfficeKey || undefined,
+        // Persist the chosen office so it's restored on the next login / a
+        // fresh machine (AuthGate reads it back when localStorage has none).
+        // Only save a real selection — never let an empty office overwrite a
+        // good one already stored (LWW) for other sessions.
+        office: isOfficeReady(office) ? office : undefined,
+        resolution,
+        todos,
+        lastGoogleLink: lastGoogleLink ?? undefined,
+        worksListLinks,
+        qcParties,
+        tenderConditions,
+        monitoringFormatByOffice,
+        monitoringFormatWorksByOffice,
+        monitoringFormatLinks,
+        tenderReminders,
+        pendingNotices,
+        createdDocuments,
+        seededDocVersion,
+        bidDocumentBatches,
+        storedLetters,
+        contacts,
+        mbScrutiny
       }
     }
     buildStateRef.current = build
@@ -858,6 +906,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     createdDocuments,
     seededDocVersion,
     bidDocumentBatches,
+    storedLetters,
     contacts,
     mbScrutiny
   ])
@@ -880,23 +929,33 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   const noticesOverdue = officePendingNotices.some((n) => !n.deletedAt && isNoticeOverdue(n.manual.noticeDate, n.done))
   // Short label of the office these per-office lists are scoped to, for the page header.
   const officeLabel = office.circle || office.zone || ''
+  // Bulk-made Forwarding / QC letters, same per-office scoping.
+  const officeLetters = storedLetters.filter((l) => (l.officeKey ?? '') === currentOfficeKey)
+  function setOfficeLetters(next: StoredLetter[]) {
+    const stamped = currentOfficeKey ? next.map((l) => (l.officeKey ? l : { ...l, officeKey: currentOfficeKey })) : next
+    setStoredLetters([...storedLetters.filter((l) => (l.officeKey ?? '') !== currentOfficeKey), ...stamped])
+  }
+  /** Bulk generation (Settings) hands its letters here; a repeat of the same tender+agency replaces the earlier one. Functional update — the caller's closure can be stale by the time a long run finishes. */
+  function addOfficeLetters(added: StoredLetter[]) {
+    const same = (a: StoredLetter, b: StoredLetter) =>
+      a.kind === b.kind && (a.officeKey ?? '') === (b.officeKey ?? '') && a.nitNo === b.nitNo && a.agency === b.agency && a.workName === b.workName
+    const stamped = added.map((l) => ({ ...l, officeKey: l.officeKey ?? currentOfficeKey }))
+    setStoredLetters((prev) => [...prev.filter((l) => !stamped.some((a) => same(a, l))), ...stamped])
+  }
   function setOfficePendingNotices(next: PendingNoticeItem[]) {
-    const stamped = currentOfficeKey
-      ? next.map((n) => (n.officeKey ? n : { ...n, officeKey: currentOfficeKey }))
-      : next
+    const stamped = currentOfficeKey ? next.map((n) => (n.officeKey ? n : { ...n, officeKey: currentOfficeKey })) : next
     setPendingNotices([...pendingNotices.filter((n) => (n.officeKey ?? '') !== currentOfficeKey), ...stamped])
   }
   function setOfficeTodos(next: TodoItem[]) {
-    const stamped = currentOfficeKey
-      ? next.map((t) => (t.officeKey ? t : { ...t, officeKey: currentOfficeKey }))
-      : next
+    const stamped = currentOfficeKey ? next.map((t) => (t.officeKey ? t : { ...t, officeKey: currentOfficeKey })) : next
     setTodos([...todos.filter((t) => (t.officeKey ?? '') !== currentOfficeKey), ...stamped])
   }
   function setOfficeMb(next: MBScrutinyItem[]) {
     const stamped = currentOfficeKey
       ? next.map((it) => (it.officeKey ? it : { ...it, officeKey: currentOfficeKey }))
       : next
-    setMbScrutiny([...mbScrutiny.filter((it) => (it.officeKey ?? '') !== currentOfficeKey), ...stamped])
+    // Functional update: never act on a stale closure copy, which could drop a record a remote update just added.
+    setMbScrutiny((prev) => [...prev.filter((it) => (it.officeKey ?? '') !== currentOfficeKey), ...stamped])
   }
 
   // One-time adoption: To Do / MB records created before per-office scoping have
@@ -944,7 +1003,10 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       .then((sheets) => {
         // `key` and `office` are captured for this office, so the result lands on the right one even if the user has since switched.
         const works = extractMonitoringFormatWorksForOffice(sheets, withZoneCircles(office))
-        setMonitoringFormatByOffice((prev) => ({ ...prev, [key]: extractMonitoringFormatForOffice(sheets, withZoneCircles(office)) }))
+        setMonitoringFormatByOffice((prev) => ({
+          ...prev,
+          [key]: extractMonitoringFormatForOffice(sheets, withZoneCircles(office))
+        }))
         setMonitoringFormatWorksByOffice((prev) => ({ ...prev, [key]: works }))
       })
       .catch(() => {
@@ -995,7 +1057,11 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   }, [hydrated, currentOfficeKey, monitoringFormatByOffice, officeMonitoringFormatWorks, monitoringFormatLinks])
 
   // Monitoring Format PDFs open in a preview (with Print and Save PDF) instead of going straight to a save dialog.
-  const [pdfPreview, setPdfPreview] = useState<{ bytes: Uint8Array; fileName: string; onExcel?: () => Promise<unknown> } | null>(null)
+  const [pdfPreview, setPdfPreview] = useState<{
+    bytes: Uint8Array
+    fileName: string
+    onExcel?: () => Promise<unknown>
+  } | null>(null)
   function openPdfPreview(bytes: Uint8Array, fileName: string, onExcel?: () => Promise<unknown>): boolean {
     setPdfPreview({ bytes, fileName, onExcel })
     return true
@@ -1029,13 +1095,17 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     if (!works) return false
     // An array is a user-picked combination of statuses (kept in the sheet's own order).
     const pick = (all: MonitoringFormatWorkRow[]) =>
-      key === 'all' ? all : Array.isArray(key) ? all.filter((w) => key.includes(w.statusKey)) : filterMonitoringFormatWorksByStatus(all, key)
+      key === 'all'
+        ? all
+        : Array.isArray(key)
+          ? all.filter((w) => key.includes(w.statusKey))
+          : filterMonitoringFormatWorksByStatus(all, key)
     let matches = pick(works)
     // The tile promises works but the saved list has none for it — the list was saved by an
     // older parse (e.g. before in-progress rows were recognised). Re-read it from the link once.
     const tileCount = Array.isArray(key)
       ? key.reduce((n, k) => n + (officeMonitoringFormat?.totals[k]?.no ?? 0), 0)
-      : (key === 'all' ? officeMonitoringFormat?.totals.totalWorks : officeMonitoringFormat?.totals[key])?.no ?? 0
+      : ((key === 'all' ? officeMonitoringFormat?.totals.totalWorks : officeMonitoringFormat?.totals[key])?.no ?? 0)
     if (matches.length === 0 && tileCount > 0 && currentOfficeKey && monitoringFormatLinks[currentOfficeKey]) {
       try {
         const sheets = await api.importAllSheetsFromLink(monitoringFormatLinks[currentOfficeKey])
@@ -1061,7 +1131,17 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       const fileName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} ${label} works list`
         .replace(/\s+/g, ' ')
         .trim()
-      const savedPath = await api.exportTable({ id: 'mf-status-works', printReady: true, name: label, path: '', headers, rows: rows.map((r) => Object.fromEntries(headers.map((h, c) => [h, r[c]]))) }, fileName)
+      const savedPath = await api.exportTable(
+        {
+          id: 'mf-status-works',
+          printReady: true,
+          name: label,
+          path: '',
+          headers,
+          rows: rows.map((r) => Object.fromEntries(headers.map((h, c) => [h, r[c]])))
+        },
+        fileName
+      )
       return savedPath != null
     }
     if (format === 'pdf') {
@@ -1081,7 +1161,10 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     return saveExcel()
   }
   /** The Monitoring Format works table's own filter: download just the rows the user filtered down to. */
-  async function exportMonitoringFormatFilteredWorks(rows: MonitoringFormatWorkRow[], format: 'xlsx' | 'pdf'): Promise<boolean> {
+  async function exportMonitoringFormatFilteredWorks(
+    rows: MonitoringFormatWorkRow[],
+    format: 'xlsx' | 'pdf'
+  ): Promise<boolean> {
     const all = currentOfficeKey ? monitoringFormatWorksByOffice[currentOfficeKey] : undefined
     if (!all || rows.length === 0) return false
     return exportWorksSubset(rows, all, 'Filtered', 'Filtered', format)
@@ -1095,7 +1178,11 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     if (h.includes('circle')) return !!office.circle
     return (h.includes('type') && h.includes('work')) || /\bwin\b/.test(h)
   }
-  function worksTableForDownload(works: MonitoringFormatWorkRow[], allWorks: MonitoringFormatWorkRow[], opts?: { dropPdfColumns?: boolean }): { headers: string[]; rows: string[][] } {
+  function worksTableForDownload(
+    works: MonitoringFormatWorkRow[],
+    allWorks: MonitoringFormatWorkRow[],
+    opts?: { dropPdfColumns?: boolean }
+  ): { headers: string[]; rows: string[][] } {
     const t = monitoringFormatWorksTable(works, allWorks, currentMfHiddenCols)
     const rows = t.rows.map((r, i) => r.map((cell, c) => (c === t.slNoCol ? String(i + 1) : cell)))
     if (!opts?.dropPdfColumns) return { headers: t.headers, rows }
@@ -1109,11 +1196,26 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     : office.circle || office.zone || ''
   async function exportMonitoringFormatAbstract(): Promise<boolean> {
     if (!officeMonitoringFormat) return false
-    const abstractTitle = `MONITORING FORMAT FOR WORKS IN ${(office.zone || office.circle || '').replace(/\s+zone$/i, '').toUpperCase()} ZONE ${office.corporation || ''}`.replace(/\s+/g, ' ').trim()
+    const abstractTitle =
+      `MONITORING FORMAT FOR WORKS IN ${(office.zone || office.circle || '').replace(/\s+zone$/i, '').toUpperCase()} ZONE ${office.corporation || ''}`
+        .replace(/\s+/g, ' ')
+        .trim()
     const bytes = await buildAbstractPdf(officeMonitoringFormat, abstractTitle)
-    const pdfName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} Abstract.pdf`.replace(/\s+/g, ' ').trim()
+    const pdfName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} Abstract.pdf`
+      .replace(/\s+/g, ' ')
+      .trim()
     return openPdfPreview(bytes, pdfName, () =>
-      api.exportTable({ id: 'mf-abstract', name: 'Abstract', path: '', headers: [], rows: [], abstractLayout: { summary: officeMonitoringFormat, title: abstractTitle } }, pdfName.replace(/\.pdf$/i, ''))
+      api.exportTable(
+        {
+          id: 'mf-abstract',
+          name: 'Abstract',
+          path: '',
+          headers: [],
+          rows: [],
+          abstractLayout: { summary: officeMonitoringFormat, title: abstractTitle }
+        },
+        pdfName.replace(/\.pdf$/i, '')
+      )
     )
   }
   async function exportMonitoringFormatWardWorks(
@@ -1137,9 +1239,10 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     }
     if (!works) return false
     const matches = filterMonitoringFormatWorksByWard(works, wardLabel, pivotKind, statusKey)
-    const baseName = `${office.circle || office.zone || ''} ${loginCircleNumber || ''} ${wardLabel} ${statusLabel || ''} works list`
-      .replace(/\s+/g, ' ')
-      .trim()
+    const baseName =
+      `${office.circle || office.zone || ''} ${loginCircleNumber || ''} ${wardLabel} ${statusLabel || ''} works list`
+        .replace(/\s+/g, ' ')
+        .trim()
     const bytes = await buildWorksListPdf({
       title: `${statusLabel || 'All'} works of ${pivotKind === 'circle' ? wardLabel : `${wardLabel} ward, ${pdfCircleLabel}`}`,
       subtitle: `${officeMonitoringFormat?.officeLabel || office.circle || office.zone || ''}${
@@ -1149,7 +1252,17 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     })
     return openPdfPreview(bytes, `${baseName}.pdf`, async () => {
       const { headers, rows } = worksTableForDownload(matches, works)
-      return api.exportTable({ id: 'mf-ward-works', printReady: true, name: wardLabel, path: '', headers, rows: rows.map((r) => Object.fromEntries(headers.map((h, c) => [h, r[c]]))) }, baseName)
+      return api.exportTable(
+        {
+          id: 'mf-ward-works',
+          printReady: true,
+          name: wardLabel,
+          path: '',
+          headers,
+          rows: rows.map((r) => Object.fromEntries(headers.map((h, c) => [h, r[c]])))
+        },
+        baseName
+      )
     })
   }
   /**
@@ -1179,7 +1292,10 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       // Data that came from the zone's link (this one or its previous one) is refreshed, so each circle's Dashboard
       // follows the SE's workbook. Left alone: a circle with a link of its own, or data imported without any link (a file).
       const fromZoneLink = !!own && (own === url || own === previousZoneLink)
-      if ((own && !fromZoneLink) || (!own && monitoringFormatByOffice[key] && (monitoringFormatWorksByOffice[key]?.length ?? 0) > 0)) {
+      if (
+        (own && !fromZoneLink) ||
+        (!own && monitoringFormatByOffice[key] && (monitoringFormatWorksByOffice[key]?.length ?? 0) > 0)
+      ) {
         keptOwn.push(c.circle)
         continue
       }
@@ -1229,7 +1345,12 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // link is blanked (not removed, since the cloud merges maps key by key) so the office doesn't quietly re-import it.
   function deleteWorksDatabase() {
     if (!currentOfficeKey) return
-    if (!window.confirm('Delete this office\'s Works List database? Its works and the saved link are removed. Import the link again to get it back.')) return
+    if (
+      !window.confirm(
+        "Delete this office's Works List database? Its works and the saved link are removed. Import the link again to get it back."
+      )
+    )
+      return
     setTables([])
     setTablesByOffice((prev) => ({ ...prev, [currentOfficeKey]: [] }))
     setWorksListLinks((prev) => (prev[currentOfficeKey] ? { ...prev, [currentOfficeKey]: '' } : prev))
@@ -1237,7 +1358,12 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   }
   function deleteMonitoringFormat() {
     if (!currentOfficeKey) return
-    if (!window.confirm('Delete this office\'s Monitoring Format data? The imported summary, works and saved link are removed. Import the link again to get it back.')) return
+    if (
+      !window.confirm(
+        "Delete this office's Monitoring Format data? The imported summary, works and saved link are removed. Import the link again to get it back."
+      )
+    )
+      return
     setMonitoringFormatByOffice((prev) => {
       const { [currentOfficeKey]: _removed, ...rest } = prev
       return rest
@@ -1249,7 +1375,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     setMonitoringFormatLinks((prev) => (prev[currentOfficeKey] ? { ...prev, [currentOfficeKey]: '' } : prev))
   }
   function saveMonitoringFormatLink(url: string) {
-    if (currentOfficeKey) setMonitoringFormatLinks((prev) => (prev[currentOfficeKey] === url ? prev : { ...prev, [currentOfficeKey]: url }))
+    if (currentOfficeKey)
+      setMonitoringFormatLinks((prev) => (prev[currentOfficeKey] === url ? prev : { ...prev, [currentOfficeKey]: url }))
   }
 
   const collisions = dataset?.collisions ?? []
@@ -1306,9 +1433,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
         'Target date': fmt(it.targetDate),
         Status: it.done ? 'Completed' : 'Pending',
         'Scrutiny completed date': fmt(it.completedDate),
-        'Remarks / objections': (it.remarks ?? [])
-          .map((r) => `${r.done ? '[x]' : '[ ]'} ${r.text}`)
-          .join('\n')
+        'Remarks / objections': (it.remarks ?? []).map((r) => `${r.done ? '[x]' : '[ ]'} ${r.text}`).join('\n')
       }))
     await api.exportTable({ id: 'mb-scrutiny', name: 'MB Scrutiny', path: '', headers, rows }, 'MB Scrutiny list')
   }
@@ -1652,9 +1777,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
         const existing = prev[idx]
         const itemIdx = existing.items.findIndex((it) => item.tenderId && it.tenderId === item.tenderId)
         const items =
-          itemIdx !== -1
-            ? existing.items.map((it, i) => (i === itemIdx ? item : it))
-            : [...existing.items, item]
+          itemIdx !== -1 ? existing.items.map((it, i) => (i === itemIdx ? item : it)) : [...existing.items, item]
         const next = [...prev]
         next[idx] = { ...existing, status: 'found', items }
         return next
@@ -1662,7 +1785,10 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
       const id = `reminder-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const d = new Date()
       const createdDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      return [...prev, { id, nitNo, items: [item], status: 'found', createdDate, officeKey: currentOfficeKey || undefined }]
+      return [
+        ...prev,
+        { id, nitNo, items: [item], status: 'found', createdDate, officeKey: currentOfficeKey || undefined }
+      ]
     })
   }
 
@@ -1841,670 +1967,757 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
           </div>
         </div>
       )}
-      {pdfPreview && <PdfPreviewModal bytes={pdfPreview.bytes} fileName={pdfPreview.fileName} onExcel={pdfPreview.onExcel} onClose={() => setPdfPreview(null)} />}
-      <ProfileMenu username={loginId} onLogout={() => logoutRef.current()} onSync={syncNow} pendingBytes={pendingSyncBytes} autoSyncBytes={AUTO_SYNC_BYTES} />
-      <div className="shell">
-      <Sidebar
-        active={tab}
-        onSelect={setTab}
-        onReset={resetToTab}
-        tableCount={tables.length}
-        unresolved={unresolved.length}
-        createdDocCount={createdDocuments.length}
-        office={office}
-        onOfficeChange={changeOffice}
-        onShowWhatsNew={() => setWhatsNew(CHANGELOG)}
-        cementSteelHasNew={cementSteelHasNew}
-        noticesOverdue={noticesOverdue}
+      {pdfPreview && (
+        <PdfPreviewModal
+          bytes={pdfPreview.bytes}
+          fileName={pdfPreview.fileName}
+          onExcel={pdfPreview.onExcel}
+          onClose={() => setPdfPreview(null)}
+        />
+      )}
+      <ProfileMenu
+        username={loginId}
+        onLogout={() => logoutRef.current()}
+        onSync={syncNow}
+        pendingBytes={pendingSyncBytes}
+        autoSyncBytes={AUTO_SYNC_BYTES}
       />
+      <div className="shell">
+        <Sidebar
+          active={tab}
+          onSelect={setTab}
+          onReset={resetToTab}
+          tableCount={tables.length}
+          unresolved={unresolved.length}
+          createdDocCount={createdDocuments.length}
+          office={office}
+          onOfficeChange={changeOffice}
+          onShowWhatsNew={() => setWhatsNew(CHANGELOG)}
+          cementSteelHasNew={cementSteelHasNew}
+          noticesOverdue={noticesOverdue}
+        />
 
-      <main className="workspace">
-        <Fragment key={resetNonce}>
-        <KeepAlive active={tab === 'overview'} mounted={mountedTabs.has('overview')}>
-          <section className="page wide" ref={overviewPageRef}>
-            <div className="page-head">
-              <div className="page-ic green">
-                <IconGrid />
-              </div>
-              <div className="page-head-text">
-                <h1>Dashboard</h1>
-              </div>
-              <div className="page-head-action">
-                <button className="primary" onClick={() => setTab('todo')}>
-                  <IconPlus /> Add Task
-                </button>
-                <button className="ghost" onClick={() => setTab('data')}>
-                  Import Data
-                </button>
-              </div>
-            </div>
-            <OverviewDashboard
-              office={office}
-              monitoringFormat={currentOfficeKey ? monitoringFormatByOffice[currentOfficeKey] : undefined}
-              todos={officeTodos}
-              mbScrutiny={officeMb}
-              tenderReminders={officeTenderReminders}
-              cementSteelHasNew={cementSteelHasNew}
-              onNavigate={setTab}
-              onExportStatusWorks={(key, label) => exportMonitoringFormatStatusWorks(key, label, 'pdf')}
-              onExportWardWorks={exportMonitoringFormatWardWorks}
-            />
-          </section>
-        </KeepAlive>
-
-        <KeepAlive active={tab === 'dashboard'} mounted={mountedTabs.has('dashboard')}>
-          <section className="page wide">
-            <div className="page-head">
-              <div className="page-ic violet">
-                <IconCalendar />
-              </div>
-              <div className="page-head-text">
-                <h1>Calendar</h1>
-                <p>Telangana Government holiday calendar{calendar ? ` for ${calendar.year}` : ''}.</p>
-              </div>
-              <div className="page-head-action">
-                <TenderNoticeButton
-                  tables={tables}
-                  office={office}
-                  onGenerated={addTenderReminder}
-                  onBidBatch={addBidBatch}
-                />
-              </div>
-            </div>
-            <Dashboard cached={calendar} onData={setCalendar} office={office} />
-            <SeBidDocumentTile tables={tables} office={office} />
-            <BidDocumentsPanel batches={officeBidBatches} onRemove={removeBidBatch} onUpdateWork={updateBidWork} />
-          </section>
-        </KeepAlive>
-
-        <KeepAlive active={tab === 'data'} mounted={mountedTabs.has('data')}>
-          <section className="page wide">
-            <div className="page-head">
-              <div className="page-ic green">
-                <IconTable />
-              </div>
-              <div className="page-head-text">
-                <h1>Works List</h1>
-              </div>
-              <div className="page-head-action">
-                {currentTable && (
-                  <WorksListL1Update
-                    // Remount on office change so its own "Updated X, Y
-                    // unmatched" result banner (internal state, has no office
-                    // awareness of its own) doesn't keep showing a stale
-                    // result from the office just switched away from.
-                    key={currentOfficeKey}
-                    table={currentTable}
-                    onChange={updateTable}
-                    onUpdated={(rows, message) => setWorksFlash({ token: Date.now(), rows, message })}
-                  />
-                )}
-                {currentTable && (
-                  <button className="ghost" onClick={exportWorksList} title="Download as Excel">
-                    <IconDownload /> Download
-                  </button>
-                )}
-                {lastGoogleLink && (
-                  <button className="ghost" onClick={refreshWorksList} disabled={refreshingWorks}>
-                    <IconRefresh /> {refreshingWorks ? 'Refreshing…' : 'Refresh'}
-                  </button>
-                )}
-                {currentTable && (
-                  <button
-                    type="button"
-                    className={`works-errors-btn${worksListErrors.length > 0 ? ' blink' : ''}`}
-                    title={
-                      worksListErrors.length > 0
-                        ? `${worksListErrors.length} issue${worksListErrors.length === 1 ? '' : 's'} found in the Works List`
-                        : 'Check the Works List for data problems'
-                    }
-                    onClick={() => setShowWincodeViolations(true)}
-                  >
-                    <IconWarn /> Verify Workslist{worksListErrors.length > 0 ? ` (${worksListErrors.length})` : ''}
-                  </button>
-                )}
-              </div>
-            </div>
-            {officeSwitchBusy && (
-              <div className="notice warn office-switch-busy">
-                <IconRefresh className="spin" /> Loading <strong>{officeSwitchBusy}</strong>'s Works List…
-              </div>
-            )}
-            {refreshError && <div className="notice error">{refreshError}</div>}
-            {refreshSummary && <div className="notice ok">{refreshSummary}</div>}
-            {/* Works List workspace: a summary strip, then one tab bar whose selected
-                tab owns the panel directly beneath it — so it is always clear which
-                section the content below belongs to. Tabs never reflow. */}
-            <div className="wl-workspace">
-              <div className="wl-shell">
-              <div className="wl-tabbar" role="tablist" aria-label="Works List sections">
-                {(
-                  [
-                    {
-                      key: 'mf' as const,
-                      label: 'Monitoring Format',
-                      Icon: IconGrid,
-                      meta: officeMonitoringFormat ? 'Imported' : 'Not imported'
-                    },
-                    {
-                      key: 'wl' as const,
-                      label: 'Works List Database',
-                      Icon: IconTable,
-                      meta: currentTable ? `${currentTable.rows.length} works` : 'Not created'
-                    },
-                    ...(office.circle
-                      ? [{ key: 'qc' as const, label: 'Department QC / 3rd / 4th party', Icon: IconUser, meta: 'Enter once' }]
-                      : [])
-                  ]
-                ).map(({ key, label, Icon, meta }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    role="tab"
-                    id={`wl-tab-${key}`}
-                    aria-selected={worklistOpenTile === key}
-                    aria-controls="wl-panel"
-                    className={`wl-tab${worklistOpenTile === key ? ' active' : ''}`}
-                    onClick={() => setWorklistOpenTile((t) => (t === key ? null : key))}
-                  >
-                    <Icon className="wl-tab-ic" />
-                    <span className="wl-tab-text">
-                      <span className="wl-tab-label">{label}</span>
-                      <span className="wl-tab-meta">{meta}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <div
-                className={`wl-panel${worklistOpenTile ? '' : ' empty'}`}
-                id="wl-panel"
-                role="tabpanel"
-                aria-labelledby={worklistOpenTile ? `wl-tab-${worklistOpenTile}` : undefined}
-              >
-                {!worklistOpenTile && <p className="wl-panel-hint">Select a section above to open it.</p>}
-              {worklistOpenTile === 'qc' && (
-                <QcPartiesEditor
-                  parties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
-                  circleSelected={!!office.circle}
-                  onChange={(next) =>
-                    currentOfficeKey && setQcParties((prev) => ({ ...prev, [currentOfficeKey]: next }))
-                  }
-                />
-              )}
-              {(worklistOpenTile === 'mf' || mfPrewarmed) && (
-                <div className="wl-keep" hidden={worklistOpenTile !== 'mf'}>
-                <MonitoringFormatCard
+        <main className="workspace">
+          <Fragment key={resetNonce}>
+            <KeepAlive active={tab === 'overview'} mounted={mountedTabs.has('overview')}>
+              <section className="page wide" ref={overviewPageRef}>
+                <div className="page-head">
+                  <div className="page-ic green">
+                    <IconGrid />
+                  </div>
+                  <div className="page-head-text">
+                    <h1>Dashboard</h1>
+                  </div>
+                  <div className="page-head-action">
+                    <button className="primary" onClick={() => setTab('todo')}>
+                      <IconPlus /> Add Task
+                    </button>
+                    <button className="ghost" onClick={() => setTab('data')}>
+                      Import Data
+                    </button>
+                  </div>
+                </div>
+                <OverviewDashboard
                   office={office}
                   monitoringFormat={currentOfficeKey ? monitoringFormatByOffice[currentOfficeKey] : undefined}
-                  monitoringFormatWorks={officeMonitoringFormatWorks}
-                  onImportMonitoringFormat={setOfficeMonitoringFormat}
-                  monitoringFormatLink={currentOfficeKey ? monitoringFormatLinks[currentOfficeKey] : undefined}
-                  onSaveMonitoringFormatLink={saveMonitoringFormatLink}
-                  onImportedFromLink={shareMonitoringFormatWithCircles}
-                  onDeleteMonitoringFormat={deleteMonitoringFormat}
-                  hiddenColumns={currentMfHiddenCols}
-                  onHiddenColumnsChange={setCurrentMfHiddenCols}
-                  onExportStatusPdf={(key, label) => exportMonitoringFormatStatusWorks(key, label, 'pdf')}
-                  onExportCombinedPdf={(keys, label) => exportMonitoringFormatStatusWorks(keys, label, 'pdf')}
-                  onExportAbstractPdf={exportMonitoringFormatAbstract}
-                  onExportFilteredWorks={exportMonitoringFormatFilteredWorks}
-                  worksLoading={mfWorksLoading}
+                  todos={officeTodos}
+                  mbScrutiny={officeMb}
+                  tenderReminders={officeTenderReminders}
+                  cementSteelHasNew={cementSteelHasNew}
+                  onNavigate={setTab}
+                  onExportStatusWorks={(key, label) => exportMonitoringFormatStatusWorks(key, label, 'pdf')}
+                  onExportWardWorks={exportMonitoringFormatWardWorks}
                 />
+              </section>
+            </KeepAlive>
+
+            <KeepAlive active={tab === 'dashboard'} mounted={mountedTabs.has('dashboard')}>
+              <section className="page wide">
+                <div className="page-head">
+                  <div className="page-ic violet">
+                    <IconCalendar />
+                  </div>
+                  <div className="page-head-text">
+                    <h1>Calendar</h1>
+                    <p>Telangana Government holiday calendar{calendar ? ` for ${calendar.year}` : ''}.</p>
+                  </div>
+                  <div className="page-head-action">
+                    <TenderNoticeButton
+                      tables={tables}
+                      office={office}
+                      onGenerated={addTenderReminder}
+                      onBidBatch={addBidBatch}
+                    />
+                  </div>
                 </div>
-              )}
-              {worklistOpenTile === 'wl' &&
-                (currentTable ? (
-                  <ExcelInline
-                    key={`${currentTable.id}:${worksFlash?.token ?? 0}`}
-                    table={currentTable}
-                    onChange={updateTable}
-                    autofillRow={autofillWorksRowForLogin}
-                    flashRows={worksFlash?.rows}
-                    flashMessage={worksFlash?.message}
-                    header={<GoogleLinkImport onImport={importFromGoogleLink} />}
-                    onDownloadFiltered={(t) => api.exportTable(t, `${currentTable.name || 'Works List'} (filtered)`)}
-                    toolbarActions={
-                      <>
+                <Dashboard cached={calendar} onData={setCalendar} office={office} />
+                <SeBidDocumentTile tables={tables} office={office} />
+                <BidDocumentsPanel batches={officeBidBatches} onRemove={removeBidBatch} onUpdateWork={updateBidWork} />
+              </section>
+            </KeepAlive>
+
+            <KeepAlive active={tab === 'data'} mounted={mountedTabs.has('data')}>
+              <section className="page wide">
+                <div className="page-head">
+                  <div className="page-ic green">
+                    <IconTable />
+                  </div>
+                  <div className="page-head-text">
+                    <h1>Works List</h1>
+                  </div>
+                  <div className="page-head-action">
+                    {currentTable && (
+                      <WorksListL1Update
+                        // Remount on office change so its own "Updated X, Y
+                        // unmatched" result banner (internal state, has no office
+                        // awareness of its own) doesn't keep showing a stale
+                        // result from the office just switched away from.
+                        key={currentOfficeKey}
+                        table={currentTable}
+                        onChange={updateTable}
+                        onUpdated={(rows, message) => setWorksFlash({ token: Date.now(), rows, message })}
+                      />
+                    )}
+                    {currentTable && (
+                      <button className="ghost" onClick={exportWorksList} title="Download as Excel">
+                        <IconDownload /> Download
+                      </button>
+                    )}
+                    {lastGoogleLink && (
+                      <button className="ghost" onClick={refreshWorksList} disabled={refreshingWorks}>
+                        <IconRefresh /> {refreshingWorks ? 'Refreshing…' : 'Refresh'}
+                      </button>
+                    )}
+                    {currentTable && (
+                      <button
+                        type="button"
+                        className={`works-errors-btn${worksListErrors.length > 0 ? ' blink' : ''}`}
+                        title={
+                          worksListErrors.length > 0
+                            ? `${worksListErrors.length} issue${worksListErrors.length === 1 ? '' : 's'} found in the Works List`
+                            : 'Check the Works List for data problems'
+                        }
+                        onClick={() => setShowWincodeViolations(true)}
+                      >
+                        <IconWarn /> Verify Workslist{worksListErrors.length > 0 ? ` (${worksListErrors.length})` : ''}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {officeSwitchBusy && (
+                  <div className="notice warn office-switch-busy">
+                    <IconRefresh className="spin" /> Loading <strong>{officeSwitchBusy}</strong>'s Works List…
+                  </div>
+                )}
+                {refreshError && <div className="notice error">{refreshError}</div>}
+                {refreshSummary && <div className="notice ok">{refreshSummary}</div>}
+                {/* Works List workspace: a summary strip, then one tab bar whose selected
+                tab owns the panel directly beneath it — so it is always clear which
+                section the content below belongs to. Tabs never reflow. */}
+                <div className="wl-workspace">
+                  <div className="wl-shell">
+                    <div className="wl-tabbar" role="tablist" aria-label="Works List sections">
+                      {[
+                        {
+                          key: 'mf' as const,
+                          label: 'Monitoring Format',
+                          Icon: IconGrid,
+                          meta: officeMonitoringFormat ? 'Imported' : 'Not imported'
+                        },
+                        {
+                          key: 'wl' as const,
+                          label: 'Works List Database',
+                          Icon: IconTable,
+                          meta: currentTable ? `${currentTable.rows.length} works` : 'Not created'
+                        },
+                        ...(office.circle
+                          ? [
+                              {
+                                key: 'qc' as const,
+                                label: 'Department QC / 3rd / 4th party',
+                                Icon: IconUser,
+                                meta: 'Enter once'
+                              }
+                            ]
+                          : [])
+                      ].map(({ key, label, Icon, meta }) => (
                         <button
+                          key={key}
                           type="button"
-                          className={`verify-btn${worksListErrors.length > 0 ? ' verify-blinking' : ''}`}
-                          onClick={() => setShowWincodeViolations(true)}
-                          title="Check the Works List for data problems"
+                          role="tab"
+                          id={`wl-tab-${key}`}
+                          aria-selected={worklistOpenTile === key}
+                          aria-controls="wl-panel"
+                          className={`wl-tab${worklistOpenTile === key ? ' active' : ''}`}
+                          onClick={() => setWorklistOpenTile((t) => (t === key ? null : key))}
                         >
-                          {worksListErrors.length > 0 ? (
-                            <>
-                              <IconWarn /> {worksListErrors.length} error{worksListErrors.length === 1 ? '' : 's'} — view
-                            </>
-                          ) : (
-                            'Verify'
-                          )}
+                          <Icon className="wl-tab-ic" />
+                          <span className="wl-tab-text">
+                            <span className="wl-tab-label">{label}</span>
+                            <span className="wl-tab-meta">{meta}</span>
+                          </span>
                         </button>
-                        <button type="button" className="ghost mf-new-btn" onClick={() => void importWorksFile()} disabled={worksFileBusy}>
-                          <IconPlus /> {worksFileBusy ? 'Importing…' : 'Import file'}
-                        </button>
-                        <button type="button" className="ghost danger-ghost" onClick={deleteWorksDatabase} title="Delete this office's Works List database">
-                          Delete database
-                        </button>
-                      </>
-                    }
+                      ))}
+                    </div>
+                    <div
+                      className={`wl-panel${worklistOpenTile ? '' : ' empty'}`}
+                      id="wl-panel"
+                      role="tabpanel"
+                      aria-labelledby={worklistOpenTile ? `wl-tab-${worklistOpenTile}` : undefined}
+                    >
+                      {!worklistOpenTile && <p className="wl-panel-hint">Select a section above to open it.</p>}
+                      {worklistOpenTile === 'qc' && (
+                        <QcPartiesEditor
+                          parties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
+                          circleSelected={!!office.circle}
+                          onChange={(next) =>
+                            currentOfficeKey && setQcParties((prev) => ({ ...prev, [currentOfficeKey]: next }))
+                          }
+                        />
+                      )}
+                      {(worklistOpenTile === 'mf' || mfPrewarmed) && (
+                        <div className="wl-keep" hidden={worklistOpenTile !== 'mf'}>
+                          <MonitoringFormatCard
+                            office={office}
+                            monitoringFormat={currentOfficeKey ? monitoringFormatByOffice[currentOfficeKey] : undefined}
+                            monitoringFormatWorks={officeMonitoringFormatWorks}
+                            onImportMonitoringFormat={setOfficeMonitoringFormat}
+                            monitoringFormatLink={
+                              currentOfficeKey ? monitoringFormatLinks[currentOfficeKey] : undefined
+                            }
+                            onSaveMonitoringFormatLink={saveMonitoringFormatLink}
+                            onImportedFromLink={shareMonitoringFormatWithCircles}
+                            onDeleteMonitoringFormat={deleteMonitoringFormat}
+                            hiddenColumns={currentMfHiddenCols}
+                            onHiddenColumnsChange={setCurrentMfHiddenCols}
+                            onExportStatusPdf={(key, label) => exportMonitoringFormatStatusWorks(key, label, 'pdf')}
+                            onExportCombinedPdf={(keys, label) => exportMonitoringFormatStatusWorks(keys, label, 'pdf')}
+                            onExportAbstractPdf={exportMonitoringFormatAbstract}
+                            onExportFilteredWorks={exportMonitoringFormatFilteredWorks}
+                            worksLoading={mfWorksLoading}
+                          />
+                        </div>
+                      )}
+                      {worklistOpenTile === 'wl' &&
+                        (currentTable ? (
+                          <ExcelInline
+                            key={`${currentTable.id}:${worksFlash?.token ?? 0}`}
+                            table={currentTable}
+                            onChange={updateTable}
+                            autofillRow={autofillWorksRowForLogin}
+                            flashRows={worksFlash?.rows}
+                            flashMessage={worksFlash?.message}
+                            header={<GoogleLinkImport onImport={importFromGoogleLink} />}
+                            onDownloadFiltered={(t) =>
+                              api.exportTable(t, `${currentTable.name || 'Works List'} (filtered)`)
+                            }
+                            toolbarActions={
+                              <>
+                                <button
+                                  type="button"
+                                  className={`verify-btn${worksListErrors.length > 0 ? ' verify-blinking' : ''}`}
+                                  onClick={() => setShowWincodeViolations(true)}
+                                  title="Check the Works List for data problems"
+                                >
+                                  {worksListErrors.length > 0 ? (
+                                    <>
+                                      <IconWarn /> {worksListErrors.length} error
+                                      {worksListErrors.length === 1 ? '' : 's'} — view
+                                    </>
+                                  ) : (
+                                    'Verify'
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghost mf-new-btn"
+                                  onClick={() => void importWorksFile()}
+                                  disabled={worksFileBusy}
+                                >
+                                  <IconPlus /> {worksFileBusy ? 'Importing…' : 'Import file'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghost danger-ghost"
+                                  onClick={deleteWorksDatabase}
+                                  title="Delete this office's Works List database"
+                                >
+                                  Delete database
+                                </button>
+                              </>
+                            }
+                          />
+                        ) : (
+                          <div className="card worklist-tile-full">
+                            <GoogleLinkImport onImport={importFromGoogleLink} />
+                            <div className="empty">
+                              <IconTable />
+                              <p>
+                                No works database yet. Create one with the standard work columns and start adding rows.
+                              </p>
+                              <button className="primary" onClick={createDatabase}>
+                                <IconPlus /> Create works database
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+                {circleMismatchConfirm &&
+                  createPortal(
+                    <div
+                      className="editor-overlay"
+                      onMouseDown={closeOnBackdropMouseDown(() => resolveCircleMismatch(false))}
+                    >
+                      <div
+                        className="confirm-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="confirm-ic">
+                          <IconWarn />
+                        </div>
+                        <h3>Works from another circle</h3>
+                        <p className="confirm-warn">
+                          <strong>{circleMismatchConfirm.count}</strong> of {circleMismatchConfirm.total} works in this
+                          list don't belong to your office's Zone/Circle (
+                          {[circleMismatchConfirm.zone, circleMismatchConfirm.circle].filter(Boolean).join(' / ')}).
+                        </p>
+                        <p className="confirm-hint">
+                          Are you sure these works belong to your circle? (A circle reorganisation can leave some works
+                          still tagged with their old circle — if that's the case here, Continue is safe.)
+                        </p>
+                        <div className="confirm-actions">
+                          <button className="ghost" onClick={() => resolveCircleMismatch(false)}>
+                            Don't Import
+                          </button>
+                          <button className="primary" onClick={() => resolveCircleMismatch(true)}>
+                            Continue
+                          </button>
+                        </div>
+                      </div>
+                    </div>,
+                    document.body
+                  )}
+                {showWincodeViolations &&
+                  createPortal(
+                    <div
+                      className="editor-overlay"
+                      onMouseDown={closeOnBackdropMouseDown(() => setShowWincodeViolations(false))}
+                    >
+                      <div
+                        className="confirm-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="confirm-ic">{worksListErrors.length > 0 ? <IconWarn /> : <IconCheck />}</div>
+                        <h3>
+                          {worksListErrors.length > 0
+                            ? `${worksListErrors.length} issue${worksListErrors.length === 1 ? '' : 's'} found in the Works List`
+                            : 'No issues found in the Works List'}
+                        </h3>
+                        {worksListErrors.length > 0 ? (
+                          <>
+                            <p className="confirm-hint">
+                              Data problems found while scanning the Works List — see each row below.
+                            </p>
+                            <ul className="works-list-violation-list">
+                              {worksListErrors.map((v) => (
+                                <li key={`${v.type}:${v.key}`}>
+                                  {v.message}
+                                  {v.rowIndices.length > 0 &&
+                                    ` (row${v.rowIndices.length > 1 ? 's' : ''} ${v.rowIndices.map((i) => i + 1).join(', ')})`}
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : (
+                          <p className="confirm-hint">
+                            Every row checked out — Wincode/Tender ID identity, ECV vs. estimate, EMD 1%/1.5%
+                            consistency.
+                          </p>
+                        )}
+                        <div className="confirm-actions">
+                          <button className="primary" onClick={() => setShowWincodeViolations(false)}>
+                            Close
+                          </button>
+                        </div>
+                      </div>
+                    </div>,
+                    document.body
+                  )}
+                <CollisionPanel collisions={collisions} resolution={resolution} onResolve={resolveCollision} />
+              </section>
+            </KeepAlive>
+
+            <KeepAlive active={tab === 'estimateWorkspace'} mounted={mountedTabs.has('estimateWorkspace')}>
+              <section className="page">
+                <div className="page-head">
+                  <div className="page-ic amber">
+                    <IconDoc />
+                  </div>
+                  <div className="page-head-text">
+                    <h1>BOQ, Schedule A, Deviation & Material Quantity</h1>
+                    <p>
+                      Upload an estimate once to download its BOQ, Schedule A, Deviation Statement, and Material
+                      Quantity.
+                    </p>
+                  </div>
+                </div>
+                <EstimateWorkspaceTab tables={tables} onChange={updateTable} office={office} />
+              </section>
+            </KeepAlive>
+
+            <KeepAlive active={tab === 'techSanction'} mounted={mountedTabs.has('techSanction')}>
+              <section className="page">
+                <div className="page-head">
+                  <div className="page-ic">
+                    <IconCheck />
+                  </div>
+                  <div className="page-head-text">
+                    <h1>Give Technical Sanction (Experimental)</h1>
+                    <p>Upload the Data Sheet and an Estimate to auto-fill rates from the Data Sheet.</p>
+                  </div>
+                </div>
+                <div className="notice warn">
+                  <IconWarn /> This is still an experimental feature and may not work as intended.
+                </div>
+                <GiveTechnicalSanctionTab />
+              </section>
+            </KeepAlive>
+
+            <KeepAlive active={tab === 'intimation'} mounted={mountedTabs.has('intimation')}>
+              <section className="page">
+                <div className="page-head">
+                  <div className="page-ic rose">
+                    <IconBell />
+                  </div>
+                  <div className="page-head-text">
+                    <h1>Intimation</h1>
+                    <p>
+                      {intimationSubTab === 'intimation'
+                        ? "Upload a PDF (or photos) plus an existing Intimation format to auto-fill it from what's in the document."
+                        : 'Upload the portal’s “View Bidders” PDF to issue the Bid Capacity Evaluation Sheet — one column per participating bidder.'}
+                    </p>
+                  </div>
+                  <div className="page-head-action">
+                    <button
+                      className="ghost"
+                      onClick={() =>
+                        intimationSubTab === 'intimation'
+                          ? setIntimationInstanceKey((k) => k + 1)
+                          : setEvaluationInstanceKey((k) => k + 1)
+                      }
+                      title={
+                        intimationSubTab === 'intimation'
+                          ? 'Clear the uploaded documents and filled fields to start a new work'
+                          : 'Clear the uploaded evaluation sheets to start over'
+                      }
+                    >
+                      <IconRefresh /> Clear
+                    </button>
+                    {intimationSubTab === 'intimation' && (
+                      <div className="header-action-slot" ref={intimationHeaderActionRef} />
+                    )}
+                  </div>
+                </div>
+                <div className="doc-tabs">
+                  <button
+                    className={`doc-tab ${intimationSubTab === 'intimation' ? 'active' : ''}`}
+                    onClick={() => setIntimationSubTab('intimation')}
+                  >
+                    Issue Intimation
+                  </button>
+                  <button
+                    className={`doc-tab ${intimationSubTab === 'evaluation' ? 'active' : ''}`}
+                    onClick={() => setIntimationSubTab('evaluation')}
+                  >
+                    Evaluation Sheet
+                  </button>
+                </div>
+                {intimationSubTab === 'intimation' ? (
+                  <GiveIntimationTab
+                    key={`${intimationInstanceKey}|${currentOfficeKey}`}
+                    active={tab === 'intimation'}
+                    tables={tables}
+                    onChange={updateTable}
+                    office={office}
+                    headerActionRef={intimationHeaderActionRef}
+                    onIntimationIssued={handleIntimationIssued}
                   />
                 ) : (
-                  <div className="card worklist-tile-full">
-                    <GoogleLinkImport onImport={importFromGoogleLink} />
-                    <div className="empty">
-                      <IconTable />
-                      <p>No works database yet. Create one with the standard work columns and start adding rows.</p>
-                      <button className="primary" onClick={createDatabase}>
-                        <IconPlus /> Create works database
-                      </button>
-                    </div>
+                  <EvaluationSheetTab
+                    key={`${evaluationInstanceKey}|${currentOfficeKey}`}
+                    office={office}
+                    tables={tables}
+                    savedConditions={tenderConditions}
+                    onSaveConditions={(id, conditions, details) =>
+                      setTenderConditions((prev) => ({
+                        ...prev,
+                        [id]: { ...prev[id], conditions, ...details, savedAt: Date.now() }
+                      }))
+                    }
+                    onDeleteConditions={(id) =>
+                      setTenderConditions((prev) => {
+                        const next = { ...prev }
+                        delete next[id]
+                        return next
+                      })
+                    }
+                    onEvaluationGenerated={(ids) =>
+                      setTenderConditions((prev) => markEvaluationGenerated(prev, ids, Date.now()))
+                    }
+                  />
+                )}
+              </section>
+            </KeepAlive>
+
+            <KeepAlive active={tab === 'workOrder'} mounted={mountedTabs.has('workOrder')}>
+              <section className="page">
+                <div className="page-head">
+                  <div className="page-ic">
+                    <IconClipboard />
                   </div>
-                ))}
-              </div>
-              </div>
-            </div>
-            {circleMismatchConfirm &&
-              createPortal(
-                <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => resolveCircleMismatch(false))}>
-                  <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-                    <div className="confirm-ic">
+                  <div className="page-head-text">
+                    <h1>Agreement and Work order</h1>
+                    <p>
+                      Fill the Work Order and Agreement for a work, and generate its Schedule A from the estimate / BOQ.
+                    </p>
+                  </div>
+                  <div className="page-head-action">
+                    <button
+                      className="ghost"
+                      onClick={() => setWorkOrderInstanceKey((k) => k + 1)}
+                      title="Clear the uploaded documents and filled fields to start a new work"
+                    >
+                      <IconRefresh /> Clear
+                    </button>
+                    <div className="header-action-slot" ref={workOrderHeaderActionRef} />
+                  </div>
+                </div>
+                <WorkOrderAgreementTab
+                  key={workOrderInstanceKey}
+                  tables={tables}
+                  onChange={updateTable}
+                  zoneLogin={!!loginZone && !loginCircle}
+                  office={office}
+                  qcParties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
+                  monitoringWorks={officeMonitoringFormatWorks}
+                  headerActionRef={workOrderHeaderActionRef}
+                />
+              </section>
+            </KeepAlive>
+
+            <KeepAlive active={tab === 'issueNotices'} mounted={mountedTabs.has('issueNotices')}>
+              <section className="page">
+                {!issueNoticesWorkspaceOpen && (
+                  <div className="page-head">
+                    <div className="page-ic">
                       <IconWarn />
                     </div>
-                    <h3>Works from another circle</h3>
-                    <p className="confirm-warn">
-                      <strong>{circleMismatchConfirm.count}</strong> of {circleMismatchConfirm.total} works in this list
-                      don't belong to your office's Zone/Circle (
-                      {[circleMismatchConfirm.zone, circleMismatchConfirm.circle].filter(Boolean).join(' / ')}).
-                    </p>
-                    <p className="confirm-hint">
-                      Are you sure these works belong to your circle? (A circle reorganisation can leave some works still
-                      tagged with their old circle — if that's the case here, Continue is safe.)
-                    </p>
-                    <div className="confirm-actions">
-                      <button className="ghost" onClick={() => resolveCircleMismatch(false)}>
-                        Don't Import
-                      </button>
-                      <button className="primary" onClick={() => resolveCircleMismatch(true)}>
-                        Continue
-                      </button>
+                    <div className="page-head-text">
+                      <h1>Issue Notices</h1>
+                      <p>Choose the kind of notice to issue.</p>
                     </div>
                   </div>
-                </div>,
-                document.body
-              )}
-            {showWincodeViolations &&
-              createPortal(
-                <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setShowWincodeViolations(false))}>
-                  <div className="confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-                    <div className="confirm-ic">
-                      {worksListErrors.length > 0 ? <IconWarn /> : <IconCheck />}
-                    </div>
-                    <h3>
-                      {worksListErrors.length > 0
-                        ? `${worksListErrors.length} issue${worksListErrors.length === 1 ? '' : 's'} found in the Works List`
-                        : 'No issues found in the Works List'}
-                    </h3>
-                    {worksListErrors.length > 0 ? (
-                      <>
-                        <p className="confirm-hint">Data problems found while scanning the Works List — see each row below.</p>
-                        <ul className="works-list-violation-list">
-                          {worksListErrors.map((v) => (
-                            <li key={`${v.type}:${v.key}`}>
-                              {v.message}
-                              {v.rowIndices.length > 0 &&
-                                ` (row${v.rowIndices.length > 1 ? 's' : ''} ${v.rowIndices.map((i) => i + 1).join(', ')})`}
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    ) : (
-                      <p className="confirm-hint">Every row checked out — Wincode/Tender ID identity, ECV vs. estimate, EMD 1%/1.5% consistency.</p>
-                    )}
-                    <div className="confirm-actions">
-                      <button className="primary" onClick={() => setShowWincodeViolations(false)}>
-                        Close
-                      </button>
-                    </div>
-                  </div>
-                </div>,
-                document.body
-              )}
-            <CollisionPanel
-              collisions={collisions}
-              resolution={resolution}
-              onResolve={resolveCollision}
-            />
-          </section>
-        </KeepAlive>
-
-        <KeepAlive active={tab === 'estimateWorkspace'} mounted={mountedTabs.has('estimateWorkspace')}>
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic amber">
-                <IconDoc />
-              </div>
-              <div className="page-head-text">
-                <h1>BOQ, Schedule A, Deviation & Material Quantity</h1>
-                <p>Upload an estimate once to download its BOQ, Schedule A, Deviation Statement, and Material Quantity.</p>
-              </div>
-            </div>
-            <EstimateWorkspaceTab tables={tables} onChange={updateTable} office={office} />
-          </section>
-        </KeepAlive>
-
-        <KeepAlive active={tab === 'techSanction'} mounted={mountedTabs.has('techSanction')}>
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic">
-                <IconCheck />
-              </div>
-              <div className="page-head-text">
-                <h1>Give Technical Sanction (Experimental)</h1>
-                <p>Upload the Data Sheet and an Estimate to auto-fill rates from the Data Sheet.</p>
-              </div>
-            </div>
-            <div className="notice warn">
-              <IconWarn /> This is still an experimental feature and may not work as intended.
-            </div>
-            <GiveTechnicalSanctionTab />
-          </section>
-        </KeepAlive>
-
-        <KeepAlive active={tab === 'intimation'} mounted={mountedTabs.has('intimation')}>
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic rose">
-                <IconBell />
-              </div>
-              <div className="page-head-text">
-                <h1>Intimation</h1>
-                <p>
-                  {intimationSubTab === 'intimation'
-                    ? "Upload a PDF (or photos) plus an existing Intimation format to auto-fill it from what's in the document."
-                    : 'Upload the portal’s “View Bidders” PDF to issue the Bid Capacity Evaluation Sheet — one column per participating bidder.'}
-                </p>
-              </div>
-              <div className="page-head-action">
-                <button
-                  className="ghost"
-                  onClick={() =>
-                    intimationSubTab === 'intimation'
-                      ? setIntimationInstanceKey((k) => k + 1)
-                      : setEvaluationInstanceKey((k) => k + 1)
-                  }
-                  title={
-                    intimationSubTab === 'intimation'
-                      ? 'Clear the uploaded documents and filled fields to start a new work'
-                      : 'Clear the uploaded evaluation sheets to start over'
-                  }
-                >
-                  <IconRefresh /> Clear
-                </button>
-                {intimationSubTab === 'intimation' && <div className="header-action-slot" ref={intimationHeaderActionRef} />}
-              </div>
-            </div>
-            <div className="doc-tabs">
-              <button
-                className={`doc-tab ${intimationSubTab === 'intimation' ? 'active' : ''}`}
-                onClick={() => setIntimationSubTab('intimation')}
-              >
-                Issue Intimation
-              </button>
-              <button
-                className={`doc-tab ${intimationSubTab === 'evaluation' ? 'active' : ''}`}
-                onClick={() => setIntimationSubTab('evaluation')}
-              >
-                Evaluation Sheet
-              </button>
-            </div>
-            {intimationSubTab === 'intimation' ? (
-              <GiveIntimationTab
-                key={`${intimationInstanceKey}|${currentOfficeKey}`}
-                active={tab === 'intimation'}
-                tables={tables}
-                onChange={updateTable}
-                office={office}
-                headerActionRef={intimationHeaderActionRef}
-                onIntimationIssued={handleIntimationIssued}
-              />
-            ) : (
-              <EvaluationSheetTab
-                key={`${evaluationInstanceKey}|${currentOfficeKey}`}
-                office={office}
-                tables={tables}
-                savedConditions={tenderConditions}
-                onSaveConditions={(id, conditions, details) => setTenderConditions((prev) => ({ ...prev, [id]: { ...prev[id], conditions, ...details, savedAt: Date.now() } }))}
-                onDeleteConditions={(id) =>
-                  setTenderConditions((prev) => {
-                    const next = { ...prev }
-                    delete next[id]
-                    return next
-                  })
-                }
-                onEvaluationGenerated={(ids) => setTenderConditions((prev) => markEvaluationGenerated(prev, ids, Date.now()))}
-              />
-            )}
-          </section>
-        </KeepAlive>
-
-        <KeepAlive active={tab === 'workOrder'} mounted={mountedTabs.has('workOrder')}>
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic">
-                <IconClipboard />
-              </div>
-              <div className="page-head-text">
-                <h1>Agreement and Work order</h1>
-                <p>Fill the Work Order and Agreement for a work, and generate its Schedule A from the estimate / BOQ.</p>
-              </div>
-              <div className="page-head-action">
-                <button
-                  className="ghost"
-                  onClick={() => setWorkOrderInstanceKey((k) => k + 1)}
-                  title="Clear the uploaded documents and filled fields to start a new work"
-                >
-                  <IconRefresh /> Clear
-                </button>
-                <div className="header-action-slot" ref={workOrderHeaderActionRef} />
-              </div>
-            </div>
-            <WorkOrderAgreementTab
-              key={workOrderInstanceKey}
-              tables={tables}
-              onChange={updateTable}
-              zoneLogin={!!loginZone && !loginCircle}
-              office={office}
-              qcParties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
-              headerActionRef={workOrderHeaderActionRef}
-            />
-          </section>
-        </KeepAlive>
-
-        <KeepAlive active={tab === 'issueNotices'} mounted={mountedTabs.has('issueNotices')}>
-          <section className="page">
-            {!issueNoticesWorkspaceOpen && (
-              <div className="page-head">
-                <div className="page-ic">
-                  <IconWarn />
-                </div>
-                <div className="page-head-text">
-                  <h1>Issue Notices</h1>
-                  <p>Choose the kind of notice to issue.</p>
-                </div>
-              </div>
-            )}
-            <IssueNoticesTab
-              onWorkspaceChange={setIssueNoticesWorkspaceOpen}
-              office={office}
-              worksTable={tables[0] ?? null}
-              items={officePendingNotices}
-              onChange={setOfficePendingNotices}
-            />
-          </section>
-        </KeepAlive>
-
-        <KeepAlive active={tab === 'mbScrutiny'} mounted={mountedTabs.has('mbScrutiny')}>
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic">
-                <IconEye />
-              </div>
-              <div className="page-head-text">
-                <h1>MB Scrutiny list{officeLabel ? ` — ${officeLabel}` : ''}</h1>
-                <p>Log each Measurement Book received for scrutiny and track it through to completion. This register is specific to the selected office.</p>
-              </div>
-              <div className="page-head-action">
-                {officeMb.length > 0 && (
-                  <button className="ghost" onClick={exportMbScrutiny} title="Download as Excel">
-                    <IconDownload /> Download
-                  </button>
                 )}
-                <button
-                  className="ghost"
-                  onClick={() => void restoreMbScrutiny()}
-                  title="Restore from a previously downloaded Excel file"
-                >
-                  <IconUpload /> Restore
-                </button>
-              </div>
-            </div>
-            <MbScrutinyList items={officeMb} onChange={setOfficeMb} />
+                <IssueNoticesTab
+                  onWorkspaceChange={setIssueNoticesWorkspaceOpen}
+                  office={office}
+                  worksTable={tables[0] ?? null}
+                  items={officePendingNotices}
+                  onChange={setOfficePendingNotices}
+                />
+              </section>
+            </KeepAlive>
 
-            <div className="settings-template-section" style={{ marginTop: 32 }}>
-              <div className="settings-section-head">
-                <button
-                  type="button"
-                  className="settings-section-toggle"
-                  onClick={() => setMbMeasurementOpen((o) => !o)}
-                  aria-expanded={mbMeasurementOpen}
-                >
-                  <IconChevronRight className={`settings-section-chevron ${mbMeasurementOpen ? 'open' : ''}`} />
-                  <span className="settings-section-toggle-titles">
-                    <h3 className="settings-template-section-title">Measurement Sheet Extraction</h3>
-                    <p className="sub">
-                      Upload photos or a scanned PDF of an MB measurement sheet to read it into an editable,
-                      downloadable Excel grid.
+            <KeepAlive active={tab === 'letters'} mounted={mountedTabs.has('letters')}>
+              <section className="page">
+                {!lettersWorkspaceOpen && (
+                  <div className="page-head">
+                    <div className="page-ic">
+                      <IconDoc />
+                    </div>
+                    <div className="page-head-text">
+                      <h1>Forwarding Slips &amp; QC Intimations</h1>
+                      <p>Letters made in bulk from Settings, collected here.</p>
+                    </div>
+                  </div>
+                )}
+                <LettersTab letters={officeLetters} onChange={setOfficeLetters} onWorkspaceChange={setLettersWorkspaceOpen} />
+              </section>
+            </KeepAlive>
+
+            <KeepAlive active={tab === 'mbScrutiny'} mounted={mountedTabs.has('mbScrutiny')}>
+              <section className="page">
+                <div className="page-head">
+                  <div className="page-ic">
+                    <IconEye />
+                  </div>
+                  <div className="page-head-text">
+                    <h1>MB Scrutiny list{officeLabel ? ` — ${officeLabel}` : ''}</h1>
+                    <p>
+                      Log each Measurement Book received for scrutiny and track it through to completion. This register
+                      is specific to the selected office.
                     </p>
-                  </span>
-                </button>
-              </div>
-              <div style={{ display: mbMeasurementOpen ? undefined : 'none' }}>
-                <MbMeasurementUploadTab />
-              </div>
-            </div>
-          </section>
-        </KeepAlive>
+                  </div>
+                  <div className="page-head-action">
+                    {officeMb.length > 0 && (
+                      <button className="ghost" onClick={exportMbScrutiny} title="Download as Excel">
+                        <IconDownload /> Download
+                      </button>
+                    )}
+                    <button
+                      className="ghost"
+                      onClick={() => void restoreMbScrutiny()}
+                      title="Restore from a previously downloaded Excel file"
+                    >
+                      <IconUpload /> Restore
+                    </button>
+                  </div>
+                </div>
+                <MbScrutinyList items={officeMb} onChange={setOfficeMb} />
 
-        <KeepAlive active={tab === 'search'} mounted={mountedTabs.has('search')}>
-          <section className="page wide">
-            <div className="page-head">
-              <div className="page-ic green">
-                <IconSearch />
-              </div>
-              <div className="page-head-text">
-                <h1>Search Tender</h1>
-                <p>Search live tenders from the Telangana e-procurement portal by ID, NIT no, or work name.</p>
-              </div>
-            </div>
-            <SearchTender onAddReminder={addTenderReminderFromRow} />
-            <TenderReminders
-              reminders={officeTenderReminders}
-              onDelete={removeTenderReminder}
-              onRefresh={refreshTenderReminder}
-              refreshingId={refreshingReminderId}
-            />
-          </section>
-        </KeepAlive>
+                <div className="settings-template-section" style={{ marginTop: 32 }}>
+                  <div className="settings-section-head">
+                    <button
+                      type="button"
+                      className="settings-section-toggle"
+                      onClick={() => setMbMeasurementOpen((o) => !o)}
+                      aria-expanded={mbMeasurementOpen}
+                    >
+                      <IconChevronRight className={`settings-section-chevron ${mbMeasurementOpen ? 'open' : ''}`} />
+                      <span className="settings-section-toggle-titles">
+                        <h3 className="settings-template-section-title">Measurement Sheet Extraction</h3>
+                        <p className="sub">
+                          Upload photos or a scanned PDF of an MB measurement sheet to read it into an editable,
+                          downloadable Excel grid.
+                        </p>
+                      </span>
+                    </button>
+                  </div>
+                  <div style={{ display: mbMeasurementOpen ? undefined : 'none' }}>
+                    <MbMeasurementUploadTab />
+                  </div>
+                </div>
+              </section>
+            </KeepAlive>
 
-        <KeepAlive active={tab === 'todo'} mounted={mountedTabs.has('todo')}>
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic">
-                <IconChecklist />
-              </div>
-              <div className="page-head-text">
-                <h1>To Do List{officeLabel ? ` — ${officeLabel}` : ''}</h1>
-                <p>
-                  Track tasks with a target completion date. Ticking one off keeps it visible for
-                  the rest of the day, then it rolls off the list. This list is specific to the
-                  selected office.
-                </p>
-              </div>
-            </div>
-            <TodoList todos={officeTodos} onChange={setOfficeTodos} />
-          </section>
-        </KeepAlive>
+            <KeepAlive active={tab === 'search'} mounted={mountedTabs.has('search')}>
+              <section className="page wide">
+                <div className="page-head">
+                  <div className="page-ic green">
+                    <IconSearch />
+                  </div>
+                  <div className="page-head-text">
+                    <h1>Search Tender</h1>
+                    <p>Search live tenders from the Telangana e-procurement portal by ID, NIT no, or work name.</p>
+                  </div>
+                </div>
+                <SearchTender onAddReminder={addTenderReminderFromRow} />
+                <TenderReminders
+                  reminders={officeTenderReminders}
+                  onDelete={removeTenderReminder}
+                  onRefresh={refreshTenderReminder}
+                  refreshingId={refreshingReminderId}
+                />
+              </section>
+            </KeepAlive>
 
-        <KeepAlive active={tab === 'tools'} mounted={mountedTabs.has('tools')}>
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic teal">
-                <IconTools />
-              </div>
-              <div className="page-head-text">
-                <h1>Tools</h1>
-              </div>
-            </div>
-            <ToolsTab tables={tables} onChange={updateTable} office={office} documents={bakedDocuments} />
-          </section>
-        </KeepAlive>
+            <KeepAlive active={tab === 'todo'} mounted={mountedTabs.has('todo')}>
+              <section className="page">
+                <div className="page-head">
+                  <div className="page-ic">
+                    <IconChecklist />
+                  </div>
+                  <div className="page-head-text">
+                    <h1>To Do List{officeLabel ? ` — ${officeLabel}` : ''}</h1>
+                    <p>
+                      Track tasks with a target completion date. Ticking one off keeps it visible for the rest of the
+                      day, then it rolls off the list. This list is specific to the selected office.
+                    </p>
+                  </div>
+                </div>
+                <TodoList todos={officeTodos} onChange={setOfficeTodos} />
+              </section>
+            </KeepAlive>
 
-        <KeepAlive active={tab === 'cementSteel'} mounted={mountedTabs.has('cementSteel')}>
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic">
-                <IconDoc />
-              </div>
-              <div className="page-head-text">
-                <h1>Cement & Steel Rates</h1>
-                <p>Browse and download rate circulars fetched live from the Public Health department's website.</p>
-              </div>
-            </div>
-            <CementSteelRatesPage onLoaded={recordCementSteelRatesSeen} />
-          </section>
-        </KeepAlive>
+            <KeepAlive active={tab === 'tools'} mounted={mountedTabs.has('tools')}>
+              <section className="page">
+                <div className="page-head">
+                  <div className="page-ic teal">
+                    <IconTools />
+                  </div>
+                  <div className="page-head-text">
+                    <h1>Tools</h1>
+                  </div>
+                </div>
+                <ToolsTab tables={tables} onChange={updateTable} office={office} documents={bakedDocuments} />
+              </section>
+            </KeepAlive>
 
-        <KeepAlive active={tab === 'settings'} mounted={mountedTabs.has('settings')}>
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic">
-                <IconSettings />
-              </div>
-              <div className="page-head-text">
-                <h1>Settings</h1>
-              </div>
-            </div>
-            <SettingsTab
-              office={office}
-              active={tab === 'settings'}
-              theme={theme}
-              onThemeChange={changeTheme}
-              getState={() => buildStateRef.current?.() ?? null}
-              onRestored={applyLoadedState}
-              monitoringWorks={officeMonitoringFormatWorks}
-              calendar={calendar}
-              noticeItems={officePendingNotices}
-              onNoticesChange={setOfficePendingNotices}
-            />
-          </section>
-        </KeepAlive>
+            <KeepAlive active={tab === 'cementSteel'} mounted={mountedTabs.has('cementSteel')}>
+              <section className="page">
+                <div className="page-head">
+                  <div className="page-ic">
+                    <IconDoc />
+                  </div>
+                  <div className="page-head-text">
+                    <h1>Cement & Steel Rates</h1>
+                    <p>Browse and download rate circulars fetched live from the Public Health department's website.</p>
+                  </div>
+                </div>
+                <CementSteelRatesPage onLoaded={recordCementSteelRatesSeen} />
+              </section>
+            </KeepAlive>
 
-        <KeepAlive active={tab === 'manual'} mounted={mountedTabs.has('manual')}>
-          <section className="page">
-            <div className="page-head">
-              <div className="page-ic">
-                <IconBook />
-              </div>
-              <div className="page-head-text">
-                <h1>User Guide</h1>
-                <p>What the app does and how to use each feature, step by step.</p>
-              </div>
-            </div>
-            <ManualPage />
-          </section>
-        </KeepAlive>
-        </Fragment>
-      </main>
+            <KeepAlive active={tab === 'settings'} mounted={mountedTabs.has('settings')}>
+              <section className="page">
+                <div className="page-head">
+                  <div className="page-ic">
+                    <IconSettings />
+                  </div>
+                  <div className="page-head-text">
+                    <h1>Settings</h1>
+                  </div>
+                </div>
+                <SettingsTab
+                  office={office}
+                  active={tab === 'settings'}
+                  theme={theme}
+                  onThemeChange={changeTheme}
+                  getState={() => buildStateRef.current?.() ?? null}
+                  onRestored={applyLoadedState}
+                  monitoringWorks={officeMonitoringFormatWorks}
+                  calendar={calendar}
+                  noticeItems={officePendingNotices}
+                  onNoticesChange={setOfficePendingNotices}
+                  onLettersAdd={addOfficeLetters}
+                  worksTable={tables[0] ?? null}
+                  qcParties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
+                />
+              </section>
+            </KeepAlive>
+
+            <KeepAlive active={tab === 'manual'} mounted={mountedTabs.has('manual')}>
+              <section className="page">
+                <div className="page-head">
+                  <div className="page-ic">
+                    <IconBook />
+                  </div>
+                  <div className="page-head-text">
+                    <h1>User Guide</h1>
+                    <p>What the app does and how to use each feature, step by step.</p>
+                  </div>
+                </div>
+                <ManualPage />
+              </section>
+            </KeepAlive>
+          </Fragment>
+        </main>
       </div>
       {whatsNew.length > 0 && (
         <WhatsNew

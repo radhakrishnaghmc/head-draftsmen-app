@@ -2,16 +2,33 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import { fetchTenders } from '../tenderCache'
-import { pdfToTextLinesOrOcr } from '../pdfToText'
+import { pdfToPositionedItems, pdfToTextLinesOrOcr } from '../pdfToText'
 import { readEvaluationSheetPage } from '@core/tenderAgents/evaluationSheetAgent'
-import { BID_CAPACITY_THRESHOLD, defaultConditions, isBidCapacityCondition, type EvaluationSheetInput } from '@core/evaluationSheet'
+import { parseConditionsByColumn, parseTenderConsolidationView } from '@core/tenderConsolidationView'
+import {
+  BID_CAPACITY_THRESHOLD,
+  defaultConditions,
+  isBidCapacityCondition,
+  type EvaluationSheetInput
+} from '@core/evaluationSheet'
 import { officeKey, type Office } from '../office'
 import { officeKeyFromNit } from '../tenderOffice'
 import { tenderConditionsInOffice } from '@core/tenderConditions'
 import type { ExcelTable, TenderConditionsEntry, ShareResult } from '@core/types'
 import { matchWorksRow } from '../estimateDownloads'
 import { lakhsToRupees } from '@core/worksAmounts'
-import { IconFolder, IconTable, IconPlus, IconTrash, IconChecklist, IconWarn, IconDownload, IconSearch, IconEye, IconUser } from './Icons'
+import {
+  IconFolder,
+  IconTable,
+  IconPlus,
+  IconTrash,
+  IconChecklist,
+  IconWarn,
+  IconDownload,
+  IconSearch,
+  IconEye,
+  IconUser
+} from './Icons'
 
 interface Props {
   office: Office
@@ -19,7 +36,11 @@ interface Props {
   tables: ExcelTable[]
   /** Tender conditions saved in the app by tender ID (the portal drops a tender once bidding closes). */
   savedConditions: Record<string, TenderConditionsEntry>
-  onSaveConditions: (tenderId: string, conditions: string[], details?: { nitNo?: string; workName?: string; ecv?: number; officeKey?: string }) => void
+  onSaveConditions: (
+    tenderId: string,
+    conditions: string[],
+    details?: { nitNo?: string; workName?: string; ecv?: number; officeKey?: string }
+  ) => void
   /** Called once sheets are saved, so those tenders' conditions can be dropped a week later. */
   onEvaluationGenerated: (tenderIds: string[]) => void
   onDeleteConditions: (tenderId: string) => void
@@ -42,6 +63,8 @@ interface SheetEntry {
   conditions: string[]
   /** Why the portal conditions could not be used (shown as a hint). */
   conditionsNote: string | null
+  /** Period of completion in months, from the Tender Consolidation View (fills N); null when not supplied. */
+  completionMonths: number | null
   error: string | null
   saved: string | null
   /** The ECV the small-work question was last answered for, so it isn't asked again for the same value. */
@@ -96,13 +119,25 @@ const subscribeBatch = (l: () => void) => {
 // Last user list per corporation, so the Share dialog opens with it at once and refreshes behind it.
 const shareUsersCache = new Map<string, string[]>()
 
-export default function EvaluationSheetTab({ office, tables, savedConditions, onSaveConditions, onEvaluationGenerated, onDeleteConditions }: Props) {
+export default function EvaluationSheetTab({
+  office,
+  tables,
+  savedConditions,
+  onSaveConditions,
+  onEvaluationGenerated,
+  onDeleteConditions
+}: Props) {
   const [entries, setEntries] = useState<SheetEntry[]>([])
   const [busy, setBusy] = useState<null | 'reading' | 'downloadAll'>(null)
   // Upload progress shown inside the upload button: file `index` of `total`, in `phase`.
-  const [progress, setProgress] = useState<{ index: number; total: number; phase: 'reading' | 'estimate' | 'conditions' } | null>(null)
+  const [progress, setProgress] = useState<{
+    index: number
+    total: number
+    phase: 'reading' | 'estimate' | 'conditions'
+  } | null>(null)
   const [pickError, setPickError] = useState<string | null>(null)
   const [savedAllDir, setSavedAllDir] = useState<string | null>(null)
+  const tcvInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Manual tender ID: fetch that tender's conditions from the portal and save them by ID.
   const [manualBusy, setManualBusy] = useState(false)
@@ -117,7 +152,8 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
   // Saved tenders are per office: an SE (zone) office's tenders stay out of an EE (circle) office and vice versa.
   const currentOfficeKey = officeKey(office) ?? ''
   const zoneLevel = !(office.circle ?? '').trim()
-  const inOffice = (id: string) => !!savedConditions[id] && tenderConditionsInOffice(savedConditions[id], currentOfficeKey, zoneLevel)
+  const inOffice = (id: string) =>
+    !!savedConditions[id] && tenderConditionsInOffice(savedConditions[id], currentOfficeKey, zoneLevel)
   const mineIds = Object.keys(savedConditions).filter(inOffice)
 
   // Keyword search of live portal tenders, so the ID needn't be typed.
@@ -142,7 +178,10 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
   // Warm the list as soon as the tab is open, so the dialog doesn't wait on the login sheet.
   useEffect(() => {
     if (corporation && !shareUsersCache.has(corporation)) {
-      api.listShareUsers(corporation).then((list) => shareUsersCache.set(corporation, list)).catch(() => {})
+      api
+        .listShareUsers(corporation)
+        .then((list) => shareUsersCache.set(corporation, list))
+        .catch(() => {})
     }
   }, [corporation])
   function openShare(ids: string[]) {
@@ -207,7 +246,11 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
   useEffect(() => {
     if (!dlId) return
     const saved = savedConditions[dlId]
-    setDlDetails({ nit: saved?.nitNo ?? '', work: saved?.workName ?? '', ecv: saved?.ecv != null ? String(saved.ecv) : '' })
+    setDlDetails({
+      nit: saved?.nitNo ?? '',
+      work: saved?.workName ?? '',
+      ecv: saved?.ecv != null ? String(saved.ecv) : ''
+    })
     if (saved?.nitNo && saved?.workName && saved?.ecv != null) return
     let stale = false
     void fetchTenders({ start: 0, length: 10, type: 'current', search: dlId })
@@ -248,12 +291,18 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
       bidders: agencies,
       conditions: defaultConditions(saved.conditions, `Name of the work: ${workName}`, null),
       conditionsNote: null,
+      completionMonths: null,
       error: null,
       saved: null,
       askedEcv: null
     }
     // Remember what was typed so the next download is already filled in.
-    onSaveConditions(id, saved.conditions, { nitNo: nitNo || undefined, workName: workName || undefined, ecv: ecvNum > 0 ? ecvNum : undefined, officeKey: currentOfficeKey })
+    onSaveConditions(id, saved.conditions, {
+      nitNo: nitNo || undefined,
+      workName: workName || undefined,
+      ecv: ecvNum > 0 ? ecvNum : undefined,
+      officeKey: currentOfficeKey
+    })
     setDlId(null)
     setDlAgencies(null)
     const e = await confirmSmallWork(entry)
@@ -338,7 +387,11 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
   // "Save all" for the tenders listed by the current search: one portal fetch at a time, skipping those already saved here.
   const batch = useSyncExternalStore(subscribeBatch, () => batchByOffice.get(currentOfficeKey) ?? null)
   async function saveAllListed() {
-    const todo = (tResults ?? []).filter((r) => /^\d+$/.test((r[1] ?? '').trim()) && !(inOffice((r[1] ?? '').trim()) && savedConditions[(r[1] ?? '').trim()]?.conditions.length))
+    const todo = (tResults ?? []).filter(
+      (r) =>
+        /^\d+$/.test((r[1] ?? '').trim()) &&
+        !(inOffice((r[1] ?? '').trim()) && savedConditions[(r[1] ?? '').trim()]?.conditions.length)
+    )
     if (todo.length === 0 || batch) return
     const runOffice = currentOfficeKey
     cancelBatchByOffice.set(runOffice, false)
@@ -397,7 +450,9 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
       let r = row
       if (!r) {
         try {
-          r = (await fetchTenders({ start: 0, length: 10, type: 'current', search: id })).data.find((x) => (x[1] ?? '').trim() === id)
+          r = (await fetchTenders({ start: 0, length: 10, type: 'current', search: id })).data.find(
+            (x) => (x[1] ?? '').trim() === id
+          )
         } catch {
           r = undefined
         }
@@ -409,7 +464,10 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
         ecv: Number.isFinite(ecvNum) && ecvNum > 0 ? ecvNum : undefined,
         officeKey: currentOfficeKey
       })
-      setManualMsg({ ok: true, text: `Saved ${conditions.length} tender conditions for tender ${id}. Its evaluation sheet will use them.` })
+      setManualMsg({
+        ok: true,
+        text: `Saved ${conditions.length} tender conditions for tender ${id}. Its evaluation sheet will use them.`
+      })
       setRowResult({ id, ok: true, text: `Saved ${conditions.length} conditions.` })
       ok = true
       // Sheets already loaded for this tender switch to the saved conditions.
@@ -425,9 +483,15 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
         )
       )
     } catch (err) {
-      const why = err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(err)
+      const why =
+        err instanceof Error
+          ? err.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '')
+          : String(err)
       setRowResult({ id, ok: false, text: `Could not save (${why}). Try again.` })
-      setManualMsg({ ok: false, text: `Could not save the conditions (${why}). Standard conditions are used unless some were saved earlier.` })
+      setManualMsg({
+        ok: false,
+        text: `Could not save the conditions (${why}). Standard conditions are used unless some were saved earlier.`
+      })
     } finally {
       setManualBusy(false)
       setSavingId(null)
@@ -435,7 +499,11 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
     return ok
   }
   // Pop-up asking whether a work missing from the Works List has an estimate of 5 lakhs or below.
-  const [estimateAsk, setEstimateAsk] = useState<{ work: string; why: string; answer: (below: boolean) => void } | null>(null)
+  const [estimateAsk, setEstimateAsk] = useState<{
+    work: string
+    why: string
+    answer: (below: boolean) => void
+  } | null>(null)
 
   function askEstimateBelowFiveLakhs(work: string, why: string): Promise<boolean> {
     return new Promise((resolve) =>
@@ -467,7 +535,9 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
         setProgress({ index: fileIndex, total: files.length, phase: 'reading' })
         const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
         try {
-          const lines = isPdf ? await pdfToTextLinesOrOcr(file) : await api.ocrPhotosToLines([await readAsDataUrl(file)])
+          const lines = isPdf
+            ? await pdfToTextLinesOrOcr(file)
+            : await api.ocrPhotosToLines([await readAsDataUrl(file)])
           // Evaluation Sheet agent: header fields + participating bidders from the page.
           const { header: ev, bidders: list } = readEvaluationSheetPage(lines)
           // Estimate amount from the Works List, matched on the work's name — it
@@ -494,7 +564,10 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
           // 3AN−B applies. A smaller ECV leaves the question open whatever the Works
           // List says, so ask: yes drops the bid-capacity conditions and rows.
           if (ev.nameOfWork && ev.ecvRupees != null && ev.ecvRupees < BID_CAPACITY_THRESHOLD) {
-            const below = await askEstimateBelowFiveLakhs(ev.nameOfWork, `The ECV is ₹${ev.ecvRupees.toLocaleString('en-IN')}, below ₹5 lakhs`)
+            const below = await askEstimateBelowFiveLakhs(
+              ev.nameOfWork,
+              `The ECV is ₹${ev.ecvRupees.toLocaleString('en-IN')}, below ₹5 lakhs`
+            )
             if (below) {
               estimate = String(BID_CAPACITY_THRESHOLD)
               estimateNote = 'Estimate confirmed below ₹5 lakhs, so the 3AN−B conditions and rows are left out.'
@@ -509,7 +582,10 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
           if (ev.tenderId) {
             setProgress({ index: fileIndex, total: files.length, phase: 'conditions' })
             // Conditions saved earlier win: a closed tender is gone from the portal.
-            fetched = inOffice(ev.tenderId) && savedConditions[ev.tenderId]?.conditions.length ? savedConditions[ev.tenderId].conditions : null
+            fetched =
+              inOffice(ev.tenderId) && savedConditions[ev.tenderId]?.conditions.length
+                ? savedConditions[ev.tenderId].conditions
+                : null
             if (fetched) {
               conditionsNote = `Using the tender conditions saved earlier for tender ${ev.tenderId}.`
             } else {
@@ -517,7 +593,10 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
                 fetched = await api.fetchTenderConditions(ev.tenderId)
                 onSaveConditions(ev.tenderId, fetched, { officeKey: currentOfficeKey })
               } catch (err) {
-                const why = err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(err)
+                const why =
+                  err instanceof Error
+                    ? err.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '')
+                    : String(err)
                 conditionsNote = `Could not fetch the tender conditions from the portal (${why}); using the standard conditions. Enter this tender ID above while the tender is still open to save its conditions.`
               }
             }
@@ -535,8 +614,13 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
             bidders: list.map((b) => b.name),
             estimate,
             estimateNote,
-            conditions: defaultConditions(fetched, `Name of the work: ${ev.nameOfWork ?? ''}`, estimate ? Number(estimate) || null : null),
+            conditions: defaultConditions(
+              fetched,
+              `Name of the work: ${ev.nameOfWork ?? ''}`,
+              estimate ? Number(estimate) || null : null
+            ),
             conditionsNote,
+            completionMonths: null,
             error:
               list.length === 0
                 ? `No participating bidders found in ${file.name}. Upload the portal's "View Bidders" (Supplier List) page, as a PDF or a clear photo.`
@@ -561,6 +645,7 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
               estimateNote: null,
               conditions: [],
               conditionsNote: null,
+              completionMonths: null,
               error: e instanceof Error ? e.message : String(e),
               saved: null,
               askedEcv: null
@@ -574,6 +659,68 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
     }
   }
 
+  /**
+   * Tender Consolidation View PDFs: each is matched to an uploaded tender by its
+   * Tender ID; its "Required Tender Documents Details" become that sheet's
+   * conditions (and are saved by tender ID) and its period of completion fills N.
+   */
+  async function handleConsolidation(files: File[]) {
+    setBusy('reading')
+    setPickError(null)
+    const notes: string[] = []
+    try {
+      for (const file of files) {
+        try {
+          const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
+          const lines = isPdf
+            ? await pdfToTextLinesOrOcr(file)
+            : await api.ocrPhotosToLines([await readAsDataUrl(file)])
+          const tc = parseTenderConsolidationView(lines)
+          // The table's columns are told apart by x so wrapped conditions don't run into the S.No / Stage cells.
+          if (isPdf) {
+            const byColumn = parseConditionsByColumn(await pdfToPositionedItems(file))
+            if (byColumn.length > 0) tc.conditions = byColumn
+          }
+          if (!tc.tenderId) {
+            notes.push(`${file.name}: no Tender ID found.`)
+            continue
+          }
+          if (tc.conditions.length === 0) {
+            notes.push(`${file.name}: no "Required Tender Documents Details" found.`)
+            continue
+          }
+          const target = entries.find((x) => x.tenderId === tc.tenderId)
+          if (!target) {
+            notes.push(`${file.name}: tender ${tc.tenderId} is not among the uploaded View Bidders sheets.`)
+            continue
+          }
+          setEntries((prev) =>
+            prev.map((x) =>
+              x.id === target.id
+                ? {
+                    ...x,
+                    conditions: defaultConditions(
+                      tc.conditions,
+                      x.workLine,
+                      x.estimate ? Number(x.estimate) || null : null
+                    ),
+                    conditionsNote: `Conditions taken from the Tender Consolidation View of tender ${tc.tenderId}.`,
+                    completionMonths: tc.completionMonths ?? x.completionMonths
+                  }
+                : x
+            )
+          )
+          onSaveConditions(tc.tenderId, tc.conditions, { officeKey: currentOfficeKey })
+        } catch (e) {
+          notes.push(`${file.name}: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    } finally {
+      setBusy(null)
+      if (notes.length > 0) setPickError(notes.join(' '))
+    }
+  }
+
   function removeEntry(id: string) {
     setEntries((prev) => prev.filter((e) => e.id !== id))
   }
@@ -583,13 +730,17 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
   }
 
   function setCondition(id: string, i: number, value: string) {
-    setEntries((prev) => prev.map((x) => (x.id === id ? { ...x, conditions: x.conditions.map((c, j) => (j === i ? value : c)) } : x)))
+    setEntries((prev) =>
+      prev.map((x) => (x.id === id ? { ...x, conditions: x.conditions.map((c, j) => (j === i ? value : c)) } : x))
+    )
   }
   function addCondition(id: string) {
     setEntries((prev) => prev.map((x) => (x.id === id ? { ...x, conditions: [...x.conditions, ''] } : x)))
   }
   function removeCondition(id: string, i: number) {
-    setEntries((prev) => prev.map((x) => (x.id === id ? { ...x, conditions: x.conditions.filter((_, j) => j !== i) } : x)))
+    setEntries((prev) =>
+      prev.map((x) => (x.id === id ? { ...x, conditions: x.conditions.filter((_, j) => j !== i) } : x))
+    )
   }
 
   function setBidder(id: string, i: number, value: string) {
@@ -601,15 +752,23 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, bidders: [...e.bidders, ''] } : e)))
   }
   function removeBidder(id: string, i: number) {
-    setEntries((prev) =>
-      prev.map((e) => (e.id === id ? { ...e, bidders: e.bidders.filter((_, j) => j !== i) } : e))
-    )
+    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, bidders: e.bidders.filter((_, j) => j !== i) } : e)))
   }
 
   function toInput(e: SheetEntry): EvaluationSheetInput | null {
     const bidders = e.bidders.map((b) => b.trim()).filter(Boolean)
     if (bidders.length === 0) return null
-    return { nitLine: e.nitLine, workLine: e.workLine, bidders, ecv: Number(e.ecv.replace(/,/g, '')) || null, estimate: Number(e.estimate.replace(/,/g, '')) || null, signature: e.signature, conditions: e.conditions, conditionsFinal: true }
+    return {
+      nitLine: e.nitLine,
+      workLine: e.workLine,
+      bidders,
+      ecv: Number(e.ecv.replace(/,/g, '')) || null,
+      estimate: Number(e.estimate.replace(/,/g, '')) || null,
+      signature: e.signature,
+      conditions: e.conditions,
+      completionMonths: e.completionMonths,
+      conditionsFinal: true
+    }
   }
 
   /**
@@ -620,7 +779,10 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
   async function confirmSmallWork(e: SheetEntry): Promise<SheetEntry> {
     const ecv = Number(e.ecv.replace(/,/g, '')) || 0
     if (ecv <= 0 || ecv >= BID_CAPACITY_THRESHOLD || e.askedEcv === e.ecv) return e
-    const below = await askEstimateBelowFiveLakhs(e.workLine.replace(/^Name of the work:\s*/i, ''), `The ECV is ₹${ecv.toLocaleString('en-IN')}, below ₹5 lakhs`)
+    const below = await askEstimateBelowFiveLakhs(
+      e.workLine.replace(/^Name of the work:\s*/i, ''),
+      `The ECV is ₹${ecv.toLocaleString('en-IN')}, below ₹5 lakhs`
+    )
     const patch: Partial<SheetEntry> = below
       ? {
           askedEcv: e.ecv,
@@ -655,7 +817,8 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
 
   async function downloadAll() {
     const confirmed: SheetEntry[] = []
-    for (const entry of entries) confirmed.push(entry.bidders.some((b) => b.trim()) ? await confirmSmallWork(entry) : entry)
+    for (const entry of entries)
+      confirmed.push(entry.bidders.some((b) => b.trim()) ? await confirmSmallWork(entry) : entry)
     const ready = confirmed.map((e) => ({ e, input: toInput(e) })).filter((x) => x.input != null)
     if (ready.length === 0) {
       setPickError('Add at least one bidder before downloading.')
@@ -681,7 +844,11 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
 
   // Each file counts as three steps: read the PDF, look up its estimate, fetch its conditions.
   const pct = progress
-    ? Math.round(((progress.index + (progress.phase === 'conditions' ? 0.66 : progress.phase === 'estimate' ? 0.33 : 0)) / progress.total) * 100)
+    ? Math.round(
+        ((progress.index + (progress.phase === 'conditions' ? 0.66 : progress.phase === 'estimate' ? 0.33 : 0)) /
+          progress.total) *
+          100
+      )
     : 0
   const readyCount = entries.filter((e) => e.bidders.some((b) => b.trim())).length
 
@@ -689,7 +856,13 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
     <div className="card">
       {dlId &&
         createPortal(
-          <div className="wo-modal-overlay" onClick={() => { setDlId(null); setDlAgencies(null) }}>
+          <div
+            className="wo-modal-overlay"
+            onClick={() => {
+              setDlId(null)
+              setDlAgencies(null)
+            }}
+          >
             <div
               className="wo-modal tender-conditions-modal"
               role="dialog"
@@ -704,22 +877,40 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
                   <div className="dl-fields">
                     <label>
                       NIT number
-                      <input type="text" value={dlDetails.nit} onChange={(ev) => setDlDetails((d) => ({ ...d, nit: ev.target.value }))} />
+                      <input
+                        type="text"
+                        value={dlDetails.nit}
+                        onChange={(ev) => setDlDetails((d) => ({ ...d, nit: ev.target.value }))}
+                      />
                     </label>
                     <label>
                       ECV (₹)
-                      <input type="text" inputMode="decimal" value={dlDetails.ecv} onChange={(ev) => setDlDetails((d) => ({ ...d, ecv: ev.target.value }))} />
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={dlDetails.ecv}
+                        onChange={(ev) => setDlDetails((d) => ({ ...d, ecv: ev.target.value }))}
+                      />
                     </label>
                     <label className="dl-fields__wide">
                       Name of the work
-                      <input type="text" value={dlDetails.work} onChange={(ev) => setDlDetails((d) => ({ ...d, work: ev.target.value }))} />
+                      <input
+                        type="text"
+                        value={dlDetails.work}
+                        onChange={(ev) => setDlDetails((d) => ({ ...d, work: ev.target.value }))}
+                      />
                     </label>
                   </div>
                   <p className="tender-conditions__hint">
-                    These fill the sheet along with the tender ID and conditions. Download it without agencies (columns named Agency 1, Agency 2), or add the agency names first?
+                    These fill the sheet along with the tender ID and conditions. Download it without agencies (columns
+                    named Agency 1, Agency 2), or add the agency names first?
                   </p>
                   <div className="boq-actions">
-                    <button className="primary" autoFocus onClick={() => void downloadSavedSheet(dlId, ['Agency 1', 'Agency 2'])}>
+                    <button
+                      className="primary"
+                      autoFocus
+                      onClick={() => void downloadSavedSheet(dlId, ['Agency 1', 'Agency 2'])}
+                    >
                       Yes, download without agencies
                     </button>
                     <button className="ghost" onClick={() => setDlAgencies([''])}>
@@ -738,9 +929,15 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
                           autoFocus={i === dlAgencies.length - 1}
                           placeholder={`Agency ${i + 1} name`}
                           value={a}
-                          onChange={(ev) => setDlAgencies((prev) => (prev ?? []).map((x, j) => (j === i ? ev.target.value : x)))}
+                          onChange={(ev) =>
+                            setDlAgencies((prev) => (prev ?? []).map((x, j) => (j === i ? ev.target.value : x)))
+                          }
                         />
-                        <button className="danger-ghost" title="Remove" onClick={() => setDlAgencies((prev) => (prev ?? []).filter((_, j) => j !== i))}>
+                        <button
+                          className="danger-ghost"
+                          title="Remove"
+                          onClick={() => setDlAgencies((prev) => (prev ?? []).filter((_, j) => j !== i))}
+                        >
                           <IconTrash />
                         </button>
                       </li>
@@ -750,7 +947,11 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
                     <button className="ghost" onClick={() => setDlAgencies((prev) => [...(prev ?? []), ''])}>
                       <IconPlus /> Add another agency
                     </button>
-                    <button className="primary" disabled={!dlAgencies.some((a) => a.trim())} onClick={() => void downloadSavedSheet(dlId, dlAgencies.map((a) => a.trim()).filter(Boolean))}>
+                    <button
+                      className="primary"
+                      disabled={!dlAgencies.some((a) => a.trim())}
+                      onClick={() => void downloadSavedSheet(dlId, dlAgencies.map((a) => a.trim()).filter(Boolean))}
+                    >
                       <IconDownload /> Download sheet
                     </button>
                   </div>
@@ -773,8 +974,11 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
             >
               <h3>Share saved tenders</h3>
               <p className="tender-id-card__hint">
-                Copies {shareIds.length === 1 ? `tender ${shareIds[0]}` : `${shareIds.length} saved tenders`} to the users you pick
-                {corporation ? ` (${corporation} users)` : ''}. Each tender goes to the office its NIT number says (EE: the circle named in the work name, SE: the zone office), so it shows in that office’s Evaluation Sheet for them. A tender they already have is left as it is.
+                Copies {shareIds.length === 1 ? `tender ${shareIds[0]}` : `${shareIds.length} saved tenders`} to the
+                users you pick
+                {corporation ? ` (${corporation} users)` : ''}. Each tender goes to the office its NIT number says (EE:
+                the circle named in the work name, SE: the zone office), so it shows in that office’s Evaluation Sheet
+                for them. A tender they already have is left as it is.
               </p>
               {shareDone ? (
                 <ul className="todo-list">
@@ -793,7 +997,9 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
                   {shareUnresolved > 0 && (
                     <li className="todo-item">
                       <span className="todo-dates">
-                        {shareUnresolved} tender{shareUnresolved === 1 ? ' has' : 's have'} no EE/SE office in the NIT number (or no circle for an EE work), so {shareUnresolved === 1 ? 'it was' : 'they were'} shared under your office.
+                        {shareUnresolved} tender{shareUnresolved === 1 ? ' has' : 's have'} no EE/SE office in the NIT
+                        number (or no circle for an EE work), so {shareUnresolved === 1 ? 'it was' : 'they were'} shared
+                        under your office.
                       </span>
                     </li>
                   )}
@@ -805,7 +1011,9 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
               ) : shareUsers === null ? (
                 <p className="tender-id-card__hint">Loading users…</p>
               ) : shareUsers.length === 0 ? (
-                <p className="tender-id-card__hint">No other users are listed under {corporation} in the login sheet.</p>
+                <p className="tender-id-card__hint">
+                  No other users are listed under {corporation} in the login sheet.
+                </p>
               ) : (
                 <>
                   <label className="share-user">
@@ -841,7 +1049,11 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
               )}
               <div className="boq-actions">
                 {!shareDone && shareUsers && shareUsers.length > 0 && (
-                  <button className="primary" disabled={shareBusy || sharePicked.size === 0} onClick={() => void runShare()}>
+                  <button
+                    className="primary"
+                    disabled={shareBusy || sharePicked.size === 0}
+                    onClick={() => void runShare()}
+                  >
                     {shareBusy ? 'Sharing…' : `Share with ${sharePicked.size} user${sharePicked.size === 1 ? '' : 's'}`}
                   </button>
                 )}
@@ -910,7 +1122,9 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
             disabled={busy !== null}
             style={
               progress
-                ? { background: `linear-gradient(to right, rgba(255,255,255,0.28) ${pct}%, transparent ${pct}%), var(--primary, #2563eb)` }
+                ? {
+                    background: `linear-gradient(to right, rgba(255,255,255,0.28) ${pct}%, transparent ${pct}%), var(--primary, #2563eb)`
+                  }
                 : undefined
             }
           >
@@ -932,6 +1146,26 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
             onChange={(e) => {
               const files = Array.from(e.target.files ?? [])
               if (files.length > 0) void handleFiles(files)
+              e.target.value = ''
+            }}
+          />
+          <button
+            className="ghost upload-btn"
+            onClick={() => tcvInputRef.current?.click()}
+            disabled={busy !== null || entries.length === 0}
+            title={entries.length === 0 ? 'Upload the View Bidders PDFs first' : undefined}
+          >
+            <IconChecklist /> Add Tender Consolidation Views
+          </button>
+          <input
+            ref={tcvInputRef}
+            type="file"
+            accept="application/pdf,.pdf,image/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? [])
+              if (files.length > 0) void handleConsolidation(files)
               e.target.value = ''
             }}
           />
@@ -960,7 +1194,10 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
           </div>
           <div className="titles">
             <h2>Tender Conditions</h2>
-            <p className="sub">The portal drops a tender once bidding closes — save its conditions while it is live and the sheet will use them.</p>
+            <p className="sub">
+              The portal drops a tender once bidding closes — save its conditions while it is live and the sheet will
+              use them.
+            </p>
           </div>
         </div>
         <div className="tsearch">
@@ -986,10 +1223,16 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
         {tResults && tResults.length > 0 && (
           <div className="tender-conditions__bar">
             <p className="tender-conditions__hint">
-              {tTotal > tResults.length ? `Showing the first ${tResults.length} of ${tTotal} tenders — refine the search to narrow them.` : `${tResults.length} tender${tResults.length === 1 ? '' : 's'} found.`}
+              {tTotal > tResults.length
+                ? `Showing the first ${tResults.length} of ${tTotal} tenders — refine the search to narrow them.`
+                : `${tResults.length} tender${tResults.length === 1 ? '' : 's'} found.`}
             </p>
             {(() => {
-              const pending = tResults.filter((r) => /^\d+$/.test((r[1] ?? '').trim()) && !(inOffice((r[1] ?? '').trim()) && savedConditions[(r[1] ?? '').trim()]?.conditions.length)).length
+              const pending = tResults.filter(
+                (r) =>
+                  /^\d+$/.test((r[1] ?? '').trim()) &&
+                  !(inOffice((r[1] ?? '').trim()) && savedConditions[(r[1] ?? '').trim()]?.conditions.length)
+              ).length
               return batch ? (
                 <>
                   <span className="tender-conditions__progress" role="status">
@@ -1015,7 +1258,11 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
                   <span className="todo-text">Tender ID {tq.trim()}</span>
                   <span className="todo-dates">Fetch this tender's conditions straight from the portal</span>
                 </div>
-                <button className="ghost" disabled={manualBusy || (inOffice(tq.trim()) && !!savedConditions[tq.trim()]?.conditions.length)} onClick={() => void saveManualConditions(tq.trim())}>
+                <button
+                  className="ghost"
+                  disabled={manualBusy || (inOffice(tq.trim()) && !!savedConditions[tq.trim()]?.conditions.length)}
+                  onClick={() => void saveManualConditions(tq.trim())}
+                >
                   {inOffice(tq.trim()) && savedConditions[tq.trim()]?.conditions.length ? 'Saved' : 'Fetch & save'}
                 </button>
               </li>
@@ -1029,10 +1276,18 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
                     {idx + 1}
                   </span>
                   <div className="todo-body">
-                    <span className="todo-text tender-conditions__work" title={r[4]}>{r[4] || '—'}</span>
-                    <span className="todo-dates">ID {id || '—'} · {r[2] || '—'} · closes {r[8] || '—'}</span>
+                    <span className="todo-text tender-conditions__work" title={r[4]}>
+                      {r[4] || '—'}
+                    </span>
+                    <span className="todo-dates">
+                      ID {id || '—'} · {r[2] || '—'} · closes {r[8] || '—'}
+                    </span>
                   </div>
-                  <button className="ghost" disabled={manualBusy || !/^\d+$/.test(id) || saved} onClick={() => void saveManualConditions(id, r)}>
+                  <button
+                    className="ghost"
+                    disabled={manualBusy || !/^\d+$/.test(id) || saved}
+                    onClick={() => void saveManualConditions(id, r)}
+                  >
                     {savingId === id ? 'Saving…' : saved ? 'Saved' : 'Save conditions'}
                   </button>
                   {rowResult?.id === id && (
@@ -1068,7 +1323,11 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
                 </div>
               ) : (
                 <div className="saved-tender__actions">
-                  <button className="ghost" onClick={() => openShare(mineIds)} title={`Copy these saved tenders to other ${corporation || 'corporation'} users`}>
+                  <button
+                    className="ghost"
+                    onClick={() => openShare(mineIds)}
+                    title={`Copy these saved tenders to other ${corporation || 'corporation'} users`}
+                  >
                     <IconUser /> Share with other users
                   </button>
                   <button className="danger-ghost" onClick={() => setConfirmDelAll(true)}>
@@ -1088,9 +1347,13 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
                     <div className="saved-tender__main">
                       <div className="saved-tender__top">
                         <span className="saved-tender__id">ID {id}</span>
-                        {t.ecv != null && <span className="badge saved-tender__ecv">ECV ₹{t.ecv.toLocaleString('en-IN')}</span>}
+                        {t.ecv != null && (
+                          <span className="badge saved-tender__ecv">ECV ₹{t.ecv.toLocaleString('en-IN')}</span>
+                        )}
                       </div>
-                      <p className="saved-tender__work">{t.workName || 'Work name not available — tender no longer on the portal'}</p>
+                      <p className="saved-tender__work">
+                        {t.workName || 'Work name not available — tender no longer on the portal'}
+                      </p>
                       <p className="saved-tender__meta">
                         {t.nitNo ? `${t.nitNo} · ` : ''}
                         {t.conditions.length} conditions saved
@@ -1124,19 +1387,38 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
                           >
                             <IconDownload /> Download sheet
                           </button>
-                          <button className="ghost saved-tender__icon" title="View conditions" aria-label={`View conditions for tender ${id}`} onClick={() => setViewId(id)}>
+                          <button
+                            className="ghost saved-tender__icon"
+                            title="View conditions"
+                            aria-label={`View conditions for tender ${id}`}
+                            onClick={() => setViewId(id)}
+                          >
                             <IconEye />
                           </button>
- {t.sharedBy ? (
-                            <button className="ghost" disabled title={`These conditions were shared with you by ${t.sharedBy}`}>
+                          {t.sharedBy ? (
+                            <button
+                              className="ghost"
+                              disabled
+                              title={`These conditions were shared with you by ${t.sharedBy}`}
+                            >
                               <IconUser /> Shared by {t.sharedBy}
                             </button>
                           ) : (
-                            <button className="ghost saved-tender__icon" title="Share this tender's conditions with a user" aria-label={`Share tender ${id} with a user`} onClick={() => openShare([id])}>
+                            <button
+                              className="ghost saved-tender__icon"
+                              title="Share this tender's conditions with a user"
+                              aria-label={`Share tender ${id} with a user`}
+                              onClick={() => openShare([id])}
+                            >
                               <IconUser />
                             </button>
                           )}
-                          <button className="danger-ghost saved-tender__icon" title="Delete saved tender" aria-label={`Delete saved tender ${id}`} onClick={() => setConfirmDelId(id)}>
+                          <button
+                            className="danger-ghost saved-tender__icon"
+                            title="Delete saved tender"
+                            aria-label={`Delete saved tender ${id}`}
+                            onClick={() => setConfirmDelId(id)}
+                          >
                             <IconTrash />
                           </button>
                         </>
@@ -1167,7 +1449,9 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
               <div className="estimate-entry-head">
                 <div className="estimate-entry-titles">
                   <span className="estimate-entry-file">{e.sourceName}</span>
-                  {e.workLine && <h3 className="estimate-work-name">{e.workLine.replace(/^Name of the work:\s*/, '')}</h3>}
+                  {e.workLine && (
+                    <h3 className="estimate-work-name">{e.workLine.replace(/^Name of the work:\s*/, '')}</h3>
+                  )}
                 </div>
                 <button className="danger-ghost" title="Remove" onClick={() => removeEntry(e.id)}>
                   <IconTrash />
@@ -1241,7 +1525,11 @@ export default function EvaluationSheetTab({ office, tables, savedConditions, on
                       {e.bidders.map((b, i) => (
                         <div className="ns-bidder-row" key={i} style={{ gridTemplateColumns: '2rem 1fr 2rem' }}>
                           <span className="mb-serial">{i + 1}</span>
-                          <input value={b} onChange={(ev) => setBidder(e.id, i, ev.target.value)} placeholder="Bidder / firm name" />
+                          <input
+                            value={b}
+                            onChange={(ev) => setBidder(e.id, i, ev.target.value)}
+                            placeholder="Bidder / firm name"
+                          />
                           <button className="ns-del" onClick={() => removeBidder(e.id, i)} title="Remove">
                             ✕
                           </button>

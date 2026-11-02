@@ -343,3 +343,14 @@ describe('noteSubmittedFromRow prefers the uploaded L-1 / Online Intimation over
     expect(html).toContain('Rs: __________ Lakhs')
   })
 })
+
+describe('"Reserved for General" is not a reservation', () => {
+  it('treats General/Open as unreserved, keeps real categories', async () => {
+    const { reservationCategory, isReservedWork, reservationCategoryFromRow } = await import('../core/tenderAgents/nameOfWork')
+    expect(reservationCategory('Road work (Reserved for General)')).toBe('')
+    expect(isReservedWork('Road work Reserved for Open only')).toBe(false)
+    expect(reservationCategoryFromRow({ 'Name of the work': 'Road', Reservation: 'Reserved for General' })).toBe('')
+    expect(reservationCategory('Road work (Reserved for SC)')).toBe('SC')
+    expect(reservationCategory('Road (Reserved for Waddera/Sagara)')).toBe('Waddera/Sagara')
+  })
+})

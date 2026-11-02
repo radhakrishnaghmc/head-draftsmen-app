@@ -301,6 +301,32 @@ export interface BidDocumentBatch {
   officeKey?: string
 }
 
+/**
+ * One generated letter held in the "Forwarding Slips & QC Intimations" tab — an AE/Dy.EE Forwarding Letter or a QC
+ * Intimation/Completion letter, made in bulk from Settings. Only the placeholder values are stored (not the docx), so
+ * the synced state stays small; the letter is re-filled from the office's template when previewed or downloaded.
+ */
+export interface StoredLetter {
+  id: string
+  kind: 'qc' | 'forwarding'
+  /** The office (key: "Corporation|Zone|Circle") it was made under — like the Works List/To Do. */
+  officeKey?: string
+  nitNo: string
+  nitDate: string
+  agency: string
+  workName: string
+  typeOfWork: string
+  estimateRupees: number | null
+  /** Bundled template variant (cmc / ghmc / mmc …) the letter was made with. */
+  variant: string
+  values: Record<string, string>
+  fileName: string
+  /** ISO date (YYYY-MM-DD) it was made. */
+  createdDate: string
+  /** Bin pattern, same as PendingNoticeItem — soft-deleted rather than dropped outright. */
+  deletedAt?: string
+}
+
 /** Snapshot of the workspace persisted to disk so it survives app restarts. */
 /** Conditions saved for a tender; `expiresAt` (epoch ms) is set once its evaluation sheet is generated. */
 export interface TenderConditionsEntry {
@@ -381,6 +407,8 @@ export interface PersistedState {
    */
   seededDocVersion?: number
   bidDocumentBatches?: BidDocumentBatch[]
+  /** Bulk-made AE/Dy.EE Forwarding Letters and QC Intimation/Completion letters, all offices (filtered per office in the UI). */
+  storedLetters?: StoredLetter[]
   mbScrutiny?: MBScrutinyItem[]
   pendingNotices?: PendingNoticeItem[]
   /**

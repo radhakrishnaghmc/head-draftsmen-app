@@ -1,5 +1,5 @@
 /**
- * "Generate Mass Notices" — pure logic behind Settings' bulk workspace that
+ * "Generate Bulk Notices" — pure logic behind Settings' bulk workspace that
  * turns a folder of tender documents into "Notice for Non-conclusion of
  * Agreement" tiles. The workspace (src/components/MassNoticesWorkspace.tsx)
  * does the file reading/OCR; everything decidable from the parsed results

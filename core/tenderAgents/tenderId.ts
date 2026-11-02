@@ -30,6 +30,10 @@ export function detectTenderId(lines: string[]): string | undefined {
   // separator — "738110 Circle58/CMC/2026-27" — so the tail's leading digit
   // is hidden behind "Circle"; allow an optional "Circle" (with or without a
   // following hyphen/space) before the circle number.
+  // A fourth layout (ee-ghmc-mdp-t, Kukatpally/Madhapur "CIR" offices) prints the
+  // id and a code with no "/DB/" or "Circle-" at all — "737788 20/14/EE/CIR-50/KPZ/CMC/
+  // 2026-27" — with the "Tender ID" label on the row below, so the id is again only
+  // adjacent to the code's "<n>/<n>/EE/" opening.
   // "Tender ID\s+" is `\s*` (not `\s+`): a rasterized/no-text-layer L1 sheet
   // goes through OCR, which doesn't reliably keep the space between a label
   // and its value — a real sample row read "Tender ID722274" with no gap at
@@ -37,7 +41,7 @@ export function detectTenderId(lines: string[]): string | undefined {
   // gap inside the label itself drops too ("TenderID 741286", real sample at
   // the app's 2x render scale), so it's `Tender\s*ID` as well.
   const m =
-    /Tender\s*ID\s*(\d{5,8})\b|\b(\d{5,8})\s+Tender\s*ID|\b(\d{5,8})\s+(?=(?:Circle\s*-?\s*)?\d{1,3}\/(?:DB\/EE\/|(?:QBZ\/)?CMC\/))/i.exec(
+    /Tender\s*ID\s*(\d{5,8})\b|\b(\d{5,8})\s+Tender\s*ID|\b(\d{5,8})\s+(?=(?:Circle\s*-?\s*)?\d{1,3}\/(?:DB\/EE\/|(?:QBZ\/)?CMC\/|\d{1,3}\/EE\/))/i.exec(
       joined
     )
   return m ? (m[1] ?? m[2] ?? m[3]) : undefined

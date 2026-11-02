@@ -4,9 +4,10 @@ import { api } from '../ipc'
 import { type Office, officeScopedKey, TEMPLATE_KEYS, TEMPLATE_VARIANT_CHANGED_EVENT, isZoneOnlyOffice } from '../office'
 import { corporationByName } from '../zoneCircleDirectory'
 import MassNoticesWorkspace from './MassNoticesWorkspace'
+import BulkIntimationsWorkspace from './BulkIntimationsWorkspace'
 import type { MonitoringFormatWorkRow } from '@core/monitoringFormat'
 import type { CalendarData } from '@core/calendar'
-import type { PendingNoticeItem } from '@core/types'
+import type { PendingNoticeItem, ExcelTable, QcOfficeParties, StoredLetter } from '@core/types'
 import {
   WORK_ORDER_TEMPLATE_VARIANTS,
   variantsForCorporation,
@@ -50,24 +51,30 @@ import type { PersistedState } from '@core/types'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import { IconSettings, IconCheck, IconWarn, IconOpen, IconUser, IconLogout, IconChevronRight, IconChevronLeft, IconBell, IconFolder, IconCloud, IconSun, IconDoc } from './Icons'
 
-type SettingsSection = 'devices' | 'backup' | 'themes' | 'templates' | 'massNotices'
+type SettingsSection = 'devices' | 'backup' | 'themes' | 'templates' | 'massNotices' | 'bulkIntimations' | 'bulkQc' | 'bulkForwarding'
 
 interface Props {
   office: Office
-  /** False while another top-level tab is showing — the Mass Notices workspace resets then. */
+  /** False while another top-level tab is showing — the Bulk Notices workspace resets then. */
   active: boolean
+  /** The office's saved QC agencies — addressed on the Bulk QC Intimations letters. */
+  qcParties?: QcOfficeParties
   theme: ThemeId
   onThemeChange: (theme: ThemeId) => void
   /** The workspace as it is on screen right now (including edits not yet autosaved). */
   getState: () => PersistedState | null
   /** Applies a restored workspace to the live screen (App's applyLoadedState). */
   onRestored: (state: PersistedState) => void
-  /** This office's Monitoring Format work rows — Generate Mass Notices reads the Agreement column. */
+  /** This office's Monitoring Format work rows — Generate Bulk Notices reads the Agreement column. */
   monitoringWorks?: MonitoringFormatWorkRow[]
   calendar: CalendarData | null
   /** This office's Notice tiles (Issue Notices → Agreement not Concluded) and their setter. */
   noticeItems: PendingNoticeItem[]
+  /** The office's Works List — Bulk Intimations reads each work's type and estimate from it. */
+  worksTable?: ExcelTable | null
   onNoticesChange: (next: PendingNoticeItem[]) => void
+  /** Bulk QC / Forwarding runs hand their letters to the Forwarding Slips & QC Intimations tab through this. */
+  onLettersAdd?: (letters: StoredLetter[]) => void
 }
 
 // Deliberately long/realistic values (not blank, not short) — a preview built
@@ -670,16 +677,17 @@ function ThemeSection({ theme, onThemeChange }: { theme: ThemeId; onThemeChange:
  * (see CONTACT_KEYS). One TemplateSection per document type — a future
  * document type is just another entry in the list below.
  */
-export default function SettingsTab({ office, active, theme, onThemeChange, getState, onRestored, monitoringWorks, calendar, noticeItems, onNoticesChange }: Props) {
+export default function SettingsTab({ office, active, qcParties, theme, onThemeChange, getState, onRestored, monitoringWorks, calendar, noticeItems, onNoticesChange, worksTable, onLettersAdd }: Props) {
   const fields = useMemo(
     () => sampleFields(office),
     [office.circle, office.circleNumber, office.zone, office.corporation]
   )
   // Settings opens as a list of section tiles (like the Tools tab); each opens as a workspace with Back.
   const [section, setSection] = useState<SettingsSection | null>(null)
-  // Settings stays mounted across tab switches; leaving it returns to the list (and resets Mass Notices).
+  // Settings stays mounted across tab switches; leaving it returns to the list (and resets Bulk Notices).
+  // Bulk Intimations is the exception: its folder scan / prepared letters are slow to rebuild, so it stays open.
   useEffect(() => {
-    if (!active) setSection(null)
+    if (!active) setSection((s) => (s === 'bulkIntimations' || s === 'bulkQc' || s === 'bulkForwarding' ? s : null))
   }, [active])
   const currentTheme = THEME_OPTIONS.find((o) => o.id === theme)
 
@@ -806,8 +814,40 @@ export default function SettingsTab({ office, active, theme, onThemeChange, getS
     { key: 'backup', icon: <IconCloud />, name: 'Backup & Restore', meta: 'Save your workspace to a file or restore it' },
     { key: 'themes', icon: <IconSun />, name: 'Themes', meta: `Look of the app on this device${currentTheme ? ` · ${currentTheme.label}` : ''}` },
     { key: 'templates', icon: <IconDoc />, name: 'Document Templates', meta: "Choose this office's default style for each document" },
-    { key: 'massNotices', icon: <IconBell />, name: 'Mass Notices', meta: 'Generate non-conclusion notices from a folder' }
+    { key: 'massNotices', icon: <IconBell />, name: 'Bulk Notices', meta: 'Generate non-conclusion notices from a folder' },
+    { key: 'bulkIntimations', icon: <IconDoc />, name: 'Bulk Intimations', meta: 'Prepare Intimations from a folder of L-1 sheets and LOAs' },
+    { key: 'bulkQc', icon: <IconDoc />, name: 'Bulk QC Intimations', meta: 'Prepare QC Intimation/Completion letters from a folder of L-1 sheets and LOAs' },
+    { key: 'bulkForwarding', icon: <IconDoc />, name: 'Bulk Forwarding Letters', meta: 'Prepare AE/Dy.EE Forwarding Letters from a folder of L-1 sheets and LOAs' }
   ]
+
+  if (section === 'bulkIntimations') {
+    return <BulkIntimationsWorkspace office={office} worksTable={worksTable} onBack={() => setSection(null)} />
+  }
+
+  if (section === 'bulkQc') {
+    return (
+      <BulkIntimationsWorkspace
+        office={office}
+        worksTable={worksTable}
+        kind="qc"
+        qcParties={qcParties}
+        onAddLetters={onLettersAdd}
+        onBack={() => setSection(null)}
+      />
+    )
+  }
+
+  if (section === 'bulkForwarding') {
+    return (
+      <BulkIntimationsWorkspace
+        office={office}
+        worksTable={worksTable}
+        kind="forwarding"
+        onAddLetters={onLettersAdd}
+        onBack={() => setSection(null)}
+      />
+    )
+  }
 
   if (section === 'massNotices') {
     return (

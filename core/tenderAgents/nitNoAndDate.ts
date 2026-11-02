@@ -131,6 +131,20 @@ export function detectNitNoAndDate(lines: string[]): NitNoAndDate {
     if (canonical) result.noticeNo = tightenCode(canonical[0])
   }
 
+  // The ee-ghmc-mdp-t ("CIR") offices print "<n>/<n>/EE/CIR-<circleNo>/<ZoneAbbr>/<Corp>/<year>"
+  // — e.g. "20/14/EE/CIR-50/KPZ/CMC/2026-27" — with neither "/DB/" nor "Circle-" in it.
+  if (!result.noticeNo) {
+    const cir = /\b\d{1,3}\/\d{1,3}\/EE\/CIR-?\d{1,3}\/(?:[A-Za-z]{2,4}\/)?(?:CMC|GHMC|MMC)\/\d{4}\s*-\s*\d{2,4}/i.exec(cleaned)
+    if (cir) result.noticeNo = tightenCode(cir[0])
+  }
+
+  // Kukatpally-style codes put the corporation before the circle tag —
+  // "20/04/CMC/KPC52/EE/ 2026-27" — again with no "/DB/" or "Circle-<n>".
+  if (!result.noticeNo) {
+    const kpc = /\b\d{1,3}\/\d{1,3}\/(?:CMC|GHMC|MMC)\/[A-Za-z]{1,5}-?\d{1,3}\/(?:EE\/)?\s*\d{4}\s*-\s*\d{2,4}/i.exec(cleaned)
+    if (kpc) result.noticeNo = tightenCode(kpc[0])
+  }
+
   // A different office (Serilingampally/Ameenpur, "ee-ptcu-ghmc") prints a
   // structurally different code with no "Circle-<n>"/"/C-<n>" marker at all —
   // "Engg-21/CMC/AMPR-C-47/2026-27". Tried only as a last resort (the DB/EE
@@ -140,6 +154,27 @@ export function detectNitNoAndDate(lines: string[]): NitNoAndDate {
   if (!result.noticeNo) {
     const engg = /Engg-\d+\/(?:[A-Za-z]+\/)?[A-Za-z0-9-]+\/\d{4}\s*-\s*\d{2,4}/i.exec(cleaned)
     if (engg) result.noticeNo = tightenCode(engg[0])
+  }
+
+  // General last-resort fallback for an office whose code matches none of the
+  // known shapes above: any slash-separated code (>=3 segments, at least one
+  // digit-bearing) ending in a financial year "2026-27". Tender IDs (no
+  // slashes) and dates (dots/dashes) can't match.
+  // Candidates are ranked by how many of a notice number's usual markers they
+  // carry — corporation (CMC/MMC/GHMC), office (SE/EE/DB/Executive Engineer),
+  // circle ("Circle-58"/"C-58"/"CIR58") and a plain numeric item/serial segment, in any order — so the
+  // likeliest one wins when more than one slash-code is on the page.
+  if (!result.noticeNo) {
+    const body = cleaned.replace(/Enquiry\/IFB\/Tender|Tender\s*Notice|NIT\s*No\.?/gi, ' ')
+    const re = /(?<![A-Za-z0-9\/.\-])[A-Za-z0-9][A-Za-z0-9\-]{0,12}(?:\/\s*(?!\d{4}\s*-)[A-Za-z0-9][A-Za-z0-9.\-]{0,30}(?: [A-Za-z0-9.\-]{1,12})?){2,7}\/\s*\d{4}\s*-\s*\d{2,4}\b/g
+    const markers = [/\b(?:CMC|MMC|GHMC)\b/i, /\b(?:SE|EE|DB|Executive\s*Engineer)\b/i, /(?:Circle|CIR|\bC)\s*-?\s*\d/i, /(?:^|\/)\s*[A-Za-z]{0,2}\d{1,3}\s*(?:\/|$)/]
+    let best: { code: string; score: number } | undefined
+    for (const m of body.matchAll(re)) {
+      if (!/\d/.test(m[0])) continue
+      const score = markers.filter((r) => r.test(m[0])).length
+      if (!best || score > best.score) best = { code: m[0], score }
+    }
+    if (best) result.noticeNo = tightenCode(best.code)
   }
 
   // The NIT line carries the notice's own date as "Dated:15.07.2026" /

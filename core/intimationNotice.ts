@@ -185,6 +185,18 @@ export function parseIntimationNoticeText(lines: string[]): IntimationNotice {
     }
   }
 
+  // ee-ghmc-mdp-t ("CIR") offices: "<n>/<n>/EE/CIR-<circleNo>/<ZoneAbbr>/<Corp>/<year>" — no "/DB/",
+  // no "Circle-", and no "NIT No" label in the letter ("…for execution of the 20/14/EE/CIR-50/KPZ/CMC/2026-27").
+  if (!result.nitNo) {
+    const cir = /\b\d{1,3}\/\d{1,3}\/EE\/CIR-?\d{1,3}\/(?:[A-Za-z]{2,4}\/)?(?:CMC|GHMC|MMC)\/\d{4}\s*-\s*\d{2,4}/i.exec(joined)
+    if (cir) {
+      result.nitNo = cir[0].replace(/\s*([/\-])\s*/g, '$1').trim()
+      const window = joined.slice(cir.index + cir[0].length, cir.index + cir[0].length + 40)
+      const date = /(?<![A-Za-z])(?:Dated|Dt)\b\.?\s*:?\s*(\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4})/i.exec(window)
+      if (date) result.nitDate = date[1]
+    }
+  }
+
   // ECV — "…estimated value Rs 1593493.00…" (may drop the paise).
   const ecv = /estimated\s+value\s+(?:of\s+)?Rs\.?\s*([\d,]+(?:\.\d+)?)/i.exec(joined)
   if (ecv) result.ecvRupees = toNumber(ecv[1])

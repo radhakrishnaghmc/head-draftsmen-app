@@ -192,6 +192,8 @@ extraResources:
     to: ts-note-template.docx
   - from: resources/eligibility-criteria-template.docx
     to: eligibility-criteria-template.docx
+  - from: resources/eligibility-criteria-reserved-template.docx
+    to: eligibility-criteria-reserved-template.docx
   - from: resources/issue-notice-template-mmc.docx
     to: issue-notice-template-mmc.docx
   - from: resources/issue-notice-template-cmc.docx

@@ -5,7 +5,11 @@ import { parseIntimationNotice, parseIntimationNoticeText, type IntimationNotice
 import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { circleFromNit } from '@core/workOrderAgreement'
-import { variantForCorporation, corporationDefaultVariant, NOTICE_TEMPLATE_VARIANTS } from '@core/workOrderTemplateVariants'
+import {
+  variantForCorporation,
+  corporationDefaultVariant,
+  NOTICE_TEMPLATE_VARIANTS
+} from '@core/workOrderTemplateVariants'
 import {
   issueNoticePlaceholders,
   isNoticeOverdue,
@@ -23,12 +27,30 @@ import { inferTypeOfWork } from '@core/workTypeClassifier'
 import { parsePct } from '@core/intimationFill'
 import { stripItemNoTag, extractItemNo } from '@core/bidDocument'
 import DocFieldsEditor, { groupLabels } from './DocFieldsEditor'
+import BoardSearch from './BoardSearch'
+import { matchesBoardSearch } from '@core/boardSearch'
 import { CMC_ZONE_CIRCLES, resolveFromDirectory, corporationByName } from '../zoneCircleDirectory'
-import { isZoneOnlyOffice, officeScopedKey, TEMPLATE_KEYS, TEMPLATE_VARIANT_CHANGED_EVENT, type Office } from '../office'
+import {
+  isZoneOnlyOffice,
+  officeScopedKey,
+  TEMPLATE_KEYS,
+  TEMPLATE_VARIANT_CHANGED_EVENT,
+  type Office
+} from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLinesOrOcr } from '../pdfToText'
 import { base64ToUint8, PAGE_WIDTH, renderDocPreview } from './docPage'
-import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell, IconTrash, IconCheck, IconRestore, IconChevronLeft } from './Icons'
+import {
+  IconFolder,
+  IconDownload,
+  IconPrint,
+  IconWarn,
+  IconBell,
+  IconTrash,
+  IconCheck,
+  IconRestore,
+  IconChevronLeft
+} from './Icons'
 
 interface Props {
   /** chosen office — decides which bundled format the manual-upload path
@@ -157,7 +179,17 @@ const MANUAL_LABEL_KEYS: Record<string, keyof IssueNoticeManualFields> = {
   'agency phone number': 'agencyPhone'
 }
 
-function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore, draft, onAddDraft, summary }: NoticeTileProps) {
+function NoticeTile({
+  item,
+  templateB64,
+  labels,
+  onSave,
+  onRemove,
+  onRestore,
+  draft,
+  onAddDraft,
+  summary
+}: NoticeTileProps) {
   const [expanded, setExpanded] = useState(false)
   const [busy, setBusy] = useState<'download' | 'pdf' | 'print' | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -305,27 +337,32 @@ function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore, dr
                 <span>Type of work:</span> {summary.typeOfWork || '—'}
               </div>
               <div>
-                <span>Estimate amount:</span> {summary.estimateRupees != null ? formatRupees(summary.estimateRupees) : '—'}
+                <span>Estimate amount:</span>{' '}
+                {summary.estimateRupees != null ? formatRupees(summary.estimateRupees) : '—'}
               </div>
             </>
           )}
           {item.done && <div className="notice-tile-resolved">Resolved</div>}
         </div>
         {!draft && (
-        <div className="wo-tile-actions" onClick={(e) => e.stopPropagation()}>
-          {item.done ? (
-            <button className="ghost small" onClick={onRestore} title="Mark active again">
-              <IconRestore /> Reopen
+          <div className="wo-tile-actions" onClick={(e) => e.stopPropagation()}>
+            {item.done ? (
+              <button className="ghost small" onClick={onRestore} title="Mark active again">
+                <IconRestore /> Reopen
+              </button>
+            ) : (
+              <button
+                className="ghost small"
+                onClick={() => onSave({ done: true })}
+                title="Agreement concluded — mark resolved"
+              >
+                <IconCheck /> Resolved
+              </button>
+            )}
+            <button className="ghost small" onClick={onRemove} title="Remove">
+              <IconTrash />
             </button>
-          ) : (
-            <button className="ghost small" onClick={() => onSave({ done: true })} title="Agreement concluded — mark resolved">
-              <IconCheck /> Resolved
-            </button>
-          )}
-          <button className="ghost small" onClick={onRemove} title="Remove">
-            <IconTrash />
-          </button>
-        </div>
+          </div>
         )}
       </div>
 
@@ -409,7 +446,13 @@ function NoticeTile({ item, templateB64, labels, onSave, onRemove, onRestore, dr
  * manual fallback (e.g. a Notice needed for a work issued before this
  * existed) and simply appends another tile the same way.
  */
-function AgreementNotConcludedWorkspace({ office, worksTable, items, onChange, view }: Props & { view: 'issue' | 'reminders' }) {
+function AgreementNotConcludedWorkspace({
+  office,
+  worksTable,
+  items,
+  onChange,
+  view
+}: Props & { view: 'issue' | 'reminders' }) {
   const issueView = view === 'issue'
   const entries = useMemo(
     () =>
@@ -510,16 +553,14 @@ function AgreementNotConcludedWorkspace({ office, worksTable, items, onChange, v
       const lines = await pdfToTextLinesOrOcr(file)
       const ev = parseTenderEvaluation(lines)
       if (!ev.nameOfWork && !ev.tenderId) {
-        throw new Error("Couldn't read tender details from the PDF — is it the Commercial Evaluation / Stage Selected page?")
+        throw new Error(
+          "Couldn't read tender details from the PDF — is it the Commercial Evaluation / Stage Selected page?"
+        )
       }
       setPdfEval(ev)
       setPdfName(file.name)
       const found = detectOffice(entries, ev, notice, {})
-      const label = ee
-        ? found.circle
-          ? `${found.circle} Circle${found.cno ? `-${found.cno}` : ''}`
-          : ''
-        : found.zone
+      const label = ee ? (found.circle ? `${found.circle} Circle${found.cno ? `-${found.cno}` : ''}` : '') : found.zone
       setPdfStatus(
         label
           ? `Detected ${label} from ${found.source === 'nit' ? 'the NIT No' : 'the Name of Work'}.`
@@ -636,8 +677,13 @@ function AgreementNotConcludedWorkspace({ office, worksTable, items, onChange, v
       if (!name) return
       const raw = (row['Name of the Agency'] ?? '').trim()
       const agency = canonicalAgency.get(agencyKey(raw)) ?? raw
-      const agencyHit = !!q && (agency.toLowerCase().includes(q) || raw.toLowerCase().includes(q) || (qKey !== '' && agencyKey(raw).includes(qKey)))
-      if (q && !name.toLowerCase().includes(q) && !agencyHit && !(row['Wincode'] ?? '').toLowerCase().includes(q)) return
+      const agencyHit =
+        !!q &&
+        (agency.toLowerCase().includes(q) ||
+          raw.toLowerCase().includes(q) ||
+          (qKey !== '' && agencyKey(raw).includes(qKey)))
+      if (q && !name.toLowerCase().includes(q) && !agencyHit && !(row['Wincode'] ?? '').toLowerCase().includes(q))
+        return
       out.push({ index, name, agency })
     })
     return out
@@ -702,18 +748,21 @@ function AgreementNotConcludedWorkspace({ office, worksTable, items, onChange, v
   // Group tiles by NIT No — a NIT can carry several items (e.g. multiple
   // agencies), each work with no NIT falls into its own "No NIT No." group.
   // Group by the date the Intimation/LOA was issued (newest first), not by NIT No — each tile shows its own NIT.
+  const [reminderQuery, setReminderQuery] = useState('')
+  const shownItems = activeItems.filter((it) => matchesBoardSearch(reminderQuery, it.workName, it.agencyName))
   const groups = useMemo(() => {
     const map = new Map<string, PendingNoticeItem[]>()
-    for (const it of activeItems) {
+    for (const it of shownItems) {
       const key = it.intimationDate || ''
       const list = map.get(key)
       if (list) list.push(it)
       else map.set(key, [it])
     }
-    for (const list of map.values()) list.sort((a, b) => (a.nitNo ?? '').localeCompare(b.nitNo ?? '', undefined, { numeric: true }))
+    for (const list of map.values())
+      list.sort((a, b) => (a.nitNo ?? '').localeCompare(b.nitNo ?? '', undefined, { numeric: true }))
     return [...map.entries()].sort(([a], [b]) => b.localeCompare(a))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeItems])
+  }, [activeItems, reminderQuery])
 
   // Duplicates of the same tender (by Tender ID, else NIT + agency + work) — all but the one worth keeping.
   const duplicateIds = useMemo(() => duplicateNoticeIds(items), [items])
@@ -734,266 +783,294 @@ function AgreementNotConcludedWorkspace({ office, worksTable, items, onChange, v
   }
 
   return (
-    <div className="intimation-tool ntc-workspace">
+    <div className={`intimation-tool ntc-workspace${issueView ? ' ntc-issue' : ''}`}>
       {issueView && (
-      <aside className="ntc-side">
-      <section className="ntc-compose" aria-label="Create a notice">
-        <header className="ntc-compose-head">
-          <h3>Create a notice</h3>
-          <p>Start from a work in the Works List, or read the details from the tender documents.</p>
-        </header>
-        <div className="ntc-sources">
-        {worksTable && nameHeader && (
-          <div className="ntc-source notice-work-picker">
-            <span className="ntc-source-title">
-              <span className="ntc-step">1</span> Issue from the Works List
-            </span>
-            <div className={`notice-work-combo${workPickerOpen ? ' open' : ''}`}>
-              <input
-                type="text"
-                value={workQuery}
-                placeholder={pickedRow != null ? `${draft.workName ?? ''}` : 'Search by work name, agency or Win Code…'}
-                onFocus={() => setWorkPickerOpen(true)}
-                onChange={(e) => {
-                  setWorkQuery(e.target.value)
-                  setWorkPickerOpen(true)
-                }}
-                onBlur={() => setTimeout(() => setWorkPickerOpen(false), 150)}
-              />
-              {workPickerOpen && (
-                <div className="notice-work-list" role="listbox">
-                  <div className="notice-work-source">
-                    <span>Works List</span>
-                    <span>
-                      {workOptions.length} work{workOptions.length === 1 ? '' : 's'}
-                      {!matchedAgencies.length && workOptions.length > 80 ? ' · showing first 80' : ''}
-                    </span>
+        <aside className="ntc-side">
+          <section className="ntc-compose" aria-label="Create a notice">
+            <header className="ntc-compose-head">
+              <h3>Create a notice</h3>
+              <p>Start from a work in the Works List, or read the details from the tender documents.</p>
+            </header>
+            <div className="ntc-sources">
+              {worksTable && nameHeader && (
+                <div className="ntc-source notice-work-picker">
+                  <span className="ntc-source-title">
+                    <span className="ntc-step">1</span> Issue from the Works List
+                  </span>
+                  <div className={`notice-work-combo${workPickerOpen ? ' open' : ''}`}>
+                    <input
+                      type="text"
+                      value={workQuery}
+                      placeholder={
+                        pickedRow != null ? `${draft.workName ?? ''}` : 'Search by work name, agency or Win Code…'
+                      }
+                      onFocus={() => setWorkPickerOpen(true)}
+                      onChange={(e) => {
+                        setWorkQuery(e.target.value)
+                        setWorkPickerOpen(true)
+                      }}
+                      onBlur={() => setTimeout(() => setWorkPickerOpen(false), 150)}
+                    />
+                    {workPickerOpen && (
+                      <div className="notice-work-list" role="listbox">
+                        <div className="notice-work-source">
+                          <span>Works List</span>
+                          <span>
+                            {workOptions.length} work{workOptions.length === 1 ? '' : 's'}
+                            {!matchedAgencies.length && workOptions.length > 80 ? ' · showing first 80' : ''}
+                          </span>
+                        </div>
+                        {matchedAgencies.length > 0 && (
+                          <div className="notice-work-agency-head">
+                            {matchedAgencies.length === 1 ? matchedAgencies[0] : `${matchedAgencies.length} agencies`} —{' '}
+                            {workOptions.length} work{workOptions.length === 1 ? '' : 's'}
+                          </div>
+                        )}
+                        {workOptions.length === 0 ? (
+                          <div className="notice-work-empty">No matching work in this office's Works List.</div>
+                        ) : (
+                          (matchedAgencies.length > 0 ? workOptions : workOptions.slice(0, 80)).map((o) => (
+                            <button
+                              key={o.index}
+                              type="button"
+                              role="option"
+                              className="notice-work-option"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => pickWork(o.index)}
+                            >
+                              <span className="notice-work-name">{o.name}</span>
+                              {o.agency && <span className="notice-work-agency">{o.agency}</span>}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
-                  {matchedAgencies.length > 0 && (
-                    <div className="notice-work-agency-head">
-                      {matchedAgencies.length === 1 ? matchedAgencies[0] : `${matchedAgencies.length} agencies`} —{' '}
-                      {workOptions.length} work{workOptions.length === 1 ? '' : 's'}
-                    </div>
-                  )}
-                  {workOptions.length === 0 ? (
-                    <div className="notice-work-empty">No matching work in this office's Works List.</div>
-                  ) : (
-                    (matchedAgencies.length > 0 ? workOptions : workOptions.slice(0, 80)).map((o) => (
-                      <button
-                        key={o.index}
-                        type="button"
-                        role="option"
-                        className="notice-work-option"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => pickWork(o.index)}
-                      >
-                        <span className="notice-work-name">{o.name}</span>
-                        {o.agency && <span className="notice-work-agency">{o.agency}</span>}
-                      </button>
-                    ))
-                  )}
+                  <p className="estimate-hint">
+                    Fills the New Notice tile below from that work's row — then open the tile to edit anything else.
+                  </p>
                 </div>
               )}
+              <div className="ntc-source">
+                <span className="ntc-source-title">
+                  <span className="ntc-step">{worksTable && nameHeader ? 2 : 1}</span> Upload L1 sheet &amp; Intimation
+                </span>
+                <div className="boq-actions boq-actions--start ntc-actions">
+                  <button
+                    className="primary upload-btn"
+                    onClick={() => pdfInputRef.current?.click()}
+                    disabled={uploadBusy === 'pdf'}
+                  >
+                    <IconFolder />{' '}
+                    {uploadBusy === 'pdf'
+                      ? 'Reading PDF…'
+                      : pdfEval
+                        ? 'Change L1 selection form'
+                        : 'Upload L1 selection form'}
+                  </button>
+                  <button
+                    className="primary upload-btn"
+                    onClick={() => noticeInputRef.current?.click()}
+                    disabled={uploadBusy === 'notice'}
+                  >
+                    <IconFolder />{' '}
+                    {uploadBusy === 'notice'
+                      ? 'Reading…'
+                      : notice
+                        ? 'Change Online Intimation'
+                        : 'Upload Online Intimation (address)'}
+                  </button>
+                  {uploadReady && (
+                    <button className="primary" onClick={addUploadedTile}>
+                      <IconCheck /> Add to Issue Notices
+                    </button>
+                  )}
+                  <input
+                    ref={pdfInputRef}
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) void handlePdfFile(file)
+                      e.target.value = ''
+                    }}
+                  />
+                  <input
+                    ref={noticeInputRef}
+                    type="file"
+                    accept=".html,.htm,text/html,.pdf,application/pdf"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) void handleNoticeFile(file)
+                      e.target.value = ''
+                    }}
+                  />
+                </div>
+                <p className="estimate-hint">
+                  Notices for an issued Intimation appear below automatically — use this only for a work issued before
+                  this existed, or from another source.
+                </p>
+                {pdfName && <p className="estimate-hint">Work &amp; tender details read from {pdfName}</p>}
+                {noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
+                {pdfStatus && (
+                  <div className="notice ok">
+                    <IconBell /> {pdfStatus}
+                  </div>
+                )}
+                {uploadError && (
+                  <div className="notice error">
+                    <IconWarn /> {uploadError}
+                  </div>
+                )}
+                {workMismatch && workMatch && (
+                  <div className="notice error">
+                    <IconWarn /> {sameWorkMismatchMessage(workMatch)}
+                  </div>
+                )}
+                {pdfEval && (
+                  <div className="loa-manual-fields ntc-office">
+                    <span className="estimate-preview-title">Office (letterhead name)</span>
+                    <div className="loa-manual-grid">
+                      {ee ? (
+                        <label className="wo-date-field">
+                          <span>Circle</span>
+                          <select
+                            value={detected.circle}
+                            onChange={(e) => setPlaceOverride({ circle: e.target.value })}
+                          >
+                            <option value="">—</option>
+                            {entries.map((c) => (
+                              <option key={c.circle} value={c.circle}>
+                                {c.circle} {c.cno} ({c.zone})
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : (
+                        <label className="wo-date-field">
+                          <span>Zone</span>
+                          <select value={detected.zone} onChange={(e) => setPlaceOverride({ zone: e.target.value })}>
+                            <option value="">—</option>
+                            {[...new Set(entries.map((c) => c.zone))].map((z) => (
+                              <option key={z} value={z}>
+                                {z}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-            <p className="estimate-hint">
-              Fills the New Notice tile below from that work's row — then open the tile to edit anything else.
-            </p>
-          </div>
-        )}
-        <div className="ntc-source">
-          <span className="ntc-source-title">
-            <span className="ntc-step">{worksTable && nameHeader ? 2 : 1}</span> Upload L1 sheet &amp; Intimation
-          </span>
-        <div className="boq-actions boq-actions--start ntc-actions">
-          <button
-            className="primary upload-btn"
-            onClick={() => pdfInputRef.current?.click()}
-            disabled={uploadBusy === 'pdf'}
-          >
-            <IconFolder /> {uploadBusy === 'pdf' ? 'Reading PDF…' : pdfEval ? 'Change L1 selection form' : 'Upload L1 selection form'}
-          </button>
-          <button
-            className="primary upload-btn"
-            onClick={() => noticeInputRef.current?.click()}
-            disabled={uploadBusy === 'notice'}
-          >
-            <IconFolder /> {uploadBusy === 'notice' ? 'Reading…' : notice ? 'Change Online Intimation' : 'Upload Online Intimation (address)'}
-          </button>
-          {uploadReady && (
-            <button className="primary" onClick={addUploadedTile}>
-              <IconCheck /> Add to Issue Notices
-            </button>
-          )}
-          <input
-            ref={pdfInputRef}
-            type="file"
-            accept="application/pdf,.pdf"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) void handlePdfFile(file)
-              e.target.value = ''
-            }}
-          />
-          <input
-            ref={noticeInputRef}
-            type="file"
-            accept=".html,.htm,text/html,.pdf,application/pdf"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) void handleNoticeFile(file)
-              e.target.value = ''
-            }}
-          />
-        </div>
-        <p className="estimate-hint">
-          Notices for an issued Intimation appear below automatically — use this only for a work issued before this
-          existed, or from another source.
-        </p>
-        {pdfName && <p className="estimate-hint">Work &amp; tender details read from {pdfName}</p>}
-        {noticeName && <p className="estimate-hint">Address read from {noticeName}</p>}
-        {pdfStatus && (
-          <div className="notice ok">
-            <IconBell /> {pdfStatus}
-          </div>
-        )}
-        {uploadError && (
-          <div className="notice error">
-            <IconWarn /> {uploadError}
-          </div>
-        )}
-        {workMismatch && workMatch && (
-          <div className="notice error">
-            <IconWarn /> {sameWorkMismatchMessage(workMatch)}
-          </div>
-        )}
-        {pdfEval && (
-          <div className="loa-manual-fields ntc-office">
-            <span className="estimate-preview-title">Office (letterhead name)</span>
-            <div className="loa-manual-grid">
-              {ee ? (
-                <label className="wo-date-field">
-                  <span>Circle</span>
-                  <select value={detected.circle} onChange={(e) => setPlaceOverride({ circle: e.target.value })}>
-                    <option value="">—</option>
-                    {entries.map((c) => (
-                      <option key={c.circle} value={c.circle}>
-                        {c.circle} {c.cno} ({c.zone})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <label className="wo-date-field">
-                  <span>Zone</span>
-                  <select value={detected.zone} onChange={(e) => setPlaceOverride({ zone: e.target.value })}>
-                    <option value="">—</option>
-                    {[...new Set(entries.map((c) => c.zone))].map((z) => (
-                      <option key={z} value={z}>
-                        {z}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </div>
-          </div>
-        )}
-        </div>
-        </div>
-      </section>
-      </aside>
+          </section>
+        </aside>
       )}
 
       <div className="ntc-board">
-      {!issueView && (
-      <div className="ntc-summary" aria-label="Reminders summary">
-        <div className="ntc-chip">
-          <span className="ntc-chip-label">Active</span>
-          <span className="ntc-chip-value">{activeCount}</span>
-        </div>
-        <div className={`ntc-chip${overdueCount > 0 ? ' ntc-chip-warn' : ''}`}>
-          <span className="ntc-chip-label">Overdue</span>
-          <span className="ntc-chip-value">{overdueCount}</span>
-        </div>
-        <div className="ntc-chip">
-          <span className="ntc-chip-label">Resolved</span>
-          <span className="ntc-chip-value">{resolvedCount}</span>
-        </div>
-        {duplicateIds.length > 0 && (
-          <button
-            className="ghost"
-            onClick={removeDuplicates}
-            title="Moves repeat notices for the same tender (same Tender ID, or same NIT + agency + work) to the bin, keeping one of each"
-          >
-            <IconTrash /> Remove {duplicateIds.length} duplicate{duplicateIds.length === 1 ? '' : 's'}
-          </button>
+        {!issueView && (
+          <div className="ntc-summary" aria-label="Reminders summary">
+            <div className="ntc-chip">
+              <span className="ntc-chip-label">Active</span>
+              <span className="ntc-chip-value">{activeCount}</span>
+            </div>
+            <div className={`ntc-chip${overdueCount > 0 ? ' ntc-chip-warn' : ''}`}>
+              <span className="ntc-chip-label">Overdue</span>
+              <span className="ntc-chip-value">{overdueCount}</span>
+            </div>
+            <div className="ntc-chip">
+              <span className="ntc-chip-label">Resolved</span>
+              <span className="ntc-chip-value">{resolvedCount}</span>
+            </div>
+            {duplicateIds.length > 0 && (
+              <button
+                className="ghost"
+                onClick={removeDuplicates}
+                title="Moves repeat notices for the same tender (same Tender ID, or same NIT + agency + work) to the bin, keeping one of each"
+              >
+                <IconTrash /> Remove {duplicateIds.length} duplicate{duplicateIds.length === 1 ? '' : 's'}
+              </button>
+            )}
+          </div>
         )}
-      </div>
-      )}
 
-
-      {loadError && (
-        <div className="notice error">
-          <IconWarn /> {loadError}
-        </div>
-      )}
-
-      {issueView && (
-      <div className="notice-nit-group">
-        <div className="ntc-group-head">
-          <span className="ntc-group-title">New Notice</span>
-        </div>
-        <div className="wo-tiles">
-          <NoticeTile
-            key={draft.id}
-            item={draft}
-            draft
-            templateB64={templateFor(draft).b64}
-            labels={templateFor(draft).labels}
-            onSave={(patch) => setDraft((d) => ({ ...d, ...patch }))}
-            onRemove={() => {}}
-            onRestore={() => {}}
-            onAddDraft={addDraftTile}
-            summary={noticeSummary(draft, worksTable)}
-          />
-        </div>
-        <p className="estimate-hint">
-          Notices you issue here are tracked as reminders under “Agreement not Concluded — Reminders”.
-        </p>
-      </div>
-      )}
-
-      {!issueView && groups.length === 0 && (
-        <div className="empty">
-          <IconBell />
-          <p>No reminders yet. A notice reminder is added here automatically when an Intimation is issued.</p>
-        </div>
-      )}
-
-      {!issueView && groups.map(([issued, groupItems]) => (
-        <div key={issued} className="notice-nit-group">
-          <div className="ntc-group-head">
-            <span className="ntc-group-title">Intimation issued {issued ? issued.split('-').reverse().join('.') : '— date not known'}</span>
-            <span className="ntc-group-count">{groupItems.length}</span>
+        {loadError && (
+          <div className="notice error">
+            <IconWarn /> {loadError}
           </div>
-          <div className="wo-tiles">
-            {groupItems.map((item) => (
+        )}
+
+        {issueView && (
+          <div className="notice-nit-group">
+            <div className="ntc-group-head">
+              <span className="ntc-group-title">New Notice</span>
+            </div>
+            <div className="wo-tiles">
               <NoticeTile
-                key={item.id}
-                item={item}
-                templateB64={templateFor(item).b64}
-                labels={templateFor(item).labels}
-                onSave={(patch) => saveItem(item.id, patch)}
-                onRemove={() => removeItem(item.id)}
-                onRestore={() => restoreItem(item.id)}
-                summary={noticeSummary(item, worksTable)}
+                key={draft.id}
+                item={draft}
+                draft
+                templateB64={templateFor(draft).b64}
+                labels={templateFor(draft).labels}
+                onSave={(patch) => setDraft((d) => ({ ...d, ...patch }))}
+                onRemove={() => {}}
+                onRestore={() => {}}
+                onAddDraft={addDraftTile}
+                summary={noticeSummary(draft, worksTable)}
               />
-            ))}
+            </div>
+            <p className="estimate-hint">
+              Notices you issue here are tracked as reminders under “Agreement not Concluded — Reminders”.
+            </p>
           </div>
-        </div>
-      ))}
+        )}
+
+        {!issueView && activeItems.length > 0 && (
+          <BoardSearch value={reminderQuery} onChange={setReminderQuery} count={shownItems.length} total={activeItems.length} />
+        )}
+
+        {!issueView && activeItems.length > 0 && groups.length === 0 && (
+          <div className="empty">
+            <IconBell />
+            <p>No reminders match “{reminderQuery.trim()}”.</p>
+          </div>
+        )}
+
+        {!issueView && groups.length === 0 && activeItems.length === 0 && (
+          <div className="empty">
+            <IconBell />
+            <p>No reminders yet. A notice reminder is added here automatically when an Intimation is issued.</p>
+          </div>
+        )}
+
+        {!issueView &&
+          groups.map(([issued, groupItems]) => (
+            <div key={issued} className="notice-nit-group">
+              <div className="ntc-group-head">
+                <span className="ntc-group-title">
+                  Intimation issued {issued ? issued.split('-').reverse().join('.') : '— date not known'}
+                </span>
+                <span className="ntc-group-count">{groupItems.length}</span>
+              </div>
+              <div className="wo-tiles">
+                {groupItems.map((item) => (
+                  <NoticeTile
+                    key={item.id}
+                    item={item}
+                    templateB64={templateFor(item).b64}
+                    labels={templateFor(item).labels}
+                    onSave={(patch) => saveItem(item.id, patch)}
+                    onRemove={() => removeItem(item.id)}
+                    onRestore={() => restoreItem(item.id)}
+                    summary={noticeSummary(item, worksTable)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
       </div>
     </div>
   )

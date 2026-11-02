@@ -170,7 +170,11 @@ export function summarizeNonResponsiveness(lines: NonRespLine[]): { count: numbe
   }
   const gaps: number[] = []
   for (let i = 1; i < comments.length; i++) gaps.push(comments[i].y - comments[i - 1].y)
-  const lineHeight = nameGaps.length ? med(nameGaps) : med(gaps)
+  // Wrapped names reveal one line's height, but so does a wrapped comment's own line pitch: with
+  // single-line names the name gaps are the full ROW pitch, which as a "line height" merged
+  // neighbouring bidders into one. Take the smaller of the two measures.
+  const smallestCommentGap = Math.min(...gaps.filter((g) => g > 2), Infinity)
+  const lineHeight = Math.min(nameGaps.length ? med(nameGaps) : med(gaps), smallestCommentGap)
   const threshold = Math.max(18, lineHeight * 1.8)
   let count = 1
   for (const g of gaps) if (g > threshold) count++

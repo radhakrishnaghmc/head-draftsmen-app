@@ -2970,6 +2970,9 @@ button.upload-btn {
   align-items: center;
   gap: 8px;
 }
+.download-all-group .ae-input {
+  width: 180px;
+}
 /* "Verify" button + its result banner — sits next to Download all documents. */
 .verify-block {
   display: flex;
@@ -16496,7 +16499,7 @@ body.theme-play .page:has(.wl-workspace) .wl-workspace {
   .man-type { max-width: 100%; }
 }
 
-/* Settings → Mass Notices workspace. Uses the theme's own variables, so under
+/* Settings → Bulk Notices workspace. Uses the theme's own variables, so under
    Play it picks up the tonal (#f0f4f9) surfaces, borderless cards and pill shapes. */
 .mass-notices-body {
   display: flex;
@@ -16611,7 +16614,7 @@ body:not(.theme-play) .mass-notice-tile {
   font-size: 13px;
 }
 
-/* Reminders / Mass Notices: use the whole workspace width so the tile grid fits as many columns as the window allows. */
+/* Reminders / Bulk Notices: use the whole workspace width so the tile grid fits as many columns as the window allows. */
 .ntc-workspace,
 .ntc-board,
 .ntc-board .notice-nit-group,
@@ -16624,4 +16627,333 @@ body:not(.theme-play) .mass-notice-tile {
 .mass-notices-tiles {
   width: 100%;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+}
+
+/* ============================================================
+   Issue Notices → "Agreement not Concluded" (issue view only — the Reminders
+   view never gets .ntc-issue). Two columns: the create-a-notice steps stacked
+   as tonal cards on the left, the New Notice tile on the right. Colours come
+   from the theme tokens; the Play finish (tonal, borderless, 16px) is below.
+   ============================================================ */
+.ntc-workspace.ntc-issue {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 980px) {
+  .ntc-workspace.ntc-issue {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.ntc-issue .ntc-side {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+.ntc-issue .ntc-compose {
+  gap: 12px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.ntc-issue .ntc-compose-head,
+.ntc-issue .ntc-step {
+  display: inline-grid;
+}
+.ntc-issue .ntc-compose-head {
+  display: block;
+  padding: 0 4px;
+}
+.ntc-issue .ntc-compose-head h3 {
+  font-size: 18px;
+  font-weight: 500;
+}
+.ntc-issue .ntc-sources {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 12px;
+}
+.ntc-issue .ntc-source,
+.ntc-issue .ntc-source + .ntc-source {
+  flex: none;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.ntc-issue .ntc-source-title {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+}
+.ntc-issue .ntc-actions {
+  flex-direction: column;
+  align-items: stretch;
+}
+.ntc-issue .ntc-actions button.upload-btn {
+  width: 100%;
+}
+.ntc-issue .ntc-group-head {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.ntc-issue .ntc-group-title {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+}
+.ntc-issue .ntc-board .notice-nit-group .wo-tiles {
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (max-width: 760px) {
+  .ntc-issue .ntc-source + .ntc-source {
+    padding-left: 16px;
+    border-left: 1px solid var(--border);
+  }
+}
+
+/* Play finish: tonal, borderless cards on the white panel */
+body.theme-play .ntc-issue .ntc-source,
+body.theme-play .ntc-issue .ntc-source + .ntc-source {
+  background: var(--play-tonal);
+  border: none;
+  border-radius: 16px;
+}
+body.theme-play .ntc-issue .ntc-compose-head h3 {
+  font-weight: 400;
+  font-size: 22px;
+}
+body.theme-play .ntc-issue .ntc-step {
+  background: var(--indigo-600);
+}
+body.theme-play .ntc-issue .ntc-source-title {
+  font-weight: 500;
+}
+
+/* ---- Agreement not Concluded (issue view) — v2: the notice is the hero ----
+   The old tile scaled the A4 render to 0.29 inside a 300px box, leaving a stamp-sized
+   thumbnail in a wide empty column. Here the page is shown at a readable 0.68 on a tonal
+   stage, and the two upload actions are quiet outlined rows instead of full-width pills. */
+.ntc-workspace.ntc-issue {
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 32px;
+}
+.ntc-issue .ntc-source,
+.ntc-issue .ntc-source + .ntc-source {
+  padding: 14px 16px;
+}
+.ntc-issue .ntc-actions button.upload-btn {
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--indigo-600);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: none;
+}
+.ntc-issue .ntc-actions button.upload-btn:hover:not(:disabled) {
+  background: var(--indigo-50);
+  border-color: var(--indigo-200);
+}
+.ntc-issue .ntc-actions button.upload-btn svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+.ntc-issue .ntc-board > .notice-nit-group {
+  padding: 20px 24px 24px;
+  border-radius: 16px;
+  background: var(--surface-2, #f0f4f9);
+}
+.ntc-issue .ntc-board .notice-nit-group .wo-tiles {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+.ntc-issue .ntc-board .notice-nit-group .wo-tiles > .wo-tile {
+  width: 100%;
+  max-width: 540px;
+  border: 0;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.25), 0 4px 14px rgba(60, 64, 67, 0.16);
+}
+.ntc-issue .wo-tile:hover {
+  transform: none;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3), 0 8px 22px rgba(60, 64, 67, 0.22);
+}
+.ntc-issue .wo-tile-preview {
+  height: 640px;
+  border-bottom: 1px solid var(--border);
+}
+.ntc-issue .wo-tile-doc {
+  transform: scale(0.68);
+}
+.ntc-issue .notice-draft-badge {
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+}
+.ntc-issue .wo-tile .notice-tile-foot {
+  padding: 12px 16px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--surface);
+}
+.ntc-issue .ntc-board > .notice-nit-group > .estimate-hint {
+  margin: 14px 0 0;
+  text-align: center;
+}
+@media (max-width: 980px) {
+  .ntc-issue .wo-tile-preview { height: 560px; }
+  .ntc-issue .wo-tile-doc { transform: scale(0.58); }
+}
+
+/* v2b — beat the theme's generic `button.primary` pill, and fit the preview to the notice's own length */
+body[class] .ntc-issue .ntc-actions button.primary.upload-btn {
+  justify-content: flex-start;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--indigo-600);
+  background: var(--surface);
+  background-image: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: none;
+}
+body[class] .ntc-issue .ntc-actions button.primary.upload-btn:hover:not(:disabled) {
+  background: var(--indigo-50);
+  border-color: var(--indigo-200);
+}
+body[class] .ntc-issue .ntc-actions button.primary.upload-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.ntc-issue .wo-tile-preview {
+  height: 560px;
+}
+@media (max-width: 980px) {
+  .ntc-issue .ntc-board .notice-nit-group .wo-tiles > .wo-tile { max-width: 460px; }
+}
+
+/* ---- Play: Give Intimation (SE) cement & steel inputs. The month/year/fetch
+   row becomes one tonal panel with pill fields and a compact filled button;
+   the upload grid uses matching compact pills instead of tall stretched ones. ---- */
+body.theme-play .cement-steel-fetch {
+  align-items: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--play-tonal);
+  border-radius: 16px;
+  margin-bottom: 12px;
+}
+body.theme-play .cement-steel-fetch .wo-date-field {
+  flex: 1 1 140px;
+  min-width: 140px;
+  max-width: 240px;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  color: var(--text-2);
+}
+body.theme-play .cement-steel-fetch .wo-date-field input,
+body.theme-play .cement-steel-fetch .wo-date-field select {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: #fff;
+}
+body.theme-play .cement-steel-fetch .wo-date-field input:focus,
+body.theme-play .cement-steel-fetch .wo-date-field select:focus {
+  border-color: #0b57d0;
+  box-shadow: 0 0 0 1px #0b57d0;
+}
+body.theme-play .cement-steel-fetch button.upload-btn {
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 24px;
+  white-space: nowrap;
+}
+body.theme-play .cement-steel-grid {
+  gap: 10px 12px;
+  align-items: center;
+}
+body.theme-play .cement-steel-grid .upload-btn {
+  height: 40px;
+  min-height: 40px;
+  padding: 0 20px;
+  font-size: 14px;
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  color: #0b57d0;
+}
+body.theme-play .cement-steel-grid .upload-btn:hover:not(:disabled) {
+  background: var(--play-tonal);
+  border-color: #0b57d0;
+}
+body.theme-play .cement-steel-grid .upload-btn:disabled {
+  background: #fff;
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+/* Search box above the reminders / Forwarding & QC letter boards. */
+.board-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 520px;
+  padding: 6px 12px;
+  border: 1px solid var(--border, #d0d5dd);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+}
+.board-search svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  opacity: 0.6;
+}
+.board-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+}
+.board-search-count {
+  font-size: 12px;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+.letters-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
 }

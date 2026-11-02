@@ -257,6 +257,8 @@ export interface VerifyDocItem {
   amounts?: { ecv?: number | null; contract?: number | null; tenderPct?: number | null; emdPct?: number }
   corporation?: { expected: string; all: string[] }
   reserved?: boolean
+  /** Source figures + the document template's placeholder labels, for the L-1 / Works List cross-checks (core/agreementVerify.ts). */
+  figures?: { labels: string[]; expected: import('../core/agreementVerify').DocFigures }
 }
 
 export interface VerifyDocResult {
@@ -334,7 +336,7 @@ export interface DocuGenApi {
   /** Save several evaluation sheets — one per uploaded tender — into ONE chosen folder in a single go. Returns the written paths, or null if cancelled. */
   exportEvaluationSheetBatch(entries: { input: EvaluationSheetInput; suggestedName: string }[]): Promise<string[] | null>
   /** Save several agreement-workspace documents into ONE chosen folder, each in its given format (docx/pdf/xlsx). With `mergedPdfName`, every pdf-format document is joined, in order, into ONE PDF with that name instead of one PDF each. Returns the written paths plus any that failed (e.g. PDF conversion), or null if cancelled. */
-  exportAgreementBundle(files: AgreementBundleFile[], mergedPdfName?: string): Promise<{ written: string[]; failed: string[] } | null>
+  exportAgreementBundle(files: AgreementBundleFile[], mergedPdfName?: string, subfolder?: string): Promise<{ written: string[]; failed: string[] } | null>
   /** Fires as each file in an exportAgreementBundle call is written/converted, so the UI can show live progress instead of a single static "Preparing…". Returns an unsubscribe function. */
   onAgreementBundleProgress(callback: (progress: AgreementBundleProgress) => void): () => void
   exportBoq(table: ExcelTable, suggestedName: string, workName?: string): Promise<string | null>
@@ -497,8 +499,8 @@ export interface DocuGenApi {
   loaSeTemplate(reserved: boolean, corporation?: string): Promise<string>
   /** Reads the bundled Zone-level (SE office) TS (Technical Sanction) Note (.docx) — issued alongside the LOA. Base64-encoded, for filling its {{placeholders}}. */
   tsNoteTemplate(): Promise<string>
-  /** Reads the bundled Zone-level (SE office) Eligibility Criteria note (.docx) — issued alongside the LOA. Base64-encoded, for filling its {{placeholders}}. */
-  eligibilityCriteriaTemplate(): Promise<string>
+  /** Reads the bundled Zone-level (SE office) Eligibility Criteria note (.docx) — issued alongside the LOA. `reserved` picks the SC/ST-reservation variant (EMD exempted, caste-certificate + co-op audit clauses, G.O. 66 note). Base64-encoded, for filling its {{placeholders}}. */
+  eligibilityCriteriaTemplate(reserved?: boolean): Promise<string>
   /** Reads the bundled Notice format (.docx) — issued to an L-1 bidder who hasn't concluded the agreement within the stipulated time after the LOA. `ee` picks the Circle-level (EE office) variant over the default Zone-level (SE office) one. `version` 2 picks the alternate format that also prints the Intimation/LOA's own Lr.No/Date near the "To" block (same {{LOA No}}/{{LOA Date}} values as Ref 2) plus a "Gentleman," salutation; defaults to 1, the original format. Base64-encoded, for filling its {{placeholders}}. */
   issueNoticeTemplate(ee: boolean, variantId?: string): Promise<string>
   loadState(): Promise<PersistedState | null>

@@ -3,6 +3,7 @@ import type { RefObject } from 'react'
 import { renderAsync } from '../lazyDocxPreview'
 import { api } from '../ipc'
 import { FONT_SUBSTITUTES, buildFontFallbackCss } from '@core/fontFallbacks'
+import PizZip from 'pizzip'
 import { scaleDocxText } from '@core/docxScale'
 import { paginateFlowSections } from '@core/paginateFlow'
 
@@ -357,37 +358,79 @@ export function usePageScrollTracker(frameRef: RefObject<HTMLIFrameElement>, con
 }
 
 /**
- * Keeps a one-sheet document (the Agreement Bond) on one A4 page: renders it offscreen, and if the filled-in
- * text runs past the sheet shrinks the body text/spacing (scaleDocxText) and re-measures until it fits.
- * Returns the .docx unchanged when it already fits, or after 5 passes / at a 75% floor — so Word, PDF and
- * print all get the same fitted file.
+ * Keeps a one-sheet document (the Agreement Bond, the SE Work Order) on one A4 page: renders it offscreen, and if the
+ * filled-in text runs past the sheet shrinks the body text/spacing (scaleDocxText) by the smallest amount that leaves
+ * about one blank line above the bottom edge — a bisection between 75% and 100% — so the text stays as large as the
+ * page allows. Returns the .docx unchanged when it already fits.
+ *
+ * The measuring happens in a throwaway iframe with NO doctype (quirks mode): that is how the PDF export
+ * (electron/docxChromiumPdf.ts) lays pages out and how Word does, whereas the app's own standards-mode page runs
+ * ~20% taller — measuring there shrank the text far more than the printed page needed.
  */
-export async function fitDocxToOnePage(docxB64: string): Promise<string> {
-  const stage = document.createElement('div')
-  stage.style.cssText = `position:absolute;left:-99999px;top:0;visibility:hidden;width:${PAGE_WIDTH}px`
-  document.body.appendChild(stage)
+export async function fitDocxToOnePage(docxB64: string, options?: { pushToBottom?: boolean }): Promise<string> {
+  const frame = document.createElement('iframe')
+  frame.setAttribute('aria-hidden', 'true')
+  frame.style.cssText = `position:fixed;top:-99999px;left:-99999px;width:${PAGE_WIDTH}px;height:1200px;border:0`
+  document.body.appendChild(frame)
   try {
-    let factor = 1
-    for (let pass = 0; pass < 5; pass++) {
-      const candidate = scaleDocxText(docxB64, factor)
-      stage.replaceChildren()
-      await renderAsync(base64ToUint8(candidate), stage, undefined, DOCX_PREVIEW_OPTIONS)
-      normalizeDocxTextboxes(stage)
-      await addFontFallbacks(stage)
-      const sheets = stage.querySelectorAll<HTMLElement>('section.docx')
-      // An explicit page break is the template's own choice — nothing to fit.
-      if (sheets.length !== 1) return docxB64
+    const doc = frame.contentDocument!
+    doc.open()
+    doc.write(
+      '<html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#fff}' +
+        '.docx-wrapper{background:#fff !important;padding:0 !important;margin:0 !important}' +
+        '.docx-wrapper>section.docx{box-shadow:none !important;margin:0 auto !important}</style></head><body><div id="fit"></div></body></html>'
+    )
+    doc.close()
+    const target = doc.getElementById('fit') as HTMLElement
+    // Where the content ends (bottom padding included) against the sheet's height, or null for a multi-sheet document
+    // (an explicit page break is the template's own choice — nothing to fit).
+    const measure = async (candidate: string): Promise<{ bottom: number; limit: number } | null> => {
+      target.replaceChildren()
+      await renderAsync(base64ToUint8(candidate), target, undefined, DOCX_PREVIEW_OPTIONS)
+      normalizeDocxTextboxes(target)
+      await addFontFallbacks(target)
+      const sheets = target.querySelectorAll<HTMLElement>('section.docx')
+      if (sheets.length !== 1) return null
       const sheet = sheets[0]
-      const height = sheet.getBoundingClientRect().height
-      const limit = parseFloat(getComputedStyle(sheet).minHeight) || PAGE_HEIGHT
-      if (height <= limit + 0.5) return candidate
-      if (factor <= 0.75) return candidate
-      const article = sheet.querySelector('article')?.getBoundingClientRect().height ?? height
-      // Only the article shrinks (the letterhead gap is fixed), so aim its share of the overflow, with 3% headroom for Word's own layout.
-      factor = Math.max(0.75, factor * ((article - (height - limit)) / article) * 0.97)
+      const top = sheet.getBoundingClientRect().top
+      const article = sheet.querySelector('article')
+      const bottom = article
+        ? article.getBoundingClientRect().bottom - top + (parseFloat(getComputedStyle(sheet).paddingBottom) || 0)
+        : sheet.getBoundingClientRect().height
+      return { bottom, limit: parseFloat(getComputedStyle(sheet).minHeight) || PAGE_HEIGHT }
     }
-    return scaleDocxText(docxB64, factor)
+    const ONE_LINE = 16
+    const first = await measure(scaleDocxText(docxB64, 1))
+    if (!first) return docxB64
+    // Below the fitted text only one line of page may remain: the extra room goes into the top margin instead
+    // (`spare` is the measured room beyond that one line, in px, for the exact text size being returned).
+    const pushDown = (docx: string, spare: number): string => {
+      if (!options?.pushToBottom || !(spare > 0.5)) return docx
+      const zip = new PizZip(docx, { base64: true })
+      const file = zip.file('word/document.xml')
+      if (!file) return docx
+      const xml = file
+        .asText()
+        .replace(/(<w:pgMar\b[^>]*\bw:top=")(\d+)(")/, (_m, a, v, c) => `${a}${Number(v) + Math.floor(spare * 15)}${c}`)
+      zip.file('word/document.xml', xml)
+      return zip.generate({ type: 'base64', compression: 'DEFLATE' })
+    }
+    if (first.bottom <= first.limit) return pushDown(scaleDocxText(docxB64, 1), first.limit - ONE_LINE - first.bottom)
+    let lo = 0.75
+    let hi = 1
+    let best: number | null = null
+    let bestSpare = 0
+    for (let pass = 0; pass < 6; pass++) {
+      const mid = (lo + hi) / 2
+      const m = await measure(scaleDocxText(docxB64, mid))
+      if (m && m.bottom <= m.limit - ONE_LINE) {
+        best = mid
+        bestSpare = m.limit - ONE_LINE - m.bottom
+        lo = mid
+      } else hi = mid
+    }
+    return pushDown(scaleDocxText(docxB64, best ?? 0.75), bestSpare)
   } finally {
-    stage.remove()
+    frame.remove()
   }
 }

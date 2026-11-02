@@ -16,9 +16,19 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.49.0',
+    changes: [
+      'New: Bulk Intimations. Pick a folder of L-1 sheets and LOAs; a letter is made only when the LOA agrees with the L-1 on NIT number, agency name and contract amount, and any mismatch is reported with the exact reason.',
+      'Agreement workspace: Verify now cross-checks the figures printed in every filled document against the L-1 sheet, the Works List and the Monitoring Format.',
+      'New Letters page for the Forwarding and QC letters, with a search box (by work name or agency name) here and on the Reminders.',
+      'Evaluation Sheet: the tender conditions and the period of completion can now be read from the portal\'s Tender Consolidation View page.',
+      'New reserved-category Eligibility Criteria template, and smoother syncing between logins.',
+    ],
+  },
+  {
     version: '1.48.0',
     changes: [
-      'New: Settings → Mass Notices. Pick a folder of L-1 sheets and LOAs and every pending Notice for Non-conclusion of Agreement is made in one go, for your office only.',
+      'New: Settings → Bulk Notices. Pick a folder of L-1 sheets and LOAs and every pending Notice for Non-conclusion of Agreement is made in one go, for your office only.',
       'A work with no LOA can still get its notice if its Supplier Details page matches the L-1 (same Tender ID and agency). Works whose Agreement date is already in the Monitoring Format are skipped.',
       'Settings now opens as a list of tiles in the Play style, like the Tools page.',
       'Reminders: notices are grouped by the date the Intimation was issued, each tile shows its NIT No and date, tiles fill the window width, and a Remove duplicates button clears repeat notices of the same tender.',

@@ -1,5 +1,6 @@
 import * as ExcelJS from 'exceljs'
 import { isReservedWork } from './tenderAgents/nameOfWork'
+import { completionYears } from './tenderConsolidationView'
 
 // Builds the "Evaluation Sheet" — the Bid Capacity evaluation the office runs on
 // every participating bidder. One column per bidder, eleven fixed eligibility
@@ -104,6 +105,8 @@ export interface EvaluationSheetInput {
    * filtering of their own.
    */
   conditionsFinal?: boolean
+  /** Period of completion in months (from the Tender Consolidation View); fills N (years) for every bidder. Blank when absent. */
+  completionMonths?: number | null
   /** Signature block for the bottom-right, e.g. "Executive Engineer,\nGajularamaram circle,CMC". */
   signature: string
 }
@@ -299,7 +302,8 @@ export async function buildEvaluationSheet(input: EvaluationSheetInput): Promise
       boldLabel: true,
       accounting: true
     })
-    dataRow(R_N, sl++, 'N', () => null, { boldLabel: true })
+    const nYears = completionYears(input.completionMonths)
+    dataRow(R_N, sl++, 'N', () => (nYears != null ? { formula: `${input.completionMonths}/12`, result: nYears } : null), { boldLabel: true })
     dataRow(R_B, sl++, 'B', () => null, { boldLabel: true, accounting: true })
     dataRow(R_3ANB, sl++, '3AN-B', (_c, L) => ({ formula: `(3*${L}${R_A}*${L}${R_N})-${L}${R_B}` }), {
       boldLabel: true,

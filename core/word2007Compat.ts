@@ -52,8 +52,39 @@ const FIXABLE_PART_RE = /^word\/(document|header\d+|footer\d+|footnotes|endnotes
 // which is why this survived the Word-2007-specific bidi/child-order fixes
 // AND the directory-entries fix (a different template) unnoticed. A plain
 // tag-name string fix, not a DOM operation.
+//
+// The same earlier edit also wrote the hyphenated ATTRIBUTE `w:first-line=`
+// on <w:ind> (real name: `w:firstLine`) in those two templates. Unknown
+// attributes in the w: namespace fail Word's schema check the same way, so
+// "Word found unreadable content" hit every TS Note / Eligibility Criteria
+// download until this was rewritten.
 function fixInvalidSzCsTag(xmlText: string): string {
-  return xmlText.replace(/<w:sz-cs\b/g, '<w:szCs').replace(/<\/w:sz-cs>/g, '</w:szCs>')
+  return xmlText
+    .replace(/<w:sz-cs\b/g, '<w:szCs')
+    .replace(/<\/w:sz-cs>/g, '</w:szCs>')
+    .replace(/<w:ind\b[^>]*?>/g, fixIndFirstLine)
+}
+
+// `w:first-line="-720"` means a hanging indent: CT_Ind's firstLine is
+// unsigned, so a negative value becomes `w:hanging="720"` (not firstLine).
+function fixIndFirstLine(tag: string): string {
+  return tag.replace(/\sw:first-line="(-?\d+)"/, (_m, v: string) => {
+    const n = Number(v)
+    if (n < 0) return /\sw:hanging=/.test(tag) ? '' : ` w:hanging="${-n}"`
+    return /\sw:firstLine=/.test(tag) ? '' : ` w:firstLine="${n}"`
+  })
+}
+
+// <w:pgMar> requires header/footer/gutter (CT_PageMar). Several hand-edited
+// templates (ts-note, eligibility-criteria, …) carry only top/right/bottom/left;
+// Word's own defaults (0.5in header/footer distance, no gutter) are written in.
+function fixPgMarRequiredAttrs(xmlText: string): string {
+  return xmlText.replace(/<w:pgMar\b([^>]*?)(\/?)>/g, (m, attrs: string, close: string) => {
+    let a = attrs
+    for (const [name, val] of [['header', '720'], ['footer', '720'], ['gutter', '0']] as const)
+      if (!new RegExp(`\\sw:${name}=`).test(a)) a += ` w:${name}="${val}"`
+    return a === attrs ? m : `<w:pgMar${a}${close}>`
+  })
 }
 
 // Cheap pre-filter so a part with none of the constructs is never reparsed.
@@ -280,7 +311,7 @@ export function sanitizeDocxForWord2007(buffer: Buffer): Buffer {
     if (!FIXABLE_PART_RE.test(name)) continue
     let xmlText = zip.file(name)?.asText()
     if (!xmlText) continue
-    const fixedTag = fixInvalidSzCsTag(xmlText)
+    const fixedTag = fixPgMarRequiredAttrs(fixInvalidSzCsTag(xmlText))
     let partChanged = fixedTag !== xmlText
     xmlText = fixedTag
     const xml = new DOMParser().parseFromString(xmlText, 'text/xml')
@@ -294,9 +325,24 @@ export function sanitizeDocxForWord2007(buffer: Buffer): Buffer {
     }
   }
 
+  // CT_Zoom requires w:percent; some templates write <w:zoom w:val="bestFit"/> alone.
+  const settings = zip.file('word/settings.xml')?.asText()
+  if (settings && /<w:zoom\b(?![^>]*\sw:percent=)/.test(settings)) {
+    zip.file('word/settings.xml', settings.replace(/<w:zoom\b(?![^>]*\sw:percent=)/g, '<w:zoom w:percent="100"'))
+    changed = true
+  }
+
   // Delete only the folder ENTRY from the map (zip.remove() would cascade
   // and delete the files inside the folder too — e.g. removing "word/"
   // would drop word/document.xml, which is a separate key and must survive).
+  // CocoaOOXMLWriter (macOS Pages/Word export) leaves docProps/meta.xml in the
+  // package with no relationship pointing at it — an orphan part Word's
+  // package validation flags; nothing reads it, so drop it.
+  if (zip.file('docProps/meta.xml') && !/docProps\/meta\.xml/.test(zip.file('_rels/.rels')?.asText() ?? '')) {
+    zip.remove('docProps/meta.xml')
+    changed = true
+  }
+
   const files = zip.files as Record<string, { dir?: boolean }>
   for (const name of Object.keys(files)) {
     if (files[name]?.dir) {
