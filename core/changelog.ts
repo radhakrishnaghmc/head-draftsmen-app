@@ -18,6 +18,7 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: '1.50.0',
     changes: [
+      'Bulk generation in Settings keeps going when you click Back — the items still land in their workspaces; reopen the Bulk tile to see progress.',
       'The Reservation column of the Works List now shows the work\'s actual reservation (SC, ST, Waddera, ...) from its name, or General when it has none — also in the online sheet.',
       'Contract Amount and TCV are now the same figure: the L-1 Amount (INR), or ECV less the tender % when the sheet has none.',
       'The online Works List sheet is easier to read: light-green header, boxed cells, wrapped text, a wide Name of the work column and the other columns sized to fit.',

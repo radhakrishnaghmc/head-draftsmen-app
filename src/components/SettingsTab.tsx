@@ -53,6 +53,7 @@ import type { PersistedState } from '@core/types'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import { IconSettings, IconCheck, IconWarn, IconOpen, IconUser, IconLogout, IconChevronRight, IconChevronLeft, IconBell, IconFolder, IconCloud, IconSun, IconDoc } from './Icons'
 
+const BULK_SECTIONS: SettingsSection[] = ['bulkIntimations', 'bulkQc', 'bulkForwarding', 'bulkDbNote']
 type SettingsSection = 'addOffice' | 'devices' | 'backup' | 'onlineWorks' | 'themes' | 'templates' | 'massNotices' | 'bulkIntimations' | 'bulkQc' | 'bulkForwarding' | 'bulkDbNote'
 
 interface Props {
@@ -795,6 +796,8 @@ export default function SettingsTab({ office, accountOffices, onAddAccountOffice
   )
   // Settings opens as a list of section tiles (like the Tools tab); each opens as a workspace with Back.
   const [section, setSection] = useState<SettingsSection | null>(null)
+  // Bulk workspaces left with Back while still generating (see renderBulk).
+  const [keep, setKeep] = useState<SettingsSection[]>([])
   // Settings stays mounted across tab switches; leaving it returns to the list (and resets Bulk Notices).
   // Bulk Intimations is the exception: its folder scan / prepared letters are slow to rebuild, so it stays open.
   useEffect(() => {
@@ -936,47 +939,32 @@ export default function SettingsTab({ office, accountOffices, onAddAccountOffice
     { key: 'bulkDbNote', icon: <IconDoc />, name: 'Bulk Issue Drawing Branch Notes', meta: 'Prepare Drawing Branch (DB) Notes from a folder of L-1 sheets and LOAs' }
   ]
 
-  if (section === 'bulkIntimations') {
-    return <BulkIntimationsWorkspace office={office} worksTable={worksTable} onIntimationsIssued={onIntimationsIssued} onBack={() => setSection(null)} />
+  // The bulk workspaces keep generating after Back: one that is still working stays mounted (hidden) until it is
+  // reopened and left idle, so its letters still land in their workspaces.
+  const renderBulk = (key: SettingsSection) => {
+    const onBack = (working: boolean) => {
+      setSection(null)
+      setKeep((k) => (working ? (k.includes(key) ? k : [...k, key]) : k.filter((x) => x !== key)))
+    }
+    if (key === 'bulkIntimations') {
+      return <BulkIntimationsWorkspace office={office} worksTable={worksTable} onIntimationsIssued={onIntimationsIssued} onBack={onBack} />
+    }
+    if (key === 'bulkQc') {
+      return <BulkIntimationsWorkspace office={office} worksTable={worksTable} kind="qc" qcParties={qcParties} onAddLetters={onLettersAdd} onBack={onBack} />
+    }
+    if (key === 'bulkDbNote') {
+      return <BulkIntimationsWorkspace office={office} worksTable={worksTable} kind="dbnote" onAddLetters={onLettersAdd} onBack={onBack} />
+    }
+    return <BulkIntimationsWorkspace office={office} worksTable={worksTable} kind="forwarding" onAddLetters={onLettersAdd} onBack={onBack} />
   }
+  const bulkHosts = BULK_SECTIONS.filter((k) => k === section || keep.includes(k)).map((k) => (
+    <div key={k} style={{ display: k === section ? 'contents' : 'none' }}>
+      {renderBulk(k)}
+    </div>
+  ))
+  if (section && BULK_SECTIONS.includes(section)) return <>{bulkHosts}</>
 
-  if (section === 'bulkQc') {
-    return (
-      <BulkIntimationsWorkspace
-        office={office}
-        worksTable={worksTable}
-        kind="qc"
-        qcParties={qcParties}
-        onAddLetters={onLettersAdd}
-        onBack={() => setSection(null)}
-      />
-    )
-  }
-
-  if (section === 'bulkDbNote') {
-    return (
-      <BulkIntimationsWorkspace
-        office={office}
-        worksTable={worksTable}
-        kind="dbnote"
-        onAddLetters={onLettersAdd}
-        onBack={() => setSection(null)}
-      />
-    )
-  }
-
-  if (section === 'bulkForwarding') {
-    return (
-      <BulkIntimationsWorkspace
-        office={office}
-        worksTable={worksTable}
-        kind="forwarding"
-        onAddLetters={onLettersAdd}
-        onBack={() => setSection(null)}
-      />
-    )
-  }
-
+  const page = (() => {
   if (section === 'massNotices') {
     return (
       <MassNoticesWorkspace
@@ -1040,5 +1028,13 @@ export default function SettingsTab({ office, accountOffices, onAddAccountOffice
         ))}
       </div>
     </div>
+  )
+  })()
+
+  return (
+    <>
+      {bulkHosts}
+      {page}
+    </>
   )
 }

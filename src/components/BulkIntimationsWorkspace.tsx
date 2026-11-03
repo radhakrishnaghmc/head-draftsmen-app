@@ -58,7 +58,8 @@ interface Props {
   /** The office's 3rd/4th-party QC agencies (Works List agency panel) — addressed on the QC letters. */
   qcParties?: QcOfficeParties
   /** Leaves the workspace — the parent unmounts it, which resets it to the Upload folder state. */
-  onBack: () => void
+  /** `working` is true while a run is still going — the host keeps this workspace alive so it can finish. */
+  onBack: (working: boolean) => void
 }
 
 /** One ready Intimation: the filled letter plus what its tile shows. */
@@ -149,6 +150,9 @@ export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'i
   const [saved, setSaved] = useState<string | null>(null)
   const [preview, setPreview] = useState<ReadyIntimation | null>(null)
 
+  // A run outlives the screen it started on, so it always calls the host's latest handlers, not the ones it started with.
+  const handlers = useRef({ onAddLetters, onIntimationsIssued })
+  handlers.current = { onAddLetters, onIntimationsIssued }
   const cancelled = useRef(false)
   const runId = useRef(0)
   useEffect(
@@ -415,9 +419,9 @@ export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'i
         await pause(120) // let each tile paint before the next one
       }
       // Every Intimation made is listed under the Intimation page's Issued Intimations tab straight away.
-      if (issuedNow.length > 0) onIntimationsIssued?.(issuedNow)
+      if (issuedNow.length > 0) handlers.current.onIntimationsIssued?.(issuedNow)
       if (isLetters && made.length > 0) {
-        onAddLetters?.(made)
+        handlers.current.onAddLetters?.(made)
         setSaved(`${made.length} letter${made.length === 1 ? '' : 's'} moved to Forwarding Slips, QC Intimations & DB Note → ${destination}.`)
       }
       setPhase('done')
@@ -509,7 +513,7 @@ export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'i
             <IconRestore /> Clear
           </button>
         )}
-        <button className="ghost pdf-ws-back" onClick={onBack}>
+        <button className="ghost pdf-ws-back" onClick={() => onBack(busy)}>
           <IconChevronLeft /> Back
         </button>
       </div>
