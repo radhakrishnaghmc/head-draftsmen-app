@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { hasWorks, mergeNewWorks, scanBelongsToOffice, saveWorkspaceInputs } from '@core/worksSync'
+import { fillReservations, reservationLabel, hasWorks, mergeNewWorks, scanBelongsToOffice, saveWorkspaceInputs } from '@core/worksSync'
 import type { ExcelTable } from '@core/types'
 
 const H = ['Wincode', 'Name of the work', 'ECV', 'Sanction By']
@@ -52,5 +52,29 @@ describe('works sync', () => {
     expect(out.table.rows[0]).toMatchObject({ Eoffice: '200', 'Amount of estimate': '12', ECV: '900' })
     expect(out.table.rows[1].Eoffice).toBe('300')
     expect(mergeNewWorks(out.table, sheet).updated).toBe(0)
+  })
+})
+
+describe('Reservation column', () => {
+  it('names the category in the work title, else General', () => {
+    expect(reservationLabel('Construction of road (Reserved for SC)')).toBe('SC')
+    expect(reservationLabel('Drain works reserved for Waddera only')).toBe('Waddera')
+    expect(reservationLabel('Drain works')).toBe('General')
+    expect(reservationLabel('Drain works (Reserved for General)')).toBe('General')
+  })
+
+  it('fills every named work, leaves blank rows, and returns the same table when nothing changes', () => {
+    const t: ExcelTable = {
+      id: 't', name: 't', path: '',
+      headers: ['Name of the work', 'Reservation'],
+      rows: [
+        { 'Name of the work': 'Road (Reserved for ST)', Reservation: 'Yes' },
+        { 'Name of the work': 'Drain', Reservation: '' },
+        { 'Name of the work': '', Reservation: '' }
+      ]
+    }
+    const out = fillReservations(t)
+    expect(out.rows.map((r) => r['Reservation'])).toEqual(['ST', 'General', ''])
+    expect(fillReservations(out)).toBe(out)
   })
 })

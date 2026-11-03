@@ -1,5 +1,6 @@
 import type { ExcelTable } from '@core/types'
 import type { PlaceholderMatch } from '@core/createDocument'
+import { fillReservations } from '@core/worksSync'
 
 /**
  * The standard "works" schema for the tender/agreement workflow. These columns
@@ -100,7 +101,7 @@ export function applyWorksSchema(table: ExcelTable): ExcelTable {
     }
     return next
   })
-  return { ...table, path: '', headers, rows }
+  return fillReservations({ ...table, path: '', headers, rows })
 }
 
 /**
@@ -269,11 +270,11 @@ export function applyWorksSchemaWithMapping(
     for (const h of headers) if (!(h in next)) next[h] = row[h] ?? row[importedHeaders.find((ih) => ih.trim() === h) ?? h] ?? ''
     return next
   })
-  return {
+  return fillReservations({
     ...meta,
     headers,
     sourceHeaders: sourceHeaders.length > 0 ? sourceHeaders : undefined,
     headerLabels: Object.keys(headerLabels).length > 0 ? headerLabels : undefined,
     rows
-  }
+  })
 }

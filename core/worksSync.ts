@@ -1,5 +1,5 @@
 import type { ExcelTable } from './types'
-import { normalizeWorkNameForMatch as norm } from './tenderAgents/nameOfWork'
+import { normalizeWorkNameForMatch as norm, reservationCategory, reservationCategoryFromRow } from './tenderAgents/nameOfWork'
 
 /**
  * Rules for keeping the Works List database (the source of truth — L1/LOA scans keep updating it) in step with the
@@ -92,7 +92,7 @@ export function mergeNewWorks(
     added++
   }
 
-  return { table: { ...existing, headers, rows }, added, skipped, updated }
+  return { table: fillReservations({ ...existing, headers, rows }), added, skipped, updated }
 }
 
 /** True when this work name is already a row of the Works List (exact after normalizing, or one contains the other). */
@@ -160,4 +160,29 @@ export function saveWorkspaceInputs(table: ExcelTable, rowIndex: number, values:
   }
   if (!changed) return table
   return { ...table, rows: table.rows.map((r, i) => (i === rowIndex ? next : r)) }
+}
+
+/** What the Reservation column reads for a work: the category named in its title (SC, ST, Waddera, ...), else "General". */
+export function reservationLabel(workName: string): string {
+  return reservationCategory(workName) || 'General'
+}
+
+/**
+ * Writes each work's actual reservation into the Reservation column — the category its name carries ("SC", "ST",
+ * "Waddera", ...) or "General" when it names none. A category typed by hand against a name that carries none is kept.
+ * Rows with no work name are left alone. Returns the same table object when nothing changed.
+ */
+export function fillReservations(table: ExcelTable): ExcelTable {
+  const nameH = header(table, 'name of the work')
+  const resH = header(table, 'reservation')
+  if (!nameH || !resH) return table
+  let changed = false
+  const rows = table.rows.map((r) => {
+    if (!cell(r, nameH)) return r
+    const want = reservationCategoryFromRow({ 'Name of the work': r[nameH] ?? '', Reservation: r[resH] ?? '' }) || 'General'
+    if ((r[resH] ?? '') === want) return r
+    changed = true
+    return { ...r, [resH]: want }
+  })
+  return changed ? { ...table, rows } : table
 }

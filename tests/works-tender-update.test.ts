@@ -131,6 +131,14 @@ describe('updateWorksListFromEvaluations', () => {
     expect(r['Contract Amount']).toBe('999999')
   })
 
+  it('without an Amount (INR), Contract Amount and TCV both take ECV less the tender %', () => {
+    const t = table([blankRow({ 'Name of the work': 'Junction Improvement in Aleap Circle' })])
+    const ev: TenderEvaluation = { ...EV, contractRupees: undefined, ecvRupees: 1000000, tenderPercentage: -10 }
+    const r = updateWorksListFromEvaluations(t, [ev]).table.rows[0]
+    expect(r['TCV']).toBe('1100000')
+    expect(r['Contract Amount']).toBe('1100000')
+  })
+
   it('prefers the L-1 sheet over the intimation for agency and contract when both are present', () => {
     const t = table([blankRow({ 'Name of the work': 'Junction Improvement in Aleap Circle' })])
     const notice = { agencyName: 'FALLBACK AGENCY', address: 'Addr', contractRupees: 999999 }

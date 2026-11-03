@@ -186,7 +186,7 @@ export function detectNameOfWork(lines: string[]): string | undefined {
 // but not captured — the category itself is the run of slash-joined
 // word(s)/abbreviation(s) right after "for".
 const GENERAL_CATEGORY = /^(general|gen|open|unreserved|ur|all)(\s*\/\s*(general|gen|open|unreserved|ur|all))*$/i
-const RESERVED_FOR = /reserved\s+for\s+([A-Za-z]+(?:\s*\/\s*[A-Za-z]+)*)/i
+const RESERVED_FOR = /reserved\s+(?:for|to)\s+([A-Za-z]+(?:\s*\/\s*[A-Za-z]+)*)/i
 
 /**
  * Whether the work is marked reserved for ANY category — not just SC/ST.

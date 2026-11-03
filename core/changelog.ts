@@ -18,6 +18,8 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: '1.50.0',
     changes: [
+      'The Reservation column of the Works List now shows the work\'s actual reservation (SC, ST, Waddera, ...) from its name, or General when it has none — also in the online sheet.',
+      'Contract Amount and TCV are now the same figure: the L-1 Amount (INR), or ECV less the tender % when the sheet has none.',
       'The online Works List sheet is easier to read: light-green header, boxed cells, wrapped text, a wide Name of the work column and the other columns sized to fit.',
       'Issued Intimations are dated by the intimation\'s own LOA Date and grouped by that date.',
       'The Sync button beside your profile now also updates the online Works List sheet.',
