@@ -13,7 +13,7 @@ import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { detectTenderId } from '@core/tenderAgents'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
 import { computeWorkAmounts, tenderPercentFromRow, corpusFundFromEcv } from '@core/worksAmounts'
-import { wrapAgencyAddress } from '@core/workOrderAgreement'
+import { wrapAgencyAddress, circleFromNit } from '@core/workOrderAgreement'
 import { extractItemNo, stripItemNoTag } from '@core/bidDocument'
 import { DROP_PARAGRAPH_MARKER } from '@core/dropMarker'
 import {
@@ -32,6 +32,7 @@ import {
 } from '@core/seEvaluationNotes'
 import { parseCementSteelRateLines } from '@core/cementSteelRate'
 import { CEMENT_STEEL_MONTHS, cementSteelRatePeriodKey } from '@core/cementSteelRates'
+import { scanBelongsToOffice } from '@core/worksSync'
 import { resolveFromDirectory, entriesOf, corporationByName, CORPORATIONS } from '../zoneCircleDirectory'
 import { officeScopedKey, TEMPLATE_KEYS, type Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
@@ -891,6 +892,16 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
       if (!ev.nameOfWork && !ev.tenderId) {
         throw new Error("Couldn't read tender details from that PDF — is it the Commercial Evaluation / Stage Selected page?")
       }
+      // The L1 must belong to the selected office — unless its work is already in this office's Works List
+      // (pre-split GHMC works can still name the old circle).
+      const belongs = scanBelongsToOffice({
+        officeCircle: office.circle,
+        sheetCircle:
+          circleFromNit(ev.noticeNo || '').circle || (resolveFromDirectory(ev.nameOfWork, entriesOf(office.corporation)).circle ?? ''),
+        workName: ev.nameOfWork,
+        table
+      })
+      if (!belongs.ok) throw new Error(belongs.error)
       setPdfEval(ev)
       setPdfName(file.name)
       // The sheet's own "(Item No.13)" tag (NIT line, or tagged onto the Name of Work) is

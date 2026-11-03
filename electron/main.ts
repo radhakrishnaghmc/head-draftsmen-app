@@ -1,9 +1,21 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, screen } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, screen } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as https from 'https'
 import * as os from 'os'
 import * as firebaseSync from './firebaseSync'
+import * as googleSheets from './googleSheets'
+import {
+  cleanSignup,
+  validateSignup,
+  validateGoogleSignup,
+  MIN_PASSWORD_LENGTH,
+  addAccountOffice,
+  removeAccountOffice,
+  type SignupRequest,
+  type GoogleSignupDetails,
+  type AccountOffice
+} from '../core/signupRequest'
 import { readActivityLog, logActivity, mergeIntoActivityLog } from './activityLog'
 import { encryptBackup, decryptBackup, BackupError, BACKUP_EXTENSION, describeStateChange } from '../core/backup'
 import { initAutoUpdate, restartToUpdate, checkForUpdatesManually } from './autoUpdate'
@@ -63,7 +75,6 @@ import type { MaterialEstimateMeta } from '../core/materialTemplate'
 import type { MaterialTotals } from '../core/materialEstimate'
 import { parseCalendarHtml } from '../core/calendar'
 import { importTableFromGoogleLink, importAllSheetsFromGoogleLink } from '../core/googleImport'
-import { validateLogin, listCorporationUsers } from '../core/auth'
 import type { LoginResult } from '../core/auth'
 import { rememberOfflineAuth, checkOfflineAuth, hasOfflineAuth } from './offlineAuth'
 import { fillTenderNotice } from '../core/tenderNotice'
@@ -81,6 +92,8 @@ import { docxToPageImages } from '../core/docxToPdf'
 import { convertDocxToPdfWithChromium as convertDocxToPdf } from './docxChromiumPdf'
 import { verifyDocFigures } from '../core/agreementVerify'
 import { scheduleAWorkbookToPdf, scheduleAPageHtml } from './scheduleAPdf'
+import { excelToPrintablePdf, printExcel } from './excelPrintPdf'
+import { inspectExcelForPrint } from '../core/excelPrintHtml'
 import { PDFDocument } from 'pdf-lib'
 import { rasterizePdfPages } from './pdfRaster'
 import { mergeDocxBuffers } from '../core/mergeDocx'
@@ -410,6 +423,19 @@ function registerHandlers(): void {
     return app.getPath('downloads')
   })
 
+  // "Remember password" on the login page: the password is sealed with the OS keychain (safeStorage) before it is kept locally.
+  ipcMain.handle(IPC.sealSecret, async (_e, plain: string): Promise<string> => {
+    if (!safeStorage.isEncryptionAvailable()) return ''
+    return safeStorage.encryptString(plain).toString('base64')
+  })
+  ipcMain.handle(IPC.unsealSecret, async (_e, sealed: string): Promise<string> => {
+    try {
+      return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(Buffer.from(sealed, 'base64')) : ''
+    } catch {
+      return ''
+    }
+  })
+
   ipcMain.handle(IPC.getAppVersion, async (): Promise<string> => {
     return app.getVersion()
   })
@@ -484,18 +510,96 @@ function registerHandlers(): void {
     return importAllSheetsFromGoogleLink(url)
   })
 
+  /** Everything after the credentials are accepted (password or Google): point the local cache at this login, claim a session slot, pull the cloud workspace. */
+  const finishLogin = async (
+    loginId: string,
+    password: string,
+    forceLogout: boolean | undefined,
+    result: LoginResult
+  ): Promise<LoginResult> => {
+    // Point the local cache at THIS login's own file before anything reads or
+    // writes it, so we never load the previous user's state and never write
+    // this user's over theirs.
+    currentLoginId = firebaseSync.normalizeId(loginId)
+    googleSheets.setLogin(currentLoginId)
+    currentLoginPassword = password
+    activitySigs = {}
+
+    // forceLogout only ever reaches here after the password above has
+    // already been re-verified — the login screen only offers it once a
+    // normal attempt has already come back maxSessions, using the same
+    // loginId/password the user just typed. It immediately ends every other
+    // device's session, so it's never applied silently.
+    const { claim, remoteState } = await firebaseSync.startSession(
+      loginId,
+      os.hostname(),
+      (partial) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(IPC.remoteStateUpdate, partial)
+        }
+      },
+      forceLogout
+    )
+    if (!claim.ok) return { ok: false, maxSessions: true }
+    logActivity(currentLoginId, 'login', `Signed in on ${os.hostname()}${result.offline ? ' (offline)' : ''}`)
+
+    if (remoteState) {
+      try {
+        const file = stateFile()
+        // A record entered on this device but not yet reflected in the cloud
+        // (pushState is fire-and-forget and swallows failures — a network
+        // hiccup, or the app quitting/logging out before that push finished)
+        // must not vanish just because THIS login's remote pull raced ahead
+        // of it. Union the per-item lists with whatever this login's own
+        // on-disk cache already has, keeping any local-only record instead of
+        // letting a stale-but-present cloud copy silently overwrite it.
+        let merged: PersistedState = remoteState
+        try {
+          const existing = JSON.parse(fs.readFileSync(file, 'utf8')) as PersistedState
+          const unionById = <T extends { id: string }>(remote: T[] | undefined, local: T[] | undefined): T[] => {
+            const remoteList = remote ?? []
+            const seen = new Set(remoteList.map((it) => it.id))
+            return [...remoteList, ...(local ?? []).filter((it) => !seen.has(it.id))]
+          }
+          merged = {
+            ...remoteState,
+            todos: unionById(remoteState.todos, existing.todos),
+            mbScrutiny: unionById(remoteState.mbScrutiny, existing.mbScrutiny),
+            createdDocuments: unionById(remoteState.createdDocuments, existing.createdDocuments),
+            // Agencies entered just before logout/quit may not have reached the cloud yet — keep them.
+            qcParties: mergeQcParties(remoteState.qcParties, existing.qcParties)
+          }
+        } catch {
+          // No readable existing cache for this login (fresh machine/first
+          // login here) — remote alone is all there is.
+        }
+        fs.writeFileSync(file, JSON.stringify(merged), 'utf8')
+      } catch {
+        // Non-fatal: local cache write is best-effort.
+      }
+    }
+    return { ...result, loginId: currentLoginId }
+  }
+
   // How long a login waits on the online credentials check before falling back to this device's offline record.
   const ONLINE_LOGIN_CHECK_MS = 4000
+
+  // Credentials live in Firestore `accounts` (Sign up accounts and migrated logins).
+  async function validateAnyLogin(loginId: string, password: string): Promise<LoginResult> {
+    const account = await firebaseSync.checkAccount(loginId, password)
+    if (account.state === 'none') return { ok: false }
+    return { ok: true, offices: account.offices }
+  }
 
   ipcMain.handle(
     IPC.login,
     async (_e, loginId: string, password: string, forceLogout?: boolean): Promise<LoginResult> => {
       let result: LoginResult
       try {
-        // On a weak connection the credentials-sheet download (3 attempts, 20 s idle timeout each) can take a
+        // On a weak connection the online credentials check can take a
         // minute or more. If this device already has a verified offline record for this login ID, stop waiting
         // after a few seconds and let the offline check below decide — same rule as a hard network failure.
-        const check = validateLogin(loginId, password)
+        const check = validateAnyLogin(loginId, password)
         result = hasOfflineAuth(loginId)
           ? await Promise.race([
               check,
@@ -506,7 +610,7 @@ function registerHandlers(): void {
           : await check
         if (result.ok) rememberOfflineAuth(loginId, password)
       } catch (e) {
-        // The credentials sheet is unreachable — almost always no internet.
+        // The online credentials check failed — almost always no internet.
         // Only let this through if THIS SAME loginId/password has already
         // been verified online on this device before; a different login ID,
         // or one that's never succeeded online here, still gets the original
@@ -519,67 +623,7 @@ function registerHandlers(): void {
       }
       if (!result.ok) return result
 
-      // Point the local cache at THIS login's own file before anything reads or
-      // writes it, so we never load the previous user's state and never write
-      // this user's over theirs.
-      currentLoginId = firebaseSync.normalizeId(loginId)
-      currentLoginPassword = password
-      activitySigs = {}
-
-      // forceLogout only ever reaches here after the password above has
-      // already been re-verified — the login screen only offers it once a
-      // normal attempt has already come back maxSessions, using the same
-      // loginId/password the user just typed. It immediately ends every other
-      // device's session, so it's never applied silently.
-      const { claim, remoteState } = await firebaseSync.startSession(
-        loginId,
-        os.hostname(),
-        (partial) => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC.remoteStateUpdate, partial)
-          }
-        },
-        forceLogout
-      )
-      if (!claim.ok) return { ok: false, maxSessions: true }
-      logActivity(currentLoginId, 'login', `Signed in on ${os.hostname()}${result.offline ? ' (offline)' : ''}`)
-
-      if (remoteState) {
-        try {
-          const file = stateFile()
-          // A record entered on this device but not yet reflected in the cloud
-          // (pushState is fire-and-forget and swallows failures — a network
-          // hiccup, or the app quitting/logging out before that push finished)
-          // must not vanish just because THIS login's remote pull raced ahead
-          // of it. Union the per-item lists with whatever this login's own
-          // on-disk cache already has, keeping any local-only record instead of
-          // letting a stale-but-present cloud copy silently overwrite it.
-          let merged: PersistedState = remoteState
-          try {
-            const existing = JSON.parse(fs.readFileSync(file, 'utf8')) as PersistedState
-            const unionById = <T extends { id: string }>(remote: T[] | undefined, local: T[] | undefined): T[] => {
-              const remoteList = remote ?? []
-              const seen = new Set(remoteList.map((it) => it.id))
-              return [...remoteList, ...(local ?? []).filter((it) => !seen.has(it.id))]
-            }
-            merged = {
-              ...remoteState,
-              todos: unionById(remoteState.todos, existing.todos),
-              mbScrutiny: unionById(remoteState.mbScrutiny, existing.mbScrutiny),
-              createdDocuments: unionById(remoteState.createdDocuments, existing.createdDocuments),
-              // Agencies entered just before logout/quit may not have reached the cloud yet — keep them.
-              qcParties: mergeQcParties(remoteState.qcParties, existing.qcParties)
-            }
-          } catch {
-            // No readable existing cache for this login (fresh machine/first
-            // login here) — remote alone is all there is.
-          }
-          fs.writeFileSync(file, JSON.stringify(merged), 'utf8')
-        } catch {
-          // Non-fatal: local cache write is best-effort.
-        }
-      }
-      return result
+      return finishLogin(loginId, password, forceLogout, result)
     }
   )
 
@@ -589,6 +633,7 @@ function registerHandlers(): void {
     // Forget which login's cache we were pointing at, so nothing can read or
     // write it until the next login re-establishes identity.
     currentLoginId = null
+    googleSheets.setLogin(null)
     currentLoginPassword = null
     activitySigs = {}
   })
@@ -613,7 +658,7 @@ function registerHandlers(): void {
     // Not an empty list: the renderer would read that as "nobody else in this corporation". A dev build skips the
     // login screen (see AuthGate), so there is no signed-in account here — and no one to share as.
     if (!currentLoginId) throw new Error('NOT_SIGNED_IN')
-    return listCorporationUsers(corporation, currentLoginId)
+    return firebaseSync.listCorporationUsers(corporation, currentLoginId)
   })
 
   ipcMain.handle(
@@ -625,8 +670,10 @@ function registerHandlers(): void {
       entries: Record<string, TenderConditionsEntry>
     ): Promise<ShareResult[]> => {
       if (!currentLoginId) throw new Error('NOT_SIGNED_IN')
-      // Only users the login sheet lists under this corporation may be written to — never an arbitrary ID from the renderer.
-      const allowed = new Set((await listCorporationUsers(corporation, currentLoginId)).map((u) => u.toLowerCase()))
+      // Only accounts holding an office in this corporation may be written to — never an arbitrary ID from the renderer.
+      const allowed = new Set(
+        (await firebaseSync.listCorporationUsers(corporation, currentLoginId)).map((u) => u.toLowerCase())
+      )
       return firebaseSync.shareTenderConditions(
         targets.filter((t) => allowed.has(t.trim().toLowerCase())),
         entries
@@ -808,7 +855,11 @@ function registerHandlers(): void {
       if (result.canceled || result.filePaths.length === 0) return null
       let dir = result.filePaths[0]
       // Optional wrapper folder inside the chosen one (e.g. "Bulk Intimations"), reused if it already exists.
-      const wrapper = subfolder?.replace(/\s*:\s*/g, ' - ').replace(/[/\\*?"<>|]/g, '-').slice(0, 100).trim()
+      const wrapper = subfolder
+        ?.replace(/\s*:\s*/g, ' - ')
+        .replace(/[/\\*?"<>|]/g, '-')
+        .slice(0, 100)
+        .trim()
       if (wrapper) {
         dir = path.join(dir, wrapper)
         fs.mkdirSync(dir, { recursive: true })
@@ -1228,6 +1279,12 @@ function registerHandlers(): void {
     const pdf = await convertDocxToPdf(Buffer.from(docxBytes))
     return new Uint8Array(pdf)
   })
+
+  ipcMain.handle(IPC.excelPrintInspect, async (_e, xlsx: Uint8Array, paper?: 'a4' | 'a3' | 'letter' | 'legal') =>
+    inspectExcelForPrint(Buffer.from(xlsx), paper)
+  )
+  ipcMain.handle(IPC.excelToPrintPdf, async (_e, xlsx: Uint8Array, opts) => new Uint8Array(await excelToPrintablePdf(Buffer.from(xlsx), opts)))
+  ipcMain.handle(IPC.excelPrint, async (_e, xlsx: Uint8Array, opts) => printExcel(Buffer.from(xlsx), opts))
 
   ipcMain.handle(IPC.docxToPageImages, async (_e, docxBytes: Uint8Array): Promise<Uint8Array[]> => {
     const images = await docxToPageImages(Buffer.from(docxBytes), convertDocxToPdf, (pdf, sizes) =>
@@ -1751,7 +1808,9 @@ function registerHandlers(): void {
   })
 
   ipcMain.handle(IPC.eligibilityCriteriaTemplate, async (_e, reserved?: boolean): Promise<string> => {
-    const templatePath = bundledResourceFile(reserved ? 'eligibility-criteria-reserved-template.docx' : 'eligibility-criteria-template.docx')
+    const templatePath = bundledResourceFile(
+      reserved ? 'eligibility-criteria-reserved-template.docx' : 'eligibility-criteria-template.docx'
+    )
     if (!templatePath) throw new Error('Eligibility Criteria format is missing from the app bundle.')
     return fs.readFileSync(templatePath).toString('base64')
   })
@@ -2125,7 +2184,8 @@ function registerHandlers(): void {
   // v24: QC letters' work name no longer bold; AE/Dy.EE EOT rows take the typed TS No and the full Agreement No/Date.
   // v27: the Issue Documents workspace ships empty — every bundled/created document is cleared once.
   const CURRENT_DEFAULT_DOC_VERSION = 27
-  const DEFAULT_DOCUMENTS: { id: string; name: string; file: string; officeScope: 'zonal' | 'circle' | undefined }[] = []
+  const DEFAULT_DOCUMENTS: { id: string; name: string; file: string; officeScope: 'zonal' | 'circle' | undefined }[] =
+    []
 
   function injectDefaultDocuments(state: PersistedState): PersistedState {
     if ((state.seededDocVersion ?? 0) >= CURRENT_DEFAULT_DOC_VERSION) return state
@@ -2169,7 +2229,12 @@ function registerHandlers(): void {
       // First run (no saved state): seed with the bundled works database + default documents.
       try {
         const seed = seedStateFile()
-        if (seed) state = JSON.parse(fs.readFileSync(seed, 'utf8')) as PersistedState
+        if (seed) {
+          const seeded = JSON.parse(fs.readFileSync(seed, 'utf8')) as PersistedState
+          // The bundled file carries the Quthbullapur works list. A new login must never inherit it, so only the
+          // column layout is kept (rows empty); each login builds its own Works List.
+          state = { ...seeded, tables: seeded.tables.map((t) => ({ ...t, rows: [] })) }
+        }
       } catch {
         // fall through
       }
@@ -2182,6 +2247,8 @@ function registerHandlers(): void {
   // echo) doesn't re-serialize and rewrite ~1MB to disk for nothing.
   let lastWrittenJson: string | null = null
   let lastWrittenPath: string | null = null
+  let lastQcJson = ''
+  let lastQcFor: string | null = null
   ipcMain.handle(IPC.saveState, async (_e, state: PersistedState, skipCloud?: boolean): Promise<number> => {
     const file = stateFile()
     const json = JSON.stringify(state)
@@ -2215,7 +2282,21 @@ function registerHandlers(): void {
     // another session just added. So persist locally but don't re-push.
     // Cloud pushes are manual (the header Sync button) until the unsynced data reaches AUTO_SYNC_BYTES, then they
     // happen automatically. Logout and the idle logout always sync first (see App.tsx).
+    // Mirror a changed Works List to the online sheet (no-op unless this login connected Google). Edits that arrived
+    // from another device (skipCloud) were already mirrored by that device.
+    if (!skipCloud) googleSheets.scheduleSync(state)
+    // Department / 3rd / 4th-party QC agencies go online the moment they're entered, not on the manual/threshold
+    // schedule. The first save after sign-in (or after another device's change arrives) only sets the baseline.
+    // The Works List database (every office's tables) goes online immediately too.
+    const qcJson = JSON.stringify([state.qcParties ?? {}, state.tables, state.tablesByOffice ?? {}])
+    const qcChanged = lastQcFor === currentLoginId && lastQcJson !== qcJson
+    lastQcFor = currentLoginId
+    lastQcJson = qcJson
     if (skipCloud) return firebaseSync.pendingBytes(state)
+    if (qcChanged) {
+      await firebaseSync.pushState(state)
+      return firebaseSync.pendingBytes(state)
+    }
     const pending = firebaseSync.pendingBytes(state)
     if (pending >= AUTO_SYNC_BYTES) {
       await firebaseSync.pushState(state)
@@ -2223,6 +2304,146 @@ function registerHandlers(): void {
     }
     return pending
   })
+
+  // ── Online Works List (Google Sheets) ───────────────────────────────
+  ipcMain.handle(IPC.submitSignup, async (_e, request: SignupRequest): Promise<string> => {
+    const clean = cleanSignup(request)
+    const errors = Object.values(validateSignup(clean))
+    if (errors.length > 0) return errors[0] as string
+    try {
+      return await firebaseSync.startSignup(clean)
+    } catch {
+      return 'Could not send the confirmation email. Check your internet connection and try again.'
+    }
+  })
+
+  ipcMain.handle(IPC.completeSignup, async (_e, request: SignupRequest): Promise<string> => {
+    const clean = cleanSignup(request)
+    if (Object.keys(validateSignup(clean)).length > 0) return 'Check the details you entered.'
+    try {
+      return await firebaseSync.completeSignup(clean)
+    } catch {
+      return 'Could not create your account. Check your internet connection and try again.'
+    }
+  })
+
+  ipcMain.handle(IPC.changePassword, async (_e, loginId: string, currentPassword: string, newPassword: string): Promise<string> => {
+    if (typeof newPassword !== 'string' || newPassword.length < MIN_PASSWORD_LENGTH) return `Use at least ${MIN_PASSWORD_LENGTH} characters.`
+    try {
+      const error = await firebaseSync.changeAccountPassword(String(loginId), String(currentPassword), newPassword)
+      // This device's offline record would otherwise keep accepting the old password.
+      if (!error && hasOfflineAuth(loginId)) rememberOfflineAuth(loginId, newPassword)
+      return error
+    } catch {
+      return 'Could not change the password. Check your internet connection and try again.'
+    }
+  })
+
+  ipcMain.handle(IPC.startPasswordReset, async (_e, loginId: string): Promise<string> => {
+    try {
+      return await firebaseSync.startPasswordReset(String(loginId))
+    } catch {
+      return 'Could not send the reset email. Check your internet connection and try again.'
+    }
+  })
+
+  ipcMain.handle(IPC.finishPasswordReset, async (_e, loginId: string, newPassword: string): Promise<string> => {
+    if (typeof newPassword !== 'string' || newPassword.length < MIN_PASSWORD_LENGTH) return `Use at least ${MIN_PASSWORD_LENGTH} characters.`
+    try {
+      const error = await firebaseSync.finishPasswordReset(String(loginId), newPassword)
+      if (!error && hasOfflineAuth(loginId)) rememberOfflineAuth(loginId, newPassword)
+      return error
+    } catch {
+      return 'Could not reset the password. Check your internet connection and try again.'
+    }
+  })
+
+  // The signed-in self-registered login's own offices (Settings → Add office). Always the current login, never one named by the renderer.
+  ipcMain.handle(IPC.accountOffices, async (): Promise<AccountOffice[] | null> => {
+    if (!currentLoginId) return null
+    return firebaseSync.getAccountOffices(currentLoginId)
+  })
+
+  const editAccountOffices = async (
+    office: AccountOffice,
+    edit: typeof addAccountOffice
+  ): Promise<{ error?: string; offices: AccountOffice[] }> => {
+    if (!currentLoginId) return { error: 'Sign in first.', offices: [] }
+    try {
+      const current = await firebaseSync.getAccountOffices(currentLoginId)
+      if (!current) return { error: 'Offices can only be changed on a login created with Sign up.', offices: [] }
+      const result = edit(current, office)
+      if ('error' in result) return { error: result.error, offices: current }
+      await firebaseSync.setAccountOffices(currentLoginId, result.offices)
+      return { offices: result.offices }
+    } catch {
+      return { error: 'Could not save. Check your internet connection and try again.', offices: [] }
+    }
+  }
+  ipcMain.handle(IPC.addAccountOffice, (_e, office: AccountOffice) => editAccountOffices(office, addAccountOffice))
+  ipcMain.handle(IPC.removeAccountOffice, (_e, office: AccountOffice) =>
+    editAccountOffices(office, removeAccountOffice)
+  )
+
+  // A Google account that signed in but has no account yet, waiting for the office step (googleSignup).
+  let pendingGoogle: Awaited<ReturnType<typeof googleSheets.authorizeForLogin>> | null = null
+
+  const finishGoogleLogin = async (
+    google: Awaited<ReturnType<typeof googleSheets.authorizeForLogin>>,
+    forceLogout?: boolean
+  ): Promise<LoginResult> => {
+    // The cloud workspace is keyed by the email (same rule as login IDs). Backups use a per-account secret in place of a password.
+    const loginId = firebaseSync.normalizeId(google.email)
+    const result = await finishLogin(loginId, `google:${google.email}`, forceLogout, {
+      ok: true,
+      offices: await firebaseSync.officesForLogin(loginId).catch(() => [])
+    })
+    if (result.ok) google.adopt()
+    return { ...result, email: google.email }
+  }
+
+  ipcMain.handle(IPC.googleCancel, () => googleSheets.cancelAuthorize())
+
+  ipcMain.handle(IPC.googleLogin, async (_e, forceLogout?: boolean): Promise<LoginResult & { error?: string }> => {
+    pendingGoogle = null
+    let google: Awaited<ReturnType<typeof googleSheets.authorizeForLogin>>
+    try {
+      google = await googleSheets.authorizeForLogin()
+      if (!(await firebaseSync.isGoogleEmailAllowed(google.email))) {
+        // First time with this Google account: the app collects the office, then calls googleSignup.
+        pendingGoogle = google
+        return { ok: false, needsOffice: true, email: google.email }
+      }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
+    return finishGoogleLogin(google, forceLogout)
+  })
+
+  ipcMain.handle(
+    IPC.googleSignup,
+    async (_e, details: GoogleSignupDetails, forceLogout?: boolean): Promise<LoginResult & { error?: string }> => {
+      const google = pendingGoogle
+      if (!google) return { ok: false, error: 'Sign in with Google again.' }
+      const clean = cleanSignup({ ...details, password: '', confirmPassword: '', email: '' })
+      const problems = Object.values(validateGoogleSignup(clean))
+      if (problems.length > 0) return { ok: false, error: problems[0] as string }
+      try {
+        await firebaseSync.createGoogleAccount(google.email, clean)
+      } catch {
+        return { ok: false, error: 'Could not create your account. Check your internet connection and try again.' }
+      }
+      const result = await finishGoogleLogin(google, forceLogout)
+      if (result.ok) pendingGoogle = null
+      return result
+    }
+  )
+
+  ipcMain.handle(IPC.googleSheetsStatus, () => googleSheets.getStatus())
+  ipcMain.handle(IPC.googleSheetsSignIn, () => googleSheets.signIn())
+  ipcMain.handle(IPC.googleSheetsSignOut, () => googleSheets.signOut())
+  ipcMain.handle(IPC.fetchQcParties, () => firebaseSync.fetchRemoteQcParties())
+  ipcMain.handle(IPC.googleSheetsSyncNow, (_e, state: PersistedState) => googleSheets.syncNow(state))
 
   // ── Backup / Restore ────────────────────────────────────────────────
   const backupsDir = () => {

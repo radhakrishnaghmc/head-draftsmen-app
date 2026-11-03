@@ -4,10 +4,16 @@ import type { TenderScanProgress } from '../../electron/ipc-contract'
 import { pdfToTextLinesOrOcr } from '../pdfToText'
 import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
+import { scanBelongsToOffice } from '@core/worksSync'
+import { circleFromNit } from '@core/workOrderAgreement'
+import { entriesOf, resolveFromDirectory } from '../zoneCircleDirectory'
 import type { ExcelTable } from '@core/types'
 import { IconFolder, IconWarn } from './Icons'
 
 interface Props {
+  /** The selected office's Circle and Corporation — a sheet naming a different circle is rejected (unless its work is already in the list). */
+  officeCircle?: string
+  corporation?: string
   table: ExcelTable
   onChange: (table: ExcelTable) => void
   /** Report a successful update so the host can flash the matched rows and show the message under them. */
@@ -23,7 +29,7 @@ interface Props {
  * are reported. Flashes the affected row(s) via onUpdated so the user can
  * verify them.
  */
-export default function WorksListL1Update({ table, onChange, onUpdated }: Props) {
+export default function WorksListL1Update({ officeCircle, corporation, table, onChange, onUpdated }: Props) {
   const [busy, setBusy] = useState<null | 'l1'>(null)
   // Only errors / no-match feedback shows beside the button; a successful update
   // is surfaced under the flashed row(s) in the table instead (see onUpdated).
@@ -77,6 +83,7 @@ export default function WorksListL1Update({ table, onChange, onUpdated }: Props)
       // app partway through a large folder scan, and flashed rows the user
       // had no time to read before the next match replaced them.
       const allMatchedIndices: number[] = []
+      let rejectedError = ''
 
       for (const file of files) {
         const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
@@ -88,6 +95,16 @@ export default function WorksListL1Update({ table, onChange, onUpdated }: Props)
         const parsed = parseTenderEvaluation(lines)
         if (parsed.nameOfWork || parsed.tenderId) ev = parsed
         if (!ev) continue // a printed Intimation / LOA PDF, not an L-1 evaluation.
+
+        // The sheet must belong to the selected office — checked against the list as it stood before this file, so a
+        // work already in the database is accepted even when its name doesn't (or no longer does) mention the circle.
+        const sheetCircle =
+          circleFromNit(ev.noticeNo || '').circle || (resolveFromDirectory(ev.nameOfWork, entriesOf(corporation)).circle ?? '')
+        const belongs = scanBelongsToOffice({ officeCircle, sheetCircle, workName: ev.nameOfWork, table: current })
+        if (!belongs.ok) {
+          rejectedError = belongs.error
+          continue
+        }
 
         evaluationCount++
         let evalNameVectors: number[][] | undefined
@@ -121,6 +138,10 @@ export default function WorksListL1Update({ table, onChange, onUpdated }: Props)
         )
       }
 
+      if (evaluationCount === 0 && rejectedError) {
+        setResult({ message: rejectedError, unmatched: [] })
+        return
+      }
       if (evaluationCount === 0) {
         setResult({
           message: "Couldn't read any L-1 selection sheet from the files. Add the Commercial Evaluation / Stage Selected PDF(s).",
@@ -129,10 +150,11 @@ export default function WorksListL1Update({ table, onChange, onUpdated }: Props)
         return
       }
       // Only report problems here; each success was already flashed live above.
-      if (matchedCount === 0 || unmatched.length > 0) {
+      if (matchedCount === 0 || unmatched.length > 0 || rejectedError) {
         setResult({
-          message:
-            matchedCount === 0
+          message: rejectedError
+            ? `${rejectedError} The sheets of this office were still processed.`
+            : matchedCount === 0
               ? 'Read the L-1 sheet(s), but no Works List row matched by Name of Work — nothing was changed.'
               : `Updated ${matchedCount} work${matchedCount === 1 ? '' : 's'}; some sheets matched no row.`,
           unmatched

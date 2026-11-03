@@ -1,3 +1,4 @@
+import type { SignupRequest, AccountOffice, GoogleSignupDetails } from '../core/signupRequest'
 // Shared IPC contract between the Electron main process and the renderer.
 import type {
   ExcelTable,
@@ -9,6 +10,7 @@ import type {
 } from '../core/types'
 import type { SheetGrid } from '../core/sheet'
 import type { SheetPreview } from '../core/excel'
+import type { ExcelPrintOptions, ExcelPrintSheetInfo, PrintPaper as ExcelPrintPaper } from '../core/excelPrintHtml'
 import type { CalendarData } from '../core/calendar'
 import type { ScheduleAMeta } from '../core/scheduleA'
 import type { TenderNoticeInput, TenderNoticeGroup } from '../core/tenderNotice'
@@ -16,6 +18,7 @@ import type { CellEdit } from '../core/technicalSanction'
 import type { BidDocumentInput } from '../core/bidDocument'
 import type { LoginResult } from '../core/auth'
 import type { SessionSlot } from '../core/sessionSlots'
+import type { QcOfficeParties } from '../core/types'
 import type { DeviationItem, DeviationMeta } from '../core/deviationTemplate'
 import type { DocBlock } from '../core/docxBuilder'
 import type { OcrPage } from '../core/ocrReconstruct'
@@ -54,6 +57,19 @@ export interface PickedTenderDocument {
 }
 
 /** One entry in Settings' "Active Devices" list — a live SessionSlot plus whether it's this device's own. */
+/** Online Works List (Settings): the Google connection and last sync of the signed-in login. */
+export interface GoogleSheetsStatus {
+  /** False when this build has no Google OAuth client id/secret (core/googleOAuthConfig.ts). */
+  configured: boolean
+  connected: boolean
+  email: string
+  spreadsheetUrl: string
+  /** Epoch ms of the last successful push; 0 when never. */
+  lastSync: number
+  lastError: string
+  syncing: boolean
+}
+
 export interface BackupResult {
   filePath: string
   fileName: string
@@ -139,6 +155,8 @@ export const IPC = {
   revealItem: 'shell:revealItem',
   defaultDir: 'shell:defaultDir',
   getAppVersion: 'app:getVersion',
+  sealSecret: 'app:sealSecret',
+  unsealSecret: 'app:unsealSecret',
   fetchCalendar: 'calendar:fetch',
   login: 'auth:login',
   logout: 'auth:logout',
@@ -169,6 +187,9 @@ export const IPC = {
   savePdf: 'tools:savePdf',
   savePdfsToFolder: 'tools:savePdfsToFolder',
   docxToPdf: 'tools:docxToPdf',
+  excelPrintInspect: 'tools:excelPrintInspect',
+  excelToPrintPdf: 'tools:excelToPrintPdf',
+  excelPrint: 'tools:excelPrint',
   docxToPageImages: 'tools:docxToPageImages',
   mergeDocx: 'tools:mergeDocx',
   splitDocxSections: 'tools:splitDocxSections',
@@ -232,6 +253,22 @@ export const IPC = {
   saveState: 'state:save',
   syncNow: 'state:syncNow',
   createBackup: 'backup:create',
+  googleLogin: 'auth:googleLogin',
+  googleSignup: 'auth:googleSignup',
+  googleCancel: 'auth:googleCancel',
+  submitSignup: 'auth:submitSignup',
+  completeSignup: 'auth:completeSignup',
+  changePassword: 'auth:changePassword',
+  startPasswordReset: 'auth:startPasswordReset',
+  finishPasswordReset: 'auth:finishPasswordReset',
+  accountOffices: 'auth:accountOffices',
+  addAccountOffice: 'auth:addAccountOffice',
+  removeAccountOffice: 'auth:removeAccountOffice',
+  googleSheetsStatus: 'googleSheets:status',
+  googleSheetsSignIn: 'googleSheets:signIn',
+  googleSheetsSignOut: 'googleSheets:signOut',
+  googleSheetsSyncNow: 'googleSheets:syncNow',
+  fetchQcParties: 'qcParties:fetch',
   revealBackup: 'backup:reveal',
   saveBackupCopy: 'backup:saveCopy',
   restoreBackup: 'backup:restore',
@@ -308,6 +345,10 @@ export interface DocuGenApi {
   revealItem(target: string): Promise<void>
   defaultDir(): Promise<string>
   getAppVersion(): Promise<string>
+  /** Encrypts a secret with the OS keychain; '' when encryption is unavailable (nothing should then be stored). */
+  sealSecret(plain: string): Promise<string>
+  /** Reverses sealSecret; '' when it can't be decrypted. */
+  unsealSecret(sealed: string): Promise<string>
   /** Scrapes the given government-calendar page. Cached per URL on disk (see electron/main.ts) so switching the source link (a new year's page) doesn't serve a stale cache from the old one. */
   fetchCalendar(url: string, force?: boolean): Promise<CalendarData>
   /** forceLogout: only meaningful after a prior call came back `maxSessions` — re-checks the password, then immediately ends every other device's session for this login ID and claims a fresh slot, instead of failing again. */
@@ -363,6 +404,12 @@ export interface DocuGenApi {
   savePdfsToFolder(files: { name: string; bytes: Uint8Array }[]): Promise<{ dir: string; files: string[] } | null>
   /** Tool (Word workspace): convert one .docx (raw bytes) to PDF with the app's built-in Chromium, for a page-level preview. Returns the PDF bytes. */
   docxToPdf(docxBytes: Uint8Array): Promise<Uint8Array>
+  /** Excel → Printable PDF tool: the sheets of a workbook that have something to print, with the orientation Auto would pick for each. */
+  excelPrintInspect(xlsxBytes: Uint8Array, paper?: ExcelPrintPaper): Promise<ExcelPrintSheetInfo[]>
+  /** Lays the chosen sheets out for printing (page size, orientation, margins, print area, fit-to-width all automatic) and returns the PDF. */
+  excelToPrintPdf(xlsxBytes: Uint8Array, opts: ExcelPrintOptions): Promise<Uint8Array>
+  /** Same layout, straight to the OS print dialog. */
+  excelPrint(xlsxBytes: Uint8Array, opts: ExcelPrintOptions): Promise<void>
   /** Accurate document preview/print: renders one .docx (raw bytes) as one PNG per page — Electron's own Chromium converts it to PDF and its PDFium rasterizes each page to PNG (not pdf.js — see core/docxToPdf.ts's docxToPageImages for why). */
   docxToPageImages(docxBytes: Uint8Array): Promise<Uint8Array[]>
   /** Tool (Word workspace): merge several .docx files (raw bytes, in order) into one .docx and save it via a dialog. Returns the saved path, or null if cancelled. */
@@ -510,6 +557,37 @@ export interface DocuGenApi {
   syncNow(state: PersistedState): Promise<string>
   /** Encrypts the whole workspace (tied to this login) into a .dhbak file in the app's backups folder. */
   createBackup(state: PersistedState): Promise<BackupResult>
+  /** Login screen: Sign up, step 1. Emails a confirmation link to the address; resolves '' when sent, else the reason it was not. */
+  submitSignup(request: SignupRequest): Promise<string>
+  /** Sign up, step 2: after the emailed link was clicked, creates the account (pending the administrator's approval); '' when created, else the reason it was not. */
+  completeSignup(request: SignupRequest): Promise<string>
+  /** Sign-in page "Change password": re-checks the current password, then saves the new one. Resolves '' when changed, else the reason it was not. */
+  changePassword(loginId: string, currentPassword: string, newPassword: string): Promise<string>
+  /** Forgot password, step 1: emails a reset link to the login's address. Resolves '' when sent, else the reason it was not. */
+  startPasswordReset(loginId: string): Promise<string>
+  /** Forgot password, step 2: after the emailed link set the new password, confirms it and saves it as the login password. '' when done, else the reason it was not. */
+  finishPasswordReset(loginId: string, newPassword: string): Promise<string>
+  /** The offices on the signed-in login (Sign up accounts only; null for any other login). */
+  accountOffices(): Promise<AccountOffice[] | null>
+  /** Settings → Add office. At most 2 per login. Returns the login's offices after the change, or the reason it was refused. */
+  addAccountOffice(office: AccountOffice): Promise<{ error?: string; offices: AccountOffice[] }>
+  /** Settings → delete an office. Deleting the sign-up office makes the next one the login's primary office. */
+  removeAccountOffice(office: AccountOffice): Promise<{ error?: string; offices: AccountOffice[] }>
+  /** Login screen: Sign in with Google. Opens the browser; the account must be on the approved list. `error` is a user-facing reason when not ok. */
+  googleLogin(forceLogout?: boolean): Promise<LoginResult & { error?: string }>
+  /** After googleLogin answered `needsOffice`: creates the account with the chosen office and signs in. */
+  /** Login screen: stops a Google sign-in that is still waiting on the browser (the Google tab was closed). */
+  cancelGoogleLogin(): Promise<void>
+  googleSignup(details: GoogleSignupDetails, forceLogout?: boolean): Promise<LoginResult & { error?: string }>
+  /** Online Works List: connection state of the signed-in login's Google account. */
+  googleSheetsStatus(): Promise<GoogleSheetsStatus>
+  /** Opens the browser for Sign in with Google; rejects with the reason if it fails or is cancelled. */
+  googleSheetsSignIn(): Promise<GoogleSheetsStatus>
+  googleSheetsSignOut(): Promise<GoogleSheetsStatus>
+  /** Re-sends every office's Works List to the online sheet now; '' when done, else the reason it failed. */
+  googleSheetsSyncNow(state: PersistedState): Promise<string>
+  /** The cloud's saved QC agencies (all offices), or null when offline / none saved. */
+  fetchQcParties(): Promise<Record<string, QcOfficeParties> | null>
   /** Shows a backup file (one this app made) in the system file manager. */
   revealBackup(filePath: string): Promise<void>
   /** Lets the user save a copy of a backup anywhere (USB drive, shared folder…) to move it to another device; the saved path, or null if cancelled. */

@@ -3,14 +3,25 @@
 // talks to Firebase directly). Every call here is best-effort: if the cloud
 // is unreachable, the app must keep working exactly as it did before this
 // feature existed — offline-first, local state.json is always the fallback.
-import { initializeApp, type FirebaseApp } from 'firebase/app'
-import { getAuth, signInAnonymously, type Auth } from 'firebase/auth'
+import { randomBytes } from 'crypto'
+import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app'
+import {
+  getAuth,
+  signInAnonymously,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  type Auth,
+  type User
+} from 'firebase/auth'
 import {
   getFirestore,
   doc,
   getDoc,
   getDocs,
   setDoc,
+  updateDoc,
   deleteField,
   deleteDoc,
   runTransaction,
@@ -41,7 +52,10 @@ import type {
   ShareResult
 } from '../core/types'
 import { cleanTenderConditionsForCloud } from '../core/tenderConditions'
+import type { SignupRequest, AccountOffice } from '../core/signupRequest'
+import { hashPassword, verifyPassword } from '../core/accountPassword'
 import { LEGACY_SEED_DOC_IDS, pruneLegacyDocuments } from '../core/types'
+import type { QcOfficeParties } from '../core/types'
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBBoysv9uaHzJmeptn97Ms73AOGauEn0DU',
@@ -152,6 +166,205 @@ const worksDocId = (officeKey: string): string => encodeURIComponent(officeKey).
  * already been re-verified (see electron/main.ts's login handler), since
  * this immediately ends every other device's session.
  */
+/**
+ * Email verification for Sign up runs on its own Firebase app/auth instance, so the email+password user it creates never
+ * replaces the anonymous session the rest of the app syncs under. Firebase emails the link and hosts the page it opens.
+ */
+function signupAuth(): Auth {
+  const existing = getApps().find((a) => a.name === 'signup')
+  return getAuth(existing ?? initializeApp(firebaseConfig, 'signup'))
+}
+
+const authCode = (e: unknown): string => (e as { code?: string }).code ?? ''
+
+/** Signs in (or creates) the email user for this sign-up; null with a reason when the email belongs to someone else. */
+async function signupUser(email: string, password: string): Promise<{ user: User } | { error: string }> {
+  const a = signupAuth()
+  try {
+    return { user: (await createUserWithEmailAndPassword(a, email, password)).user }
+  } catch (e) {
+    const code = authCode(e)
+    if (code === 'auth/invalid-email') return { error: 'Enter a valid email address.' }
+    if (code === 'auth/weak-password') return { error: 'Choose a stronger password.' }
+    if (code !== 'auth/email-already-in-use') throw e
+  }
+  // An earlier attempt with this email (not yet confirmed): the same password lets them carry on / resend the link.
+  try {
+    return { user: (await signInWithEmailAndPassword(a, email, password)).user }
+  } catch {
+    return { error: 'That email address is already registered.' }
+  }
+}
+
+/** Step 1 of Sign up: checks the Login ID is free and emails a confirmation link to the address. Resolves '' when sent, else the reason it was not. */
+export async function startSignup(req: SignupRequest): Promise<string> {
+  try {
+    return await startSignupUnchecked(req)
+  } catch (e) {
+    const code = authCode(e)
+    if (code === 'auth/operation-not-allowed') return 'Sign up is not switched on yet: the administrator must enable Email/Password sign-in in Firebase (Authentication → Sign-in method).'
+    if (code === 'auth/too-many-requests') return 'Too many attempts. Wait a few minutes and try again.'
+    throw e
+  }
+}
+
+async function startSignupUnchecked(req: SignupRequest): Promise<string> {
+  await ensureAuth()
+  if ((await getDoc(doc(db!, 'accounts', normalizeId(req.email)))).exists()) {
+    return 'An account already exists for that email address.'
+  }
+  const result = await signupUser(req.email, req.password)
+  if ('error' in result) return result.error
+  if (!result.user.emailVerified) await sendEmailVerification(result.user)
+  return ''
+}
+
+/** Step 2: once the emailed link has been clicked, creates the account. Resolves '' when created, else the reason it was not. */
+export async function completeSignup(req: SignupRequest): Promise<string> {
+  const result = await signupUser(req.email, req.password)
+  if ('error' in result) return result.error
+  await result.user.reload()
+  if (!result.user.emailVerified) {
+    return 'Your email is not confirmed yet. Open the link we emailed you, then try again.'
+  }
+  return createAccount(req)
+}
+
+/** Result of checking a self-registered account: 'ok' signs in, 'none' is no such account or a wrong password. */
+export type AccountCheck =
+  | { state: 'none' }
+  | { state: 'ok'; offices: AccountOffice[] }
+
+/**
+ * Creates a self-registered account (login screen "Sign up"). The password is stored only as a salted hash, and the
+ * account is usable as soon as it is created — confirming the email is the only gate. Resolves '' when
+ * saved, else the reason it was not.
+ */
+async function createAccount(req: SignupRequest): Promise<string> {
+  await ensureAuth()
+  const ref = doc(db!, 'accounts', normalizeId(req.email))
+  const existing = await getDoc(ref)
+  // The same person confirming again (a double press, a retry after the screen refreshed): the account is already there, so that is success.
+  if (existing.exists()) {
+    const hash = existing.data().passwordHash
+    return typeof hash === 'string' && verifyPassword(req.password, hash) ? '' : 'An account already exists for that email address.'
+  }
+  await setDoc(ref, {
+    loginId: req.email,
+    name: req.name,
+    mobile: req.mobile,
+    email: req.email,
+    corporation: req.corporation,
+    zone: req.zone,
+    circle: req.circle,
+    offices: [{ corporation: req.corporation, zone: req.zone, circle: req.circle }],
+    passwordHash: hashPassword(req.password),
+    emailVerified: true,
+    status: 'approved',
+    createdAt: serverTimestamp()
+  })
+  return ''
+}
+
+export async function checkAccount(loginId: string, password: string): Promise<AccountCheck> {
+  await ensureAuth()
+  const snap = await getDoc(doc(db!, 'accounts', normalizeId(loginId)))
+  if (!snap.exists()) return { state: 'none' }
+  const data = snap.data()
+  if (typeof data.passwordHash !== 'string' || !verifyPassword(password, data.passwordHash)) return { state: 'none' }
+  return { state: 'ok', offices: officesOf(data) }
+}
+
+/** Replaces the stored password hash after re-checking the current password. Resolves '' when changed, else the reason it was not. */
+export async function changeAccountPassword(loginId: string, currentPassword: string, newPassword: string): Promise<string> {
+  await ensureAuth()
+  const ref = doc(db!, 'accounts', normalizeId(loginId))
+  const snap = await getDoc(ref)
+  const hash = snap.exists() ? snap.data().passwordHash : undefined
+  if (typeof hash !== 'string' || !verifyPassword(currentPassword, hash)) return 'Incorrect login ID or current password.'
+  await updateDoc(ref, { passwordHash: hashPassword(newPassword) })
+  return ''
+}
+
+/** Forgot password, step 1: emails a Firebase reset link to the account's address. Resolves '' when sent, else the reason it was not. */
+export async function startPasswordReset(email: string): Promise<string> {
+  await ensureAuth()
+  const snap = await getDoc(doc(db!, 'accounts', normalizeId(email)))
+  if (!snap.exists()) return 'No account found for that email address.'
+  if (typeof snap.data().passwordHash !== 'string') return 'This login has no password to reset. Sign in with Google, or contact the administrator.'
+  try {
+    // Firebase only emails addresses that have a sign-in user (silently skipping the rest), and older logins have none:
+    // create one with a throwaway password first. Whoever opens the emailed link is the one who picks the real password.
+    try {
+      await createUserWithEmailAndPassword(signupAuth(), email.trim(), randomBytes(24).toString('base64'))
+    } catch (e) {
+      if (authCode(e) !== 'auth/email-already-in-use') throw e
+    }
+    await sendPasswordResetEmail(signupAuth(), email.trim())
+    return ''
+  } catch (e) {
+    const code = authCode(e)
+    if (code === 'auth/invalid-email') return 'Enter a valid email address.'
+    if (code === 'auth/operation-not-allowed') return 'Email reset is not switched on yet: the administrator must enable Email/Password sign-in in Firebase (Authentication → Sign-in method).'
+    if (code === 'auth/user-not-found') return 'This account cannot be reset by email. Contact the administrator.'
+    if (code === 'auth/too-many-requests') return 'Too many attempts. Wait a few minutes and try again.'
+    throw e
+  }
+}
+
+/**
+ * Forgot password, step 2: the new password only signs in to Firebase once the emailed link has been used to set it,
+ * which proves the email is theirs — then it becomes the login password. Resolves '' when changed, else the reason it was not.
+ */
+export async function finishPasswordReset(email: string, newPassword: string): Promise<string> {
+  await ensureAuth()
+  try {
+    await signInWithEmailAndPassword(signupAuth(), email.trim(), newPassword)
+  } catch (e) {
+    const code = authCode(e)
+    if (code === 'auth/too-many-requests') return 'Too many attempts. Wait a few minutes and try again.'
+    return 'Not confirmed yet. Open the emailed link, set your new password there, then enter the same password here.'
+  }
+  await updateDoc(doc(db!, 'accounts', normalizeId(email)), { passwordHash: hashPassword(newPassword) })
+  return ''
+}
+
+/** The offices on an account document. Accounts made before multi-office support only have the sign-up office's own fields. */
+function officesOf(data: Record<string, unknown>): AccountOffice[] {
+  // An account with no office (e.g. the developer's) is not confined to one.
+  if (Array.isArray(data.offices) && data.offices.length === 0) return []
+  if (Array.isArray(data.offices) && data.offices.length > 0) {
+    return (data.offices as Partial<AccountOffice>[]).map((o) => ({
+      corporation: String(o.corporation ?? ''),
+      zone: String(o.zone ?? ''),
+      circle: String(o.circle ?? '')
+    }))
+  }
+  if (!data.corporation || !data.zone) return []
+  return [{ corporation: String(data.corporation), zone: String(data.zone), circle: String(data.circle ?? '') }]
+}
+
+/** The offices on a self-registered account; null when this login is not one (e.g. a credentials-sheet login). */
+export async function getAccountOffices(loginId: string): Promise<AccountOffice[] | null> {
+  await ensureAuth()
+  const snap = await getDoc(doc(db!, 'accounts', normalizeId(loginId)))
+  if (!snap.exists()) return null
+  const offices = officesOf(snap.data())
+  return offices.length > 0 ? offices : null
+}
+
+/** Saves the account's office list. The first office is also kept in the account's own corporation/zone/circle fields, so deleting the sign-up office hands those to the next one. */
+export async function setAccountOffices(loginId: string, offices: AccountOffice[]): Promise<void> {
+  await ensureAuth()
+  const [primary] = offices
+  await updateDoc(doc(db!, 'accounts', normalizeId(loginId)), {
+    offices,
+    corporation: primary.corporation,
+    zone: primary.zone,
+    circle: primary.circle
+  })
+}
+
 export async function startSession(
   loginId: string,
   deviceLabel: string,
@@ -813,6 +1026,18 @@ function buildMiscFields(
   }
 }
 
+/** Just the saved 3rd / 4th-party and department QC agencies from the cloud — a single small read, for filling an office whose local copy is empty. */
+export async function fetchRemoteQcParties(): Promise<Record<string, QcOfficeParties> | null> {
+  if (!active) return null
+  try {
+    await ensureAuth()
+    const snap = await getDoc(doc(db!, 'users', active.loginId, 'meta', 'misc'))
+    return snap.exists() ? ((snap.data().qcParties as Record<string, QcOfficeParties> | undefined) ?? null) : null
+  } catch {
+    return null
+  }
+}
+
 export async function pushState(state: PersistedState): Promise<boolean> {
   if (!active) {
     lastPushError = 'Not signed in to the cloud (the app started offline) — log out and log in again.'
@@ -827,6 +1052,8 @@ export async function pushState(state: PersistedState): Promise<boolean> {
     // sent, so an office another device edited is never overwritten by this device's stale copy.
     const pushedWorks = active?.pushedWorksSig
     for (const [officeK, list] of Object.entries(state.tablesByOffice ?? {})) {
+      // No office chosen yet (e.g. a fresh dev account): there is no document id to store it under, and nothing to sync.
+      if (!officeK) continue
       const json = JSON.stringify(list ?? [])
       const known = pushedWorks?.get(officeK)
       if (known === json) continue
@@ -1093,4 +1320,54 @@ export function pendingBytes(state: PersistedState): number {
   const noticeIds = new Set(notices.map((it) => it.id))
   total += 100 * [...active.knownNoticeIds].filter((id) => !noticeIds.has(id)).length
   return total
+}
+
+/** Whether a Google account may sign in: the built-in administrator address, or a self-registered/migrated account with that email. */
+export async function isGoogleEmailAllowed(email: string): Promise<boolean> {
+  const e = email.trim().toLowerCase()
+  if (e === 'eec58.ghmc@gmail.com') return true
+  await ensureAuth()
+  const snap = await getDoc(doc(db!, 'accounts', normalizeId(e)))
+  return snap.exists()
+}
+
+/** The offices on a login (empty when it is not confined to any), for a Google sign-in. */
+export async function officesForLogin(loginId: string): Promise<AccountOffice[]> {
+  return (await getAccountOffices(loginId)) ?? []
+}
+
+/** Login IDs of the other accounts holding an office in this corporation — the Evaluation Sheet's "Share with other users" list. Only IDs leave this module. */
+export async function listCorporationUsers(corporation: string, excludeLoginId: string): Promise<string[]> {
+  await ensureAuth()
+  const corp = corporation.trim().toLowerCase()
+  const me = normalizeId(excludeLoginId)
+  const ids = new Set<string>()
+  const snap = await getDocs(collection(db!, 'accounts'))
+  snap.forEach((d) => {
+    if (d.id === me) return
+    const data = d.data()
+    if (officesOf(data).some((o) => o.corporation.trim().toLowerCase() === corp)) ids.add(String(data.loginId ?? d.id))
+  })
+  return [...ids].sort((a, b) => a.localeCompare(b))
+}
+
+/** Creates the account of a first-time Google user. No password is stored (Google proves the email), so the password login cannot be used for it. */
+export async function createGoogleAccount(email: string, d: { name: string; mobile: string; corporation: string; zone: string; circle: string }): Promise<void> {
+  await ensureAuth()
+  const ref = doc(db!, 'accounts', normalizeId(email))
+  if ((await getDoc(ref)).exists()) return
+  await setDoc(ref, {
+    loginId: email,
+    name: d.name,
+    mobile: d.mobile,
+    email,
+    corporation: d.corporation,
+    zone: d.zone,
+    circle: d.circle,
+    offices: [{ corporation: d.corporation, zone: d.zone, circle: d.circle }],
+    source: 'google',
+    emailVerified: true,
+    status: 'approved',
+    createdAt: serverTimestamp()
+  })
 }

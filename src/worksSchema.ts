@@ -34,7 +34,10 @@ export const WORKS_COLUMNS: string[] = [
   'Completion Period',
   'Agmt Date',
   'Technical Sanc No',
-  'TS date'
+  'TS date',
+  'Admin Sanction Date',
+  'Newspapers Published',
+  'AE Name & Number'
 ]
 
 /** Build a fresh, empty works database (one blank row to type into). */

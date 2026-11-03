@@ -607,7 +607,7 @@ body.theme-aurora .update-progress-track {
   font-size: 12px;
   font-weight: 650;
   color: var(--muted);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .profile-dropdown-item {
   display: flex;
@@ -4555,6 +4555,53 @@ textarea:placeholder-shown {
   background: #fff;
   font-size: 14px;
   color: var(--text);
+}
+/* Password box with its show/hide eye inset at the right edge. The selectors are doubled-up on purpose: the global
+   `button` rule and the theme rules (`body.theme-play button` …) make every button a bordered pill with 9px 20px
+   padding, and this one is a bare icon control that must beat all of them, hover included. */
+.password-input {
+  position: relative;
+  display: block;
+}
+.password-input input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 44px;
+}
+.password-input .password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  min-width: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 400;
+  box-shadow: none;
+  cursor: pointer;
+}
+.password-input .password-toggle:hover:not(:disabled) {
+  background: rgba(16, 24, 40, 0.07);
+  border: 0;
+  color: var(--text);
+}
+.password-input .password-toggle:active:not(:disabled) {
+  background: rgba(16, 24, 40, 0.12);
+}
+.password-input .password-toggle:focus-visible {
+  outline: 2px solid var(--indigo-500);
+  outline-offset: 1px;
+}
+.password-input .password-toggle svg {
+  width: 18px;
+  height: 18px;
 }
 .tender-field input:focus {
   outline: none;
@@ -16957,3 +17004,170 @@ body.theme-play .cement-steel-grid .upload-btn:disabled {
   gap: 10px;
   margin-bottom: 12px;
 }
+
+.login-or { display: flex; align-items: center; gap: 10px; margin: 14px 0 10px; color: var(--muted, #888); font-size: 12px; }
+.login-or::before, .login-or::after { content: ''; flex: 1; height: 1px; background: currentColor; opacity: 0.25; }
+.login-google { width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; }
+
+.login-signup-row { margin: 12px 0 0; text-align: center; font-size: 13px; }
+.login-signup-link { background: none; border: 0; padding: 0; color: var(--accent, #2563eb); cursor: pointer; font: inherit; text-decoration: underline; }
+.login-card .field-error { color: #c62828; font-size: 12px; margin-top: 3px; display: block; }
+.login-card textarea { width: 100%; resize: vertical; font: inherit; }
+
+.login-card-wide { width: min(440px, 94vw); max-height: 94vh; overflow-y: auto; }
+.tender-field select {
+  height: 38px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid #c9ccd3;
+  background: #fff;
+  font-size: 14px;
+  color: var(--text);
+}
+.tender-field select:disabled { background: #f3f4f6; color: #9ca3af; }
+
+/* ---- Login page, simplified (all themes): one primary action row, quiet text links. ---- */
+.login-card-play { width: min(460px, 94vw); padding: 36px 36px 24px; }
+.login-card-play .login-logo { width: 48px; height: 48px; margin-bottom: 12px; }
+.login-card-play h1 { font-size: 24px; font-weight: 500; margin: 0 0 4px; }
+.login-card-play .hint { margin: 0 0 24px; font-size: 14px; color: var(--text-2); }
+.login-card-play .tender-field { margin-bottom: 14px; }
+.login-link { background: none; border: 0; padding: 0; color: var(--indigo-600); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.login-link:hover:not(:disabled) { text-decoration: underline; }
+.login-forgot { display: block; margin: -4px 0 4px; }
+.login-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; margin-top: 22px; }
+.login-actions .login-submit { width: auto; margin: 0; padding-left: 28px; padding-right: 28px; }
+.login-card-play .login-or { margin: 22px 0 14px; }
+.login-card-play .login-credits { margin-top: 22px; font-size: 11.5px; font-weight: 400; }
+.login-card-play .login-credits .login-link { font-size: 11.5px; font-weight: 500; }
+
+/* ---- Play theme: white Google-account-style card on the pale canvas ---- */
+body.theme-play .login-screen { background: var(--play-canvas); }
+body.theme-play .login-card-play { background: #fff; border: 1px solid var(--border); border-radius: 28px; box-shadow: none; }
+body.theme-play .login-card-play h1 { font-family: 'Google Sans', var(--font); }
+body.theme-play .login-card-play .login-submit { border-radius: 999px; background: #0b57d0; color: #fff; border: 0; height: 40px; font-weight: 500; }
+body.theme-play .login-card-play .login-submit:hover:not(:disabled) { background: #0842a0; box-shadow: 0 1px 3px rgba(60, 64, 67, 0.3); }
+body.theme-play .login-card-play .login-google { border-radius: 999px; height: 40px; background: #fff; border: 1px solid var(--border-strong); color: var(--text); font-weight: 500; }
+body.theme-play .login-card-play .login-google:hover:not(:disabled) { background: var(--play-tonal); }
+body.theme-play .login-link { color: #0b57d0; }
+.login-actions-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; min-width: 0; }
+.login-actions-links .login-link { white-space: nowrap; }
+.login-actions .login-submit { padding-left: 22px; padding-right: 22px; white-space: nowrap; }
+
+/* ---- Login, two-pane (Google account style): intro left, form right; credits sit on the canvas below. ---- */
+.login-stack { display: flex; flex-direction: column; align-items: center; gap: 18px; width: 100%; padding: 16px; }
+.login-card-play { width: min(880px, 100%); display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 24px 56px; padding: 40px 44px; text-align: left; align-items: start; }
+.login-pane-intro .login-logo { width: 44px; height: 44px; margin-bottom: 20px; }
+.login-pane-intro h1 { font-size: 36px; font-weight: 400; line-height: 1.2; margin: 0 0 12px; }
+.login-pane-intro .hint { margin: 0; font-size: 16px; line-height: 1.5; }
+.login-pane-form { min-width: 0; padding-top: 4px; }
+.login-pane-form .login-actions { margin-top: 18px; }
+.login-stack > .login-credits { margin: 0; text-align: center; }
+@media (max-width: 720px) {
+  .login-card-play { grid-template-columns: 1fr; gap: 8px; padding: 28px 24px; }
+  .login-pane-intro h1 { font-size: 28px; }
+  .login-pane-intro .hint { margin-bottom: 12px; }
+}
+/* Play: a faint drafting-sheet grid on the canvas — the one decorative touch. */
+body.theme-play .login-screen {
+  background-color: var(--play-canvas);
+  background-image:
+    linear-gradient(rgba(11, 87, 208, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(11, 87, 208, 0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+body.theme-play .login-card-play { border-radius: 28px; }
+
+/* Play's global button rule pills every <button>; the login text links must stay plain links. */
+body.theme-play .login-stack .login-link,
+body.theme-play .login-card .login-link {
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  box-shadow: none;
+  height: auto;
+  min-height: 0;
+  padding: 4px 2px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #0b57d0;
+}
+body.theme-play .login-stack .login-link:hover:not(:disabled) { background: none; text-decoration: underline; }
+body.theme-play .login-stack > .login-credits .login-link { font-size: 12px; padding: 0 2px; }
+.login-actions-links { flex-wrap: nowrap; }
+.login-pane-form .login-actions { flex-wrap: nowrap; gap: 12px; }
+.login-pane-form .login-actions-links { gap: 18px; flex: 1 1 auto; }
+.login-pane-form .login-actions-links .login-link { padding: 4px 0 !important; min-width: 0 !important; margin: 0 !important; width: auto !important; }
+.login-pane-form .login-actions .login-submit { flex: none; }
+@media (max-width: 460px) { .login-pane-form .login-actions { flex-wrap: wrap; } }
+
+/* ---- Login, brand panel: the left pane is a tonal rounded panel; "Sign in" moves over the form it belongs to. ---- */
+.login-card-play { padding: 12px; gap: 0; align-items: stretch; }
+.login-pane-intro { display: flex; flex-direction: column; justify-content: space-between; gap: 28px; padding: 32px; border-radius: 20px; background: var(--play-tonal, #f0f4f9); min-height: 340px; }
+.login-pane-intro .login-mark { display: grid; place-items: center; width: 72px; height: 72px; border-radius: 50%; background: #fff; }
+.login-pane-intro .login-logo { width: 44px; height: 44px; margin: 0; }
+.login-pane-intro h1 { font-size: 30px; font-weight: 400; line-height: 1.2; margin: 0 0 10px; }
+.login-pane-intro .hint { font-size: 15px; line-height: 1.5; color: var(--text-2); max-width: 28ch; }
+.login-dimline { width: 100%; max-width: 240px; height: 24px; color: rgba(11, 87, 208, 0.45); }
+.login-pane-form { padding: 28px 32px 28px 40px; align-self: center; }
+.login-form-title { font-size: 24px; font-weight: 400; margin: 0 0 18px; color: var(--text); }
+@media (max-width: 720px) {
+  .login-pane-intro { min-height: 0; padding: 22px; }
+  .login-pane-form { padding: 20px 12px 12px; }
+}
+
+/* Brand panel: logo and name centred as one group, logo enlarged. */
+.login-pane-intro { align-items: center; justify-content: center; text-align: center; gap: 22px; }
+.login-pane-intro .login-mark { width: 132px; height: 132px; }
+.login-pane-intro .login-logo { width: 84px; height: 84px; }
+.login-pane-intro .hint { margin-left: auto; margin-right: auto; }
+.login-pane-intro .login-dimline { margin-top: 10px; }
+
+/* ---- Login: a floating card over the blurred app (all themes) ----
+   Play's `body.theme-play .login-screen` paints an opaque canvas + grid that out-ranks `.login-backdrop .login-screen`
+   and hid the blurred app entirely, so these are scoped one level deeper. Only the app shows behind the card: a cool
+   scrim keeps the card legible, and the card itself is lifted by three stacked shadows (contact, mid, wide ambient). */
+.login-backdrop .shell {
+  filter: blur(9px) saturate(1.05);
+  transform: scale(1.02); /* hides the blur's soft edge at the window border */
+}
+.login-backdrop.revealing .shell {
+  transform: none;
+}
+body.theme-play .login-backdrop .login-screen,
+.login-backdrop .login-screen {
+  background: rgba(244, 247, 252, 0.38);
+  background-image: none;
+}
+.login-backdrop .login-card,
+body.theme-play .login-backdrop .login-card-play {
+  background: rgba(255, 255, 255, 0.94);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  backdrop-filter: blur(18px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.08),
+    0 14px 28px -10px rgba(16, 24, 40, 0.18),
+    0 44px 90px -28px rgba(11, 87, 208, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+  animation: login-float-in 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes login-float-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-backdrop .login-card,
+  body.theme-play .login-backdrop .login-card-play {
+    animation: none;
+  }
+}
+
+.login-remember { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; cursor: pointer; }
+.login-remember input { width: auto; margin: 0; }

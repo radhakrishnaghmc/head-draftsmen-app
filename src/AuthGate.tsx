@@ -1,3 +1,4 @@
+import { sameAccountOffice, type AccountOffice } from '@core/signupRequest'
 import { useEffect, useState } from 'react'
 import App from './App'
 import LoginPage, { REMEMBERED_LOGIN_ID_KEY } from './components/LoginPage'
@@ -10,6 +11,24 @@ import { getStoredTheme } from './theme'
 // The signed-in flag is cleared when the app/window closes — login is required
 // once per launch, not stored indefinitely.
 const SESSION_KEY = 'hda-authed'
+// Whose settings this machine's localStorage currently holds. When a different account signs in, its per-office
+// settings (contacts, template choices, margins…) must not carry over — two accounts can share an office name.
+const OWNER_KEY = 'hda-data-owner'
+// The offices a self-registered account is confined to (kept so an offline sign-in stays confined too).
+const LOCKED_OFFICE_KEY = 'hda-locked-office'
+// localStorage entries that belong to the machine rather than to an account.
+const KEEP_ON_ACCOUNT_CHANGE = new Set([REMEMBERED_LOGIN_ID_KEY, OWNER_KEY, 'hda-last-seen-version', 'issueDocsTheme'])
+
+function readAccountOffices(): AccountOffice[] | undefined {
+  try {
+    const list = JSON.parse(localStorage.getItem(LOCKED_OFFICE_KEY) ?? 'null') as AccountOffice[] | null
+    return Array.isArray(list) && list.length > 0 ? list : undefined
+  } catch {
+    return undefined
+  }
+}
+
+const toOffice = (o: AccountOffice): Office => normalizeOffice({ corporation: o.corporation, zone: o.zone, circle: o.circle || undefined })
 
 // How long the "unveil" transition (unblur the backdrop, fade the login
 // card) plays before the real, authenticated App actually mounts — must
@@ -34,6 +53,7 @@ export default function AuthGate() {
   // The chosen office (Corporation / Zone / Circle) is selected in the sidebar,
   // not derived from the login, and remembered across launches.
   const [office, setOfficeState] = useState<Office>(() => loadOffice())
+  const [accountOffices, setAccountOffices] = useState<AccountOffice[] | undefined>(() => readAccountOffices())
 
   // localStorage is the fast path, but it lives per renderer-origin — a cleared
   // cache, a reinstall, or (in dev) a shifted Vite port loses it, and it never
@@ -44,6 +64,23 @@ export default function AuthGate() {
   // "ready" — and so skips the fallback with no delay — whenever localStorage
   // already has an office.
   const [officeReady, setOfficeReady] = useState(() => isOfficeReady(loadOffice()))
+
+  function updateAccountOffices(list: AccountOffice[]) {
+    localStorage.setItem(LOCKED_OFFICE_KEY, JSON.stringify(list))
+    setAccountOffices(list)
+  }
+  async function addAccountOffice(o: AccountOffice): Promise<string> {
+    const r = await api.addAccountOffice(o)
+    if (r.error) return r.error
+    updateAccountOffices(r.offices)
+    return ''
+  }
+  async function removeAccountOffice(o: AccountOffice): Promise<string> {
+    const r = await api.removeAccountOffice(o)
+    if (r.error) return r.error
+    updateAccountOffices(r.offices)
+    return ''
+  }
 
   function setOffice(next: Office) {
     setOfficeState(next)
@@ -93,8 +130,33 @@ export default function AuthGate() {
       <div className={`login-backdrop${revealing ? ' revealing' : ''}`}>
         <LoginBackdrop />
         <LoginPage
-          onSuccess={() => {
+          onSuccess={(info) => {
             sessionStorage.setItem(SESSION_KEY, '1')
+            // A Google login never typed a Login ID, so the remembered one would still be an old account's name.
+            if (info?.email) localStorage.setItem(REMEMBERED_LOGIN_ID_KEY, info.email)
+
+            // A different account taking over this machine starts clean: no per-office settings, no locked office.
+            const owner = info?.loginId
+            const previousOwner = localStorage.getItem(OWNER_KEY)
+            const sameOwner = !owner || previousOwner === owner
+            if (!sameOwner && (previousOwner !== null || info?.offices)) {
+              for (const key of Object.keys(localStorage)) if (!KEEP_ON_ACCOUNT_CHANGE.has(key)) localStorage.removeItem(key)
+            }
+            if (owner) localStorage.setItem(OWNER_KEY, owner)
+
+            // A self-registered account is confined to the offices on its login. (Offline, the stored list applies.)
+            const offices = info?.offices ?? (sameOwner ? readAccountOffices() : undefined)
+            if (offices && offices.length > 0) {
+              localStorage.setItem(LOCKED_OFFICE_KEY, JSON.stringify(offices))
+              // Open the remembered office if it is one of theirs, else their first (sign-up) office.
+              const remembered = loadOffice()
+              const open = offices.find((o) => sameAccountOffice(o, { corporation: remembered.corporation ?? '', zone: remembered.zone ?? '', circle: remembered.circle ?? '' }))
+              setOffice(toOffice(open ?? offices[0]))
+            } else {
+              localStorage.removeItem(LOCKED_OFFICE_KEY)
+            }
+            setAccountOffices(offices && offices.length > 0 ? offices : undefined)
+            setOfficeReady(true)
             setLoginId(localStorage.getItem(REMEMBERED_LOGIN_ID_KEY) ?? '')
             setRevealing(true)
             setTimeout(() => setAuthed(true), REVEAL_MS)
@@ -119,6 +181,9 @@ export default function AuthGate() {
       <App
         office={office}
         onOfficeChange={setOffice}
+        accountOffices={accountOffices}
+        onAddAccountOffice={accountOffices ? addAccountOffice : undefined}
+        onRemoveAccountOffice={accountOffices ? removeAccountOffice : undefined}
         loginId={loginId}
         onLogout={() => {
           void api.logout()

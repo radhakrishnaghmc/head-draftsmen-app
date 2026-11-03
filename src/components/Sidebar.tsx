@@ -1,3 +1,4 @@
+import { sameAccountOffice, type AccountOffice } from '@core/signupRequest'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
@@ -58,6 +59,8 @@ interface Props {
   office: Office
   /** Change the office — lets the sidebar's own picker set it, same as the Works List one. */
   onOfficeChange: (office: Office) => void
+  /** Sign-up logins are confined to the offices on the login (at most 2): "Change office" only switches between them. */
+  accountOffices?: AccountOffice[]
   /** Re-open the "What's New" dialog on demand (it otherwise only shows once, automatically, right after an update). */
   onShowWhatsNew: () => void
   /** True while a newly-found Cement & Steel Rate circular hasn't been seen yet — blinks that nav item until it's opened. */
@@ -91,7 +94,7 @@ const UPDATE_STATUS_TEXT: Record<string, string> = {
 export default function Sidebar(props: Props) {
   // The office picker opens as a popup (kept out of the way of the clean brand
   // header); it opens itself when no office is chosen yet.
-  const [officeOpen, setOfficeOpen] = useState(!isOfficeReady(props.office))
+  const [officeOpen, setOfficeOpen] = useState(!isOfficeReady(props.office) && !props.accountOffices)
   const [version, setVersion] = useState<string | null>(null)
   // Play theme: the rail expands on hover; after picking a page it must fold
   // back even though the pointer is still over it, until the pointer leaves.
@@ -232,9 +235,11 @@ export default function Sidebar(props: Props) {
           ) : (
             <p className="warn">Select your office</p>
           )}
-          <button className="side-office-change" onClick={() => setOfficeOpen(true)}>
-            Change office
-          </button>
+          {(!props.accountOffices || props.accountOffices.length > 1) && (
+            <button className="side-office-change" onClick={() => setOfficeOpen(true)}>
+              Change office
+            </button>
+          )}
         </div>
       </div>
 
@@ -307,6 +312,44 @@ export default function Sidebar(props: Props) {
       </div>
 
       {officeOpen &&
+        props.accountOffices &&
+        createPortal(
+          <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setOfficeOpen(false))}>
+            <div className="confirm-modal office-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+              <h3>Switch office</h3>
+              <div className="office-chips">
+                {props.accountOffices.map((o) => {
+                  const on = sameAccountOffice(o, {
+                    corporation: props.office.corporation ?? '',
+                    zone: props.office.zone ?? '',
+                    circle: props.office.circle ?? ''
+                  })
+                  return (
+                    <button
+                      key={`${o.corporation}|${o.zone}|${o.circle}`}
+                      className={`office-chip ${on ? 'on' : ''}`}
+                      onClick={() => {
+                        setOfficeOpen(false)
+                        if (!on) props.onOfficeChange(normalizeOffice({ corporation: o.corporation, zone: o.zone, circle: o.circle || undefined }))
+                      }}
+                    >
+                      {[o.corporation, o.zone, o.circle || 'Zonal office'].join(' · ')}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="confirm-actions">
+                <button className="primary" onClick={() => setOfficeOpen(false)}>
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {officeOpen &&
+        !props.accountOffices &&
         createPortal(
           <div className="editor-overlay" onMouseDown={closeOnBackdropMouseDown(() => setOfficeOpen(false))}>
           <div className="confirm-modal office-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>

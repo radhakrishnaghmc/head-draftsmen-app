@@ -1,3 +1,5 @@
+import AddOfficeCard from './AddOfficeCard'
+import { MAX_ACCOUNT_OFFICES, type AccountOffice } from '@core/signupRequest'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
@@ -46,15 +48,19 @@ import type { IntimationNotice } from '@core/intimationNotice'
 import type { TenderEvaluation } from '@core/tenderEvaluationPdf'
 import { MAX_CONCURRENT_SESSIONS } from '@core/sessionSlots'
 import { THEME_OPTIONS, type ThemeId } from '../theme'
-import type { ActiveSessionInfo, ActivityLogEntry, BackupResult } from '../../electron/ipc-contract'
+import type { ActiveSessionInfo, ActivityLogEntry, BackupResult, GoogleSheetsStatus } from '../../electron/ipc-contract'
 import type { PersistedState } from '@core/types'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import { IconSettings, IconCheck, IconWarn, IconOpen, IconUser, IconLogout, IconChevronRight, IconChevronLeft, IconBell, IconFolder, IconCloud, IconSun, IconDoc } from './Icons'
 
-type SettingsSection = 'devices' | 'backup' | 'themes' | 'templates' | 'massNotices' | 'bulkIntimations' | 'bulkQc' | 'bulkForwarding'
+type SettingsSection = 'addOffice' | 'devices' | 'backup' | 'onlineWorks' | 'themes' | 'templates' | 'massNotices' | 'bulkIntimations' | 'bulkQc' | 'bulkForwarding'
 
 interface Props {
   office: Office
+  /** Sign-up logins only: the offices on the login, with the handlers behind Settings → Add office. */
+  accountOffices?: AccountOffice[]
+  onAddAccountOffice?: (office: AccountOffice) => Promise<string>
+  onRemoveAccountOffice?: (office: AccountOffice) => Promise<string>
   /** False while another top-level tab is showing — the Bulk Notices workspace resets then. */
   active: boolean
   /** The office's saved QC agencies — addressed on the Bulk QC Intimations letters. */
@@ -396,6 +402,109 @@ function relativeTime(ts: number): string {
 }
 
 /**
+ * Settings — "Online Works List": Sign in with Google once; from then on every change to an office's Works List is
+ * mirrored (one-way) into that office's own tab of a spreadsheet the app creates in the user's Drive.
+ */
+function OnlineWorksCard({ getState }: Pick<Props, 'getState'>) {
+  const currentState = (): PersistedState => getState() ?? { version: 1, tables: [], resolution: {} }
+  const [status, setStatus] = useState<GoogleSheetsStatus | null>(null)
+  const [busy, setBusy] = useState<'signin' | 'sync' | null>(null)
+  const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    const load = () => void api.googleSheetsStatus().then((s) => alive && setStatus(s))
+    load()
+    const t = setInterval(load, 3000)
+    return () => {
+      alive = false
+      clearInterval(t)
+    }
+  }, [])
+
+  async function signIn() {
+    setBusy('signin')
+    setMessage(null)
+    try {
+      setStatus(await api.googleSheetsSignIn())
+      const err = await api.googleSheetsSyncNow(currentState())
+      setMessage(err ? { kind: 'error', text: err } : { kind: 'ok', text: 'Connected. Your Works Lists are now in the online sheet.' })
+    } catch (e) {
+      setMessage({ kind: 'error', text: (e as Error).message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') })
+    }
+    setBusy(null)
+  }
+  async function syncNow() {
+    setBusy('sync')
+    const err = await api.googleSheetsSyncNow(currentState())
+    setMessage(err ? { kind: 'error', text: err } : { kind: 'ok', text: 'Online sheet updated.' })
+    setBusy(null)
+  }
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <div className="head-ic">
+          <IconCloud />
+        </div>
+        <div className="titles">
+          <h2>Online Works List</h2>
+          <p className="sub">
+            Sign in with Google and the app keeps a Google Sheet up to date with your Works List — one tab per office,
+            refreshed a few seconds after every change. The sheet is a read-only copy: edits made in it are not brought
+            back into the app. The app can only reach the sheet it creates, nothing else in your Drive.
+          </p>
+        </div>
+      </div>
+
+      {status && !status.configured && (
+        <div className="notice error">
+          <IconWarn /> Google sign-in is not set up in this version of the app yet.
+        </div>
+      )}
+
+      {status?.connected ? (
+        <>
+          <p className="hint">
+            Connected as <strong>{status.email || 'your Google account'}</strong>
+            {status.lastSync > 0 && ` · last updated ${new Date(status.lastSync).toLocaleString()}`}
+            {status.syncing && ' · updating…'}
+          </p>
+          <div className="backup-actions">
+            <button type="button" onClick={() => void api.openPath(status.spreadsheetUrl)} disabled={!status.spreadsheetUrl}>
+              <IconOpen /> Open online sheet
+            </button>
+            <button type="button" className="ghost" disabled={busy !== null} onClick={() => void syncNow()}>
+              {busy === 'sync' ? 'Updating…' : 'Update now'}
+            </button>
+            <button type="button" className="ghost" disabled={busy !== null} onClick={() => void api.googleSheetsSignOut().then(setStatus)}>
+              Disconnect
+            </button>
+          </div>
+          {status.lastError && (
+            <div className="notice error">
+              <IconWarn /> Last update failed: {status.lastError}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="backup-actions">
+          <button type="button" disabled={busy !== null || !status?.configured} onClick={() => void signIn()}>
+            {busy === 'signin' ? 'Waiting for Google…' : 'Sign in with Google'}
+          </button>
+        </div>
+      )}
+
+      {message && (
+        <div className={`notice ${message.kind === 'error' ? 'error' : ''}`}>
+          {message.kind === 'error' ? <IconWarn /> : <IconCheck />} {message.text}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * Settings — "Active Devices": every device currently signed in as this
  * login ID (up to MAX_CONCURRENT_SESSIONS — see core/sessionSlots.ts), with a
  * "Log out" button for every device except this one, so someone locked out
@@ -677,7 +786,7 @@ function ThemeSection({ theme, onThemeChange }: { theme: ThemeId; onThemeChange:
  * (see CONTACT_KEYS). One TemplateSection per document type — a future
  * document type is just another entry in the list below.
  */
-export default function SettingsTab({ office, active, qcParties, theme, onThemeChange, getState, onRestored, monitoringWorks, calendar, noticeItems, onNoticesChange, worksTable, onLettersAdd }: Props) {
+export default function SettingsTab({ office, accountOffices, onAddAccountOffice, onRemoveAccountOffice, active, qcParties, theme, onThemeChange, getState, onRestored, monitoringWorks, calendar, noticeItems, onNoticesChange, worksTable, onLettersAdd }: Props) {
   const fields = useMemo(
     () => sampleFields(office),
     [office.circle, office.circleNumber, office.zone, office.corporation]
@@ -810,8 +919,12 @@ export default function SettingsTab({ office, active, qcParties, theme, onThemeC
   )
 
   const tiles: { key: SettingsSection; icon: ReactNode; name: string; meta: string }[] = [
+    ...(accountOffices && onAddAccountOffice && onRemoveAccountOffice
+      ? [{ key: 'addOffice' as const, icon: <IconFolder />, name: 'Add office', meta: `Offices on this login · ${accountOffices.length} of ${MAX_ACCOUNT_OFFICES}` }]
+      : []),
     { key: 'devices', icon: <IconUser />, name: 'Active Devices', meta: 'See where you are signed in and sign devices out' },
     { key: 'backup', icon: <IconCloud />, name: 'Backup & Restore', meta: 'Save your workspace to a file or restore it' },
+    { key: 'onlineWorks', icon: <IconCloud />, name: 'Online Works List', meta: 'Mirror the Works List to a Google Sheet, one tab per office' },
     { key: 'themes', icon: <IconSun />, name: 'Themes', meta: `Look of the app on this device${currentTheme ? ` · ${currentTheme.label}` : ''}` },
     { key: 'templates', icon: <IconDoc />, name: 'Document Templates', meta: "Choose this office's default style for each document" },
     { key: 'massNotices', icon: <IconBell />, name: 'Bulk Notices', meta: 'Generate non-conclusion notices from a folder' },
@@ -872,8 +985,12 @@ export default function SettingsTab({ office, active, qcParties, theme, onThemeC
             <IconChevronLeft /> Back
           </button>
         </div>
+        {section === 'addOffice' && accountOffices && onAddAccountOffice && onRemoveAccountOffice && (
+          <AddOfficeCard offices={accountOffices} active={office} onAdd={onAddAccountOffice} onRemove={onRemoveAccountOffice} />
+        )}
         {section === 'devices' && <ActiveDevicesCard />}
         {section === 'backup' && <BackupRestoreCard getState={getState} onRestored={onRestored} />}
+        {section === 'onlineWorks' && <OnlineWorksCard getState={getState} />}
         {section === 'themes' && (
           <div className="card">
             <div className="card-head">

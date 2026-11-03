@@ -24,6 +24,7 @@ import { parseBalanceEmdReceipt } from '@core/balanceEmdReceipt'
 import { parseBankGuarantees, extractBankName } from '@core/bankGuaranteePdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
+import { scanBelongsToOffice, saveWorkspaceInputs } from '@core/worksSync'
 import {
   deriveFields,
   workOrderPlaceholders,
@@ -966,6 +967,12 @@ export default function WorkOrderAgreementTab({
   const [agreementNo, setAgreementNo] = useState('')
   // The AE's name and phone number — typed per work, fills the 4th-party QC letter's "AE Name & Phone No." column.
   const [aeNamePhone, setAeNamePhone] = useState('')
+  // Typed per work and saved to the matched Works List row as they're entered (see saveInput), so the database keeps
+  // them: Administrative Sanction date / by, newspapers the tender notice was published in, and the AE's name & number.
+  const [adminSanctionDate, setAdminSanctionDate] = useState('')
+  const [adminSanctionBy, setAdminSanctionBy] = useState('')
+  const [newspapers, setNewspapers] = useState('')
+  const workspaceSeedKey = useRef('')
   const [datePromptOpen, setDatePromptOpen] = useState(false)
   const [promptDate, setPromptDate] = useState('')
   // Tools/standalone: when the uploaded L-1's name of work / NIT carries no Zone
@@ -1117,7 +1124,18 @@ export default function WorkOrderAgreementTab({
               table && table.rows.length > 0
               ? table.rows[Math.min(rowIndex, table.rows.length - 1)]
               : null,
-    [deriveFromUploads, notice, effectiveNotice, pdfEval, worksRowMatched, table, rowIndex, mfWork, typedEstimate, typedWincode]
+    [
+      deriveFromUploads,
+      notice,
+      effectiveNotice,
+      pdfEval,
+      worksRowMatched,
+      table,
+      rowIndex,
+      mfWork,
+      typedEstimate,
+      typedWincode
+    ]
   )
 
   // Load both bundled formats, and read their placeholders.
@@ -1483,6 +1501,17 @@ export default function WorkOrderAgreementTab({
     // agency name/address into this row — only pass it through once it's
     // confirmed to describe the same work as this L-1.
     const noticeForRow = noticeVal && checkSameWork(noticeVal, ev).status !== 'mismatch' ? noticeVal : undefined
+    // A sheet from another office never writes into this office's Works List (the red banner explains why).
+    const belongs = scanBelongsToOffice({
+      officeCircle: (office?.circle ?? '').trim(),
+      sheetCircle: circleFromNit(ev.noticeNo || '').circle || (resolveFromDirectory(ev.nameOfWork, entriesOf(office?.corporation)).circle ?? ''),
+      workName: ev.nameOfWork,
+      table
+    })
+    if (!belongs.ok) {
+      setPdfStatus(belongs.error)
+      return
+    }
     const {
       table: updated,
       matchedCount,
@@ -2002,7 +2031,15 @@ export default function WorkOrderAgreementTab({
     const nb = b.trim().toLowerCase()
     return !!na && !!nb && (na === nb || na.includes(nb) || nb.includes(na))
   }
-  const circleMismatch = !standalone && !!l1Circle && !!targetCircle && !sameCircleId(l1Circle, targetCircle)
+  // A work already in this office's Works List is accepted even when its sheet names another circle (GHMC was split
+  // into CMC/MMC/GHMC in Feb 2026, so pre-split works can still name the old circle).
+  const scanCheck = scanBelongsToOffice({
+    officeCircle: targetCircle,
+    sheetCircle: l1Circle,
+    workName: pdfEval?.nameOfWork,
+    table
+  })
+  const circleMismatch = !standalone && !!l1Circle && !!targetCircle && !sameCircleId(l1Circle, targetCircle) && !scanCheck.ok
 
   // A Zone-level (SE) office's 5 rebuilt Work Order/Agreement documents.
   // Schedule A remains a separate output, driven entirely by the uploaded
@@ -2044,8 +2081,10 @@ export default function WorkOrderAgreementTab({
       if (woTileRef.current) void renderTileThumbnail('workOrder', woTileRef.current).catch(() => {})
       if (fbTileRef.current) void renderTileThumbnail('fileBacker', fbTileRef.current).catch(() => {})
       if (agTileRef.current) void renderTileThumbnail('agreement', agTileRef.current).catch(() => {})
+      if (qccIntTileRef.current) void renderTileThumbnail('qccIntimation', qccIntTileRef.current).catch(() => {})
       if (fsTileRef.current) void renderTileThumbnail('forwardingSlip', fsTileRef.current).catch(() => {})
       if (wbnTileRef.current) void renderTileThumbnail('workBillNote', wbnTileRef.current).catch(() => {})
+      if (aeTileRef.current) void renderTileThumbnail('aeDyeeForwarding', aeTileRef.current).catch(() => {})
       if (ctTileRef.current) void renderTileThumbnail('civilTender', ctTileRef.current).catch(() => {})
     }, 600)
     return () => clearTimeout(timer)
@@ -2287,6 +2326,7 @@ export default function WorkOrderAgreementTab({
       await add('civilTender', civilTenderB64)
       await add('forwardingSlip', forwardingSlipB64)
       await add('agreement', agreementB64)
+      await add('qccIntimation', qccIntimationB64)
       await add('workOrder', workOrderB64)
     }
     return items
@@ -2342,12 +2382,16 @@ export default function WorkOrderAgreementTab({
         // File Backer — the cover page — first in the bundle.
         if (fileBackerB64 && wants('fileBacker')) await add(docName('fileBacker'), await fillDoc('fileBacker'))
         if (workBillNoteB64 && wants('workBillNote')) await add(docName('workBillNote'), await fillDoc('workBillNote'))
+        if (aeDyeeB64 && wants('aeDyeeForwarding'))
+          await add(docName('aeDyeeForwarding'), await fillDoc('aeDyeeForwarding'))
         if (civilTenderB64 && wants('civilTender')) await add(docName('civilTender'), await fillDoc('civilTender'))
         if (forwardingSlipB64 && wants('forwardingSlip'))
           await add(docName('forwardingSlip'), await fillDoc('forwardingSlip'))
         // Work Order & Agreement Bond print a blank, hand-writable date in the bundle.
         if (agreementB64 && wants('agreement'))
           await add(docName('agreement'), await fillDoc('agreement', { blankDate: true }))
+        if (qccIntimationB64 && wants('qccIntimation'))
+          await add(docName('qccIntimation'), await fillDoc('qccIntimation'))
         if (workOrderB64 && wants('workOrder'))
           await add(docName('workOrder'), await fillDoc('workOrder', { blankDate: true }))
         if (noteReady && wants('note'))
@@ -2404,6 +2448,48 @@ export default function WorkOrderAgreementTab({
 
   // --- Note Submitted (same generator as the Intimation tab) ---
 
+  // When a Works List row is matched, show what the database already holds for it in the workspace inputs (anything
+  // typed before the match is kept and written to the row instead of being wiped).
+  useEffect(() => {
+    const row = worksRowMatched && table ? table.rows[rowIndex] : undefined
+    if (!table || !row) {
+      workspaceSeedKey.current = ''
+      return
+    }
+    const key = `${rowIndex}|${row['Wincode'] ?? ''}|${row['Name of the work'] ?? ''}`
+    if (workspaceSeedKey.current === key) return
+    workspaceSeedKey.current = key
+    const db = {
+      adminSanctionDate: dmyToIso(row['Admin Sanction Date'] ?? ''),
+      newspapers: row['Newspapers Published'] ?? '',
+      aeNameNumber: row['AE Name & Number'] ?? '',
+      adminSanctionBy: row['Sanction By'] ?? ''
+    }
+    const next = {
+      adminSanctionDate: db.adminSanctionDate || adminSanctionDate,
+      newspapers: db.newspapers || newspapers,
+      aeNameNumber: db.aeNameNumber || aeNamePhone,
+      adminSanctionBy: db.adminSanctionBy || adminSanctionBy
+    }
+    setAdminSanctionDate(next.adminSanctionDate)
+    setNewspapers(next.newspapers)
+    setAeNamePhone(next.aeNameNumber)
+    setAdminSanctionBy(next.adminSanctionBy)
+    const saved = saveWorkspaceInputs(table, rowIndex, { ...next, adminSanctionDate: next.adminSanctionDate ? isoToDmy(next.adminSanctionDate) : '' })
+    if (saved !== table) onChange(saved)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [worksRowMatched, rowIndex, table])
+
+  function saveInput(field: 'adminSanctionDate' | 'newspapers' | 'aeNameNumber' | 'adminSanctionBy', value: string) {
+    if (field === 'adminSanctionDate') setAdminSanctionDate(value)
+    else if (field === 'newspapers') setNewspapers(value)
+    else if (field === 'aeNameNumber') setAeNamePhone(value)
+    else setAdminSanctionBy(value)
+    if (!worksRowMatched || !table) return
+    const saved = saveWorkspaceInputs(table, rowIndex, { [field]: field === 'adminSanctionDate' && value ? isoToDmy(value) : value })
+    if (saved !== table) onChange(saved)
+  }
+
   // Seed the note from the picked row and, once uploaded, the L-1 PDF's full
   // bidder table. Re-seeds on row / PDF change.
   useEffect(() => {
@@ -2445,10 +2531,12 @@ export default function WorkOrderAgreementTab({
       if (emdReceiptInfo.receiptNo) seed.receiptNo = emdReceiptInfo.receiptNo
       if (emdReceiptInfo.receiptDate) seed.receiptDate = emdReceiptInfo.receiptDate
     }
+    if (adminSanctionDate) seed.asDate = isoToDmy(adminSanctionDate)
+    if (newspapers.trim()) seed.newspapers = newspapers.trim()
     noteSeedRef.current = seed
     setNoteData({ ...seed, ...loadNoteEdits(noteEditsKey(seed, pdfEval)) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowIndex, table, allBidders, pdfEval, notice, effectiveNotice, deriveFromUploads, selectedRow, emdReceiptInfo])
+  }, [rowIndex, table, allBidders, pdfEval, notice, effectiveNotice, deriveFromUploads, selectedRow, emdReceiptInfo, adminSanctionDate, newspapers])
 
   const notePreviewHtml = useMemo(() => (noteData ? buildNoteSubmittedHtml(noteData) : ''), [noteData])
   // The Word doc, the PDF (same docx via LibreOffice) and Print all take the
@@ -2487,9 +2575,11 @@ export default function WorkOrderAgreementTab({
       : [
           ['fileBacker', fileBackerB64],
           ['workBillNote', workBillNoteB64],
+          ['aeDyeeForwarding', aeDyeeB64],
           ['civilTender', civilTenderB64],
           ['forwardingSlip', forwardingSlipB64],
           ['agreement', agreementB64],
+          ['qccIntimation', qccIntimationB64],
           ['workOrder', workOrderB64],
           ['note', noteReady]
         ]
@@ -3053,30 +3143,33 @@ export default function WorkOrderAgreementTab({
             }}
           />
         </div>
-        {!manualMode && deriveFromUploads && (notice || pdfEval) && (!(mfWork && mfWork.estimateAmt > 0) || !mfWork?.winCode.trim()) && (
-          <div className="wo-manual-form">
-            <span className="estimate-hint wo-manual-wide">
-              Not in the Works List or the Monitoring Format — enter them for this work:
-            </span>
-            {!(mfWork && mfWork.estimateAmt > 0) && (
-              <label className="wo-date-field">
-                <span>Amount of estimate (Lakhs)</span>
-                <input
-                  type="text"
-                  placeholder="45.00"
-                  value={typedEstimate}
-                  onChange={(e) => setTypedEstimate(e.target.value)}
-                />
-              </label>
-            )}
-            {!mfWork?.winCode.trim() && (
-              <label className="wo-date-field">
-                <span>Wincode</span>
-                <input type="text" value={typedWincode} onChange={(e) => setTypedWincode(e.target.value)} />
-              </label>
-            )}
-          </div>
-        )}
+        {!manualMode &&
+          deriveFromUploads &&
+          (notice || pdfEval) &&
+          (!(mfWork && mfWork.estimateAmt > 0) || !mfWork?.winCode.trim()) && (
+            <div className="wo-manual-form">
+              <span className="estimate-hint wo-manual-wide">
+                Not in the Works List or the Monitoring Format — enter them for this work:
+              </span>
+              {!(mfWork && mfWork.estimateAmt > 0) && (
+                <label className="wo-date-field">
+                  <span>Amount of estimate (Lakhs)</span>
+                  <input
+                    type="text"
+                    placeholder="45.00"
+                    value={typedEstimate}
+                    onChange={(e) => setTypedEstimate(e.target.value)}
+                  />
+                </label>
+              )}
+              {!mfWork?.winCode.trim() && (
+                <label className="wo-date-field">
+                  <span>Wincode</span>
+                  <input type="text" value={typedWincode} onChange={(e) => setTypedWincode(e.target.value)} />
+                </label>
+              )}
+            </div>
+          )}
         {!scheduleAOnly && !only && (
           <div className="wo-manual-form">
             <label className="wo-date-field wo-manual-wide">
@@ -3085,7 +3178,29 @@ export default function WorkOrderAgreementTab({
                 type="text"
                 placeholder="K. Ramesh, 9876543210"
                 value={aeNamePhone}
-                onChange={(e) => setAeNamePhone(e.target.value)}
+                onChange={(e) => saveInput('aeNameNumber', e.target.value)}
+              />
+            </label>
+            <label className="wo-date-field">
+              <span>Administrative Sanction date</span>
+              <input type="date" value={adminSanctionDate} onChange={(e) => saveInput('adminSanctionDate', e.target.value)} />
+            </label>
+            <label className="wo-date-field">
+              <span>Administrative Sanction by</span>
+              <input
+                type="text"
+                placeholder="Commissioner / Zonal Commissioner"
+                value={adminSanctionBy}
+                onChange={(e) => saveInput('adminSanctionBy', e.target.value)}
+              />
+            </label>
+            <label className="wo-date-field wo-manual-wide">
+              <span>Newspapers published (tender notice)</span>
+              <input
+                type="text"
+                placeholder="Eenadu, The Hindu"
+                value={newspapers}
+                onChange={(e) => saveInput('newspapers', e.target.value)}
               />
             </label>
           </div>
@@ -3385,8 +3500,7 @@ export default function WorkOrderAgreementTab({
       )}
       {circleMismatch && (
         <div className="notice error">
-          <IconWarn /> Office selected and L1 sheet circle does not match — upload the L1 sheet of{' '}
-          <strong>{targetCircle}</strong> circle only.
+          <IconWarn /> These sheets do not belong to the <strong>{targetCircle}</strong> office.
         </div>
       )}
       {noWorksRowMatch && !circleMismatch && pdfEval && (
@@ -3466,6 +3580,15 @@ export default function WorkOrderAgreementTab({
                 <div className="wo-tile-foot">{DOC_LABEL.workBillNote}</div>
               </button>
             )}
+            {docsReady && !only && !seMode && aeDyeeB64 && (
+              <button className="wo-tile" onClick={() => openDoc('aeDyeeForwarding')}>
+                <div className="wo-tile-preview">
+                  <div ref={aeTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.aeDyeeForwarding}</div>
+              </button>
+            )}
             {docsReady && !only && !seMode && (
               <button className="wo-tile" onClick={() => openDoc('forwardingSlip')}>
                 <div className="wo-tile-preview">
@@ -3482,6 +3605,15 @@ export default function WorkOrderAgreementTab({
                   <span className="wo-tile-open">Click to preview</span>
                 </div>
                 <div className="wo-tile-foot">{DOC_LABEL.agreement}</div>
+              </button>
+            )}
+            {docsReady && !only && !seMode && qccIntimationB64 && (
+              <button className="wo-tile" onClick={() => openDoc('qccIntimation')}>
+                <div className="wo-tile-preview">
+                  <div ref={qccIntTileRef} className="wo-tile-doc" />
+                  <span className="wo-tile-open">Click to preview</span>
+                </div>
+                <div className="wo-tile-foot">{DOC_LABEL.qccIntimation}</div>
               </button>
             )}
             {docsReady && seMode && (

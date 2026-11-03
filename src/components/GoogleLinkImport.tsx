@@ -7,8 +7,8 @@ interface Props {
 
 /**
  * A single input + button that downloads a pasted Google Sheets / Drive link
- * and replaces the works list with it — the existing columns and rows are
- * dropped entirely in favor of a fresh database built from the link.
+ * and imports it: the first import creates the works database; later ones only
+ * append works that are new in the sheet (see core/worksSync.ts).
  */
 export default function GoogleLinkImport({ onImport }: Props) {
   const [url, setUrl] = useState('')
@@ -26,8 +26,8 @@ export default function GoogleLinkImport({ onImport }: Props) {
       const { added } = await onImport(trimmed)
       setDone(
         added > 0
-          ? `Replaced the works database with ${added} row${added === 1 ? '' : 's'} from the link.`
-          : "Updated the works database's columns from the link — it had no rows yet, so add some or refresh once they're filled in."
+          ? `Added ${added} new work${added === 1 ? '' : 's'} from the link — works already in the database were left as they are.`
+          : "No new works in the link — everything in it is already in the database (or the sheet has no rows yet)."
       )
       setUrl('')
     } catch (e) {
@@ -39,7 +39,7 @@ export default function GoogleLinkImport({ onImport }: Props) {
 
   return (
     <div className="link-import">
-      <p className="link-import-title">Replace the works database from a Google Sheets / Drive link</p>
+      <p className="link-import-title">Import the works database from a Google Sheets / Drive link</p>
       <div className="link-import-row">
         <IconLink />
         <input
@@ -57,7 +57,7 @@ export default function GoogleLinkImport({ onImport }: Props) {
           {loading ? 'Importing…' : 'Import'}
         </button>
       </div>
-      <p className="hint">Importing replaces every column and row in the current works database with the data from the link.</p>
+      <p className="hint">The first import creates the database. Importing again only adds works that are new in the sheet and never changes existing ones — to start over, delete the database first.</p>
       {error && (
         <div className="notice error">
           <IconWarn />

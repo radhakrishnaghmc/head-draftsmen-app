@@ -16,6 +16,15 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.50.0',
+    changes: [
+      'Works List: importing the Google link again now only adds works that are new in the sheet; works already in your database are never changed.',
+      'L-1 / LOA sheets from another circle are rejected with "These sheets do not belong to the <Circle> office", unless the work is already in your Works List.',
+      'Agreement workspace: Administrative Sanction date and by, newspapers published, and the AE name & number are now saved to the work in the Works List.',
+      'Works List and the 3rd / 4th-party / department QC details now sync online immediately, and QC details are fetched from online when empty.'
+    ]
+  },
+  {
     version: '1.49.0',
     changes: [
       'New: Bulk Intimations. Pick a folder of L-1 sheets and LOAs; a letter is made only when the LOA agrees with the L-1 on NIT number, agency name and contract amount, and any mismatch is reported with the exact reason.',

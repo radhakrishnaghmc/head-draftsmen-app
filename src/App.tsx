@@ -1,3 +1,4 @@
+import { sameAccountOffice, type AccountOffice } from '@core/signupRequest'
 import {
   markEvaluationGenerated,
   mergeRemoteTenderConditions,
@@ -55,6 +56,7 @@ import TenderNoticeButton from './components/TenderNoticeButton'
 import BidDocumentsPanel from './components/BidDocumentsPanel'
 import SeBidDocumentTile from './components/SeBidDocumentTile'
 import GoogleLinkImport from './components/GoogleLinkImport'
+import { hasWorks, mergeNewWorks } from '@core/worksSync'
 import WorksListL1Update from './components/WorksListL1Update'
 import EstimateWorkspaceTab from './components/EstimateWorkspaceTab'
 import GiveTechnicalSanctionTab from './components/GiveTechnicalSanctionTab'
@@ -167,6 +169,10 @@ interface Props {
   /** The Head Draughtsman's chosen office (Corporation/Zone/Circle), selected in the sidebar — drives document prep and Works List validation. */
   office: Office
   onOfficeChange: (office: Office) => void
+  /** Sign-up logins only: the (at most 2) offices on the login — the app is confined to them. */
+  accountOffices?: AccountOffice[]
+  onAddAccountOffice?: (office: AccountOffice) => Promise<string>
+  onRemoveAccountOffice?: (office: AccountOffice) => Promise<string>
   /** The signed-in user's Login ID — shown in the profile menu. */
   loginId: string
 }
@@ -199,7 +205,7 @@ function KeepAlive({ active, mounted, children }: { active: boolean; mounted: bo
   )
 }
 
-export default function App({ onLogout, office, onOfficeChange, loginId }: Props) {
+export default function App({ onLogout, office, onOfficeChange, accountOffices, onAddAccountOffice, onRemoveAccountOffice, loginId }: Props) {
   // The office identity drives every Zone/Circle behaviour below. Kept as local
   // aliases so the rest of the app reads the same as when these came from the
   // login (Circle is optional — a zone-level Head Draughtsman picks just a Zone).
@@ -1343,6 +1349,29 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
 
   // Deleting a database clears that office's data in this login only (and, through sync, in its cloud copy). The saved
   // link is blanked (not removed, since the cloud merges maps key by key) so the office doesn't quietly re-import it.
+  // An office with no 3rd / 4th-party / department QC agencies saved on this machine asks the cloud for them (they
+  // sync online the moment they're entered, so another device — or an earlier install — may already hold them).
+  useEffect(() => {
+    if (!currentOfficeKey || !hydrated) return
+    const mine = qcParties[currentOfficeKey]
+    const filled = (p?: { name: string; address: string; phone: string }) => !!p && !!(p.name.trim() || p.address.trim() || p.phone.trim())
+    if (filled(mine?.department) || filled(mine?.third) || filled(mine?.fourth)) return
+    let alive = true
+    void api.fetchQcParties().then((remote) => {
+      const theirs = remote?.[currentOfficeKey]
+      if (!alive || !theirs) return
+      setQcParties((prev) => {
+        const cur = prev[currentOfficeKey]
+        if (filled(cur?.department) || filled(cur?.third) || filled(cur?.fourth)) return prev
+        return { ...prev, [currentOfficeKey]: theirs }
+      })
+    })
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentOfficeKey, hydrated])
+
   function deleteWorksDatabase() {
     if (!currentOfficeKey) return
     if (
@@ -1597,7 +1626,13 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     } else {
       result = normalized
     }
-    setTables([result])
+    // The database is the source of truth (L1/LOA scans keep updating it), so once it holds works a re-import or
+    // refresh only appends the sheet's NEW works and never touches an existing one. A full fresh import is only
+    // possible after deleting the database (deleteWorksDatabase).
+    const existing = tables[0]
+    const merged = hasWorks(existing) ? mergeNewWorks(existing, result) : null
+    const finalTable = merged ? merged.table : result
+    setTables([finalTable])
     setBlockedWorksList(null)
     setLastGoogleLink(url ?? null)
     setOfficeImportPrompt(null)
@@ -1606,7 +1641,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     const key = officeKey(office)
     if (key && url) setWorksListLinks((prev) => (prev[key] === url ? prev : { ...prev, [key]: url }))
 
-    return { added: rows.length, table: result }
+    return { added: merged ? merged.added : rows.length, table: finalTable }
   }
 
   // Re-pull the Works List from whichever Google link it was last filled from,
@@ -1624,7 +1659,9 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
     setRefreshSummary(null)
     try {
       const { added } = await importFromGoogleLink(lastGoogleLink)
-      setRefreshSummary(`Refreshed from the Google link — ${added} work${added === 1 ? '' : 's'} imported.`)
+      setRefreshSummary(
+        `Refreshed from the Google link — ${added} new work${added === 1 ? '' : 's'} added; existing works were left as they are.`
+      )
     } catch (e) {
       setRefreshError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -1820,6 +1857,18 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
   // and RESTORE the office we're switching to from its own saved data, so its
   // database (including local edits) is never erased. Only an office we've never
   // loaded before falls back to importing its link / prompting for one.
+  // Deleting the office that is open moves the app to the login's remaining one.
+  async function removeAccountOffice(o: AccountOffice): Promise<string> {
+    const problem = (await onRemoveAccountOffice?.(o)) ?? 'Not available.'
+    if (problem) return problem
+    const wasOpen = sameAccountOffice(o, { corporation: office.corporation ?? '', zone: office.zone ?? '', circle: office.circle ?? '' })
+    const rest = (accountOffices ?? []).filter((x) => !sameAccountOffice(x, o))
+    if (wasOpen && rest[0]) {
+      changeOffice(normalizeOffice({ corporation: rest[0].corporation, zone: rest[0].zone, circle: rest[0].circle || undefined }))
+    }
+    return ''
+  }
+
   function changeOffice(next: Office) {
     const willSwitch =
       (next.corporation !== office.corporation || next.zone !== office.zone || next.circle !== office.circle) &&
@@ -1992,6 +2041,7 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
           createdDocCount={createdDocuments.length}
           office={office}
           onOfficeChange={changeOffice}
+          accountOffices={accountOffices}
           onShowWhatsNew={() => setWhatsNew(CHANGELOG)}
           cementSteelHasNew={cementSteelHasNew}
           noticesOverdue={noticesOverdue}
@@ -2073,6 +2123,8 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                         // awareness of its own) doesn't keep showing a stale
                         // result from the office just switched away from.
                         key={currentOfficeKey}
+                        officeCircle={office.circle}
+                        corporation={office.corporation}
                         table={currentTable}
                         onChange={updateTable}
                         onUpdated={(rows, message) => setWorksFlash({ token: Date.now(), rows, message })}
@@ -2686,6 +2738,9 @@ export default function App({ onLogout, office, onOfficeChange, loginId }: Props
                 </div>
                 <SettingsTab
                   office={office}
+                  accountOffices={accountOffices}
+                  onAddAccountOffice={onAddAccountOffice}
+                  onRemoveAccountOffice={removeAccountOffice}
                   active={tab === 'settings'}
                   theme={theme}
                   onThemeChange={changeTheme}

@@ -75,7 +75,7 @@ export default function ProfileMenu({ username, onLogout, onSync, pendingBytes, 
               onLogout()
             }}
           >
-            <IconLogout /> Log out{username && ` (${username})`}
+            <IconLogout /> Log out
           </button>
         </div>
       )}

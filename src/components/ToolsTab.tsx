@@ -10,6 +10,7 @@ import PdfToolPage from './PdfToolPage'
 import ExcelSeparatorPage from './ExcelSeparatorPage'
 import WordToolPage from './WordToolPage'
 import GpsPhotosPage from './GpsPhotosPage'
+import ExcelToPdfPage from './ExcelToPdfPage'
 import PhotosToPdfPage from './PhotosToPdfPage'
 import PhotosToDocPage from './PhotosToDocPage'
 import DocThumbnail from './DocThumbnail'
@@ -52,6 +53,7 @@ type FullPage =
   | 'excel'
   | 'word'
   | 'gps'
+  | 'excelPdf'
   | 'photosToPdf'
   | 'photosToDoc'
   | 'photos'
@@ -174,6 +176,7 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
   if (fullPage === 'excel') return <ExcelSeparatorPage onBack={backToTools} />
   if (fullPage === 'word') return <WordToolPage onBack={backToTools} />
   if (fullPage === 'gps') return <GpsPhotosPage onBack={backToTools} />
+  if (fullPage === 'excelPdf') return <ExcelToPdfPage onBack={backToTools} />
   if (fullPage === 'photosToPdf') return <PhotosToPdfPage onBack={backToTools} />
   if (fullPage === 'photosToDoc') return <PhotosToDocPage onBack={backToTools} />
 
@@ -291,6 +294,17 @@ export default function ToolsTab({ tables, onChange, office, documents = [] }: P
           <span className="doc-tile-card-meta">OCR photos or a scanned PDF into editable text, export to .docx or .xlsx</span>
           <span className="tool-card-cta">
             <IconFolder /> Upload photos / PDF
+          </span>
+        </button>
+
+        <button className="doc-tile-card tone-green tool-card" onClick={() => openFullPage('excelPdf')}>
+          <span className="tool-card-ic">
+            <IconTable />
+          </span>
+          <span className="doc-tile-card-name">Excel → Printable PDF</span>
+          <span className="doc-tile-card-meta">Upload a workbook — margins, print area and page fit are set automatically; download the PDF or print</span>
+          <span className="tool-card-cta">
+            <IconPrint /> Upload Excel
           </span>
         </button>
 
