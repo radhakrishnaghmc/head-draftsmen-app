@@ -2546,7 +2546,7 @@ function registerHandlers(): void {
     return readActivityLog(currentLoginId).slice(-300).reverse()
   })
 
-  // The profile menu's Sync button: same local save, but the cloud push is awaited so the UI can say whether it landed.
+  // The profile menu's Sync button (also re-sends the online Works List sheet): same local save, but the cloud push is awaited so the UI can say whether it landed.
   ipcMain.handle(IPC.syncNow, async (_e, state: PersistedState): Promise<string> => {
     try {
       const json = JSON.stringify(state)
@@ -2556,7 +2556,10 @@ function registerHandlers(): void {
     } catch {
       // Non-fatal: the cloud push below is what this button is for.
     }
-    return (await firebaseSync.pushState(state)) ? '' : firebaseSync.getLastPushError() || 'Could not reach the cloud.'
+    const cloudError = (await firebaseSync.pushState(state)) ? '' : firebaseSync.getLastPushError() || 'Could not reach the cloud.'
+    // The online Works List sheet is part of "everything online": re-send every office's tab too (only when Google is linked).
+    const sheetError = googleSheets.isLinked() ? await googleSheets.syncNow(state) : ''
+    return [cloudError, sheetError && `Online sheet: ${sheetError}`].filter(Boolean).join(' ')
   })
 }
 

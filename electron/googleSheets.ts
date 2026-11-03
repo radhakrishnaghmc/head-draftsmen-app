@@ -331,6 +331,11 @@ export function scheduleSync(state: PersistedState) {
   }, DEBOUNCE_MS)
 }
 
+/** True when a Google account is linked for the signed-in login. */
+export function isLinked(): boolean {
+  return !!account()
+}
+
 /** Settings → "Update online sheet now": re-sends every office's Works List. Resolves the reason it failed, or ''. */
 export async function syncNow(state: PersistedState): Promise<string> {
   if (!account()) return 'Sign in with Google first.'

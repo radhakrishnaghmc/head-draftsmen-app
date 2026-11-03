@@ -324,7 +324,7 @@ export interface IssuedIntimation {
   workName: string
   /** Document file name, as downloaded. */
   fileName: string
-  /** ISO date (YYYY-MM-DD) it was issued. */
+  /** ISO date (YYYY-MM-DD) of the intimation itself (its LOA Date); the day it was generated only when the letter has none. */
   issuedDate: string
   /** Soft-deleted rather than dropped outright (same bin pattern as StoredLetter). */
   deletedAt?: string

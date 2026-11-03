@@ -965,8 +965,12 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
   }
   /** Called whenever an Intimation is downloaded/printed; re-issuing the same work (NIT + agency, else name + agency) replaces the earlier record. */
   function recordIssuedIntimation(rec: Omit<IssuedIntimation, 'id' | 'officeKey' | 'issuedDate'>) {
+    // The date of the intimation itself (its "LOA Date" — the L-1 sheet's server time), not the day it was generated.
+    const letterDate = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec((rec.values['LOA Date'] ?? '').trim())
     const d = new Date()
-    const issuedDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const issuedDate = letterDate
+      ? `${letterDate[3]}-${letterDate[2].padStart(2, '0')}-${letterDate[1].padStart(2, '0')}`
+      : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     const same = (i: IssuedIntimation) =>
       (i.officeKey ?? '') === currentOfficeKey &&
       i.agency === rec.agency &&

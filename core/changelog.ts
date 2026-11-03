@@ -18,6 +18,8 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: '1.50.0',
     changes: [
+      'Issued Intimations are dated by the intimation\'s own LOA Date and grouped by that date.',
+      'The Sync button beside your profile now also updates the online Works List sheet.',
       'Works List: importing the Google link again adds works that are new in the sheet and only updates Wincode, Eoffice number and Estimate amount on existing works; everything else in your database is never changed.',
       'The Works List now keeps the same column order and column names as the online sheet it was imported from (a refresh adopts them).',
       'New Issued Intimations tab (between Issue Intimation and Evaluation Sheet): every Intimation / Letter of Acceptance you download or print is listed there, searchable, with preview and re-download.',

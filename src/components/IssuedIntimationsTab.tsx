@@ -130,6 +130,12 @@ export default function IssuedIntimationsTab({
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const shown = useMemo(() => mine.filter((i) => matchesBoardSearch(query, i.workName, i.agency)), [mine, query])
+  // Grouped by the intimation's own date, newest first (`mine` is already sorted that way).
+  const groups = useMemo(() => {
+    const byDate = new Map<string, IssuedIntimation[]>()
+    for (const i of shown) byDate.set(i.issuedDate, [...(byDate.get(i.issuedDate) ?? []), i])
+    return [...byDate.entries()]
+  }, [shown])
   const tplOf = (i: IssuedIntimation) => templates[formatKey(i.format)]
 
   function remove(id: string) {
@@ -182,48 +188,56 @@ export default function IssuedIntimationsTab({
             <p>No intimations match “{query.trim()}”.</p>
           </div>
         )}
-        <div className="wo-tiles">
-          {shown.map((i) => (
-            <div
-              key={i.id}
-              className="wo-tile"
-              role="button"
-              tabIndex={0}
-              onClick={() => setPreview(i)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  setPreview(i)
-                }
-              }}
-              title={i.fileName}
-            >
-              <div className="wo-tile-preview">
-                <IssuedPage item={i} tpl={tplOf(i)} />
-                <span className="wo-tile-open">Click to preview</span>
-              </div>
-              <div className="wo-tile-foot notice-tile-foot">
-                <div>
-                  <span>Name of the work:</span> {i.workName || '—'}
-                </div>
-                <div>
-                  <span>Name of the agency:</span> {i.agency || '—'}
-                </div>
-                <div>
-                  <span>NIT No:</span> {i.nitNo || '—'}
-                </div>
-                <div>
-                  <span>Issued:</span> {dmy(i.issuedDate)}
-                </div>
-              </div>
-              <div className="wo-tile-actions" onClick={(e) => e.stopPropagation()}>
-                <button className="ghost small" onClick={() => remove(i.id)} title="Remove from this list">
-                  <IconTrash />
-                </button>
-              </div>
+        {groups.map(([date, list]) => (
+          <div key={date} className="notice-nit-group">
+            <div className="ntc-group-head">
+              <span className="ntc-group-title">LOA Date {dmy(date)}</span>
+              <span className="ntc-group-count">{list.length}</span>
             </div>
-          ))}
-        </div>
+            <div className="wo-tiles">
+              {list.map((i) => (
+                <div
+                  key={i.id}
+                  className="wo-tile"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setPreview(i)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setPreview(i)
+                    }
+                  }}
+                  title={i.fileName}
+                >
+                  <div className="wo-tile-preview">
+                    <IssuedPage item={i} tpl={tplOf(i)} />
+                    <span className="wo-tile-open">Click to preview</span>
+                  </div>
+                  <div className="wo-tile-foot notice-tile-foot">
+                    <div>
+                      <span>Name of the work:</span> {i.workName || '—'}
+                    </div>
+                    <div>
+                      <span>Name of the agency:</span> {i.agency || '—'}
+                    </div>
+                    <div>
+                      <span>NIT No:</span> {i.nitNo || '—'}
+                    </div>
+                    <div>
+                      <span>Issued:</span> {dmy(i.issuedDate)}
+                    </div>
+                  </div>
+                  <div className="wo-tile-actions" onClick={(e) => e.stopPropagation()}>
+                    <button className="ghost small" onClick={() => remove(i.id)} title="Remove from this list">
+                      <IconTrash />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
 
       {preview &&
