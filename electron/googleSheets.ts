@@ -264,6 +264,51 @@ async function ensureSpreadsheet(): Promise<string> {
   return created.spreadsheetId
 }
 
+/** Makes the tab readable: light-green bold header, bordered wrapped cells, a wide Name of the work column, the rest sized to their content. */
+async function formatTab(id: string, sheetId: number, grid: string[][], cols: number) {
+  const rows = Math.max(grid.length, 1)
+  const nameCol = (grid[0] ?? []).findIndex((h) => /name of the work/i.test(h))
+  const range = { sheetId, startRowIndex: 0, endRowIndex: rows, startColumnIndex: 0, endColumnIndex: cols }
+  const line = { style: 'SOLID', color: { red: 0, green: 0, blue: 0 } }
+  const requests: object[] = [
+    {
+      repeatCell: {
+        range: { ...range, endRowIndex: rows + 20 }, // the tab's spare rows too, so rows added by hand wrap as well
+        cell: { userEnteredFormat: { wrapStrategy: 'WRAP', verticalAlignment: 'TOP' } },
+        fields: 'userEnteredFormat(wrapStrategy,verticalAlignment)'
+      }
+    },
+    {
+      repeatCell: {
+        range: { ...range, endRowIndex: 1 },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.85, green: 0.94, blue: 0.83 },
+            textFormat: { bold: true },
+            verticalAlignment: 'MIDDLE'
+          }
+        },
+        fields: 'userEnteredFormat(backgroundColor,textFormat,verticalAlignment)'
+      }
+    },
+    { updateBorders: { range, top: line, bottom: line, left: line, right: line, innerHorizontal: line, innerVertical: line } }
+  ]
+  // "Auto width" for every column but the work name: sized to the longest cell (about 7px a character), capped so one long
+  // value can't make a column absurdly wide — it wraps instead.
+  for (let c = 0; c < cols; c++) {
+    const longest = grid.reduce((m, r) => Math.max(m, ((r[c] ?? '').toString().split('\n').sort((a, b) => b.length - a.length)[0] ?? '').length), 0)
+    const pixelSize = c === nameCol ? 450 : Math.min(Math.max(longest * 7 + 20, 60), 320)
+    requests.push({
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'COLUMNS', startIndex: c, endIndex: c + 1 },
+        properties: { pixelSize },
+        fields: 'pixelSize'
+      }
+    })
+  }
+  await sheetsApi('POST', `/${id}:batchUpdate`, { requests })
+}
+
 async function writeTab(id: string, title: string, grid: string[][]) {
   const meta = await sheetsApi<{ sheets: SheetMeta[] }>('GET', `/${id}?fields=sheets.properties(sheetId,title)`)
   let tab = meta.sheets.find((s) => s.properties.title === title)
@@ -286,6 +331,7 @@ async function writeTab(id: string, title: string, grid: string[][]) {
     await sheetsApi('PUT', `/${id}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, { range, majorDimension: 'ROWS', values: part })
     start += part.length
   }
+  await formatTab(id, tab.properties.sheetId, grid, cols)
   // The new spreadsheet starts with an empty "Sheet1"; drop it once a real tab exists.
   const dflt = meta.sheets.find((s) => s.properties.title === 'Sheet1')
   if (dflt && dflt.properties.title !== title) {

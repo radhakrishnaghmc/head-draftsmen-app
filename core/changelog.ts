@@ -18,6 +18,7 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: '1.50.0',
     changes: [
+      'The online Works List sheet is easier to read: light-green header, boxed cells, wrapped text, a wide Name of the work column and the other columns sized to fit.',
       'Issued Intimations are dated by the intimation\'s own LOA Date and grouped by that date.',
       'The Sync button beside your profile now also updates the online Works List sheet.',
       'Works List: importing the Google link again adds works that are new in the sheet and only updates Wincode, Eoffice number and Estimate amount on existing works; everything else in your database is never changed.',
