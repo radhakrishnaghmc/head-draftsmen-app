@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { IconLink, IconWarn, IconCheck } from './Icons'
 
 interface Props {
-  onImport: (url: string) => Promise<{ added: number }>
+  onImport: (url: string) => Promise<{ added: number; updated?: number }>
 }
 
 /**
@@ -23,11 +23,11 @@ export default function GoogleLinkImport({ onImport }: Props) {
     setError(null)
     setDone(null)
     try {
-      const { added } = await onImport(trimmed)
+      const { added, updated = 0 } = await onImport(trimmed)
       setDone(
-        added > 0
-          ? `Added ${added} new work${added === 1 ? '' : 's'} from the link — works already in the database were left as they are.`
-          : "No new works in the link — everything in it is already in the database (or the sheet has no rows yet)."
+        added === 0 && updated === 0
+          ? 'No new works in the link — everything in it is already in the database (or the sheet has no rows yet).'
+          : `Added ${added} new work${added === 1 ? '' : 's'}, updated ${updated} (Wincode / Eoffice / Estimate amount only) — everything else was left as it is.`
       )
       setUrl('')
     } catch (e) {
@@ -57,7 +57,7 @@ export default function GoogleLinkImport({ onImport }: Props) {
           {loading ? 'Importing…' : 'Import'}
         </button>
       </div>
-      <p className="hint">The first import creates the database. Importing again only adds works that are new in the sheet and never changes existing ones — to start over, delete the database first.</p>
+      <p className="hint">The first import creates the database. Importing again adds works that are new in the sheet and only updates Wincode, Eoffice and Estimate amount on existing ones — to start over, delete the database first.</p>
       {error && (
         <div className="notice error">
           <IconWarn />

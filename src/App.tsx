@@ -1541,7 +1541,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
   // the database's columns to match — it isn't rejected just for having no
   // rows yet, since the point of importing it is often exactly to set up
   // the right columns before adding works.
-  async function importFromGoogleLink(url: string): Promise<{ added: number; table: ExcelTable }> {
+  async function importFromGoogleLink(url: string): Promise<{ added: number; updated?: number; table: ExcelTable }> {
     return importWorksData(await api.importFromLink(url), url)
   }
 
@@ -1564,7 +1564,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
   async function importWorksData(
     imported: Pick<ExcelTable, 'headers' | 'rows'>,
     url?: string
-  ): Promise<{ added: number; table: ExcelTable }> {
+  ): Promise<{ added: number; updated?: number; table: ExcelTable }> {
     const rows = imported.rows.filter((row) => Object.values(row).some((v) => (v ?? '').trim() !== ''))
 
     let embeddings: { labelVectors: number[][]; columnVectors: number[][] } | undefined
@@ -1641,7 +1641,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
     const key = officeKey(office)
     if (key && url) setWorksListLinks((prev) => (prev[key] === url ? prev : { ...prev, [key]: url }))
 
-    return { added: merged ? merged.added : rows.length, table: finalTable }
+    return { added: merged ? merged.added : rows.length, updated: merged?.updated, table: finalTable }
   }
 
   // Re-pull the Works List from whichever Google link it was last filled from,
@@ -1658,9 +1658,10 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
     setRefreshError(null)
     setRefreshSummary(null)
     try {
-      const { added } = await importFromGoogleLink(lastGoogleLink)
+      const { added, updated = 0 } = await importFromGoogleLink(lastGoogleLink)
       setRefreshSummary(
-        `Refreshed from the Google link — ${added} new work${added === 1 ? '' : 's'} added; existing works were left as they are.`
+        `Refreshed from the Google link — ${added} new work${added === 1 ? '' : 's'} added, ${updated} updated ` +
+          `(Wincode / Eoffice / Estimate amount only); everything else was left as it is.`
       )
     } catch (e) {
       setRefreshError(e instanceof Error ? e.message : String(e))

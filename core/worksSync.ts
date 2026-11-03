@@ -18,48 +18,81 @@ export function hasWorks(table: ExcelTable | undefined): boolean {
   return table.rows.some((r) => cell(r, nameH) !== '' || cell(r, codeH) !== '')
 }
 
+/** The only fields a refresh may change on a work that is already in the database (the sheet owns these). */
+const SHEET_OWNED = ['wincode', 'eoffice', 'amount of estimate'] as const
+
 /**
- * Re-import / refresh: keep every existing work exactly as it is and append only the sheet's NEW works. A work is
- * "existing" when its Wincode, or (failing that) its normalized name, is already in the database — the sheet's own
- * edits to such a work are ignored on purpose, since scans have been updating the database copy since.
+ * Re-import / refresh: append the sheet's NEW works and leave every existing work as it is — except the sheet-owned
+ * fields (Wincode, Eoffice number, Amount of estimate), which follow the sheet when it carries a different non-blank
+ * value. A work is "existing" when its Wincode, or (failing that) its normalized name, is already in the database;
+ * everything else on it (ECV, tender details, ...) comes from scans and is never overwritten.
  */
 export function mergeNewWorks(
   existing: ExcelTable,
   imported: ExcelTable
-): { table: ExcelTable; added: number; skipped: number } {
+): { table: ExcelTable; added: number; skipped: number; updated: number } {
   const exNameH = header(existing, 'name of the work')
   const exCodeH = header(existing, 'wincode')
   const imNameH = header(imported, 'name of the work')
   const imCodeH = header(imported, 'wincode')
 
-  const codes = new Set<string>()
-  const names = new Set<string>()
-  for (const r of existing.rows) {
-    const code = cell(r, exCodeH).toLowerCase()
-    const name = norm(cell(r, exNameH))
-    if (code) codes.add(code)
-    if (name) names.add(name)
+  const headers = [...existing.headers]
+  // Sheet-owned columns present in the sheet: [column in the sheet, column in the database (added if missing)].
+  const owned: [string, string][] = []
+  for (const key of SHEET_OWNED) {
+    const imH = header(imported, key)
+    if (!imH) continue
+    let exH = header(existing, key)
+    if (!exH) {
+      exH = imH
+      headers.push(exH)
+    }
+    owned.push([imH, exH])
   }
 
-  const fresh: Record<string, string>[] = []
+  const rows = existing.rows.filter((r) => Object.values(r).some((v) => (v ?? '').trim() !== '')).map((r) => ({ ...r }))
+  const byCode = new Map<string, number>()
+  const byName = new Map<string, number>()
+  rows.forEach((r, i) => {
+    const code = cell(r, exCodeH).toLowerCase()
+    const name = norm(cell(r, exNameH))
+    if (code && !byCode.has(code)) byCode.set(code, i)
+    if (name && !byName.has(name)) byName.set(name, i)
+  })
+
+  let added = 0
   let skipped = 0
+  let updated = 0
   for (const r of imported.rows) {
     const code = cell(r, imCodeH).toLowerCase()
     const name = norm(cell(r, imNameH))
     if (!code && !name) continue
-    if ((code && codes.has(code)) || (name && names.has(name))) {
+    const at = (code ? byCode.get(code) : undefined) ?? (name ? byName.get(name) : undefined)
+    if (at != null) {
       skipped++
+      let changed = false
+      for (const [imH, exH] of owned) {
+        const v = (r[imH] ?? '').trim()
+        if (v && v !== (rows[at][exH] ?? '').trim()) {
+          rows[at][exH] = v
+          changed = true
+        }
+      }
+      if (changed) updated++
       continue
     }
-    if (code) codes.add(code)
-    if (name) names.add(name)
     const row: Record<string, string> = {}
-    for (const h of existing.headers) row[h] = imported.headers.includes(h) ? (r[h] ?? '') : ''
-    fresh.push(row)
+    for (const h of headers) {
+      const imH = imported.headers.includes(h) ? h : owned.find(([, e]) => e === h)?.[0]
+      row[h] = imH ? (r[imH] ?? '') : ''
+    }
+    rows.push(row)
+    if (code) byCode.set(code, rows.length - 1)
+    if (name) byName.set(name, rows.length - 1)
+    added++
   }
 
-  const kept = existing.rows.filter((r) => Object.values(r).some((v) => (v ?? '').trim() !== ''))
-  return { table: { ...existing, rows: [...kept, ...fresh] }, added: fresh.length, skipped }
+  return { table: { ...existing, headers, rows }, added, skipped, updated }
 }
 
 /** True when this work name is already a row of the Works List (exact after normalizing, or one contains the other). */
