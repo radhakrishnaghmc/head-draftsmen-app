@@ -246,6 +246,8 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
   // of in the body.
   const workOrderHeaderActionRef = useRef<HTMLDivElement>(null)
   const intimationHeaderActionRef = useRef<HTMLDivElement>(null)
+  // Where Issued Intimations' search box is portalled: the same row as the sub-tabs.
+  const [issuedSearchSlot, setIssuedSearchSlot] = useState<HTMLDivElement | null>(null)
 
   const [tab, setTab] = useState<TabKey>('overview')
   // Keep-alive bookkeeping: every tab the user has visited stays mounted (hidden)
@@ -2524,25 +2526,28 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
                     )}
                   </div>
                 </div>
-                <div className="doc-tabs">
-                  <button
-                    className={`doc-tab ${intimationSubTab === 'intimation' ? 'active' : ''}`}
-                    onClick={() => setIntimationSubTab('intimation')}
-                  >
-                    Issue Intimation
-                  </button>
-                  <button
-                    className={`doc-tab ${intimationSubTab === 'issued' ? 'active' : ''}`}
-                    onClick={() => setIntimationSubTab('issued')}
-                  >
-                    Issued Intimations
-                  </button>
-                  <button
-                    className={`doc-tab ${intimationSubTab === 'evaluation' ? 'active' : ''}`}
-                    onClick={() => setIntimationSubTab('evaluation')}
-                  >
-                    Evaluation Sheet
-                  </button>
+                <div className="doc-tabs-row">
+                  <div className="doc-tabs">
+                    <button
+                      className={`doc-tab ${intimationSubTab === 'intimation' ? 'active' : ''}`}
+                      onClick={() => setIntimationSubTab('intimation')}
+                    >
+                      Issue Intimation
+                    </button>
+                    <button
+                      className={`doc-tab ${intimationSubTab === 'issued' ? 'active' : ''}`}
+                      onClick={() => setIntimationSubTab('issued')}
+                    >
+                      Issued Intimations
+                    </button>
+                    <button
+                      className={`doc-tab ${intimationSubTab === 'evaluation' ? 'active' : ''}`}
+                      onClick={() => setIntimationSubTab('evaluation')}
+                    >
+                      Evaluation Sheet
+                    </button>
+                  </div>
+                  {intimationSubTab === 'issued' && <div className="doc-tabs-search" ref={setIssuedSearchSlot} />}
                 </div>
                 {intimationSubTab === 'intimation' ? (
                   <GiveIntimationTab
@@ -2556,7 +2561,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
                     onIntimationDocIssued={recordIssuedIntimation}
                   />
                 ) : intimationSubTab === 'issued' ? (
-                  <IssuedIntimationsTab items={officeIssuedIntimations} onChange={setOfficeIssuedIntimations} />
+                  <IssuedIntimationsTab items={officeIssuedIntimations} onChange={setOfficeIssuedIntimations} searchSlot={issuedSearchSlot} />
                 ) : (
                   <EvaluationSheetTab
                     key={`${evaluationInstanceKey}|${currentOfficeKey}`}

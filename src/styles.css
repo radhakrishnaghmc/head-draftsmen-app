@@ -2932,6 +2932,19 @@ button.upload-btn {
 
 /* Document-type tabs (BOQ / Schedule A / Deviation / Material Quantity) — a
    segmented control choosing which document's live preview shows below. */
+.doc-tabs-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.doc-tabs-row .doc-tabs {
+  margin-bottom: 0;
+}
+.doc-tabs-search:empty {
+  display: none;
+}
 .doc-tabs {
   display: flex;
   flex-wrap: wrap;

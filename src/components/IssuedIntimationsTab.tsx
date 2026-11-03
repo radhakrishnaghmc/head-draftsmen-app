@@ -118,11 +118,14 @@ const dmy = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').r
  */
 export default function IssuedIntimationsTab({
   items,
-  onChange
+  onChange,
+  searchSlot
 }: {
   /** This office's issued intimations (including binned ones). */
   items: IssuedIntimation[]
   onChange: (next: IssuedIntimation[]) => void
+  /** Element in the page's sub-tab row to show the search box in (it sits in the card until that exists). */
+  searchSlot?: HTMLElement | null
 }) {
   const mine = useMemo(
     () => items.filter((i) => !i.deletedAt).sort((a, b) => letterDate(b).localeCompare(letterDate(a))),
@@ -140,6 +143,7 @@ export default function IssuedIntimationsTab({
     for (const i of shown) byDate.set(letterDate(i), [...(byDate.get(letterDate(i)) ?? []), i])
     return [...byDate.entries()]
   }, [shown])
+  const searchBox = <BoardSearch value={query} onChange={setQuery} count={shown.length} total={mine.length} />
   const tplOf = (i: IssuedIntimation) => templates[formatKey(i.format)]
 
   function remove(id: string) {
@@ -164,9 +168,11 @@ export default function IssuedIntimationsTab({
   return (
     <>
       <div className="card pdf-workspace">
-        <div className="letters-toolbar">
-          <BoardSearch value={query} onChange={setQuery} count={shown.length} total={mine.length} />
-        </div>
+        {searchSlot ? (
+          createPortal(searchBox, searchSlot)
+        ) : (
+          <div className="letters-toolbar">{searchBox}</div>
+        )}
         {error && (
           <div className="notice error">
             <IconWarn /> {error}
