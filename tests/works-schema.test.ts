@@ -4,6 +4,7 @@ import {
   applyWorksSchemaWithMapping,
   migrateEcvContractToRupees,
   repairInflatedRupees,
+  reorderWorksColumns,
   WORKS_COLUMNS
 } from '../src/worksSchema'
 import type { PlaceholderMatch } from '../core/createDocument'
@@ -210,5 +211,23 @@ describe('repairInflatedRupees', () => {
     const out = repairInflatedRupees(t)
     expect(out.rows[0]['ECV']).toBe('880637')
     expect(out.rows[0]['Contract Amount']).toBe('725205')
+  })
+
+  it('keeps the sheet column order and names on an imported Works List', () => {
+    const mapping: PlaceholderMatch[] = [
+      { label: 'Wincode', column: 'Wincode', score: 1 },
+      { label: 'Amount of estimate', column: 'Estimate Amount', score: 1 },
+      { label: 'Name of the work', column: 'Name of work', score: 1 }
+    ]
+    const t = applyWorksSchemaWithMapping(
+      ['Wincode', 'Eoffice ', 'Name of work', 'Estimate Amount'],
+      [{ Wincode: 'D1', 'Eoffice ': '99', 'Name of work': 'Road', 'Estimate Amount': '10' }],
+      mapping,
+      { id: 'w', name: 'w', path: '' }
+    )
+    expect(t.sourceHeaders).toEqual(['Wincode', 'Eoffice', 'Name of the work', 'Amount of estimate'])
+    expect(t.headerLabels).toEqual({ 'Name of the work': 'Name of work', 'Amount of estimate': 'Estimate Amount' })
+    expect(t.rows[0]['Eoffice']).toBe('99')
+    expect(reorderWorksColumns(t).headers.slice(0, 4)).toEqual(t.sourceHeaders)
   })
 })

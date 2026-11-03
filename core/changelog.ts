@@ -19,6 +19,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '1.50.0',
     changes: [
       'Works List: importing the Google link again adds works that are new in the sheet and only updates Wincode, Eoffice number and Estimate amount on existing works; everything else in your database is never changed.',
+      'The Works List now keeps the same column order and column names as the online sheet it was imported from (a refresh adopts them).',
       'L-1 / LOA sheets from another circle are rejected with "These sheets do not belong to the <Circle> office", unless the work is already in your Works List.',
       'Agreement workspace: Administrative Sanction date and by, newspapers published, and the AE name & number are now saved to the work in the Works List.',
       'Works List and the 3rd / 4th-party / department QC details now sync online immediately, and QC details are fetched from online when empty.'

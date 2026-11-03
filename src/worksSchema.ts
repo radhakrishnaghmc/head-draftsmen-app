@@ -110,9 +110,16 @@ export function applyWorksSchema(table: ExcelTable): ExcelTable {
  * sequence actually gets updated after `WORKS_COLUMNS` changes). Idempotent,
  * safe to run on every load. Any column not in `WORKS_COLUMNS` keeps its
  * relative position among the other unknown columns, after the known ones.
- * `sourceHeaders` (download order) is left untouched.
+ * A table with `sourceHeaders` (imported from a sheet) is ordered like that sheet instead.
  */
 export function reorderWorksColumns(table: ExcelTable): ExcelTable {
+  // A table imported from a sheet keeps that sheet's column order; columns the sheet didn't carry follow in app order.
+  if (table.sourceHeaders && table.sourceHeaders.length > 0) {
+    const inSheet = new Set(table.sourceHeaders)
+    const lead = table.sourceHeaders.filter((h) => table.headers.includes(h))
+    const rest = reorderWorksColumns({ ...table, sourceHeaders: undefined }).headers.filter((h) => !inSheet.has(h))
+    return { ...table, headers: [...lead, ...rest] }
+  }
   const rank = new Map(WORKS_COLUMNS.map((h, i) => [h, i]))
   const headers = [...table.headers].sort((a, b) => {
     const ra = rank.get(a) ?? WORKS_COLUMNS.length + table.headers.indexOf(a)
@@ -229,11 +236,14 @@ export function applyWorksSchemaWithMapping(
   // exactly what a download reproduces. A "CNO" column folds into "Circle
   // number" (they're the same thing) rather than kept as a separate extra.
   const sourceHeaders: string[] = []
+  const headerLabels: Record<string, string> = {}
   for (const h of importedHeaders) {
-    const name = labelForImported.get(h) ?? (h === LEGACY_CNO_COLUMN ? 'Circle number' : h)
+    const name = labelForImported.get(h) ?? (h === LEGACY_CNO_COLUMN ? 'Circle number' : h.trim())
     if (!seen.has(name)) {
       seen.add(name)
       sourceHeaders.push(name)
+      // The sheet's own spelling, when the app's name for the column differs.
+      if (h.trim() && h.trim() !== name) headerLabels[name] = h.trim()
     }
   }
   // The full column set the app works with: the sheet's columns, then any
@@ -255,8 +265,15 @@ export function applyWorksSchemaWithMapping(
       next[h] = (matchedCol ? row[matchedCol] : undefined) ?? row[h] ?? legacy ?? ''
     }
     // Any remaining (non-standard) column keeps its own value.
-    for (const h of headers) if (!(h in next)) next[h] = row[h] ?? ''
+    // (An unclaimed column's name is trimmed, but the imported row may still carry its padded original.)
+    for (const h of headers) if (!(h in next)) next[h] = row[h] ?? row[importedHeaders.find((ih) => ih.trim() === h) ?? h] ?? ''
     return next
   })
-  return { ...meta, headers, sourceHeaders: sourceHeaders.length > 0 ? sourceHeaders : undefined, rows }
+  return {
+    ...meta,
+    headers,
+    sourceHeaders: sourceHeaders.length > 0 ? sourceHeaders : undefined,
+    headerLabels: Object.keys(headerLabels).length > 0 ? headerLabels : undefined,
+    rows
+  }
 }

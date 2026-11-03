@@ -1429,8 +1429,11 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
   // the source sheet. The built-in database (no sourceHeaders) exports as-is.
   async function exportWorksList() {
     if (!currentTable) return
-    const headers = currentTable.sourceHeaders?.length ? currentTable.sourceHeaders : currentTable.headers
-    await api.exportTable({ ...currentTable, headers }, currentTable.name || 'Works List')
+    const keys = currentTable.sourceHeaders?.length ? currentTable.sourceHeaders : currentTable.headers
+    const labels = currentTable.headerLabels ?? {}
+    const headers = keys.map((k) => labels[k] ?? k)
+    const rows = currentTable.rows.map((r) => Object.fromEntries(keys.map((k, i) => [headers[i], r[k] ?? ''])))
+    await api.exportTable({ ...currentTable, headers, rows }, currentTable.name || 'Works List')
   }
 
   // Flatten the MB Scrutiny register into a table and save it as an .xlsx.
@@ -1631,7 +1634,14 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
     // possible after deleting the database (deleteWorksDatabase).
     const existing = tables[0]
     const merged = hasWorks(existing) ? mergeNewWorks(existing, result) : null
-    const finalTable = merged ? merged.table : result
+    // A refresh also re-adopts the sheet's own column order and names, so the database keeps mirroring the sheet.
+    const finalTable = merged
+      ? reorderWorksColumns({
+          ...merged.table,
+          sourceHeaders: result.sourceHeaders ?? merged.table.sourceHeaders,
+          headerLabels: result.headerLabels ?? merged.table.headerLabels
+        })
+      : result
     setTables([finalTable])
     setBlockedWorksList(null)
     setLastGoogleLink(url ?? null)

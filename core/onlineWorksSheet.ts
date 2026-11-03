@@ -15,7 +15,8 @@ export function officeTabTitle(officeKey: string): string {
 /** The grid written to the tab: the source sheet's own column order when known (as the Works List download does), else the table headers. */
 export function worksTableToGrid(table: ExcelTable): string[][] {
   const headers = table.sourceHeaders && table.sourceHeaders.length > 0 ? table.sourceHeaders : table.headers
-  return [headers, ...table.rows.map((r) => headers.map((h) => (r[h] ?? '').toString()))]
+  const labels = table.headerLabels ?? {}
+  return [headers.map((h) => labels[h] ?? h), ...table.rows.map((r) => headers.map((h) => (r[h] ?? '').toString()))]
 }
 
 /** Cheap change signature (FNV-1a over the grid) so a save that didn't touch the Works List pushes nothing. */

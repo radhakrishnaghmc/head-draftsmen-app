@@ -241,7 +241,7 @@ export default function ExcelInline({
   async function downloadFiltered() {
     if (!onDownloadFiltered || downloading) return
     const keep = shownCols
-    const outHeaders = keep.map((i) => headers[i].trim())
+    const outHeaders = keep.map((i) => (table.headerLabels?.[headers[i]] ?? headers[i]).trim())
     setDownloading(true)
     try {
       await onDownloadFiltered({
@@ -324,6 +324,15 @@ export default function ExcelInline({
   }
 
   function setHeader(ci: number, value: string) {
+    // A column shown under the sheet's own name: renaming changes that label, never the app's internal name.
+    const key = headers[ci]
+    if (table.headerLabels?.[key] !== undefined) {
+      const labels = { ...table.headerLabels }
+      if (value.trim() && value.trim() !== key) labels[key] = value
+      else delete labels[key]
+      onChange({ ...table, headerLabels: Object.keys(labels).length > 0 ? labels : undefined })
+      return
+    }
     const next = headers.map((h, i) => (i === ci ? value : h))
     setHeaders(next)
     commit(next, matrix)
@@ -559,7 +568,7 @@ export default function ExcelInline({
                     <div className="col-head">
                       <input
                         className="col-name"
-                        value={h}
+                        value={table.headerLabels?.[h] ?? h}
                         placeholder={`Column ${ci + 1}`}
                         onChange={(e) => setHeader(ci, e.target.value)}
                       />

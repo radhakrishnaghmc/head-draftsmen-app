@@ -46,6 +46,12 @@ export interface ExcelTable {
    * schema order. Absent for the built-in database (which exports its headers).
    */
   sourceHeaders?: string[]
+  /**
+   * Works List imported from a sheet: the sheet's own column name for a column whose app (internal) name differs,
+   * keyed by the app name (e.g. 'Amount of estimate' -> 'Estimate Amount'). The grid, downloads and the online
+   * mirror show these names, so the database reads exactly like the sheet; the app keeps using its own names.
+   */
+  headerLabels?: Record<string, string>
   rows: Record<string, string>[]
 }
 
