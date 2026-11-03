@@ -424,6 +424,8 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
       else window.clearTimeout(id)
     }
   }, [mfPrewarmed])
+  // Bumped by every import/refresh so the Works List grid (which keeps its own copy of the cells) reloads from the database.
+  const [worksImportToken, setWorksImportToken] = useState(0)
   const [lastGoogleLink, setLastGoogleLink] = useState<string | null>(null)
   const [refreshingWorks, setRefreshingWorks] = useState(false)
   const [refreshError, setRefreshError] = useState<string | null>(null)
@@ -1643,6 +1645,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
         })
       : result
     setTables([finalTable])
+    setWorksImportToken((n) => n + 1)
     setBlockedWorksList(null)
     setLastGoogleLink(url ?? null)
     setOfficeImportPrompt(null)
@@ -2264,7 +2267,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
                       {worklistOpenTile === 'wl' &&
                         (currentTable ? (
                           <ExcelInline
-                            key={`${currentTable.id}:${worksFlash?.token ?? 0}`}
+                            key={`${currentTable.id}:${worksFlash?.token ?? 0}:${worksImportToken}`}
                             table={currentTable}
                             onChange={updateTable}
                             autofillRow={autofillWorksRowForLogin}
