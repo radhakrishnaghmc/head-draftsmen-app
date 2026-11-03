@@ -78,3 +78,12 @@ describe('Reservation column', () => {
     expect(fillReservations(out)).toBe(out)
   })
 })
+
+describe('Issued intimation date', () => {
+  it('is the letter\'s own date, never the generation day', async () => {
+    const { intimationLetterDate } = await import('@core/intimationFill')
+    expect(intimationLetterDate({ 'Price Bid opening date': '28.10.2026' })).toBe('2026-10-28')
+    expect(intimationLetterDate({ 'LOA Date': '5-11-2026', 'Price Bid opening date': '28.10.2026' })).toBe('2026-11-05')
+    expect(intimationLetterDate({ 'Agency Name': 'X' })).toBe('')
+  })
+})

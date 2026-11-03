@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
+import { intimationLetterDate } from '@core/intimationFill'
 import type { StoredLetter } from '@core/types'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { matchesBoardSearch } from '@core/boardSearch'
@@ -149,16 +150,17 @@ function LetterBoard({
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
 
   const shown = useMemo(() => mine.filter((l) => matchesBoardSearch(query, l.workName, l.agency)), [mine, query])
-  // Grouped by NIT, like the bulk run that made them; groups newest-made first.
+  // Grouped by the LOA date the letter is for, newest first; letters whose date can't be told come last.
   const groups = useMemo(() => {
     const map = new Map<string, StoredLetter[]>()
     for (const l of shown) {
-      const list = map.get(l.nitNo)
+      const date = loaDateOf(l)
+      const list = map.get(date)
       if (list) list.push(l)
-      else map.set(l.nitNo, [l])
+      else map.set(date, [l])
     }
-    for (const list of map.values()) list.sort((a, b) => a.agency.localeCompare(b.agency) || a.workName.localeCompare(b.workName))
-    return [...map.entries()].sort(([, a], [, b]) => (b[0].createdDate || '').localeCompare(a[0].createdDate || ''))
+    for (const list of map.values()) list.sort((a, b) => a.nitNo.localeCompare(b.nitNo) || a.agency.localeCompare(b.agency) || a.workName.localeCompare(b.workName))
+    return [...map.entries()].sort(([a], [b]) => (a && !b ? -1 : !a && b ? 1 : b.localeCompare(a)))
   }, [shown])
 
   const extra: Record<string, string> =
@@ -289,10 +291,10 @@ function LetterBoard({
             <p>No letters match “{query.trim()}”.</p>
           </div>
         )}
-        {groups.map(([nit, list]) => (
-          <div key={nit || 'none'} className="notice-nit-group">
+        {groups.map(([date, list]) => (
+          <div key={date || 'none'} className="notice-nit-group">
             <div className="ntc-group-head">
-              <span className="ntc-group-title">NIT {nit || '— number not known'}</span>
+              <span className="ntc-group-title">LOA Date {date ? date.split('-').reverse().join('.') : '— not known'}</span>
               <span className="ntc-group-count">{list.length}</span>
             </div>
             <div className="wo-tiles">
@@ -400,6 +402,9 @@ function LetterBoard({
  * Forwarding Slips, QC Intimations & DB Note: three tiles — the AE/Dy.EE Forwarding Letters, the QC Intimation/Completion
  * letters and the Drawing Branch Notes — each opening a board of the letters Settings' bulk tools made, with search and download.
  */
+/** The LOA date a letter is for: stored when it was made, else read back from its values (older letters). */
+const loaDateOf = (l: StoredLetter) => l.loaDate || intimationLetterDate({ ...l.values, ...(l.edits ?? {}) })
+
 export default function LettersTab({
   letters,
   onChange,

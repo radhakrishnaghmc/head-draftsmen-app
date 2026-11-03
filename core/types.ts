@@ -349,6 +349,8 @@ export interface StoredLetter {
   fileName: string
   /** ISO date (YYYY-MM-DD) it was made. */
   createdDate: string
+  /** ISO date (YYYY-MM-DD) of the LOA / intimation the letter is for (the L-1 sheet's server time) — what the board groups by. */
+  loaDate?: string
   /** Bin pattern, same as PendingNoticeItem — soft-deleted rather than dropped outright. */
   deletedAt?: string
 }

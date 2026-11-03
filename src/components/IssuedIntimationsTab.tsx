@@ -4,6 +4,7 @@ import { api } from '../ipc'
 import type { IssuedIntimation } from '@core/types'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { matchesBoardSearch } from '@core/boardSearch'
+import { intimationLetterDate } from '@core/intimationFill'
 import { closeOnBackdropMouseDown } from '../overlayClose'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import BoardSearch from './BoardSearch'
@@ -106,6 +107,9 @@ function IssuedPage({
   )
 }
 
+/** The letter's own date; older records saved the generation day, so it is re-read from the stored values. */
+const letterDate = (i: IssuedIntimation) => intimationLetterDate(i.values) || i.issuedDate
+
 const dmy = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('.') : iso)
 
 /**
@@ -121,7 +125,7 @@ export default function IssuedIntimationsTab({
   onChange: (next: IssuedIntimation[]) => void
 }) {
   const mine = useMemo(
-    () => items.filter((i) => !i.deletedAt).sort((a, b) => b.issuedDate.localeCompare(a.issuedDate)),
+    () => items.filter((i) => !i.deletedAt).sort((a, b) => letterDate(b).localeCompare(letterDate(a))),
     [items]
   )
   const { templates, error } = useTemplates(mine)
@@ -133,7 +137,7 @@ export default function IssuedIntimationsTab({
   // Grouped by the intimation's own date, newest first (`mine` is already sorted that way).
   const groups = useMemo(() => {
     const byDate = new Map<string, IssuedIntimation[]>()
-    for (const i of shown) byDate.set(i.issuedDate, [...(byDate.get(i.issuedDate) ?? []), i])
+    for (const i of shown) byDate.set(letterDate(i), [...(byDate.get(letterDate(i)) ?? []), i])
     return [...byDate.entries()]
   }, [shown])
   const tplOf = (i: IssuedIntimation) => templates[formatKey(i.format)]
@@ -225,7 +229,7 @@ export default function IssuedIntimationsTab({
                       <span>NIT No:</span> {i.nitNo || '—'}
                     </div>
                     <div>
-                      <span>Issued:</span> {dmy(i.issuedDate)}
+                      <span>Issued:</span> {dmy(letterDate(i))}
                     </div>
                   </div>
                   <div className="wo-tile-actions" onClick={(e) => e.stopPropagation()}>

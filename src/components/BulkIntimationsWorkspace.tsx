@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
+import { intimationLetterDate } from '@core/intimationFill'
 import { pdfToTextLinesOrOcr } from '../pdfToText'
 import { parseTenderEvaluation, type TenderEvaluation } from '@core/tenderEvaluationPdf'
 import {
@@ -375,7 +376,8 @@ export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'i
               variant: letterVariant,
               values,
               fileName,
-              createdDate: new Date().toISOString().slice(0, 10)
+              createdDate: new Date().toISOString().slice(0, 10),
+              loaDate: intimationLetterDate({ 'LOA Date': l1.serverDate ?? '' }) || undefined
             })
             setMadeCount(made.length)
             continue

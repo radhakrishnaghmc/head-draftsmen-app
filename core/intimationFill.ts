@@ -215,3 +215,15 @@ export function intimationPlaceholders(f: WorkOrderAgreementFields): Record<stri
     'agency phone number': f.phone
   }
 }
+
+/**
+ * The date of an issued Intimation / LOA as ISO (YYYY-MM-DD): its own LOA Date, else the price-bid date the Intimation
+ * format prints (the L-1 sheet's server time) — never the day it was generated. '' when the values carry neither.
+ */
+export function intimationLetterDate(values: Record<string, string>): string {
+  for (const label of ['LOA Date', 'Price Bid opening date', 'Pricebidopen', 'Price Bid Date', 'Intimation Letter Date', 'Price Bid Open']) {
+    const m = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec((values[label] ?? '').trim())
+    if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+  }
+  return ''
+}

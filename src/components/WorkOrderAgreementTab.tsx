@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject }
 import { createPortal } from 'react-dom'
 import { PDFDocument } from 'pdf-lib'
 import { api } from '../ipc'
+import { intimationLetterDate } from '@core/intimationFill'
 import {
   parseIntimationNotice,
   parseIntimationNoticeText,
@@ -1805,7 +1806,8 @@ export default function WorkOrderAgreementTab({
       variant: 'default',
       values,
       fileName: docName('workBillNote'),
-      createdDate: new Date().toISOString().slice(0, 10)
+      createdDate: new Date().toISOString().slice(0, 10),
+      loaDate: intimationLetterDate({ 'LOA Date': fields.intimationDate ?? '' }) || undefined
     })
   }
 
