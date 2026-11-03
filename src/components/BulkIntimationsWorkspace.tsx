@@ -12,13 +12,13 @@ import {
 import { detectTenderId } from '@core/tenderAgents/tenderId'
 import type { ParsedDoc } from '@core/massNotices'
 import { pairForIntimations } from '@core/bulkIntimations'
-import { deriveFields, qcIntimationCompletionPlaceholders, qcPartyToBlock, aeDyeeForwardingPlaceholders } from '@core/workOrderAgreement'
+import { deriveFields, qcIntimationCompletionPlaceholders, qcPartyToBlock, aeDyeeForwardingPlaceholders, workBillNotePlaceholders } from '@core/workOrderAgreement'
 import { checkSameWork } from '@core/sameWorkCheck'
 import { resolveIntimationValue } from '@core/intimationFill'
 import { matchWorksRowCached, buildWorksRowEmbeddingCache } from '../estimateDownloads'
 import { inferTypeOfWork } from '@core/workTypeClassifier'
 import { lakhsToRupees, formatRupees } from '@core/worksAmounts'
-import type { ExcelTable, QcOfficeParties, StoredLetter } from '@core/types'
+import type { ExcelTable, IssuedIntimation, QcOfficeParties, StoredLetter } from '@core/types'
 import type { PlaceholderMatch } from '@core/createDocument'
 import {
   variantForCorporation,
@@ -48,11 +48,13 @@ interface Props {
   worksTable?: ExcelTable | null
   /**
    * 'qc' makes the five-letter QC Intimation/Completion set and 'forwarding' the AE/Dy.EE Forwarding Letters instead of the
-   * Intimation. Those two are handed to `onAddLetters` — they land in the Forwarding Slips & QC Intimations tab.
+   * Intimation. Those two are handed to `onAddLetters` — they land in the Forwarding Slips, QC Intimations & DB Note tab.
    */
-  kind?: 'intimation' | 'qc' | 'forwarding'
-  /** Receives every letter a 'qc' / 'forwarding' run made. */
+  kind?: 'intimation' | 'qc' | 'forwarding' | 'dbnote'
+  /** Receives every letter a 'qc' / 'forwarding' / 'dbnote' run made. */
   onAddLetters?: (letters: StoredLetter[]) => void
+  /** Receives each Intimation as it is generated, so it is listed under the Intimation page's Issued Intimations tab. */
+  onIntimationsIssued?: (items: Omit<IssuedIntimation, 'id' | 'officeKey' | 'issuedDate'>[]) => void
   /** The office's 3rd/4th-party QC agencies (Works List agency panel) — addressed on the QC letters. */
   qcParties?: QcOfficeParties
   /** Leaves the workspace — the parent unmounts it, which resets it to the Upload folder state. */
@@ -69,6 +71,9 @@ interface ReadyIntimation {
   typeOfWork: string
   estimateRupees: number | null
   fileName: string
+  /** The placeholder values the letter was filled with — kept so it can be listed under Issued Intimations once downloaded. */
+  values: Record<string, string>
+  workName: string
 }
 
 interface Rejected {
@@ -121,12 +126,13 @@ function TilePreview({ docx, full = false }: { docx: string; full?: boolean }) {
  * instead. Ready letters show as tiles like Issue Notices; Download all saves them (Word or PDF) into one folder and,
  * once saved, clears them from the workspace.
  */
-export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'intimation', qcParties, onAddLetters, onBack }: Props) {
+export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'intimation', qcParties, onAddLetters, onIntimationsIssued, onBack }: Props) {
   const isQc = kind === 'qc'
+  const isDb = kind === 'dbnote'
   const isLetters = kind !== 'intimation'
-  const title = isQc ? 'Bulk QC Intimations' : kind === 'forwarding' ? 'Bulk Forwarding Letters' : 'Bulk Intimations'
-  const docName = isQc ? 'QC Intimation/Completion' : kind === 'forwarding' ? 'AE/Dy.EE Forwarding' : 'Intimation'
-  const destination = isQc ? 'QC Intimation/Completion Letters' : 'AE/Dy.EE Forwarding Letters'
+  const title = isQc ? 'Bulk QC Intimations' : isDb ? 'Bulk Drawing Branch Notes' : kind === 'forwarding' ? 'Bulk Forwarding Letters' : 'Bulk Intimations'
+  const docName = isQc ? 'QC Intimation/Completion' : isDb ? 'Drawing Branch Note' : kind === 'forwarding' ? 'AE/Dy.EE Forwarding' : 'Intimation'
+  const destination = isQc ? 'QC Intimation/Completion Letters' : isDb ? 'Drawing Branch Notes' : 'AE/Dy.EE Forwarding Letters'
   const [phase, setPhase] = useState<Phase>('idle')
   const [readProgress, setReadProgress] = useState({ done: 0, total: 0 })
   const [scan, setScan] = useState<{ phase: 'scanning' | 'reading'; done: number; total: number } | null>(null)
@@ -134,7 +140,7 @@ export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'i
   const [genProgress, setGenProgress] = useState({ done: 0, total: 0 })
   const [error, setError] = useState<string | null>(null)
   const [tiles, setTiles] = useState<ReadyIntimation[]>([])
-  // Letters handed to the Forwarding Slips & QC Intimations tab (they aren't kept here).
+  // Letters handed to the Forwarding Slips, QC Intimations & DB Note tab (they aren't kept here).
   const [madeCount, setMadeCount] = useState(0)
   const [rejected, setRejected] = useState<Rejected[]>([])
   const [ignored, setIgnored] = useState(0)
@@ -206,10 +212,12 @@ export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'i
         QC_INTIMATION_COMPLETION_TEMPLATE_VARIANTS
       )
       const fwdVariant = corporationDefaultVariant(office.corporation, undefined)
-      const letterVariant = (isQc ? qcVariant : fwdVariant) ?? 'cmc'
+      const letterVariant = (isQc ? qcVariant : isDb ? 'default' : fwdVariant) ?? 'cmc'
       const templateB64 = isQc
         ? await api.qccIntimationTemplate(qcVariant)
-        : kind === 'forwarding'
+        : isDb
+          ? await api.workBillNoteTemplate()
+          : kind === 'forwarding'
           ? await api.aeDyeeForwardingTemplate(fwdVariant)
           : await api.intimationTemplate(variant)
       const labels = await api.findPlaceholdersInDocument(templateB64)
@@ -297,6 +305,7 @@ export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'i
       const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
       const seen = new Set<string>()
       const made: StoredLetter[] = []
+      const issuedNow: Omit<IssuedIntimation, 'id' | 'officeKey' | 'issuedDate'>[] = []
       for (let idx = 0; idx < pairs.length; idx++) {
         if (stale()) return
         const { l1, loa } = pairs[idx]
@@ -328,7 +337,9 @@ export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'i
               corporation: office.corporation ?? '',
               corporationFullName: corporationByName(office.corporation)?.fullName ?? ''
             }
-            values = isQc
+            values = isDb
+              ? workBillNotePlaceholders(fields)
+              : isQc
               ? qcIntimationCompletionPlaceholders({
                   ...fields,
                   qcDepartmentTo: qcPartyToBlock(qcParties?.department),
@@ -345,12 +356,12 @@ export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'i
           const nitForName = nit.replace(/\s*\bdated?\b.*$/i, '').replace(/[/\\:*?"<>|]/g, '-')
           const typeOfWork =
             (dbRow?.['Type of work'] ?? '').trim() || (l1.nameOfWork ? (inferTypeOfWork(l1.nameOfWork) ?? '') : '')
-          const fileName = `${isQc ? 'QC Inti-Comp' : kind === 'forwarding' ? 'AE-DyEE Forwarding' : 'Intimation'}${agency ? ` - ${agency}` : ''}${nitForName ? ` - ${nitForName}` : ''}`
+          const fileName = `${isQc ? 'QC Inti-Comp' : isDb ? 'DB Note' : kind === 'forwarding' ? 'AE-DyEE Forwarding' : 'Intimation'}${agency ? ` - ${agency}` : ''}${nitForName ? ` - ${nitForName}` : ''}`
           if (isLetters) {
             // Kept as values, not a docx — the Forwarding Slips & QC Intimations tab re-fills the template on demand.
             made.push({
               id: `sl-${Date.now()}-${idx}`,
-              kind: isQc ? 'qc' : 'forwarding',
+              kind: isQc ? 'qc' : isDb ? 'dbnote' : 'forwarding',
               nitNo: nit,
               nitDate: loa.nitDate ?? l1.noticeDate ?? '',
               agency,
@@ -366,6 +377,14 @@ export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'i
             continue
           }
           const docx = await api.fillPlaceholdersInDocument(templateB64, resolved, values)
+          issuedNow.push({
+            format: { kind: 'intimation', variant: variant ?? '' },
+            values,
+            nitNo: nit,
+            agency,
+            workName: l1.nameOfWork ?? '',
+            fileName
+          })
           setTiles((t) => [
             ...t,
             {
@@ -376,7 +395,9 @@ export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'i
               agency,
               typeOfWork,
               estimateRupees: estimate > 0 ? estimate : null,
-              fileName
+              fileName,
+              values,
+              workName: l1.nameOfWork ?? ''
             }
           ])
         } catch (e) {
@@ -393,9 +414,11 @@ export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'i
         }
         await pause(120) // let each tile paint before the next one
       }
+      // Every Intimation made is listed under the Intimation page's Issued Intimations tab straight away.
+      if (issuedNow.length > 0) onIntimationsIssued?.(issuedNow)
       if (isLetters && made.length > 0) {
         onAddLetters?.(made)
-        setSaved(`${made.length} letter${made.length === 1 ? '' : 's'} moved to Forwarding Slips & QC Intimations → ${destination}.`)
+        setSaved(`${made.length} letter${made.length === 1 ? '' : 's'} moved to Forwarding Slips, QC Intimations & DB Note → ${destination}.`)
       }
       setPhase('done')
     } catch (e) {
@@ -502,7 +525,7 @@ export default function BulkIntimationsWorkspace({ office, worksTable, kind = 'i
         {!started && !seOffice && (
           <div className="mass-notices-upload">
             <p className="sub">
-              Pick a folder of L-1 sheets and LOAs. {isQc ? 'The QC Intimation/Completion set' : kind === 'forwarding' ? 'An AE/Dy.EE Forwarding Letter' : 'An Intimation'} is prepared only when the LOA’s NIT number, agency
+              Pick a folder of L-1 sheets and LOAs. {isQc ? 'The QC Intimation/Completion set' : isDb ? 'A Drawing Branch Note' : kind === 'forwarding' ? 'An AE/Dy.EE Forwarding Letter' : 'An Intimation'} is prepared only when the LOA’s NIT number, agency
               name and contract amount match the L-1 sheet.
             </p>
             <button onClick={() => void run()}>

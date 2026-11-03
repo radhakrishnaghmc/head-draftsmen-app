@@ -8,6 +8,9 @@ import { formatRupees } from '@core/worksAmounts'
 import { closeOnBackdropMouseDown } from '../overlayClose'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import BoardSearch from './BoardSearch'
+import DocFieldsEditor from './DocFieldsEditor'
+import { DB_NOTE_FIELDS } from '../dbNoteFields'
+import { formatDbNoteAmounts } from '@core/workOrderAgreement'
 import { IconChevronLeft, IconCheck, IconDoc, IconDownload, IconFolder, IconTrash, IconWarn } from './Icons'
 
 type LetterKind = StoredLetter['kind']
@@ -24,6 +27,12 @@ const KINDS: { key: LetterKind; name: string; meta: string; docName: string }[] 
     name: 'QC Intimation/Completion Letters',
     meta: 'QC letters made in bulk from Settings → Bulk QC Intimations',
     docName: 'QC Inti-Comp'
+  },
+  {
+    key: 'dbnote',
+    name: 'Drawing Branch Note',
+    meta: 'DB notes issued in the Agreement workspace or made in bulk from Settings → Bulk Issue Drawing Branch Notes',
+    docName: 'DB Note'
   }
 ]
 
@@ -44,7 +53,12 @@ function useTemplates(kind: LetterKind, variants: string[]) {
         const key = `${kind}:${variant}`
         if (templates[key]) continue
         try {
-          const b64 = kind === 'qc' ? await api.qccIntimationTemplate(variant) : await api.aeDyeeForwardingTemplate(variant)
+          const b64 =
+            kind === 'qc'
+              ? await api.qccIntimationTemplate(variant)
+              : kind === 'dbnote'
+                ? await api.workBillNoteTemplate()
+                : await api.aeDyeeForwardingTemplate(variant)
           const labels = await api.findPlaceholdersInDocument(b64)
           if (!cancelled) setTemplates((t) => ({ ...t, [key]: { b64, labels } }))
         } catch (e) {
@@ -63,7 +77,9 @@ function useTemplates(kind: LetterKind, variants: string[]) {
 /** The letter's docx — its template filled with the stored values (plus the AE name & phone, for QC letters). */
 async function fillLetter(letter: StoredLetter, tpl: Template, extra: Record<string, string>): Promise<string> {
   const resolved: PlaceholderMatch[] = tpl.labels.map((label) => ({ label, column: label, score: 1 }))
-  return api.fillPlaceholdersInDocument(tpl.b64, resolved, { ...letter.values, ...extra })
+  const values = { ...letter.values, ...(letter.edits ?? {}), ...extra }
+  if (letter.kind === 'dbnote') formatDbNoteAmounts(values)
+  return api.fillPlaceholdersInDocument(tpl.b64, resolved, values)
 }
 
 /** A letter's page, rendered only once it scrolls into view — a board can hold hundreds. */
@@ -85,14 +101,14 @@ function LetterPage({ letter, tpl, extra, full = false }: { letter: StoredLetter
     if (!visible || !tpl || !el) return
     let cancelled = false
     void fillLetter(letter, tpl, extra)
-      .then((docx) => renderDocPreview(base64ToUint8(docx), el))
+      .then((docx) => renderDocPreview(base64ToUint8(docx), el, { flowPages: letter.kind === 'dbnote' }))
       .then(() => !cancelled && setFailed(false))
       .catch(() => !cancelled && setFailed(true))
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, tpl, letter.values, extraKey])
+  }, [visible, tpl, letter.values, letter.edits, extraKey])
   if (failed)
     return (
       <div className="settings-tile-error">
@@ -149,6 +165,12 @@ function LetterBoard({
     kind === 'qc' && (aeName.trim() || aePhone.trim()) ? { 'AE Name Phone': [aeName.trim(), aePhone.trim()].filter(Boolean).join(', ') } : {}
   const tplOf = (l: StoredLetter) => templates[`${kind}:${l.variant}`]
 
+  // The letter open in the preview, read live from the list so a hand edit shows straight away.
+  const previewLive = preview ? (letters.find((l) => l.id === preview.id) ?? preview) : null
+  function setEdits(id: string, edits: Record<string, string>) {
+    onChange(letters.map((l) => (l.id === id ? { ...l, edits: Object.keys(edits).length > 0 ? edits : undefined } : l)))
+  }
+
   function remove(id: string) {
     onChange(letters.map((l) => (l.id === id ? { ...l, deletedAt: new Date().toISOString() } : l)))
   }
@@ -171,7 +193,7 @@ function LetterBoard({
         setBusy(`Preparing ${files.length}/${shown.length}`)
       }
       const nits = [...new Set(shown.map((l) => l.nitNo.replace(/\s*\bdated?\b.*$/i, '').replace(/\s*\/\s*/g, '/').trim()).filter(Boolean))]
-      const folder = `${kind === 'qc' ? 'QC intimation' : 'AE-DyEE forwarding letters'}${nits.length ? ` of ${nits.join(', ')}` : ''}`
+      const folder = `${kind === 'qc' ? 'QC intimation' : kind === 'dbnote' ? 'DB notes' : 'AE-DyEE forwarding letters'}${nits.length ? ` of ${nits.join(', ')}` : ''}`
       const res = await api.exportAgreementBundle(files, undefined, folder)
       if (!res) return
       setMessage(
@@ -255,7 +277,9 @@ function LetterBoard({
           <div className="empty">
             <IconDoc />
             <p>
-              No letters yet. Upload a folder in Settings → {kind === 'qc' ? 'Bulk QC Intimations' : 'Bulk Forwarding Letters'} and they are collected here.
+              {kind === 'dbnote'
+                ? 'No DB notes yet. Download a DB Note in the Agreement workspace, or upload a folder in Settings → Bulk Issue Drawing Branch Notes, and they are collected here.'
+                : `No letters yet. Upload a folder in Settings → ${kind === 'qc' ? 'Bulk QC Intimations' : 'Bulk Forwarding Letters'} and they are collected here.`}
             </p>
           </div>
         )}
@@ -335,7 +359,20 @@ function LetterBoard({
               <div className="wo-modal-main">
                 <div className="wo-modal-body">
                   <div className="ns-body">
-                    <LetterPage letter={preview} tpl={tplOf(preview)} extra={extra} full />
+                    {previewLive?.kind === 'dbnote' && (
+                      <DocFieldsEditor
+                        groups={DB_NOTE_FIELDS}
+                        derived={previewLive.values}
+                        edits={previewLive.edits ?? {}}
+                        onChange={(label, value) => setEdits(previewLive.id, { ...(previewLive.edits ?? {}), [label]: value })}
+                        onRevert={(label) => {
+                          const { [label]: _gone, ...rest } = previewLive.edits ?? {}
+                          setEdits(previewLive.id, rest)
+                        }}
+                        onResetAll={() => setEdits(previewLive.id, {})}
+                      />
+                    )}
+                    <LetterPage letter={previewLive ?? preview} tpl={tplOf(preview)} extra={extra} full />
                   </div>
                 </div>
               </div>
@@ -344,10 +381,10 @@ function LetterBoard({
                 <button className="ghost wo-foot-close" onClick={() => setPreview(null)}>
                   Close
                 </button>
-                <button className="primary" onClick={() => void downloadOne(preview, 'docx')} disabled={!!busy}>
+                <button className="primary" onClick={() => void downloadOne(previewLive ?? preview, 'docx')} disabled={!!busy}>
                   <IconDownload /> Word
                 </button>
-                <button className="primary" onClick={() => void downloadOne(preview, 'pdf')} disabled={!!busy}>
+                <button className="primary" onClick={() => void downloadOne(previewLive ?? preview, 'pdf')} disabled={!!busy}>
                   <IconDownload /> PDF
                 </button>
               </div>
@@ -360,8 +397,8 @@ function LetterBoard({
 }
 
 /**
- * Forwarding Slips & QC Intimations: two tiles — the AE/Dy.EE Forwarding Letters and the QC Intimation/Completion
- * letters — each opening a board of the letters Settings' bulk tools made, with search and download.
+ * Forwarding Slips, QC Intimations & DB Note: three tiles — the AE/Dy.EE Forwarding Letters, the QC Intimation/Completion
+ * letters and the Drawing Branch Notes — each opening a board of the letters Settings' bulk tools made, with search and download.
  */
 export default function LettersTab({
   letters,

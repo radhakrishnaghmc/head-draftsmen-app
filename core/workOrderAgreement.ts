@@ -693,6 +693,14 @@ export function agreementBondNoDate(
  * done, the excess-quantity table) has no source and stays blank for the editor
  * panel. Estimate Contract Value is never filled from the estimate.
  */
+/** Typed DB Note amounts print as "Rs: 5,000 /-"; a blank stays blank, and a value already carrying Rs / "/-" is left alone. Edits `values` in place. */
+export function formatDbNoteAmounts(values: Record<string, string>): void {
+  for (const label of ['Price Escalation', 'EOT Penalty']) {
+    const v = (values[label] ?? '').trim()
+    if (v && !/^rs\b/i.test(v)) values[label] = `Rs: ${v.replace(/\s*\/-\s*$/, '')} /-`
+  }
+}
+
 export function workBillNotePlaceholders(f: WorkOrderAgreementFields): Record<string, string> {
   const estLakhs = num(f.estimateLakhs)
   const ecv = num(f.ecvRupees)

@@ -2612,6 +2612,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
                   qcParties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
                   monitoringWorks={officeMonitoringFormatWorks}
                   headerActionRef={workOrderHeaderActionRef}
+                  onLetterIssued={(l) => addOfficeLetters([l])}
                 />
               </section>
             </KeepAlive>
@@ -2647,8 +2648,8 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
                       <IconDoc />
                     </div>
                     <div className="page-head-text">
-                      <h1>Forwarding Slips &amp; QC Intimations</h1>
-                      <p>Letters made in bulk from Settings, collected here.</p>
+                      <h1>Forwarding Slips, QC Intimations &amp; DB Note</h1>
+                      <p>Letters and Drawing Branch notes issued in the Agreement workspace or made in bulk from Settings, collected here.</p>
                     </div>
                   </div>
                 )}
@@ -2804,6 +2805,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
                   noticeItems={officePendingNotices}
                   onNoticesChange={setOfficePendingNotices}
                   onLettersAdd={addOfficeLetters}
+                  onIntimationsIssued={(items) => items.forEach(recordIssuedIntimation)}
                   worksTable={tables[0] ?? null}
                   qcParties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
                 />

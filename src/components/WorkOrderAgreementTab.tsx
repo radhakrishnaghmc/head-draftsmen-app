@@ -36,6 +36,7 @@ import {
   qcPartyToBlock,
   forwardingSlipPlaceholders,
   workBillNotePlaceholders,
+  formatDbNoteAmounts,
   aeDyeeForwardingPlaceholders,
   civilTenderPlaceholders,
   standaloneRowFromSources,
@@ -81,6 +82,7 @@ import {
 import PageMarginGuides from './PageMarginGuides'
 import { applyPageMargins, removeDocParagraph, tightenSeFileBackerHeader, type PageMargins } from '@core/docMargins'
 import DocFieldsEditor, { groupLabels, type DocFieldGroup } from './DocFieldsEditor'
+import { DB_NOTE_FIELDS } from '../dbNoteFields'
 import { mismatchHint } from '../docClassify'
 import type { PlaceholderMatch } from '@core/createDocument'
 import type { ScheduleAMeta, AgreementBundleFile, VerifyDocItem, VerifyDocResult } from '../../electron/ipc-contract'
@@ -88,7 +90,8 @@ import { verifyWorkFigures, type DocFigures } from '../../core/agreementVerify'
 import type { MonitoringFormatWorkRow } from '../../core/monitoringFormat'
 import { findMonitoringWork } from '../../core/massNotices'
 import { VerifyButton } from './VerifyButton'
-import type { ExcelTable, QcOfficeParties } from '@core/types'
+import type { ExcelTable, QcOfficeParties, StoredLetter } from '@core/types'
+import { inferTypeOfWork } from '@core/workTypeClassifier'
 import { pdfToTextLinesOrOcr, pdfToPositionedLines } from '../pdfToText'
 import {
   base64ToUint8,
@@ -151,6 +154,8 @@ interface Props {
   office?: Office
   /** The office's 3rd/4th-party QC agencies (Works List page) — the "To" blocks of the QC Intimation/Completion letters. */
   qcParties?: QcOfficeParties
+  /** Called when this workspace's DB Note is downloaded, printed or bundled — it is collected under Forwarding Slips, QC Intimations & DB Note. */
+  onLetterIssued?: (letter: StoredLetter) => void
   /**
    * DOM node (rendered by the page header, App.tsx) to portal the "Download
    * all documents" button into — puts it in the page-head-action slot next
@@ -440,61 +445,7 @@ const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
       ]
     }
   ],
-  workBillNote: [
-    {
-      title: 'The work',
-      fields: [
-        { label: 'Wincode', title: 'Wincode' },
-        { label: 'Corporation', title: 'Corporation' },
-        { label: 'CNO', title: 'Circle No' },
-        { label: 'Name of the work', title: '1. Name of the work', multiline: true },
-        { label: 'Name of the agency', title: '2. Name of the agency' },
-        { label: 'Serial of bill', title: '3. Serial of bill' }
-      ]
-    },
-    {
-      title: 'Amounts & agreement',
-      fields: [
-        { label: 'Estimate Amount', title: '4. Estimate amount' },
-        { label: 'Administrative Sanction Amount', title: '5. Administrative sanction' },
-        { label: 'ECV', title: '6. ECV' },
-        { label: 'Tender Percentage', title: '7. Tender percentage' },
-        { label: 'Contract Amount', title: '8. Agreement value' },
-        { label: 'Agreement No and Date', title: '9. Agreement no. & date' },
-        { label: 'Period of Contract', title: '10. Period of contract', periodUnit: true }
-      ]
-    },
-    {
-      title: 'Progress & measurements',
-      fields: [
-        { label: 'Date of Completion', title: '12. Date of completion' },
-        { label: 'EOT Details', title: '13. Extension of time' },
-        { label: 'AE Recording Dates', title: '14. Recording dates (AE)', multiline: true },
-        { label: 'MB Details', title: '15. M.B. details' },
-        { label: 'DyEE Check Dates', title: '16. Dy.EE check measurement', multiline: true },
-        { label: 'EE Test Check', title: '17. EE test check' },
-        { label: 'SE Super Check', title: '18. SE super check' }
-      ]
-    },
-    {
-      title: 'Deductions & reports',
-      fields: [
-        { label: 'Embedded Tax', title: '19. Embedded tax' },
-        { label: 'Price Escalation', title: '20. Price escalation' },
-        { label: 'EOT Penalty', title: '21. EOT penalty' },
-        { label: 'DC ZC Inspection', title: '22. DC / ZC visual inspection' },
-        { label: 'QC Officials Report', title: '23. QC officials report' },
-        { label: 'QCC Third Party Report', title: '24. QCC third party report' },
-        { label: 'ATR Details', title: '25. A.T.R. details' },
-        { label: 'Seignorage Details', title: '26. Seignorage charges' },
-        { label: 'One Time Penalty Details', title: '27. One time penalty / DMFT / SMET' }
-      ]
-    },
-    {
-      title: 'Recommended payment',
-      fields: [{ label: 'Recommended Amount', title: '28. Recommended for payment (Rs.)' }]
-    }
-  ],
+  workBillNote: DB_NOTE_FIELDS,
   fileBacker: [
     {
       title: 'Header',
@@ -787,6 +738,7 @@ export default function WorkOrderAgreementTab({
   zoneLogin = false,
   office,
   qcParties,
+  onLetterIssued,
   monitoringWorks,
   headerActionRef
 }: Props) {
@@ -1835,6 +1787,28 @@ export default function WorkOrderAgreementTab({
     )
   }
 
+  /** Hands the DB Note just issued (with every value as printed, hand edits included) to the Forwarding Slips, QC Intimations & DB Note tab. */
+  function recordDbNote() {
+    if (!onLetterIssued) return
+    const values = { ...derivedPlaceholders('workBillNote', fields), ...(docEdits.workBillNote ?? {}) }
+    formatDbNoteAmounts(values)
+    const lakhs = parseFloat((fields.estimateLakhs ?? '').replace(/,/g, ''))
+    onLetterIssued({
+      id: `sl-${Date.now()}-db`,
+      kind: 'dbnote',
+      nitNo: (fields.noticeNo ?? '').trim(),
+      nitDate: (fields.noticeDate ?? '').trim(),
+      agency: (fields.agencyName ?? '').trim(),
+      workName: (fields.nameOfWork ?? '').trim(),
+      typeOfWork: inferTypeOfWork(fields.nameOfWork ?? '') ?? '',
+      estimateRupees: Number.isFinite(lakhs) && lakhs > 0 ? Math.round(lakhs * 100000) : null,
+      variant: 'default',
+      values,
+      fileName: docName('workBillNote'),
+      createdDate: new Date().toISOString().slice(0, 10)
+    })
+  }
+
   async function fillDoc(kind: DocKind, opts?: { blankDate?: boolean }): Promise<string> {
     const b64 = {
       workOrder: workOrderB64,
@@ -1864,13 +1838,7 @@ export default function WorkOrderAgreementTab({
     // saw in that panel's preview — including a date they typed in themselves,
     // which is why they survive blankDate.
     const values = { ...derivedPlaceholders(kind, f), ...(docEdits[kind] ?? {}) }
-    if (kind === 'workBillNote') {
-      // Typed amounts print as "Rs: 5,000 /-"; a blank stays blank, and a value already carrying Rs / "/-" is left alone.
-      for (const label of ['Price Escalation', 'EOT Penalty']) {
-        const v = (values[label] ?? '').trim()
-        if (v && !/^rs\b/i.test(v)) values[label] = `Rs: ${v.replace(/\s*\/-\s*$/, '')} /-`
-      }
-    }
+    if (kind === 'workBillNote') formatDbNoteAmounts(values)
     const resolved: PlaceholderMatch[] = labels.map((label) => ({ label, column: label, score: 1 }))
     let source = kind === 'fileBacker' && seMode ? tightenSeFileBackerHeader(b64) : b64
     // The Work Order's "Copy submitted to … The Chief Engineer" line only belongs when the letter is the CE office's.
@@ -2202,6 +2170,7 @@ export default function WorkOrderAgreementTab({
       const filled = await fillDoc(kind)
       const res = await api.exportCreatedDocument(filled, docName(kind), formats)
       setActionSaved(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
+      if (kind === 'workBillNote' && res && res.length > 0) recordDbNote()
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -2231,6 +2200,7 @@ export default function WorkOrderAgreementTab({
         fontsStatus: (document.fonts as any).status
       }
       await api.printCreatedDocument(container.innerHTML)
+      if (kind === 'workBillNote') recordDbNote()
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -2418,6 +2388,8 @@ export default function WorkOrderAgreementTab({
       // One folder per tender inside the chosen location: "Agreement Docs of <Tender Id>".
       const tid = (fields.tenderId || pdfEval?.tenderId || '').trim()
       const res = await api.exportAgreementBundle(files, undefined, tid ? `Agreement Docs of ${tid}` : 'Agreement Docs')
+      // The DB Note rides along in the bundle — collect it too, unless it is the one file that failed to save.
+      if (res && workBillNoteB64 && wants('workBillNote') && !res.failed.some((f) => f.startsWith(docName('workBillNote')))) recordDbNote()
       const unresolvedNote =
         unresolvedWarnings.length > 0
           ? ` Warning: ${unresolvedWarnings.length} document(s) have an unfilled field — ${unresolvedWarnings.join('; ')}.`

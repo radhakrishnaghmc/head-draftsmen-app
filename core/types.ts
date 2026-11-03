@@ -308,7 +308,7 @@ export interface BidDocumentBatch {
 }
 
 /**
- * One generated letter held in the "Forwarding Slips & QC Intimations" tab — an AE/Dy.EE Forwarding Letter or a QC
+ * One generated letter held in the "Forwarding Slips, QC Intimations & DB Note" tab — an AE/Dy.EE Forwarding Letter or a QC
  * Intimation/Completion letter, made in bulk from Settings. Only the placeholder values are stored (not the docx), so
  * the synced state stays small; the letter is re-filled from the office's template when previewed or downloaded.
  */
@@ -332,7 +332,7 @@ export interface IssuedIntimation {
 
 export interface StoredLetter {
   id: string
-  kind: 'qc' | 'forwarding'
+  kind: 'qc' | 'forwarding' | 'dbnote'
   /** The office (key: "Corporation|Zone|Circle") it was made under — like the Works List/To Do. */
   officeKey?: string
   nitNo: string
@@ -344,6 +344,8 @@ export interface StoredLetter {
   /** Bundled template variant (cmc / ghmc / mmc …) the letter was made with. */
   variant: string
   values: Record<string, string>
+  /** Hand edits made on the board's preview page (DB notes) — they win over `values`. */
+  edits?: Record<string, string>
   fileName: string
   /** ISO date (YYYY-MM-DD) it was made. */
   createdDate: string

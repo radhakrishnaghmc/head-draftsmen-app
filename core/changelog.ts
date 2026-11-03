@@ -22,6 +22,8 @@ export const CHANGELOG: ChangelogEntry[] = [
       'The Works List now keeps the same column order and column names as the online sheet it was imported from (a refresh adopts them).',
       'New Issued Intimations tab (between Issue Intimation and Evaluation Sheet): every Intimation / Letter of Acceptance you download or print is listed there, searchable, with preview and re-download.',
       'Updating the Works List from an L-1 sheet now also fills TCV from the sheet\'s Amount (INR).',
+      '"Forwarding Slips & QC Intimations" is now "Forwarding Slips, QC Intimations & DB Note", with a new Drawing Branch Note tile. A DB Note you download, print or bundle in the Agreement workspace is added there automatically.',
+      'New Settings → Bulk Issue Drawing Branch Notes: pick a folder of L-1 sheets and LOAs and every DB Note lands in that tab. Bulk Intimations you generate now also appear under Issued Intimations. A DB Note on that board opens an editable preview.',
       'L-1 / LOA sheets from another circle are rejected with "These sheets do not belong to the <Circle> office", unless the work is already in your Works List.',
       'Agreement workspace: Administrative Sanction date and by, newspapers published, and the AE name & number are now saved to the work in the Works List.',
       'Works List and the 3rd / 4th-party / department QC details now sync online immediately, and QC details are fetched from online when empty.'

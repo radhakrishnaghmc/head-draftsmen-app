@@ -9,7 +9,7 @@ import MassNoticesWorkspace from './MassNoticesWorkspace'
 import BulkIntimationsWorkspace from './BulkIntimationsWorkspace'
 import type { MonitoringFormatWorkRow } from '@core/monitoringFormat'
 import type { CalendarData } from '@core/calendar'
-import type { PendingNoticeItem, ExcelTable, QcOfficeParties, StoredLetter } from '@core/types'
+import type { PendingNoticeItem, ExcelTable, IssuedIntimation, QcOfficeParties, StoredLetter } from '@core/types'
 import {
   WORK_ORDER_TEMPLATE_VARIANTS,
   variantsForCorporation,
@@ -53,7 +53,7 @@ import type { PersistedState } from '@core/types'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import { IconSettings, IconCheck, IconWarn, IconOpen, IconUser, IconLogout, IconChevronRight, IconChevronLeft, IconBell, IconFolder, IconCloud, IconSun, IconDoc } from './Icons'
 
-type SettingsSection = 'addOffice' | 'devices' | 'backup' | 'onlineWorks' | 'themes' | 'templates' | 'massNotices' | 'bulkIntimations' | 'bulkQc' | 'bulkForwarding'
+type SettingsSection = 'addOffice' | 'devices' | 'backup' | 'onlineWorks' | 'themes' | 'templates' | 'massNotices' | 'bulkIntimations' | 'bulkQc' | 'bulkForwarding' | 'bulkDbNote'
 
 interface Props {
   office: Office
@@ -79,8 +79,10 @@ interface Props {
   /** The office's Works List — Bulk Intimations reads each work's type and estimate from it. */
   worksTable?: ExcelTable | null
   onNoticesChange: (next: PendingNoticeItem[]) => void
-  /** Bulk QC / Forwarding runs hand their letters to the Forwarding Slips & QC Intimations tab through this. */
+  /** Bulk QC / Forwarding runs hand their letters to the Forwarding Slips, QC Intimations & DB Note tab through this. */
   onLettersAdd?: (letters: StoredLetter[]) => void
+  /** Bulk Intimations hand each downloaded Intimation to the Intimation page's Issued Intimations tab through this. */
+  onIntimationsIssued?: (items: Omit<IssuedIntimation, 'id' | 'officeKey' | 'issuedDate'>[]) => void
 }
 
 // Deliberately long/realistic values (not blank, not short) — a preview built
@@ -786,7 +788,7 @@ function ThemeSection({ theme, onThemeChange }: { theme: ThemeId; onThemeChange:
  * (see CONTACT_KEYS). One TemplateSection per document type — a future
  * document type is just another entry in the list below.
  */
-export default function SettingsTab({ office, accountOffices, onAddAccountOffice, onRemoveAccountOffice, active, qcParties, theme, onThemeChange, getState, onRestored, monitoringWorks, calendar, noticeItems, onNoticesChange, worksTable, onLettersAdd }: Props) {
+export default function SettingsTab({ office, accountOffices, onAddAccountOffice, onRemoveAccountOffice, active, qcParties, theme, onThemeChange, getState, onRestored, monitoringWorks, calendar, noticeItems, onNoticesChange, worksTable, onLettersAdd, onIntimationsIssued }: Props) {
   const fields = useMemo(
     () => sampleFields(office),
     [office.circle, office.circleNumber, office.zone, office.corporation]
@@ -796,7 +798,7 @@ export default function SettingsTab({ office, accountOffices, onAddAccountOffice
   // Settings stays mounted across tab switches; leaving it returns to the list (and resets Bulk Notices).
   // Bulk Intimations is the exception: its folder scan / prepared letters are slow to rebuild, so it stays open.
   useEffect(() => {
-    if (!active) setSection((s) => (s === 'bulkIntimations' || s === 'bulkQc' || s === 'bulkForwarding' ? s : null))
+    if (!active) setSection((s) => (s === 'bulkIntimations' || s === 'bulkQc' || s === 'bulkForwarding' || s === 'bulkDbNote' ? s : null))
   }, [active])
   const currentTheme = THEME_OPTIONS.find((o) => o.id === theme)
 
@@ -930,11 +932,12 @@ export default function SettingsTab({ office, accountOffices, onAddAccountOffice
     { key: 'massNotices', icon: <IconBell />, name: 'Bulk Notices', meta: 'Generate non-conclusion notices from a folder' },
     { key: 'bulkIntimations', icon: <IconDoc />, name: 'Bulk Intimations', meta: 'Prepare Intimations from a folder of L-1 sheets and LOAs' },
     { key: 'bulkQc', icon: <IconDoc />, name: 'Bulk QC Intimations', meta: 'Prepare QC Intimation/Completion letters from a folder of L-1 sheets and LOAs' },
-    { key: 'bulkForwarding', icon: <IconDoc />, name: 'Bulk Forwarding Letters', meta: 'Prepare AE/Dy.EE Forwarding Letters from a folder of L-1 sheets and LOAs' }
+    { key: 'bulkForwarding', icon: <IconDoc />, name: 'Bulk Forwarding Letters', meta: 'Prepare AE/Dy.EE Forwarding Letters from a folder of L-1 sheets and LOAs' },
+    { key: 'bulkDbNote', icon: <IconDoc />, name: 'Bulk Issue Drawing Branch Notes', meta: 'Prepare Drawing Branch (DB) Notes from a folder of L-1 sheets and LOAs' }
   ]
 
   if (section === 'bulkIntimations') {
-    return <BulkIntimationsWorkspace office={office} worksTable={worksTable} onBack={() => setSection(null)} />
+    return <BulkIntimationsWorkspace office={office} worksTable={worksTable} onIntimationsIssued={onIntimationsIssued} onBack={() => setSection(null)} />
   }
 
   if (section === 'bulkQc') {
@@ -944,6 +947,18 @@ export default function SettingsTab({ office, accountOffices, onAddAccountOffice
         worksTable={worksTable}
         kind="qc"
         qcParties={qcParties}
+        onAddLetters={onLettersAdd}
+        onBack={() => setSection(null)}
+      />
+    )
+  }
+
+  if (section === 'bulkDbNote') {
+    return (
+      <BulkIntimationsWorkspace
+        office={office}
+        worksTable={worksTable}
+        kind="dbnote"
         onAddLetters={onLettersAdd}
         onBack={() => setSection(null)}
       />
