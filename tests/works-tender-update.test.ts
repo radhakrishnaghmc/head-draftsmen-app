@@ -36,6 +36,7 @@ describe('updateWorksListFromEvaluations', () => {
     expect(r['Name of the Agency']).toBe('M V S CONSTRUCTIONS')
     expect(r['Tender Percentage']).toBe('11.11')
     expect(r['Contract Amount']).toBe('1416456') // rupees, rounded to the nearest rupee
+    expect(r['TCV']).toBe('1416456') // TCV = the L-1 sheet's Amount (INR)
   })
 
   it('overwrites existing values (the PDF is the authoritative post-award record)', () => {

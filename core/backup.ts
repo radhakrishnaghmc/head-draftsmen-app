@@ -126,6 +126,7 @@ const ARRAY_OR_MAP_LABEL: Record<string, string> = {
   pendingNotices: 'Pending notices',
   bidDocumentBatches: 'Bid Document batches',
   storedLetters: 'Forwarding / QC letters',
+  issuedIntimations: 'Issued intimations',
   qcParties: 'QC agencies',
   worksListLinks: 'Works List links',
   monitoringFormatByOffice: 'Monitoring Format',

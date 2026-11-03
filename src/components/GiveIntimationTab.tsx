@@ -40,7 +40,7 @@ import { pdfToTextLinesOrOcr, pdfToPositionedLines } from '../pdfToText'
 import { pdfPagesToDataUrls, pdfPagesToDataUrlsFromData } from '../pdfToImages'
 import { base64ToUint8, PAGE_WIDTH, renderDocPreview, DOCX_PREVIEW_OPTIONS, normalizeDocxTextboxes } from './docPage'
 import { IconFolder, IconDownload, IconPrint, IconWarn, IconBell, IconCheck } from './Icons'
-import type { ExcelTable } from '@core/types'
+import type { ExcelTable, IssuedIntimation } from '@core/types'
 import type { AgreementBundleFile, VerifyDocItem } from '../../electron/ipc-contract'
 import { VerifyButton } from './VerifyButton'
 import PageMarginGuides from './PageMarginGuides'
@@ -79,6 +79,8 @@ interface Props {
    * second one).
    */
   onIntimationIssued?: (snapshot: IntimationIssuedSnapshot) => void
+  /** Called with the issued Intimation / Letter of Acceptance itself (its format + filled values) so it's listed under Issued Intimations. */
+  onIntimationDocIssued?: (rec: Omit<IssuedIntimation, 'id' | 'officeKey' | 'issuedDate'>) => void
 }
 
 /** See `onIntimationIssued` above. */
@@ -583,7 +585,7 @@ function notice_nitNo(pdf: TenderEvaluation, row: Record<string, string>): strin
  * docx-preview of the filled letter with Word / PDF / Print. (Note Submitted
  * lives on the Agreement & Work Order tab.)
  */
-export default function GiveIntimationTab({ tables, onChange, office, headerActionRef, active, onIntimationIssued }: Props) {
+export default function GiveIntimationTab({ tables, onChange, office, headerActionRef, active, onIntimationIssued, onIntimationDocIssued }: Props) {
   const table = tables[0] ?? null
 
   // Whether headerActionRef's DOM node is actually mounted yet — reading
@@ -612,6 +614,8 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   )
 
   const [templateB64, setTemplateB64] = useState<string | null>(null)
+  // Which bundled format templateB64 is — kept so an issued letter can be re-filled later (Issued Intimations).
+  const templateFormatRef = useRef<IssuedIntimation['format'] | null>(null)
   const [labels, setLabels] = useState<string[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [manual, setManual] = useState<LoaManualFields>(LOA_MANUAL_DEFAULTS)
@@ -755,6 +759,9 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
           : await api.intimationTemplate(intimationVariant)
         const found = await api.findPlaceholdersInDocument(b64)
         if (cancelled) return
+        templateFormatRef.current = seMode
+          ? { kind: 'loa', reserved: seReserved, corporation: office.corporation ?? '' }
+          : { kind: 'intimation', variant: intimationVariant ?? '' }
         setTemplateB64(b64)
         setLabels(found)
       } catch (e) {
@@ -1031,6 +1038,20 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   }
 
   function notifyIntimationIssued() {
+    const format = templateFormatRef.current
+    if (onIntimationDocIssued && format && templateB64) {
+      const agency = (effectiveNotice?.agencyName ?? selectedRow?.['Name of the Agency'] ?? '').trim()
+      const tenderId = pdfEval?.tenderId?.replace(/[/\\]/g, '-')
+      const label = seMode ? 'Letter of Acceptance' : 'Intimation'
+      onIntimationDocIssued({
+        format,
+        values: { ...values, ...intimationEdits },
+        nitNo: (values['NIT No'] ?? effectiveNotice?.nitNo ?? pdfEval?.noticeNo ?? '').trim(),
+        agency,
+        workName: (values['Name of the work'] ?? pdfEval?.nameOfWork ?? selectedRow?.['Name of the work'] ?? '').trim(),
+        fileName: [label, agency, tenderId].filter(Boolean).join(' ')
+      })
+    }
     if (!onIntimationIssued) return
     const snapshot = buildNoticeSnapshot()
     if (snapshot) onIntimationIssued(snapshot)

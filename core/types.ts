@@ -312,6 +312,24 @@ export interface BidDocumentBatch {
  * Intimation/Completion letter, made in bulk from Settings. Only the placeholder values are stored (not the docx), so
  * the synced state stays small; the letter is re-filled from the office's template when previewed or downloaded.
  */
+export interface IssuedIntimation {
+  id: string
+  officeKey?: string
+  /** Which bundled format it was made with: the EE Intimation (with its corporation variant) or the SE Letter of Acceptance. */
+  format: { kind: 'intimation'; variant: string } | { kind: 'loa'; reserved: boolean; corporation: string }
+  /** Every placeholder value as issued (including hand edits) — the letter is re-filled from the format when previewed or downloaded. */
+  values: Record<string, string>
+  nitNo: string
+  agency: string
+  workName: string
+  /** Document file name, as downloaded. */
+  fileName: string
+  /** ISO date (YYYY-MM-DD) it was issued. */
+  issuedDate: string
+  /** Soft-deleted rather than dropped outright (same bin pattern as StoredLetter). */
+  deletedAt?: string
+}
+
 export interface StoredLetter {
   id: string
   kind: 'qc' | 'forwarding'
@@ -415,6 +433,8 @@ export interface PersistedState {
   bidDocumentBatches?: BidDocumentBatch[]
   /** Bulk-made AE/Dy.EE Forwarding Letters and QC Intimation/Completion letters, all offices (filtered per office in the UI). */
   storedLetters?: StoredLetter[]
+  /** Intimations / Letters of Acceptance issued (downloaded) from the Intimation page, all offices (filtered per office in the UI). */
+  issuedIntimations?: IssuedIntimation[]
   mbScrutiny?: MBScrutinyItem[]
   pendingNotices?: PendingNoticeItem[]
   /**

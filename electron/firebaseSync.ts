@@ -710,6 +710,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       createdDocuments,
       bidDocumentBatches: m.bidDocumentBatches ?? [],
       storedLetters: m.storedLetters ?? [],
+      issuedIntimations: m.issuedIntimations ?? [],
       mbScrutiny
     }
   } catch (e) {
@@ -825,7 +826,8 @@ function subscribeRemote(
         tenderConditions: data.tenderConditions ?? {},
         tenderReminders: data.tenderReminders ?? [],
         bidDocumentBatches: data.bidDocumentBatches ?? [],
-        storedLetters: data.storedLetters ?? []
+        storedLetters: data.storedLetters ?? [],
+        issuedIntimations: data.issuedIntimations ?? []
       })
     })
   )
@@ -1014,6 +1016,7 @@ function buildMiscFields(
     pendingNotices: plain(state.pendingNotices ?? []),
     bidDocumentBatches: plain(state.bidDocumentBatches ?? []),
     storedLetters: plain(state.storedLetters ?? []),
+    issuedIntimations: plain(state.issuedIntimations ?? []),
     mbScrutiny: plain(state.mbScrutiny ?? []),
     // Deliberately omitted (not written as null) when not yet chosen —
     // `merge: true` below then leaves whatever office is already stored in

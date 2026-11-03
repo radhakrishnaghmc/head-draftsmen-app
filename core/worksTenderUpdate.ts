@@ -53,6 +53,10 @@ function valuesFor(ev: TenderEvaluation, notice?: IntimationNotice): Record<stri
   if (ev.tenderPercentage != null) out['Tender Percentage'] = String(ev.tenderPercentage)
   const contract = ev.contractRupees ?? notice?.contractRupees
   if (contract != null) out['Contract Amount'] = rupeesToCell(contract)
+  // TCV (tender contract value) = the L-1's "Amount (INR)" from the sheet; when the sheet didn't carry it,
+  // ECV less the tender % of ECV (a negative % — an excess bid — adds to it).
+  const tcv = contract ?? (ecv != null && ev.tenderPercentage != null ? Math.round(ecv - (ecv * ev.tenderPercentage) / 100) : undefined)
+  if (tcv != null) out['TCV'] = rupeesToCell(tcv)
   // Reservation flag: "Yes" when the work name carries a "reserved for …" tag,
   // else "No" (the document flows still read SC/ST from the name itself).
   out['Reservation'] = /reserved\s+(?:to|for)\b/i.test(ev.nameOfWork ?? '') ? 'Yes' : 'No'

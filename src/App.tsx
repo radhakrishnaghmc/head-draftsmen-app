@@ -56,6 +56,7 @@ import TenderNoticeButton from './components/TenderNoticeButton'
 import BidDocumentsPanel from './components/BidDocumentsPanel'
 import SeBidDocumentTile from './components/SeBidDocumentTile'
 import GoogleLinkImport from './components/GoogleLinkImport'
+import IssuedIntimationsTab from './components/IssuedIntimationsTab'
 import { hasWorks, mergeNewWorks } from '@core/worksSync'
 import WorksListL1Update from './components/WorksListL1Update'
 import EstimateWorkspaceTab from './components/EstimateWorkspaceTab'
@@ -112,6 +113,7 @@ import type {
   QcOfficeParties,
   PendingNoticeItem,
   StoredLetter,
+  IssuedIntimation,
   TenderConditionsEntry,
   PersistedState
 } from '@core/types'
@@ -347,7 +349,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
   const [lettersWorkspaceOpen, setLettersWorkspaceOpen] = useState(false)
   // Sub-tabs within the Intimation workspace: the Intimation letter, or the
   // Bid Capacity Evaluation Sheet issued from a "View Bidders" PDF.
-  const [intimationSubTab, setIntimationSubTab] = useState<'intimation' | 'evaluation'>('intimation')
+  const [intimationSubTab, setIntimationSubTab] = useState<'intimation' | 'issued' | 'evaluation'>('intimation')
   const [calendar, setCalendar] = useState<CalendarData | null>(null)
 
   const [tables, setTables] = useState<ExcelTable[]>([])
@@ -501,6 +503,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
   const [seededDocVersion, setSeededDocVersion] = useState(0)
   const [bidDocumentBatches, setBidDocumentBatches] = useState<BidDocumentBatch[]>([])
   const [storedLetters, setStoredLetters] = useState<StoredLetter[]>([])
+  const [issuedIntimations, setIssuedIntimations] = useState<IssuedIntimation[]>([])
   // Notice contact details (e-mail / phones), mirrored from localStorage so they sync like everything else.
   const [contacts, setContacts] = useState<Record<string, string>>(readContacts)
   useEffect(() => {
@@ -730,6 +733,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
     setSeededDocVersion(s.seededDocVersion ?? 0)
     setBidDocumentBatches(s.bidDocumentBatches ?? [])
     setStoredLetters(s.storedLetters ?? [])
+    setIssuedIntimations(s.issuedIntimations ?? [])
   }
 
   useEffect(() => {
@@ -817,6 +821,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
       if (partial.seededDocVersion !== undefined) setSeededDocVersion(partial.seededDocVersion)
       if (partial.bidDocumentBatches) setBidDocumentBatches(partial.bidDocumentBatches)
       if (partial.storedLetters) setStoredLetters(partial.storedLetters)
+      if (partial.issuedIntimations) setIssuedIntimations(partial.issuedIntimations)
       if (partial.contacts) {
         applyContacts(partial.contacts)
         setContacts(readContacts())
@@ -878,6 +883,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
         seededDocVersion,
         bidDocumentBatches,
         storedLetters,
+        issuedIntimations,
         contacts,
         mbScrutiny
       }
@@ -915,6 +921,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
     seededDocVersion,
     bidDocumentBatches,
     storedLetters,
+    issuedIntimations,
     contacts,
     mbScrutiny
   ])
@@ -949,6 +956,25 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
       a.kind === b.kind && (a.officeKey ?? '') === (b.officeKey ?? '') && a.nitNo === b.nitNo && a.agency === b.agency && a.workName === b.workName
     const stamped = added.map((l) => ({ ...l, officeKey: l.officeKey ?? currentOfficeKey }))
     setStoredLetters((prev) => [...prev.filter((l) => !stamped.some((a) => same(a, l))), ...stamped])
+  }
+  // Intimations / Letters of Acceptance issued from the Intimation page, same per-office scoping.
+  const officeIssuedIntimations = issuedIntimations.filter((i) => (i.officeKey ?? '') === currentOfficeKey)
+  function setOfficeIssuedIntimations(next: IssuedIntimation[]) {
+    const stamped = currentOfficeKey ? next.map((i) => (i.officeKey ? i : { ...i, officeKey: currentOfficeKey })) : next
+    setIssuedIntimations([...issuedIntimations.filter((i) => (i.officeKey ?? '') !== currentOfficeKey), ...stamped])
+  }
+  /** Called whenever an Intimation is downloaded/printed; re-issuing the same work (NIT + agency, else name + agency) replaces the earlier record. */
+  function recordIssuedIntimation(rec: Omit<IssuedIntimation, 'id' | 'officeKey' | 'issuedDate'>) {
+    const d = new Date()
+    const issuedDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const same = (i: IssuedIntimation) =>
+      (i.officeKey ?? '') === currentOfficeKey &&
+      i.agency === rec.agency &&
+      (rec.nitNo && i.nitNo ? i.nitNo === rec.nitNo : i.workName === rec.workName)
+    setIssuedIntimations((prev) => [
+      ...prev.filter((i) => !same(i)),
+      { ...rec, id: `intim-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, officeKey: currentOfficeKey, issuedDate }
+    ])
   }
   function setOfficePendingNotices(next: PendingNoticeItem[]) {
     const stamped = currentOfficeKey ? next.map((n) => (n.officeKey ? n : { ...n, officeKey: currentOfficeKey })) : next
@@ -2466,10 +2492,13 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
                     <p>
                       {intimationSubTab === 'intimation'
                         ? "Upload a PDF (or photos) plus an existing Intimation format to auto-fill it from what's in the document."
-                        : 'Upload the portal’s “View Bidders” PDF to issue the Bid Capacity Evaluation Sheet — one column per participating bidder.'}
+                        : intimationSubTab === 'issued'
+                          ? 'Every Intimation / Letter of Acceptance you have issued (downloaded or printed) for this office.'
+                          : 'Upload the portal’s “View Bidders” PDF to issue the Bid Capacity Evaluation Sheet — one column per participating bidder.'}
                     </p>
                   </div>
                   <div className="page-head-action">
+                    {intimationSubTab !== 'issued' && (
                     <button
                       className="ghost"
                       onClick={() =>
@@ -2485,6 +2514,7 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
                     >
                       <IconRefresh /> Clear
                     </button>
+                    )}
                     {intimationSubTab === 'intimation' && (
                       <div className="header-action-slot" ref={intimationHeaderActionRef} />
                     )}
@@ -2496,6 +2526,12 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
                     onClick={() => setIntimationSubTab('intimation')}
                   >
                     Issue Intimation
+                  </button>
+                  <button
+                    className={`doc-tab ${intimationSubTab === 'issued' ? 'active' : ''}`}
+                    onClick={() => setIntimationSubTab('issued')}
+                  >
+                    Issued Intimations
                   </button>
                   <button
                     className={`doc-tab ${intimationSubTab === 'evaluation' ? 'active' : ''}`}
@@ -2513,7 +2549,10 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
                     office={office}
                     headerActionRef={intimationHeaderActionRef}
                     onIntimationIssued={handleIntimationIssued}
+                    onIntimationDocIssued={recordIssuedIntimation}
                   />
+                ) : intimationSubTab === 'issued' ? (
+                  <IssuedIntimationsTab items={officeIssuedIntimations} onChange={setOfficeIssuedIntimations} />
                 ) : (
                   <EvaluationSheetTab
                     key={`${evaluationInstanceKey}|${currentOfficeKey}`}
