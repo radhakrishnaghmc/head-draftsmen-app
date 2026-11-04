@@ -132,7 +132,8 @@ export default function ExcelInline({
   toolbarActions,
   onDownloadFiltered
 }: Props) {
-  const orderedHeaders = orderHeaders(table.headers)
+  // A table imported from a sheet keeps that sheet's column order untouched; only the built-in layout gets WIN CODE moved up.
+  const orderedHeaders = table.sourceHeaders?.length ? [...table.headers] : orderHeaders(table.headers)
   const [headers, setHeaders] = useState<string[]>(() => orderedHeaders)
   const [matrix, setMatrix] = useState<string[][]>(() => table.rows.map((r) => orderedHeaders.map((h) => r[h] ?? '')))
   const [query, setQuery] = useState('')
@@ -273,6 +274,15 @@ export default function ExcelInline({
     return null
   }, [headers])
 
+  // Keeps the imported sheet's column list (what the online Works List and downloads mirror) in step with a structural
+  // edit: columns still present keep the sheet's order, renamed / added ones join it, deleted ones leave it.
+  function sheetColumns(hs: string[]): Pick<ExcelTable, 'sourceHeaders'> {
+    if (!table.sourceHeaders?.length) return {}
+    const was = new Set(table.headers)
+    const src = new Set(table.sourceHeaders)
+    return { sourceHeaders: hs.filter((h) => src.has(h) || !was.has(h)) }
+  }
+
   // Push a valid edit back up to the workspace so it persists.
   function commit(hs: string[], m: string[][]) {
     const trimmed = hs.map((h) => h.trim())
@@ -289,7 +299,7 @@ export default function ExcelInline({
       })
       return obj
     })
-    onChange({ ...table, headers: trimmed, rows })
+    onChange({ ...table, headers: trimmed, ...sheetColumns(trimmed), rows })
   }
 
   // Same validation/shape as commit, but for a single cell's edit — the by
@@ -320,7 +330,7 @@ export default function ExcelInline({
       changedRow[h] = m[changedRi]?.[ci] ?? ''
     })
     const rows = table.rows.map((row, i) => (i === changedRi ? changedRow : row))
-    onChange({ ...table, headers: trimmed, rows })
+    onChange({ ...table, headers: trimmed, ...sheetColumns(trimmed), rows })
   }
 
   function setHeader(ci: number, value: string) {

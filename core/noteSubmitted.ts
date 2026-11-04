@@ -454,7 +454,7 @@ export function noteSubmittedFromRow(
   // doesn't also leak into Note Submitted's printed name / the cross-document
   // consistency check.
   const workName = stripItemNoTag((pdf.nameOfWork || row['Name of the work'] || '').trim())
-  const reservation = reservationCategoryFromRow({ ...row, 'Name of the work': workName })
+  const reservation = reservationCategoryFromRow({ 'Name of the work': workName })
   const pctNum = pdf.tenderPercentage ?? tenderPctMagnitude(tenderPercentFromRow(row))
   const l1Pct = pctNum == null ? '' : pctNum > 0 ? `(-)${pctNum}` : String(pctNum)
   const ecv = notice.ecvRupees ?? pdf.ecvRupees ?? amounts.ecv ?? null

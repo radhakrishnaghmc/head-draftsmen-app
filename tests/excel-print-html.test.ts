@@ -31,7 +31,7 @@ describe('excelToPrintHtml', () => {
   it('goes landscape for a wide sheet and honours the sheet selection', async () => {
     const xlsx = await book((wb) => {
       const wide = wb.addWorksheet('Wide')
-      for (let c = 1; c <= 14; c++) {
+      for (let c = 1; c <= 20; c++) {
         wide.getColumn(c).width = 14
         wide.getCell(1, c).value = `H${c}`
       }

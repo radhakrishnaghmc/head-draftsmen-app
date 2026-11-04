@@ -208,7 +208,15 @@ function KeepAlive({ active, mounted, children }: { active: boolean; mounted: bo
   )
 }
 
-export default function App({ onLogout, office, onOfficeChange, accountOffices, onAddAccountOffice, onRemoveAccountOffice, loginId }: Props) {
+export default function App({
+  onLogout,
+  office,
+  onOfficeChange,
+  accountOffices,
+  onAddAccountOffice,
+  onRemoveAccountOffice,
+  loginId
+}: Props) {
   // The office identity drives every Zone/Circle behaviour below. Kept as local
   // aliases so the rest of the app reads the same as when these came from the
   // login (Circle is optional — a zone-level Head Draughtsman picks just a Zone).
@@ -956,7 +964,11 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
   /** Bulk generation (Settings) hands its letters here; a repeat of the same tender+agency replaces the earlier one. Functional update — the caller's closure can be stale by the time a long run finishes. */
   function addOfficeLetters(added: StoredLetter[]) {
     const same = (a: StoredLetter, b: StoredLetter) =>
-      a.kind === b.kind && (a.officeKey ?? '') === (b.officeKey ?? '') && a.nitNo === b.nitNo && a.agency === b.agency && a.workName === b.workName
+      a.kind === b.kind &&
+      (a.officeKey ?? '') === (b.officeKey ?? '') &&
+      a.nitNo === b.nitNo &&
+      a.agency === b.agency &&
+      a.workName === b.workName
     const stamped = added.map((l) => ({ ...l, officeKey: l.officeKey ?? currentOfficeKey }))
     setStoredLetters((prev) => [...prev.filter((l) => !stamped.some((a) => same(a, l))), ...stamped])
   }
@@ -979,7 +991,12 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
       (rec.nitNo && i.nitNo ? i.nitNo === rec.nitNo : i.workName === rec.workName)
     setIssuedIntimations((prev) => [
       ...prev.filter((i) => !same(i)),
-      { ...rec, id: `intim-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, officeKey: currentOfficeKey, issuedDate }
+      {
+        ...rec,
+        id: `intim-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        officeKey: currentOfficeKey,
+        issuedDate
+      }
     ])
   }
   function setOfficePendingNotices(next: PendingNoticeItem[]) {
@@ -1388,7 +1405,8 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
   useEffect(() => {
     if (!currentOfficeKey || !hydrated) return
     const mine = qcParties[currentOfficeKey]
-    const filled = (p?: { name: string; address: string; phone: string }) => !!p && !!(p.name.trim() || p.address.trim() || p.phone.trim())
+    const filled = (p?: { name: string; address: string; phone: string }) =>
+      !!p && !!(p.name.trim() || p.address.trim() || p.phone.trim())
     if (filled(mine?.department) || filled(mine?.third) || filled(mine?.fourth)) return
     let alive = true
     void api.fetchQcParties().then((remote) => {
@@ -1907,10 +1925,16 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
   async function removeAccountOffice(o: AccountOffice): Promise<string> {
     const problem = (await onRemoveAccountOffice?.(o)) ?? 'Not available.'
     if (problem) return problem
-    const wasOpen = sameAccountOffice(o, { corporation: office.corporation ?? '', zone: office.zone ?? '', circle: office.circle ?? '' })
+    const wasOpen = sameAccountOffice(o, {
+      corporation: office.corporation ?? '',
+      zone: office.zone ?? '',
+      circle: office.circle ?? ''
+    })
     const rest = (accountOffices ?? []).filter((x) => !sameAccountOffice(x, o))
     if (wasOpen && rest[0]) {
-      changeOffice(normalizeOffice({ corporation: rest[0].corporation, zone: rest[0].zone, circle: rest[0].circle || undefined }))
+      changeOffice(
+        normalizeOffice({ corporation: rest[0].corporation, zone: rest[0].zone, circle: rest[0].circle || undefined })
+      )
     }
     return ''
   }
@@ -2029,16 +2053,16 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
     void done.then(() => onLogout())
   }
 
-  // Auto logout after 10 minutes without input.
+  // Auto logout after 1 hour without input.
   useEffect(() => {
-    const IDLE_MS = 10 * 60 * 1000
+    const IDLE_MS = 60 * 60 * 1000
     let last = Date.now()
     const touch = () => {
       last = Date.now()
     }
     const events = ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart'] as const
     for (const ev of events) window.addEventListener(ev, touch, { passive: true })
-    // A short interval (not one 10-minute timeout) so a laptop waking from sleep logs out promptly.
+    // A short interval (not one 1-hour timeout) so a laptop waking from sleep logs out promptly.
     let fired = false
     const timer = setInterval(() => {
       if (!fired && Date.now() - last >= IDLE_MS) {
@@ -2505,21 +2529,21 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
                   </div>
                   <div className="page-head-action">
                     {intimationSubTab !== 'issued' && (
-                    <button
-                      className="ghost"
-                      onClick={() =>
-                        intimationSubTab === 'intimation'
-                          ? setIntimationInstanceKey((k) => k + 1)
-                          : setEvaluationInstanceKey((k) => k + 1)
-                      }
-                      title={
-                        intimationSubTab === 'intimation'
-                          ? 'Clear the uploaded documents and filled fields to start a new work'
-                          : 'Clear the uploaded evaluation sheets to start over'
-                      }
-                    >
-                      <IconRefresh /> Clear
-                    </button>
+                      <button
+                        className="ghost"
+                        onClick={() =>
+                          intimationSubTab === 'intimation'
+                            ? setIntimationInstanceKey((k) => k + 1)
+                            : setEvaluationInstanceKey((k) => k + 1)
+                        }
+                        title={
+                          intimationSubTab === 'intimation'
+                            ? 'Clear the uploaded documents and filled fields to start a new work'
+                            : 'Clear the uploaded evaluation sheets to start over'
+                        }
+                      >
+                        <IconRefresh /> Clear
+                      </button>
                     )}
                     {intimationSubTab === 'intimation' && (
                       <div className="header-action-slot" ref={intimationHeaderActionRef} />
@@ -2561,7 +2585,11 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
                     onIntimationDocIssued={recordIssuedIntimation}
                   />
                 ) : intimationSubTab === 'issued' ? (
-                  <IssuedIntimationsTab items={officeIssuedIntimations} onChange={setOfficeIssuedIntimations} searchSlot={issuedSearchSlot} />
+                  <IssuedIntimationsTab
+                    items={officeIssuedIntimations}
+                    onChange={setOfficeIssuedIntimations}
+                    searchSlot={issuedSearchSlot}
+                  />
                 ) : (
                   <EvaluationSheetTab
                     key={`${evaluationInstanceKey}|${currentOfficeKey}`}
@@ -2658,11 +2686,18 @@ export default function App({ onLogout, office, onOfficeChange, accountOffices, 
                     </div>
                     <div className="page-head-text">
                       <h1>Forwarding Slips, QC Intimations &amp; DB Note</h1>
-                      <p>Letters and Drawing Branch notes issued in the Agreement workspace or made in bulk from Settings, collected here.</p>
+                      <p>
+                        Letters and Drawing Branch notes issued in the Agreement workspace or made in bulk from
+                        Settings, collected here.
+                      </p>
                     </div>
                   </div>
                 )}
-                <LettersTab letters={officeLetters} onChange={setOfficeLetters} onWorkspaceChange={setLettersWorkspaceOpen} />
+                <LettersTab
+                  letters={officeLetters}
+                  onChange={setOfficeLetters}
+                  onWorkspaceChange={setLettersWorkspaceOpen}
+                />
               </section>
             </KeepAlive>
 

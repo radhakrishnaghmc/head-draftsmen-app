@@ -16,8 +16,13 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: '1.50.0',
+    version: '2.0.0',
     changes: [
+      'Head Draughtsman App 2.0 — everything new since 1.49.0 is listed below.',
+      'You now stay logged in for 1 hour of inactivity (was 10 minutes) before the automatic logout; your data is synced first.',
+      'Excel print / PDF: stray bordered-but-empty cells no longer widen the page, a workbook set to portrait stays portrait when readable, and the closing signature block is kept together with the grand total instead of sitting alone on the last page.',
+      'Work Order, Agreement and Note Submitted documents: small wording and reservation-category fixes (the category now comes only from the \u201cReserved for \u2026\u201d tag in the L-1 sheet work name).',
+      'Works List: editing columns of a sheet-imported table keeps that sheet\'s column order and names.',
       'Issued Intimations: the search box now sits in the same row as the Intimation tabs.',
       'Forwarding Letters, QC Intimations and DB Notes are grouped by LOA date, and Issued Intimations show the letter\'s own date instead of the day it was generated.',
       'Bulk generation in Settings keeps going when you click Back — the items still land in their workspaces; reopen the Bulk tile to see progress.',

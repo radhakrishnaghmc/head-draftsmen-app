@@ -297,7 +297,7 @@ export function deriveFields(
     tsNoDate: '',
     ceLetterNoDate: '',
     completionMonths: '',
-    reservation: reservationFromRow({ ...row, 'Name of the work': workName }),
+    reservation: reservationFromRow({ 'Name of the work': workName }),
     emdDetails: '',
     noticeNo: notice.nitNo ?? pdf.noticeNo ?? row['Tender Notice No'] ?? '',
     tenderId: pdf.tenderId ?? row['Tender ID'] ?? '',

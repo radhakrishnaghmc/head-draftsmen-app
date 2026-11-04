@@ -237,7 +237,6 @@ function parsePct(v: string | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
-const NOT_RESERVED = /^(no|none|general|open|nil|n\/?a|-|not\s+reserved)$/i
 
 /**
  * Works out a work's clean name (for the Sub / acceptance paragraph), its
@@ -266,12 +265,8 @@ function reservedInfo(
         .replace(/\s+([,).])/g, '$1')
         .trim()
     : rawName
-  // Category: prefer the Reservation column, else the tag parsed from the name.
-  const col = (row['Reservation'] ?? '').trim()
-  let cat = col && !NOT_RESERVED.test(col)
-    ? col.replace(/reserved\s*(for)?/i, '').replace(/\bonly\b/i, '').replace(/[()]/g, '').trim()
-    : ''
-  if (!cat) cat = (paren?.[1] ?? bare?.[1] ?? '').replace(/\bonly\b/i, '').trim()
+  // Category: only from the "Reserved for …" tag in the L-1 sheet's work name — never the Works List.
+  let cat = (paren?.[1] ?? bare?.[1] ?? '').replace(/\bonly\b/i, '').trim()
   // The item number (SE multi-item NITs tag it onto the name, e.g. "...(Item
   // No.3)") has its own field elsewhere — never print it as part of the name.
   // "Reserved for General/Open" is the unreserved pool, not a category.

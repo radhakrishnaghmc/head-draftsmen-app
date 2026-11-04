@@ -35,6 +35,8 @@ const MARGIN_TOP_IN = 0.55
 const MARGIN_BOTTOM_IN = 0.7
 // A sheet is turned landscape rather than shrunk below this fraction of its natural size.
 const MIN_PORTRAIT_SCALE = 0.72
+// ...but a workbook that itself asks for portrait keeps it down to this fraction.
+const MIN_AUTHOR_PORTRAIT_SCALE = 0.45
 // Never shrink below this (unreadable); wider sheets are clipped at the page edge instead.
 const MIN_SCALE = 0.35
 const DEFAULT_COL_PX = 64
@@ -80,8 +82,12 @@ function parseRange(ref: string): Range | null {
   }
 }
 
+function cellHasValue(cell: ExcelJS.Cell): boolean {
+  return cell.value !== null && cell.value !== undefined && cell.text !== ''
+}
+
 function cellHasContent(cell: ExcelJS.Cell): boolean {
-  if (cell.value !== null && cell.value !== undefined && cell.text !== '') return true
+  if (cellHasValue(cell)) return true
   const b = cell.border
   if (b && (b.top || b.bottom || b.left || b.right)) return true
   const f = cell.fill
@@ -99,9 +105,33 @@ function printedRange(ws: ExcelJS.Worksheet): Range | null {
   let left = Infinity
   let bottom = 0
   let right = 0
+  // Bordered/filled but empty cells (stray formatting beyond the table) must not widen the page.
+  let vTop = Infinity
+  let vLeft = Infinity
+  let vBottom = 0
+  let vRight = 0
+  ws.eachRow({ includeEmpty: false }, (row, rn) => {
+    row.eachCell({ includeEmpty: true }, (cell, cn) => {
+      if (cellHasValue(cell)) {
+        vTop = Math.min(vTop, rn)
+        vBottom = Math.max(vBottom, rn)
+        vLeft = Math.min(vLeft, cn)
+        vRight = Math.max(vRight, cn)
+      }
+    })
+  })
+  for (const m of ws.model.merges ?? []) {
+    const r = parseRange(m)
+    if (r && r.top >= vTop && r.left >= vLeft && r.top <= vBottom && r.left <= vRight) {
+      vBottom = Math.max(vBottom, r.bottom)
+      vRight = Math.max(vRight, r.right)
+    }
+  }
+  const hasValues = isFinite(vTop) && vBottom > 0
   ws.eachRow({ includeEmpty: false }, (row, rn) => {
     row.eachCell({ includeEmpty: true }, (cell, cn) => {
       if (!cellHasContent(cell)) return
+      if (hasValues && (rn < vTop || rn > vBottom || cn < vLeft || cn > vRight)) return
       top = Math.min(top, rn)
       bottom = Math.max(bottom, rn)
       left = Math.min(left, cn)
@@ -219,6 +249,8 @@ interface SheetHtml {
   info: ExcelPrintSheetInfo
   table: string
   tableWidthPx: number
+  /** Orientation the workbook's own page setup asks for. */
+  authorOrientation: 'portrait' | 'landscape'
 }
 
 function sheetToHtml(ws: ExcelJS.Worksheet): SheetHtml | null {
@@ -242,6 +274,21 @@ function sheetToHtml(ws: ExcelJS.Worksheet): SheetHtml | null {
   if (tableWidthPx === 0) return null
   const titles = titleRows(ws, range)
 
+  // The closing signature block (often several rows with blank gaps between) must never be stranded alone on a last
+  // page: keep it together with the last row that carries a figure (the grand total) and the row above that.
+  const rowHasNumber = (rn: number) => {
+    const row = ws.getRow(rn)
+    for (let c = range.left; c <= range.right; c++) {
+      const v = row.getCell(c).value as unknown
+      if (typeof v === 'number' || (v && typeof v === 'object' && typeof (v as { result?: unknown }).result === 'number')) return true
+    }
+    return false
+  }
+  const keepWithNext = new Set<number>()
+  let lastFigure = range.bottom
+  while (lastFigure > range.top && !rowHasNumber(lastFigure)) lastFigure--
+  if (lastFigure < range.bottom) for (let r = Math.max(range.top, lastFigure - 1); r < range.bottom; r++) keepWithNext.add(r)
+
   const rowHtml = (rn: number): string => {
     const row = ws.getRow(rn)
     const h = rowPx(row)
@@ -257,7 +304,7 @@ function sheetToHtml(ws: ExcelJS.Worksheet): SheetHtml | null {
       const attrs = (cs > 1 ? ` colspan="${cs}"` : '') + (rs > 1 ? ` rowspan="${rs}"` : '')
       cells.push(`<td${attrs} style="${cellCss(cell, typeof cell.value === 'number')}">${esc(displayText(cell))}</td>`)
     }
-    return `<tr style="height:${h}px">${cells.join('')}</tr>`
+    return `<tr style="height:${h}px${keepWithNext.has(rn) ? ';break-after:avoid' : ''}">${cells.join('')}</tr>`
   }
 
   const head: string[] = []
@@ -282,7 +329,8 @@ function sheetToHtml(ws: ExcelJS.Worksheet): SheetHtml | null {
       orientation: 'portrait'
     },
     table,
-    tableWidthPx
+    tableWidthPx,
+    authorOrientation: ws.pageSetup?.orientation === 'landscape' ? 'landscape' : 'portrait'
   }
 }
 
@@ -295,11 +343,15 @@ async function loadWorkbook(xlsx: Buffer | Uint8Array): Promise<ExcelJS.Workbook
 function pickOrientation(
   tableWidthPx: number,
   paper: PrintPaper,
-  requested: PrintOrientation
+  requested: PrintOrientation,
+  author: 'portrait' | 'landscape' = 'landscape'
 ): 'portrait' | 'landscape' {
   if (requested !== 'auto') return requested
   const portraitPx = (PAPER_IN[paper][0] - 2 * MARGIN_SIDE_IN) * 96
-  return portraitPx / tableWidthPx >= MIN_PORTRAIT_SCALE ? 'portrait' : 'landscape'
+  const fit = portraitPx / tableWidthPx
+  if (fit >= MIN_PORTRAIT_SCALE) return 'portrait'
+  // A workbook set to portrait keeps it unless that would be unreadably small.
+  return author === 'portrait' && fit >= MIN_AUTHOR_PORTRAIT_SCALE ? 'portrait' : 'landscape'
 }
 
 /** Sheets with something to print, with the orientation Auto would choose — for the picker list. */
@@ -312,7 +364,7 @@ export async function inspectExcelForPrint(
   for (const ws of wb.worksheets) {
     if (ws.state !== 'visible') continue
     const s = sheetToHtml(ws)
-    if (s) out.push({ ...s.info, orientation: pickOrientation(s.tableWidthPx, paper, 'auto') })
+    if (s) out.push({ ...s.info, orientation: pickOrientation(s.tableWidthPx, paper, 'auto', s.authorOrientation) })
   }
   return out
 }
@@ -338,7 +390,7 @@ export async function excelToPrintHtml(
     if (ws.state !== 'visible' || (wanted && !wanted.has(ws.name))) continue
     const s = sheetToHtml(ws)
     if (!s) continue
-    const orient = pickOrientation(s.tableWidthPx, paper, requested)
+    const orient = pickOrientation(s.tableWidthPx, paper, requested, s.authorOrientation)
     const [pw, ph] = PAPER_IN[paper]
     const printablePx = ((orient === 'portrait' ? pw : ph) - 2 * MARGIN_SIDE_IN) * 96
     const zoom = Math.max(MIN_SCALE, Math.min(1, printablePx / s.tableWidthPx))
