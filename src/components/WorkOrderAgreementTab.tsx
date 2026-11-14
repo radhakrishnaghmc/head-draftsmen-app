@@ -1818,12 +1818,6 @@ export default function WorkOrderAgreementTab({
     const corp = office?.corporation
     const variant = isAgreementDoc(letterKind)
       ? AGREEMENT_DOCS[letterKind].variantFor(localStorage.getItem(officeScopedKey(AGREEMENT_DOCS[letterKind].templateKey, office)), corp)
-      : letterKind === 'tenderdoc'
-        ? variantForCorporation(
-            localStorage.getItem(civilTenderVariantKey) ?? corporationDefaultVariant(corp, undefined),
-            corp,
-            CIVIL_TENDER_TEMPLATE_VARIANTS
-          ) ?? 'cmc'
       : letterKind === 'qc'
         ? variantForCorporation(
             localStorage.getItem(qcVariantKey) ?? corporationDefaultVariant(corp, undefined),

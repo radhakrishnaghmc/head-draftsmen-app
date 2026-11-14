@@ -54,8 +54,8 @@ import type { PersistedState } from '@core/types'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import { IconSettings, IconCheck, IconWarn, IconOpen, IconUser, IconLogout, IconChevronRight, IconChevronLeft, IconBell, IconFolder, IconCloud, IconSun, IconDoc } from './Icons'
 
-const BULK_SECTIONS: SettingsSection[] = ['bulkIntimations', 'bulkQc', 'bulkForwarding', 'bulkDbNote', 'bulkFileBacker', 'bulkAgreementBond', 'bulkWorkOrder']
-type SettingsSection = 'addOffice' | 'devices' | 'backup' | 'onlineWorks' | 'themes' | 'templates' | 'massNotices' | 'bulkIntimations' | 'bulkQc' | 'bulkForwarding' | 'bulkDbNote' | 'bulkFileBacker' | 'bulkAgreementBond' | 'bulkWorkOrder' | 'bulkDeviations'
+const BULK_SECTIONS: SettingsSection[] = ['bulkIntimations', 'bulkQc', 'bulkForwarding', 'bulkDbNote', 'bulkFileBacker', 'bulkAgreementBond', 'bulkWorkOrder', 'bulkTenderDoc']
+type SettingsSection = 'addOffice' | 'devices' | 'backup' | 'onlineWorks' | 'themes' | 'templates' | 'massNotices' | 'bulkIntimations' | 'bulkQc' | 'bulkForwarding' | 'bulkDbNote' | 'bulkFileBacker' | 'bulkAgreementBond' | 'bulkWorkOrder' | 'bulkTenderDoc' | 'bulkDeviations'
 
 interface Props {
   office: Office
@@ -802,7 +802,7 @@ export default function SettingsTab({ office, accountOffices, onAddAccountOffice
   // Settings stays mounted across tab switches; leaving it returns to the list (and resets Bulk Notices).
   // Bulk Intimations is the exception: its folder scan / prepared letters are slow to rebuild, so it stays open.
   useEffect(() => {
-    if (!active) setSection((s) => (s === 'bulkIntimations' || s === 'bulkQc' || s === 'bulkForwarding' || s === 'bulkDbNote' || s === 'bulkFileBacker' || s === 'bulkAgreementBond' || s === 'bulkWorkOrder' ? s : null))
+    if (!active) setSection((s) => (s === 'bulkIntimations' || s === 'bulkQc' || s === 'bulkForwarding' || s === 'bulkDbNote' || s === 'bulkFileBacker' || s === 'bulkAgreementBond' || s === 'bulkWorkOrder' || s === 'bulkTenderDoc' ? s : null))
   }, [active])
   const currentTheme = THEME_OPTIONS.find((o) => o.id === theme)
 
@@ -941,6 +941,7 @@ export default function SettingsTab({ office, accountOffices, onAddAccountOffice
     { key: 'bulkFileBacker', icon: <IconDoc />, name: 'Bulk File Backers', meta: 'Prepare File Backer cover pages from a folder of L-1 sheets and LOAs' },
     { key: 'bulkAgreementBond', icon: <IconDoc />, name: 'Bulk Agreement Bonds', meta: 'Prepare Agreement Bonds from a folder of L-1 sheets and LOAs' },
     { key: 'bulkWorkOrder', icon: <IconDoc />, name: 'Bulk Work Orders', meta: 'Prepare Work Orders from a folder of L-1 sheets and LOAs' },
+    { key: 'bulkTenderDoc', icon: <IconDoc />, name: 'Bulk Tender Documents', meta: 'Prepare Tender Documents from a folder of L-1 sheets and LOAs' },
     { key: 'bulkDeviations', icon: <IconDoc />, name: 'Bulk Deviations', meta: 'Make Deviation Statements from uploaded estimates, added to Issued Documents' }
   ]
 
@@ -957,7 +958,7 @@ export default function SettingsTab({ office, accountOffices, onAddAccountOffice
     if (key === 'bulkQc') {
       return <BulkIntimationsWorkspace office={office} worksTable={worksTable} kind="qc" qcParties={qcParties} onAddLetters={onLettersAdd} onBack={onBack} />
     }
-    const agKind = ({ bulkFileBacker: 'filebacker', bulkAgreementBond: 'agreementbond', bulkWorkOrder: 'workorder' } as const)[key as 'bulkFileBacker']
+    const agKind = ({ bulkFileBacker: 'filebacker', bulkAgreementBond: 'agreementbond', bulkWorkOrder: 'workorder', bulkTenderDoc: 'tenderdoc' } as const)[key as 'bulkFileBacker']
     if (agKind) {
       return <BulkIntimationsWorkspace office={office} worksTable={worksTable} kind={agKind} onAddLetters={onLettersAdd} onBack={onBack} />
     }

@@ -66,7 +66,7 @@ const KINDS: { key: LetterKind; name: string; meta: string; docName: string }[] 
   {
     key: 'tenderdoc',
     name: 'Tender Documents',
-    meta: 'Tender Documents downloaded in the Agreement workspace',
+    meta: 'Tender Documents downloaded in the Agreement workspace or made in bulk from Settings → Bulk Tender Documents',
     docName: 'Tender Document'
   },
   {

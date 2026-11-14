@@ -58,7 +58,7 @@ interface Props {
    * 'qc' makes the five-letter QC Intimation/Completion set and 'forwarding' the AE/Dy.EE Forwarding Letters instead of the
    * Intimation. Those two are handed to `onAddLetters` — they land in the Forwarding Slips, QC Intimations & DB Note tab.
    */
-  kind?: 'intimation' | 'qc' | 'forwarding' | 'dbnote' | 'filebacker' | 'agreementbond' | 'workorder'
+  kind?: 'intimation' | 'qc' | 'forwarding' | 'dbnote' | 'filebacker' | 'agreementbond' | 'workorder' | 'tenderdoc'
   /** Receives every letter a 'qc' / 'forwarding' / 'dbnote' run made. */
   onAddLetters?: (letters: StoredLetter[]) => void
   /** Receives each Intimation as it is generated, so it is listed under the Intimation page's Issued Intimations tab. */
@@ -393,7 +393,7 @@ export default function BulkIntimationsWorkspace({
               corporationFullName: corporationByName(office.corporation)?.fullName ?? ''
             }
             values = agDoc
-              ? agDoc.placeholders(fields)
+              ? agDoc.placeholders(fields, l1)
               : isDb
               ? workBillNotePlaceholders(fields)
               : isQc

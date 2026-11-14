@@ -20,6 +20,8 @@ interface Props {
   onChange: (table: ExcelTable) => void
   /** Report a successful update so the host can flash the matched rows and show the message under them. */
   onUpdated: (rowIndices: number[], message: string) => void
+  /** Changes when the user opens another tab — the result banner is dropped then. */
+  resetKey?: string
 }
 
 /**
@@ -31,11 +33,18 @@ interface Props {
  * are reported. Flashes the affected row(s) via onUpdated so the user can
  * verify them.
  */
-export default function WorksListL1Update({ officeCircle, corporation, table, onChange, onUpdated }: Props) {
+export default function WorksListL1Update({ officeCircle, corporation, table, onChange, onUpdated, resetKey }: Props) {
   const [busy, setBusy] = useState<null | 'l1'>(null)
   // Only errors / no-match feedback shows beside the button; a successful update
   // is surfaced under the flashed row(s) in the table instead (see onUpdated).
   const [result, setResult] = useState<{ message: string; unmatched: string[] } | null>(null)
+  // The banner stays 5 seconds, and goes as soon as another tab is opened.
+  useEffect(() => {
+    if (!result) return
+    const t = setTimeout(() => setResult(null), 5000)
+    return () => clearTimeout(t)
+  }, [result])
+  useEffect(() => setResult(null), [resetKey])
   // Progress shown in the button while a picked folder is processed: 'scanning'
   // and 'reading' come from the main process's disk walk/read-back
   // (electron/tenderDocumentScan.ts); 'parsing' is set locally, one tick per

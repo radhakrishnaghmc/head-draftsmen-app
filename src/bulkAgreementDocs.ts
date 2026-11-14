@@ -1,15 +1,18 @@
 import { api } from './ipc'
 import { TEMPLATE_KEYS } from './office'
 import {
+  CIVIL_TENDER_TEMPLATE_VARIANTS,
   FILE_BACKER_TEMPLATE_VARIANTS,
   WORK_ORDER_TEMPLATE_VARIANTS,
   corporationDefaultVariant,
   variantForCorporation
 } from '@core/workOrderTemplateVariants'
-import { fileBackerPlaceholders, agreementPlaceholders, workOrderPlaceholders } from '@core/workOrderAgreement'
+import { fileBackerPlaceholders, agreementPlaceholders, workOrderPlaceholders, civilTenderPlaceholders } from '@core/workOrderAgreement'
+import type { WorkOrderAgreementFields } from '@core/workOrderAgreement'
+import type { TenderEvaluation } from '@core/tenderEvaluationPdf'
 import type { StoredLetter } from '@core/types'
 
-type AgreementDocKind = Extract<StoredLetter['kind'], 'filebacker' | 'agreementbond' | 'workorder'>
+type AgreementDocKind = Extract<StoredLetter['kind'], 'filebacker' | 'agreementbond' | 'workorder' | 'tenderdoc'>
 
 /**
  * The Agreement-workspace documents Settings can make in bulk from a folder of L-1 sheets and LOAs. Same shape as the
@@ -26,7 +29,8 @@ export const AGREEMENT_DOCS: Record<
     template: (variant: string) => Promise<string>
     /** The office's picked variant → the one to use (same rule the Agreement workspace applies). */
     variantFor: (picked: string | null, corporation: string | undefined) => string
-    placeholders: typeof fileBackerPlaceholders
+    /** The L-1 sheet is passed too, for the documents that print its bid dates / NIT (the Tender Document). */
+    placeholders: (f: WorkOrderAgreementFields, l1: TenderEvaluation) => Record<string, string>
   }
 > = {
   filebacker: {
@@ -57,6 +61,17 @@ export const AGREEMENT_DOCS: Record<
     variantFor: (picked, corp) =>
       variantForCorporation(picked ?? corporationDefaultVariant(corp, undefined), corp, WORK_ORDER_TEMPLATE_VARIANTS) ?? 'cmc',
     placeholders: workOrderPlaceholders
+  },
+  // No estimate is read in bulk, so the Schedule-A item count and GST lines stay blank — fill them from the Agreement workspace.
+  tenderdoc: {
+    title: 'Bulk Tender Documents',
+    docName: 'Tender Document',
+    fileLabel: 'Tender Document',
+    templateKey: TEMPLATE_KEYS.civilTender,
+    template: (v) => api.civilTenderTemplate(v),
+    variantFor: (picked, corp) =>
+      variantForCorporation(picked ?? corporationDefaultVariant(corp, undefined), corp, CIVIL_TENDER_TEMPLATE_VARIANTS) ?? 'cmc',
+    placeholders: (f, l1) => civilTenderPlaceholders(f, l1, {})
   }
 }
 

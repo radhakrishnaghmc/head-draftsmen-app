@@ -18,7 +18,9 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: '2.1.1',
     changes: [
-      'Fixed the \u201cdocument cannot be written because its size\u2026\u201d sync error: issued documents and intimations now sync one by one instead of in a single large block, so bulk-generated Deviation Statements no longer stop syncing.',
+      'Fixed the \u201cdocument cannot be written because its size\u2026\u201d sync error: every kind of issued document (letters, Tender Documents, Deviation Statements, intimations, notices) now syncs one by one instead of in a single large block, so bulk runs no longer stop syncing.',
+      'Settings: new Bulk Tender Documents \u2014 make Tender Documents from a folder of L-1 sheets and LOAs; they land in Issued Documents.',
+      'Works List: the refresh / update messages now disappear after 5 seconds, or as soon as you switch tabs.',
     ]
   },
   {

@@ -1062,7 +1062,6 @@ function buildMiscFields(
     // pullRemoteState) instead of re-running — and compounding — every launch.
     version: state.version,
     resolution: plain(state.resolution ?? {}),
-    todos: plain(state.todos ?? []),
     lastGoogleLink: plain(state.lastGoogleLink ?? null),
     worksListLinks: plain(state.worksListLinks ?? {}),
     // merge:true merges this map key by key, so a device with fewer saved contacts never wipes another's.
@@ -1072,9 +1071,7 @@ function buildMiscFields(
     monitoringFormatLinks: plain(state.monitoringFormatLinks ?? {}),
     tenderConditions,
     tenderReminders: plain(state.tenderReminders ?? []),
-    pendingNotices: plain(state.pendingNotices ?? []),
     bidDocumentBatches: plain(state.bidDocumentBatches ?? []),
-    mbScrutiny: plain(state.mbScrutiny ?? []),
     // Deliberately omitted (not written as null) when not yet chosen —
     // `merge: true` below then leaves whatever office is already stored in
     // the cloud untouched, matching PersistedState.office's own LWW
@@ -1343,9 +1340,9 @@ export async function pushState(state: PersistedState): Promise<boolean> {
         active.perItem[key].known = ids
       }
     }
-    // Only once every item is safely in its own document: drop the old whole-array copies from meta/misc (they are what grew past the cap).
+    // Only once every item is safely in its own document: drop the old whole-array copies (letters, intimations, notices, to-dos, MB records) from meta/misc — they are what grew past the cap.
     if (lastPushError === '' && !legacyLettersCleared) {
-      await setDoc(doc(db!, 'users', loginId, 'meta', 'misc'), { storedLetters: deleteField(), issuedIntimations: deleteField() }, { merge: true })
+      await setDoc(doc(db!, 'users', loginId, 'meta', 'misc'), { storedLetters: deleteField(), issuedIntimations: deleteField(), todos: deleteField(), pendingNotices: deleteField(), mbScrutiny: deleteField() }, { merge: true })
       legacyLettersCleared = true
     }
     return lastPushError === ''

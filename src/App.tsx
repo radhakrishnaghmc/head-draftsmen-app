@@ -490,9 +490,25 @@ export default function App({
   // confirmation, not a persistent status, so it shouldn't linger forever.
   useEffect(() => {
     if (!refreshSummary) return
-    const t = setTimeout(() => setRefreshSummary(null), 6000)
+    const t = setTimeout(() => setRefreshSummary(null), 5000)
     return () => clearTimeout(t)
   }, [refreshSummary])
+  // The same for the refresh error and the "updated from L1" row message: shown 5 seconds, and gone once another tab is opened.
+  useEffect(() => {
+    if (!refreshError) return
+    const t = setTimeout(() => setRefreshError(null), 5000)
+    return () => clearTimeout(t)
+  }, [refreshError])
+  useEffect(() => {
+    if (!worksFlash?.message) return
+    const t = setTimeout(() => setWorksFlash((f) => (f ? { ...f, message: '' } : f)), 5000)
+    return () => clearTimeout(t)
+  }, [worksFlash])
+  useEffect(() => {
+    setRefreshSummary(null)
+    setRefreshError(null)
+    setWorksFlash((f) => (f?.message ? { ...f, message: '' } : f))
+  }, [tab])
   const [tenderReminders, setTenderReminders] = useState<TenderReminder[]>([])
   const [refreshingReminderId, setRefreshingReminderId] = useState<string | null>(null)
   // Auto-prepared "Notice for Non-conclusion of Agreement" tiles — one is
@@ -2246,6 +2262,7 @@ export default function App({
                         corporation={office.corporation}
                         table={currentTable}
                         onChange={updateTable}
+                        resetKey={tab}
                         onUpdated={(rows, message) => setWorksFlash({ token: Date.now(), rows, message })}
                       />
                     )}
