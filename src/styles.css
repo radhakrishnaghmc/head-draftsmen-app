@@ -4743,6 +4743,9 @@ textarea:placeholder-shown {
   white-space: nowrap;
   min-width: 0;
 }
+.tender-wincode-item .tender-work-name {
+  flex: 1 1 auto;
+}
 .tender-serial-badge {
   flex: none;
   min-width: 18px;
@@ -14858,7 +14861,7 @@ body.theme-play .workspace-section-title {
   letter-spacing: 0;
   color: var(--text);
 }
-body.theme-play button:not(.nav-item):not(.profile-badge):not(.ghost):not(.side-update-btn):not(.wa-contact):not(.whatsnew-link):not(.office-chip):not(.doc-tile-card):not(.wo-tile):not(.ov-mf-tile):not(.doc-tile) {
+body.theme-play button:not(.nav-item):not(.profile-badge):not(.ghost):not(.side-update-btn):not(.wa-contact):not(.whatsnew-link):not(.office-chip):not(.doc-tile-card):not(.wo-tile):not(.ov-mf-tile):not(.doc-tile):not(.password-toggle) {
   min-height: 40px;
   padding: 0 24px;
 }
@@ -17184,3 +17187,101 @@ body.theme-play .login-backdrop .login-card-play {
 
 .login-remember { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; cursor: pointer; }
 .login-remember input { width: auto; margin: 0; }
+
+/* Overview Dashboard motion: staggered entrance, hover lift, list-row slide. */
+@keyframes ov-rise {
+  0% { opacity: 0; transform: translateY(36px) scale(0.94); }
+  60% { opacity: 1; transform: translateY(-4px) scale(1.01); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes ov-row-in {
+  from { opacity: 0; transform: translateX(-18px); }
+  to { opacity: 1; transform: none; }
+}
+.ov-stat,
+.ov-card,
+.ov-mf-row > .ov-card {
+  animation: ov-rise 0.8s var(--ease) both;
+  transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease);
+}
+.ov-stat:nth-child(2), .ov-grid > :nth-child(2) { animation-delay: 0.12s; }
+.ov-stat:nth-child(3), .ov-grid > :nth-child(3) { animation-delay: 0.24s; }
+.ov-stat:nth-child(4), .ov-grid > :nth-child(4) { animation-delay: 0.36s; }
+.ov-grid > :nth-child(n+5), .ov-mf-row > .ov-card { animation-delay: 0.48s; }
+.ov-stat:hover,
+.ov-card:hover { transform: translateY(-6px) scale(1.015); box-shadow: var(--shadow-lg, var(--shadow-md)); }
+.ov-task-list li,
+.ov-mb-list li { animation: ov-row-in 0.5s var(--ease) both; transition: transform 0.2s var(--ease); }
+.ov-task-list li:nth-child(2), .ov-mb-list li:nth-child(2) { animation-delay: 0.65s; }
+.ov-task-list li:nth-child(3), .ov-mb-list li:nth-child(3) { animation-delay: 0.75s; }
+.ov-task-list li:nth-child(n+4), .ov-mb-list li:nth-child(n+4) { animation-delay: 0.85s; }
+.ov-task-list li:first-child, .ov-mb-list li:first-child { animation-delay: 0.55s; }
+.ov-task-list li:hover,
+.ov-mb-list li:hover { transform: translateX(8px); }
+.ov-mf-donut { animation: ov-spin-in 1.1s var(--ease) 0.5s both; }
+@keyframes ov-spin-in {
+  from { opacity: 0; transform: rotate(-120deg) scale(0.7); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-stat, .ov-card, .ov-mf-row > .ov-card, .ov-task-list li, .ov-mb-list li, .ov-mf-donut { animation: none; transition: none; }
+  .ov-stat:hover, .ov-card:hover, .ov-task-list li:hover, .ov-mb-list li:hover { transform: none; }
+}
+
+/* Play theme dashboard motion (Material 3 Expressive): emphasized easing, flat tonal surfaces so hover is a
+   state-layer colour change + shape morph, never a lift/shadow; only the hero tile gets extra emphasis. */
+body.theme-play {
+  --play-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+@keyframes play-rise {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes play-hero-in {
+  from { opacity: 0; transform: translateY(20px) scale(0.96); border-radius: 36px; }
+  to { opacity: 1; transform: none; border-radius: 12px; }
+}
+body.theme-play .ov-stat,
+body.theme-play .ov-card {
+  animation: play-rise 0.6s var(--play-ease) both;
+  transition: background-color 0.2s var(--play-ease), border-radius 0.35s var(--play-ease), transform 0.35s var(--play-ease);
+}
+body.theme-play .ov-stat-hero { animation: play-hero-in 0.8s var(--play-ease) both; }
+body.theme-play .ov-stat:nth-child(2) { animation-delay: 0.06s; }
+body.theme-play .ov-stat:nth-child(3) { animation-delay: 0.12s; }
+body.theme-play .ov-stat:nth-child(4) { animation-delay: 0.18s; }
+body.theme-play .ov-mf-row > .ov-card { animation-delay: 0.26s; }
+body.theme-play .ov-grid > :nth-child(1) { animation-delay: 0.34s; }
+body.theme-play .ov-grid > :nth-child(2) { animation-delay: 0.4s; }
+body.theme-play .ov-grid > :nth-child(n+3) { animation-delay: 0.46s; }
+/* hover: state layer + shape morph, no lift or shadow */
+body.theme-play .ov-stat:hover,
+body.theme-play .ov-card:hover { transform: none; box-shadow: none; background: var(--play-hover); }
+body.theme-play .ov-stat-hero:hover,
+body.theme-play .ov-card.ov-stat-hero:hover { background: var(--play-active); border-radius: 28px; }
+body.theme-play .ov-stat:active { border-radius: 24px; }
+body.theme-play .ov-task-list li,
+body.theme-play .ov-mb-list li {
+  animation: play-rise 0.5s var(--play-ease) both;
+  border-radius: 12px;
+  transition: background-color 0.2s var(--play-ease);
+}
+body.theme-play .ov-task-list li:hover,
+body.theme-play .ov-mb-list li:hover { transform: none; background: var(--play-hover); }
+body.theme-play .ov-task-list li:nth-child(1), body.theme-play .ov-mb-list li:nth-child(1) { animation-delay: 0.5s; }
+body.theme-play .ov-task-list li:nth-child(2), body.theme-play .ov-mb-list li:nth-child(2) { animation-delay: 0.56s; }
+body.theme-play .ov-task-list li:nth-child(3), body.theme-play .ov-mb-list li:nth-child(3) { animation-delay: 0.62s; }
+body.theme-play .ov-task-list li:nth-child(n+4), body.theme-play .ov-mb-list li:nth-child(n+4) { animation-delay: 0.68s; }
+body.theme-play .ov-mf-donut { animation: ov-spin-in 1s var(--play-ease) 0.4s both; }
+@media (prefers-reduced-motion: reduce) {
+  body.theme-play .ov-stat, body.theme-play .ov-card, body.theme-play .ov-task-list li,
+  body.theme-play .ov-mb-list li, body.theme-play .ov-mf-donut { animation: none; transition: none; }
+}
+
+.login-id-wrap { position: relative; }
+.login-id-menu { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; margin: 2px 0 0; padding: 4px; list-style: none; background: var(--panel, #fff); border: 1px solid var(--border, #d0d5dd); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.15); max-height: 180px; overflow-y: auto; }
+.login-id-menu li { display: flex; align-items: center; }
+.login-id-pick { flex: 1; text-align: left; padding: 6px 8px; background: none; border: 0; border-radius: 6px; font: inherit; font-size: 13px; color: inherit; cursor: pointer; }
+.login-id-pick:hover, .login-id-del:hover { background: rgba(127, 127, 127, 0.15); }
+.login-id-del { padding: 2px 8px; background: none; border: 0; border-radius: 6px; font-size: 16px; line-height: 1; color: inherit; cursor: pointer; }
+.login-id-wrap input { width: 100%; box-sizing: border-box; }

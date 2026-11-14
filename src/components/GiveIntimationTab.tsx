@@ -26,14 +26,14 @@ import { resolveIntimationValue } from '@core/intimationFill'
 import { type NoteBidder, summarizeNonResponsiveness } from '@core/noteSubmitted'
 import {
   buildBidEvaluationHtml,
-  buildAgencyApprovalHtml,
   type BidEvaluationData,
   type AgencyApprovalData
 } from '@core/seEvaluationNotes'
 import { parseCementSteelRateLines } from '@core/cementSteelRate'
 import { CEMENT_STEEL_MONTHS, cementSteelRatePeriodKey } from '@core/cementSteelRates'
-import { scanBelongsToOffice } from '@core/worksSync'
+import { scanBelongsToOffice, saveWorkspaceInputs } from '@core/worksSync'
 import { resolveFromDirectory, entriesOf, corporationByName, CORPORATIONS } from '../zoneCircleDirectory'
+import { circleFromWorkName } from '../zoneCircleCheck'
 import { officeScopedKey, TEMPLATE_KEYS, type Office } from '../office'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { pdfToTextLinesOrOcr, pdfToPositionedLines } from '../pdfToText'
@@ -45,6 +45,7 @@ import type { AgreementBundleFile, VerifyDocItem } from '../../electron/ipc-cont
 import { VerifyButton } from './VerifyButton'
 import PageMarginGuides from './PageMarginGuides'
 import { applyPageMargins, type PageMargins } from '@core/docMargins'
+import { buildAgencyApprovalDocxB64 } from '@core/seAgencyApprovalDocx'
 import DocFieldsEditor, { groupLabels, humanizeLabel, type DocField, type DocFieldGroup } from './DocFieldsEditor'
 import { variantForCorporation, corporationDefaultVariant, INTIMATION_TEMPLATE_VARIANTS } from '@core/workOrderTemplateVariants'
 
@@ -946,7 +947,8 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
           table,
           [ev],
           embeddings,
-          noticeForRow
+          noticeForRow,
+          (n) => circleFromWorkName(n, office.corporation)
         )
         if (matchedCount > 0) {
           const idx = matchedRowIndices[0]
@@ -1047,6 +1049,12 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
         fileName: [label, agency, tenderId].filter(Boolean).join(' ')
       })
     }
+    // The letter's own LOA number goes into the matched Works List row (only if the database has a LOA column).
+    const loaNo = (intimationEdits['Intimation Lr No'] ?? values['Intimation Lr No'] ?? '').trim()
+    if (loaNo && worksRowMatched && table) {
+      const saved = saveWorkspaceInputs(table, rowIndex, { loaNo })
+      if (saved !== table) onChange(saved)
+    }
     if (!onIntimationIssued) return
     const snapshot = buildNoticeSnapshot()
     if (snapshot) onIntimationIssued(snapshot)
@@ -1133,7 +1141,7 @@ export default function GiveIntimationTab({ tables, onChange, office, headerActi
   async function fillSeDoc(kind: 'tsNote' | 'eligibility' | 'bidEval' | 'agencyApproval'): Promise<string> {
     if (kind === 'bidEval') return applyPageMargins(await api.noteSubmittedDocx(buildBidEvaluationHtml(bidEvalData)), docMargins.bidEval ?? null)
     if (kind === 'agencyApproval')
-      return applyPageMargins(await api.noteSubmittedDocx(buildAgencyApprovalHtml(agencyApprovalData)), docMargins.agencyApproval ?? null)
+      return applyPageMargins(buildAgencyApprovalDocxB64(agencyApprovalData), docMargins.agencyApproval ?? null)
     const b64 = seDocB64[kind]
     if (!b64) throw new Error('Format not loaded yet.')
     const kindLabels = seDocLabels[kind] ?? []

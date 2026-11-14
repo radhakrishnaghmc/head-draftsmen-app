@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import type { TenderScanProgress } from '../../electron/ipc-contract'
 import { pdfToTextLinesOrOcr } from '../pdfToText'
@@ -7,6 +8,7 @@ import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
 import { scanBelongsToOffice } from '@core/worksSync'
 import { circleFromNit } from '@core/workOrderAgreement'
 import { entriesOf, resolveFromDirectory } from '../zoneCircleDirectory'
+import { circleFromWorkName } from '../zoneCircleCheck'
 import type { ExcelTable } from '@core/types'
 import { IconFolder, IconWarn } from './Icons'
 
@@ -99,7 +101,8 @@ export default function WorksListL1Update({ officeCircle, corporation, table, on
         // The sheet must belong to the selected office — checked against the list as it stood before this file, so a
         // work already in the database is accepted even when its name doesn't (or no longer does) mention the circle.
         const sheetCircle =
-          circleFromNit(ev.noticeNo || '').circle || (resolveFromDirectory(ev.nameOfWork, entriesOf(corporation)).circle ?? '')
+          circleFromNit(ev.noticeNo || '').circle ||
+          (resolveFromDirectory(ev.nameOfWork, entriesOf(corporation)).circle ?? '')
         const belongs = scanBelongsToOffice({ officeCircle, sheetCircle, workName: ev.nameOfWork, table: current })
         if (!belongs.ok) {
           rejectedError = belongs.error
@@ -116,7 +119,9 @@ export default function WorksListL1Update({ officeCircle, corporation, table, on
           }
         }
         const embeddings = rowNameVectors && evalNameVectors ? { rowNameVectors, evalNameVectors } : undefined
-        const result = updateWorksListFromEvaluations(current, [ev], embeddings)
+        const result = updateWorksListFromEvaluations(current, [ev], embeddings, undefined, (n) =>
+          circleFromWorkName(n, corporation)
+        )
         if (result.matchedCount > 0) {
           current = result.table
           matchedCount++
@@ -144,20 +149,22 @@ export default function WorksListL1Update({ officeCircle, corporation, table, on
       }
       if (evaluationCount === 0) {
         setResult({
-          message: "Couldn't read any L-1 selection sheet from the files. Add the Commercial Evaluation / Stage Selected PDF(s).",
+          message:
+            "Couldn't read any L-1 selection sheet from the files. Add the Commercial Evaluation / Stage Selected PDF(s).",
           unmatched: []
         })
         return
       }
       // Only report problems here; each success was already flashed live above.
-      if (matchedCount === 0 || unmatched.length > 0 || rejectedError) {
+      // Sheets with no Works List row are expected (Stage Selected forms repeat, other works) — only warn when nothing matched at all.
+      if (matchedCount === 0 || rejectedError) {
         setResult({
           message: rejectedError
             ? `${rejectedError} The sheets of this office were still processed.`
             : matchedCount === 0
               ? 'Read the L-1 sheet(s), but no Works List row matched by Name of Work — nothing was changed.'
-              : `Updated ${matchedCount} work${matchedCount === 1 ? '' : 's'}; some sheets matched no row.`,
-          unmatched
+              : '',
+          unmatched: [...new Set(unmatched)]
         })
       } else {
         setResult(null)
@@ -223,23 +230,24 @@ export default function WorksListL1Update({ officeCircle, corporation, table, on
         disabled={busy !== null}
         title="Pick the L-1 selection sheet(s) and/or the LOA / Online Intimation — files, a whole folder, or both — to fold tender details into the matching Works List row(s) by Name of Work"
       >
-        {busy === 'l1' && readPct !== null && (
-          <span className="scan-progress-fill" style={{ width: `${readPct}%` }} />
-        )}
+        {busy === 'l1' && readPct !== null && <span className="scan-progress-fill" style={{ width: `${readPct}%` }} />}
         <span className="scan-progress-label">
           <IconFolder /> {buttonLabel('l1', 'Update from L1/LOA')}
         </span>
       </button>
-      {result && (
-        <div className="notice warn" style={{ flexBasis: '100%' }}>
-          <IconWarn /> {result.message}
-          {result.unmatched.length > 0 && (
-            <div className="estimate-hint">
-              No match for: {result.unmatched.map((n) => `“${n}”`).join(', ')} — add these to the Works List first.
-            </div>
-          )}
-        </div>
-      )}
+      {result &&
+        // Shown below the page header (not inside it): a long "No match for" list would otherwise stretch the header and push its buttons off-screen.
+        createPortal(
+          <div className="notice warn">
+            <IconWarn /> {result.message}
+            {result.unmatched.length > 0 && (
+              <div className="estimate-hint">
+                No match for: {result.unmatched.map((n) => `“${n}”`).join(', ')} — add these to the Works List first.
+              </div>
+            )}
+          </div>,
+          document.getElementById('works-l1-result') ?? document.body
+        )}
     </>
   )
 }

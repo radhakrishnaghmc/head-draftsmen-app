@@ -86,8 +86,13 @@ export function stripItemNoTag(name: string): string {
   // Both bookkeeping tags go wherever they sit in the name (before or after a "(Reserved for SC)" tag, which stays);
   // "Period" is matched loosely because real sheets spell it "Peroid".
   return name
-    .replace(/\s*\(\s*item\s*no\.?\s*\d+\s*\)/gi, ' ')
+    // "(Item No.3)", also as printed with a comma/colon ("Item No,3") or without the brackets.
+    .replace(/\s*\(\s*item\s*no\s*[.,:]?\s*\d+\s*\)/gi, ' ')
+    .replace(/\s*\bitem\s*no\s*[.,:]?\s*\d+\b/gi, ' ')
     .replace(/\s*\(\s*completion\s+per\w*\s*:?[^()]*\)/gi, ' ')
+    // Unbracketed "Completion period: 1month" tail, and the "No.01)" left over when the portal wraps "(Item" onto the previous line.
+    .replace(/\s*\bcompletion\s+per\w*\s*:?\s*\d+\s*\w*\s*$/i, ' ')
+    .replace(/^\s*no\s*[.,:]?\s*\d+\s*\)\s*/i, '')
     .replace(/\s+/g, ' ')
     .trim()
 }

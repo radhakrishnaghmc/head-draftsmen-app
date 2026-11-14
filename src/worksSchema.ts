@@ -214,12 +214,11 @@ export function repairInflatedRupees(table: ExcelTable): ExcelTable {
  * "Eoffice", "Download start time" — real fields the app doesn't already
  * track) is kept too, under its own original name, rather than discarded.
  *
- * The output columns follow the *imported sheet's own order*, so a download of
- * the Works List mirrors the arrangement of the Google sheet it came from: each
- * mapped column appears under its standard (app) name at the sheet's position,
- * each unclaimed column keeps its own name in place, and any standard column the
- * sheet didn't carry is appended afterwards so the app never loses a field it
- * relies on.
+ * The output columns are exactly the *imported sheet's own columns, in its own
+ * order*, so the Works List mirrors the Google sheet it came from: each mapped
+ * column appears under its standard (app) name at the sheet's position and each
+ * unclaimed column keeps its own name in place. No standard column the sheet
+ * didn't carry is added.
  */
 export function applyWorksSchemaWithMapping(
   importedHeaders: string[],
@@ -247,27 +246,23 @@ export function applyWorksSchemaWithMapping(
       if (h.trim() && h.trim() !== name) headerLabels[name] = h.trim()
     }
   }
-  // The full column set the app works with: the sheet's columns, then any
-  // standard column the sheet didn't include, appended so the app never loses a
-  // field it relies on. (Those appended columns aren't part of the download.)
+  // The database is exactly the sheet's own columns, in the sheet's order — no standard column the sheet doesn't
+  // carry is added (documents work out what they need from the columns that are there).
   const headers = [...sourceHeaders]
-  for (const h of WORKS_COLUMNS) {
-    if (!seen.has(h)) {
-      seen.add(h)
-      headers.push(h)
-    }
-  }
 
   const rows = (importedRows.length > 0 ? importedRows : [{}]).map((row) => {
     const next: Record<string, string> = {}
-    for (const h of WORKS_COLUMNS) {
+    for (const h of headers) {
       const matchedCol = columnFor.get(h)
       const legacy = h === 'Circle number' ? row[LEGACY_CNO_COLUMN] : undefined
-      next[h] = (matchedCol ? row[matchedCol] : undefined) ?? row[h] ?? legacy ?? ''
+      // (An unclaimed column's name is trimmed, but the imported row may still carry its padded original.)
+      next[h] =
+        (matchedCol ? row[matchedCol] : undefined) ??
+        row[h] ??
+        legacy ??
+        row[importedHeaders.find((ih) => ih.trim() === h) ?? h] ??
+        ''
     }
-    // Any remaining (non-standard) column keeps its own value.
-    // (An unclaimed column's name is trimmed, but the imported row may still carry its padded original.)
-    for (const h of headers) if (!(h in next)) next[h] = row[h] ?? row[importedHeaders.find((ih) => ih.trim() === h) ?? h] ?? ''
     return next
   })
   return fillReservations({

@@ -1,4 +1,5 @@
-import { useMemo, useState, type SVGProps } from 'react'
+import { useEffect, useMemo, useRef, useState, type SVGProps } from 'react'
+import { animate } from 'motion'
 import type { TabKey } from './Sidebar'
 import type { Office } from '../office'
 import type { TodoItem, MBScrutinyItem, TenderReminder } from '@core/types'
@@ -90,6 +91,26 @@ interface Deadline {
   kind: 'todo' | 'mb' | 'tender'
 }
 
+/** Counts up to `value` on mount and whenever it changes. */
+function CountUp({ value }: { value: number }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      el.textContent = String(value)
+      return
+    }
+    const c = animate(0, value, {
+      duration: 1.2,
+      ease: 'easeOut',
+      onUpdate: (v) => (el.textContent = String(Math.round(v)))
+    })
+    return () => c.stop()
+  }, [value])
+  return <span ref={ref}>{value}</span>
+}
+
 /**
  * Home base for the app: a snapshot of the current office's own data (Works
  * List size, To Do / MB Scrutiny progress) rather than a generic template —
@@ -176,7 +197,6 @@ export default function OverviewDashboard({
   const totalTracked = completedCount + pendingCount
   const progressPct = totalTracked === 0 ? 0 : Math.round((completedCount / totalTracked) * 100)
 
-
   const deadlines: Deadline[] = useMemo(() => {
     // Sorted by a best-effort timestamp — To Do/MB dates are ISO so this is
     // exact; tender bid-closing times come from the portal as free text, so an
@@ -235,8 +255,7 @@ export default function OverviewDashboard({
 
   // Is the nearest deadline already past? Infinity (undated tender lookups)
   // never counts as overdue.
-  const nextOverdue =
-    !!nextDeadline && Number.isFinite(nextDeadline.sortTs) && nextDeadline.sortTs < Date.now()
+  const nextOverdue = !!nextDeadline && Number.isFinite(nextDeadline.sortTs) && nextDeadline.sortTs < Date.now()
 
   const recentMb = useMemo(
     () => [...activeMb].sort((a, b) => b.receivedDate.localeCompare(a.receivedDate)).slice(0, 4),
@@ -245,23 +264,30 @@ export default function OverviewDashboard({
 
   return (
     <div className="overview-dashboard">
+
       <div className="ov-stat-row">
         <div className="ov-stat ov-stat-hero">
           <span className="ov-stat-top">Total works</span>
-          <b>{mfTotals ? mfTotals.totalWorks.no : '—'}</b>
+          <b>{mfTotals ? <CountUp value={mfTotals.totalWorks.no} /> : '—'}</b>
           <span className="ov-stat-sub">
             {mfTotals ? monitoringFormat!.officeLabel : 'Import a Monitoring Format to populate'}
           </span>
         </div>
         <div className="ov-stat">
           <span className="ov-stat-top">Pending items</span>
-          <b>{pendingCount}</b>
+          <b>
+            <CountUp value={pendingCount} />
+          </b>
           <span className="ov-stat-sub">To Do &amp; MB Scrutiny open</span>
         </div>
         <div className="ov-stat">
           <span className="ov-stat-top">Completed</span>
-          <b>{progressPct}%</b>
-          <span className="ov-stat-sub">{completedCount} of {totalTracked} done</span>
+          <b>
+            <CountUp value={progressPct} />%
+          </b>
+          <span className="ov-stat-sub">
+            {completedCount} of {totalTracked} done
+          </span>
         </div>
         <div className={`ov-stat ov-stat-nextdeadline${nextOverdue ? ' ov-stat-warn' : ''}`}>
           <span className="ov-stat-top">Next deadline</span>
@@ -270,110 +296,118 @@ export default function OverviewDashboard({
         </div>
       </div>
       <div className="ov-mf-row">
-      <div className="card ov-card ov-mf-status">
-        <div className="card-head">
-          <span className="ov-mf-titles">
-            <h3>Monitoring Format — Works Status</h3>
-            {mfTotals && (
-              <span className="sub">
-                {monitoringFormat!.officeLabel}
-                {monitoringFormat!.asOfDate ? ` · As of ${monitoringFormat!.asOfDate}` : ''}
-              </span>
-            )}
-          </span>
-          <button className="ghost ov-new-btn" onClick={() => onNavigate('data')}>
-            {mfTotals ? 'Update' : 'Import'}
-          </button>
-        </div>
-        {!mfTotals ? (
-          <div className="empty">
-            <p>Import the office's Monitoring Format workbook (Works List page) to see works status here.</p>
+        <div className="card ov-card ov-mf-status">
+          <div className="card-head">
+            <span className="ov-mf-titles">
+              <h3>Monitoring Format — Works Status</h3>
+              {mfTotals && (
+                <span className="sub">
+                  {monitoringFormat!.officeLabel}
+                  {monitoringFormat!.asOfDate ? ` · As of ${monitoringFormat!.asOfDate}` : ''}
+                </span>
+              )}
+            </span>
+            <button className="ghost ov-new-btn" onClick={() => onNavigate('data')}>
+              {mfTotals ? 'Update' : 'Import'}
+            </button>
           </div>
-        ) : (
-          <div className="ov-mf-body">
-            <div className="ov-mf-donut-col">
-              <div className="ov-mf-donut-wrap">
-                <svg viewBox="0 0 120 120" className="ov-donut ov-mf-donut">
-                  <circle cx="60" cy="60" r={DONUT_R} className="ov-donut-track" />
-                  {(() => {
-                    let cursor = 0
-                    return MF_TILES.map(({ key, color }) => {
-                      const no = mfTotals[key].no
-                      const share = mfTotals.totalWorks.no > 0 ? no / mfTotals.totalWorks.no : 0
-                      if (share <= 0) return null
-                      const segLen = share * DONUT_C
-                      const gap = 2
-                      const dash = `${Math.max(segLen - gap, 0)} ${DONUT_C - segLen + gap}`
-                      const offset = -cursor
-                      cursor += segLen
-                      return (
-                        <circle
-                          key={key}
-                          cx="60"
-                          cy="60"
-                          r={DONUT_R}
-                          className="ov-mf-donut-seg"
-                          style={{ stroke: color, strokeDasharray: dash, strokeDashoffset: offset }}
-                        />
-                      )
-                    })
-                  })()}
-                </svg>
-                <div className="ov-donut-text">
-                  <b>{mfTotals.totalWorks.no}</b>
-                  <span>Total Works</span>
+          {!mfTotals ? (
+            <div className="empty">
+              <p>Import the office's Monitoring Format workbook (Works List page) to see works status here.</p>
+            </div>
+          ) : (
+            <div className="ov-mf-body">
+              <div className="ov-mf-donut-col">
+                <div className="ov-mf-donut-wrap">
+                  <svg viewBox="0 0 120 120" className="ov-donut ov-mf-donut">
+                    <circle cx="60" cy="60" r={DONUT_R} className="ov-donut-track" />
+                    {(() => {
+                      let cursor = 0
+                      return MF_TILES.map(({ key, color }) => {
+                        const no = mfTotals[key].no
+                        const share = mfTotals.totalWorks.no > 0 ? no / mfTotals.totalWorks.no : 0
+                        if (share <= 0) return null
+                        const segLen = share * DONUT_C
+                        const gap = 2
+                        const dash = `${Math.max(segLen - gap, 0)} ${DONUT_C - segLen + gap}`
+                        const offset = -cursor
+                        cursor += segLen
+                        return (
+                          <circle
+                            key={key}
+                            cx="60"
+                            cy="60"
+                            r={DONUT_R}
+                            className="ov-mf-donut-seg"
+                            style={{ stroke: color, strokeDasharray: dash, strokeDashoffset: offset }}
+                          />
+                        )
+                      })
+                    })()}
+                  </svg>
+                  <div className="ov-donut-text">
+                    <b>{mfTotals.totalWorks.no}</b>
+                    <span>Total Works</span>
+                  </div>
                 </div>
+
+                <ul className="ov-donut-legend-list">
+                  {MF_TILES.filter(({ key }) => mfTotals[key].no > 0).map(({ label, key, color }) => (
+                    <li key={key}>
+                      <i className="ov-donut-legend-dot" style={{ background: color }} />
+                      <span>{label}</span>
+                      <b>{mfTotals[key].no}</b>
+                    </li>
+                  ))}
+                </ul>
               </div>
 
-              <ul className="ov-donut-legend-list">
-                {MF_TILES.filter(({ key }) => mfTotals[key].no > 0).map(({ label, key, color }) => (
-                  <li key={key}>
-                    <i className="ov-donut-legend-dot" style={{ background: color }} />
-                    <span>{label}</span>
-                    <b>{mfTotals[key].no}</b>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="ov-mf-tiles">
-              {MF_TILES.map(({ label, key, color, icon: Icon }) => {
-                const bucket = mfTotals[key]
-                const pct = mfTotals.totalWorks.no > 0 ? Math.round((bucket.no / mfTotals.totalWorks.no) * 100) : 0
-                const isExporting = exportingKey === key
-                const isExported = exportedKey === key
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    className={`ov-mf-tile${isExporting ? ' ov-mf-tile-busy' : ''}${isExported ? ' ov-mf-tile-done' : ''}`}
-                    style={{ ['--tile-color' as string]: color, ['--tile-pct' as string]: `${pct}%` }}
-                    disabled={bucket.no === 0 || isExporting}
-                    title={bucket.no > 0 ? `Download PDF of ${label} works` : undefined}
-                    onClick={() => handleExportTile(key, label)}
-                  >
-                    <span className="ov-mf-tile-ic">
-                      {isExporting ? <IconRefresh className="ov-mf-tile-spin" /> : isExported ? <IconCheck /> : <Icon />}
-                    </span>
-                    <span className="ov-mf-tile-main">
-                      <span className="ov-mf-tile-label">
-                        {label}
-                        {isExporting && <span className="ov-mf-tile-status"> · Downloading…</span>}
-                        {isExported && <span className="ov-mf-tile-status ov-mf-tile-status-done"> · Downloaded</span>}
+              <div className="ov-mf-tiles">
+                {MF_TILES.map(({ label, key, color, icon: Icon }) => {
+                  const bucket = mfTotals[key]
+                  const pct = mfTotals.totalWorks.no > 0 ? Math.round((bucket.no / mfTotals.totalWorks.no) * 100) : 0
+                  const isExporting = exportingKey === key
+                  const isExported = exportedKey === key
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className={`ov-mf-tile${isExporting ? ' ov-mf-tile-busy' : ''}${isExported ? ' ov-mf-tile-done' : ''}`}
+                      style={{ ['--tile-color' as string]: color, ['--tile-pct' as string]: `${pct}%` }}
+                      disabled={bucket.no === 0 || isExporting}
+                      title={bucket.no > 0 ? `Download PDF of ${label} works` : undefined}
+                      onClick={() => handleExportTile(key, label)}
+                    >
+                      <span className="ov-mf-tile-ic">
+                        {isExporting ? (
+                          <IconRefresh className="ov-mf-tile-spin" />
+                        ) : isExported ? (
+                          <IconCheck />
+                        ) : (
+                          <Icon />
+                        )}
                       </span>
-                      <span className="ov-mf-tile-nums">
-                        <b className="ov-mf-tile-no">{bucket.no}</b>
-                        <span className="ov-mf-tile-pct">{pct}%</span>
+                      <span className="ov-mf-tile-main">
+                        <span className="ov-mf-tile-label">
+                          {label}
+                          {isExporting && <span className="ov-mf-tile-status"> · Downloading…</span>}
+                          {isExported && (
+                            <span className="ov-mf-tile-status ov-mf-tile-status-done"> · Downloaded</span>
+                          )}
+                        </span>
+                        <span className="ov-mf-tile-nums">
+                          <b className="ov-mf-tile-no">{bucket.no}</b>
+                          <span className="ov-mf-tile-pct">{pct}%</span>
+                        </span>
+                        <span className="ov-mf-tile-amt">Rs. {indianDigitGroups(bucket.amt)} L</span>
                       </span>
-                      <span className="ov-mf-tile-amt">Rs. {indianDigitGroups(bucket.amt)} L</span>
-                    </span>
-                  </button>
-                )
-              })}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
 
         <div className="card ov-card ov-ward-status">
           <div className="card-head">
@@ -406,7 +440,9 @@ export default function OverviewDashboard({
           </div>
           {!mfTotals || wardTypes.length === 0 ? (
             <div className="empty">
-              <p>Import the office's Monitoring Format workbook (Works List page) to see ward/circle-wise totals here.</p>
+              <p>
+                Import the office's Monitoring Format workbook (Works List page) to see ward/circle-wise totals here.
+              </p>
             </div>
           ) : (
             <div className="ov-mf-body">
@@ -477,12 +513,16 @@ export default function OverviewDashboard({
                       }
                       onClick={() => handleExportWardTile(row.itemType)}
                     >
-                      <span className="ov-mf-tile-ic">{isExporting ? <IconRefresh className="ov-mf-tile-spin" /> : isExported ? <IconCheck /> : null}</span>
+                      <span className="ov-mf-tile-ic">
+                        {isExporting ? <IconRefresh className="ov-mf-tile-spin" /> : isExported ? <IconCheck /> : null}
+                      </span>
                       <span className="ov-mf-tile-main">
                         <span className="ov-mf-tile-label">
                           {row.itemType}
                           {isExporting && <span className="ov-mf-tile-status"> · Downloading…</span>}
-                          {isExported && <span className="ov-mf-tile-status ov-mf-tile-status-done"> · Downloaded</span>}
+                          {isExported && (
+                            <span className="ov-mf-tile-status ov-mf-tile-status-done"> · Downloaded</span>
+                          )}
                         </span>
                         <span className="ov-mf-tile-nums">
                           <b className="ov-mf-tile-no">{row.totalWorks.no}</b>

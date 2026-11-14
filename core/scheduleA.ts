@@ -4,6 +4,7 @@ import { computeWorkAmounts, indianDigitGroups, tenderPercentFromRow } from './w
 import { amountToWords } from './numberToWords'
 import { rankByEmbedding, workNamesConflict, WORK_IDENTITY_MATCH_THRESHOLD } from './embeddingMatch'
 import { normalizeWorkNameForMatch } from './tenderAgents/nameOfWork'
+import { stripItemNoTag } from './tenderAgents/shared'
 
 export interface ScheduleAItem {
   itemNo: string
@@ -56,7 +57,7 @@ export function metaFromWorksRow(row: Record<string, string>): ScheduleAMeta {
   const cno = (row['Circle number'] ?? row['CNO'] ?? '').trim()
   const circle = circleName ? (cno ? `${circleName} Circle-${cno}` : circleName) : undefined
   return {
-    nameOfWork: row['Name of the work'],
+    nameOfWork: stripItemNoTag(row['Name of the work'] ?? ''),
     estimateAmount: `${indianDigitGroups(c.estimate)}/-`,
     ecvAmount: c.ecv !== null ? `${indianDigitGroups(c.ecv)}/-` : undefined,
     contractAmount: c.contractAmount !== null ? `${indianDigitGroups(c.contractAmount)}/-` : undefined,

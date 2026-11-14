@@ -339,6 +339,37 @@ function registerHandlers(): void {
     return result.filePaths.map((p) => readAllSheetGrids(p))
   })
 
+  // Bulk Deviations: adding folders only records their paths; the reading happens when Generate Deviations is clicked.
+  ipcMain.handle(IPC.pickBulkDeviationPaths, async (_e, kind: 'l1' | 'estimates'): Promise<string[] | null> => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: kind === 'l1' ? 'Select the L-1 sheets folder (or files)' : 'Select the estimates folder (or files)',
+      properties: ['openFile', 'openDirectory', 'multiSelections']
+    })
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths
+  })
+  ipcMain.handle(IPC.listEstimateWorkbooks, async (_e, paths: string[]): Promise<string[]> => {
+    const files: string[] = []
+    const walk = (p: string) => {
+      if (fs.statSync(p).isDirectory()) {
+        for (const e of fs.readdirSync(p)) if (!e.startsWith('.')) walk(path.join(p, e))
+      } else if (/\.xlsx?$/i.test(p) && !path.basename(p).startsWith('~$')) files.push(p)
+    }
+    for (const p of paths) walk(p)
+    return files
+  })
+  ipcMain.handle(IPC.readEstimateWorkbook, async (_e, file: string): Promise<SheetGrid[]> => {
+    try {
+      return readAllSheetGrids(file)
+    } catch {
+      return []
+    }
+  })
+  ipcMain.handle(IPC.readTenderPaths, async (_e, paths: string[]): Promise<PickedTenderDocument[]> =>
+    collectTenderDocuments(paths, (phase, done, total) => {
+      mainWindow?.webContents.send(IPC.tenderScanProgress, { phase, done, total })
+    })
+  )
+
   ipcMain.handle(IPC.pickDataSheet, async (): Promise<SheetGrid[] | null> => {
     const result = await dialog.showOpenDialog(mainWindow!, {
       title: 'Select Data Sheet (rates database)',
@@ -627,6 +658,17 @@ function registerHandlers(): void {
     }
   )
 
+  ipcMain.handle(IPC.verifyPassword, async (_e, loginId: string, password: string): Promise<boolean> => {
+    if (!loginId || !password) return false
+    try {
+      return (await validateAnyLogin(loginId, password)).ok
+    } catch (e) {
+      // Offline: only a password already verified online on this device counts.
+      if (checkOfflineAuth(loginId, password)) return true
+      throw e
+    }
+  })
+
   ipcMain.handle(IPC.logout, async (): Promise<void> => {
     logActivity(currentLoginId, 'logout', `Signed out on ${os.hostname()}`)
     await firebaseSync.endSession()
@@ -888,7 +930,13 @@ function registerHandlers(): void {
           name: f.name
         })
         try {
-          if (f.scheduleATable) {
+          if (f.deviationItems && f.deviationMeta) {
+            const templatePath = deviationTemplateFile()
+            if (!templatePath) throw new Error('Deviation Statement template is missing from the app bundle.')
+            const p = uniquePath(f.name, 'xlsx')
+            fs.writeFileSync(p, await fillDeviationTemplate(fs.readFileSync(templatePath), f.deviationItems, f.deviationMeta))
+            written.push(p)
+          } else if (f.scheduleATable) {
             // Schedule A: the workbook is built here, then saved as is (Excel) or printed (PDF).
             const sheet = await buildScheduleABuffer(f.scheduleATable, f.scheduleAMeta, f.scheduleAIsSe)
             if (f.format === 'pdf') {

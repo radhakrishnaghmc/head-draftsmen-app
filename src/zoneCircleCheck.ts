@@ -211,3 +211,18 @@ export function autofillWorksRow(row: Record<string, string>, login: LoginIdenti
   t = fillCircleNumber(t, login.circleNumber)
   return t.rows[0]
 }
+
+/**
+ * The circle an L-1 sheet's work name points at, for filling a blank Circle cell: the circle the name designates (with
+ * its number), else `Zonal Office` when the name is for a zone ("… Quthbullapur Zone") or the zonal office itself.
+ * Blank when the name says neither, so nothing is guessed.
+ */
+export function circleFromWorkName(workName: string, corporation?: string): { circle: string; cno: string; zone?: string } {
+  const entries = corporation ? entriesOf(corporation) : CMC_ZONE_CIRCLES
+  const hit = resolveFromDirectory(workName, entries)
+  if (hit.circle) return { circle: hit.circle, cno: hit.cno ?? '', zone: hit.zone }
+  const zones = [...new Set(entries.map((e) => e.zone))]
+  const named = zones.find((z) => new RegExp(`\\b${z.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+zone\\b`, 'i').test(workName))
+  if (named || /\bzonal\s+office\b/i.test(workName)) return { circle: 'Zonal Office', cno: '', zone: named ?? hit.zone }
+  return { circle: '', cno: '', zone: hit.zone }
+}

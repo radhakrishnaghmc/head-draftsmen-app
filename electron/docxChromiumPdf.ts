@@ -3,6 +3,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { paginateFlowSections } from '../core/paginateFlow'
+import PizZip from 'pizzip'
 import { tightenLineHeight } from '../core/docxScale'
 
 /**
@@ -43,8 +44,32 @@ const ORPHAN_MAX_CHARS = 160
 // Line height only, so the font size (and so how the lines wrap) never changes.
 const SHRINK_STEPS = [0.995, 0.99, 0.985, 0.98, 0.97, 0.96, 0.95]
 
+// The page count a template was authored for: the cached result of its footer's NUMPAGES field ("Page 4 of 41"). A font that is
+// wider or taller in Chromium than where the template was laid out (Windows has the real Cambria; the 41-page Civil Tender
+// Document was set with a metric-compatible substitute) spills a few lines of some sections onto extra pages (45 pages).
+function authoredSheets(docxBuffer: Buffer): number {
+  const zip = new PizZip(docxBuffer)
+  let n = 0
+  for (const name of Object.keys(zip.files)) {
+    if (!/^word\/footer\d+\.xml$/.test(name)) continue
+    const m = /NUMPAGES[\s\S]*?<w:t[^>]*>(\d+)<\/w:t>/.exec(zip.file(name)?.asText() ?? '')
+    if (m) n = Math.max(n, Number(m[1]))
+  }
+  return n
+}
+// Line height given to paragraphs that carry none of their own, widest first; the first that brings the count back is kept.
+const LINE_HEIGHT_CAPS = [1.12, 1.1, 1.08, 1.06, 1.04, 1.02, 1.0]
+
 async function convert(docxBuffer: Buffer): Promise<Buffer> {
   const first = await convertOnce(docxBuffer)
+  const authored = authoredSheets(docxBuffer)
+  if (first.sheets >= ORPHAN_MIN_SHEETS && authored > 0 && first.sheets > authored) {
+    for (const cap of LINE_HEIGHT_CAPS) {
+      const next = await convertOnce(docxBuffer, cap)
+      if (next.sheets <= authored) return next.pdf
+    }
+    return first.pdf
+  }
   if (!first.orphan) return first.pdf
   for (const factor of SHRINK_STEPS) {
     const tightened = Buffer.from(tightenLineHeight(docxBuffer.toString('base64'), factor), 'base64')
@@ -54,7 +79,7 @@ async function convert(docxBuffer: Buffer): Promise<Buffer> {
   return first.pdf
 }
 
-async function convertOnce(docxBuffer: Buffer): Promise<{ pdf: Buffer; sheets: number; orphan: boolean }> {
+async function convertOnce(docxBuffer: Buffer, lineHeightCap?: number): Promise<{ pdf: Buffer; sheets: number; orphan: boolean }> {
   // Packaged builds keep these two unpacked (electron-builder.yml asarUnpack) so the page can load them by file:// URL.
   const unpacked = (p: string) => p.replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep)
   const jszipPath = unpacked(require.resolve('jszip/dist/jszip.min.js'))
@@ -70,6 +95,7 @@ async function convertOnce(docxBuffer: Buffer): Promise<{ pdf: Buffer; sheets: n
 <style>
   @page { size: A4; margin: 0 }
   html, body { margin: 0; padding: 0; background: #fff }
+  ${lineHeightCap ? `.docx-wrapper p { line-height: ${lineHeightCap} }` : ''}
   .docx-wrapper { background: #fff !important; padding: 0 !important; margin: 0 !important }
   .docx-wrapper > section.docx { box-shadow: none !important; margin: 0 auto !important; break-after: page }
   .docx-wrapper > section.docx:last-child { break-after: auto }

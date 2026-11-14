@@ -24,7 +24,23 @@ interface Props {
 // (e.g. in the profile menu) without threading it through extra props.
 export const REMEMBERED_LOGIN_ID_KEY = 'hda-remembered-login-id'
 // "Remember password": the password sealed by the OS keychain (never plain text).
-const REMEMBERED_PASSWORD_KEY = 'hda-remembered-password'
+export const REMEMBERED_PASSWORD_KEY = 'hda-remembered-password'
+// Every login ID used on this machine -> its sealed password ('' when "Remember password" was off); feeds the Login ID suggestions.
+export const SAVED_LOGINS_KEY = 'hda-saved-logins'
+
+function readSavedLogins(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(SAVED_LOGINS_KEY) ?? '{}') as Record<string, string>
+  } catch {
+    return {}
+  }
+}
+
+function writeSavedLogin(id: string, sealed: string) {
+  const all = readSavedLogins()
+  if (sealed || id in all) all[id] = sealed
+  localStorage.setItem(SAVED_LOGINS_KEY, JSON.stringify(all))
+}
 
 /**
  * Login gate shown before the app itself. Credentials are checked entirely
@@ -441,7 +457,7 @@ function ChangePasswordForm({ initialLoginId, onBack }: { initialLoginId: string
             <p className="hint">
               {sent
                 ? 'We emailed you a link. Open it, choose a new password there, then enter the same password below.'
-                : 'Enter your login ID and we will email you a link to reset your password.'}
+                : 'Enter your login ID and we will email you a link to reset your password. Signed up with Google? Use this too, to create a password for the same email.'}
             </p>
             {input('Login ID (email)', loginId, setLoginId, { autoComplete: 'username', autoFocus: !initialLoginId })}
             {sent && (
@@ -538,6 +554,8 @@ export default function LoginPage({ onSuccess }: Props) {
   const [googleSetup, setGoogleSetup] = useState<string | null>(null)
   const [loginId, setLoginId] = useState(() => localStorage.getItem(REMEMBERED_LOGIN_ID_KEY) ?? '')
   const [password, setPassword] = useState('')
+  const [savedIds, setSavedIds] = useState(() => Object.keys(readSavedLogins()))
+  const [idMenuOpen, setIdMenuOpen] = useState(false)
   const [rememberPassword, setRememberPassword] = useState(() => !!localStorage.getItem(REMEMBERED_PASSWORD_KEY))
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -575,7 +593,9 @@ export default function LoginPage({ onSuccess }: Props) {
     ;(async () => {
       setBusy(true)
       try {
-        const result = await api.login(DEV_TEST_LOGIN_ID, DEV_AUTOLOGIN_PASSWORD, false)
+        let result = await api.login(DEV_TEST_LOGIN_ID, DEV_AUTOLOGIN_PASSWORD, false)
+        // Every dev launch claims a device slot; stale ones from earlier launches would otherwise block this forever.
+        if (!result.ok && result.maxSessions) result = await api.login(DEV_TEST_LOGIN_ID, DEV_AUTOLOGIN_PASSWORD, true)
         if (result.ok) {
           localStorage.setItem(REMEMBERED_LOGIN_ID_KEY, DEV_TEST_LOGIN_ID)
           onSuccess(result)
@@ -593,6 +613,24 @@ export default function LoginPage({ onSuccess }: Props) {
     })()
   }, [])
 
+  // Picking a saved ID also fills its remembered password.
+  function pickSavedId(id: string) {
+    setLoginId(id)
+    setPassword('')
+    setError(null)
+    setMaxSessionsHit(false)
+    setIdMenuOpen(false)
+    const sealed = readSavedLogins()[id]
+    if (sealed) void api.unsealSecret(sealed).then((plain) => plain && setPassword(plain))
+  }
+
+  function deleteSavedId(id: string) {
+    const all = readSavedLogins()
+    delete all[id]
+    localStorage.setItem(SAVED_LOGINS_KEY, JSON.stringify(all))
+    setSavedIds(Object.keys(all))
+  }
+
   async function attemptLogin(forceLogout: boolean) {
     setBusy(true)
     setError(null)
@@ -603,6 +641,9 @@ export default function LoginPage({ onSuccess }: Props) {
         const sealed = rememberPassword ? await api.sealSecret(password) : ''
         if (sealed) localStorage.setItem(REMEMBERED_PASSWORD_KEY, sealed)
         else localStorage.removeItem(REMEMBERED_PASSWORD_KEY)
+        const all = readSavedLogins()
+        all[loginId.trim()] = sealed
+        localStorage.setItem(SAVED_LOGINS_KEY, JSON.stringify(all))
         onSuccess(result)
       } else if (result.maxSessions) {
         setMaxSessionsHit(true)
@@ -613,6 +654,7 @@ export default function LoginPage({ onSuccess }: Props) {
         setMaxSessionsHit(false)
         setError('Incorrect login ID or password.')
         localStorage.removeItem(REMEMBERED_PASSWORD_KEY)
+        writeSavedLogin(loginId.trim(), '')
       }
     } catch {
       // Never surface the raw error here — it's almost always a network
@@ -717,16 +759,35 @@ export default function LoginPage({ onSuccess }: Props) {
             <h2 className="login-form-title">Sign in</h2>
             <label className="tender-field">
               <span>Login ID (email)</span>
-              <input
-                value={loginId}
-                onChange={(e) => {
-                  setLoginId(e.target.value)
-                  setError(null)
-                  setMaxSessionsHit(false)
-                }}
-                autoFocus
-                autoComplete="username"
-              />
+              <div className="login-id-wrap">
+                <input
+                  value={loginId}
+                  onChange={(e) => {
+                    setLoginId(e.target.value)
+                    setError(null)
+                    setMaxSessionsHit(false)
+                  }}
+                  onFocus={() => setIdMenuOpen(true)}
+                  onBlur={() => setIdMenuOpen(false)}
+                  autoFocus
+                  autoComplete="off"
+                />
+                {idMenuOpen && savedIds.length > 0 && (
+                  // mousedown is held back so the input keeps focus (and the menu stays open) until the click lands.
+                  <ul className="login-id-menu" onMouseDown={(e) => e.preventDefault()}>
+                    {savedIds.map((id) => (
+                      <li key={id}>
+                        <button type="button" className="login-id-pick" onClick={() => pickSavedId(id)}>
+                          {id}
+                        </button>
+                        <button type="button" className="login-id-del" title="Remove saved login" onClick={() => deleteSavedId(id)}>
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </label>
 
             <label className="tender-field">

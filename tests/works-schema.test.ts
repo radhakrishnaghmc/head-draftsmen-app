@@ -20,13 +20,8 @@ describe('applyWorksSchemaWithMapping', () => {
     const rows = [{ 'Work Name': 'Road repair', 'Estimate Amount': '5,00,000' }]
     const result = applyWorksSchemaWithMapping(headers, rows, mapping, { id: 't1', name: 'Works', path: '' })
 
-    // Columns follow the imported sheet's order (mapped to standard names), then
-    // any standard column the sheet didn't carry is appended.
-    expect(result.headers).toEqual([
-      'Name of the work',
-      'Amount of estimate',
-      ...WORKS_COLUMNS.filter((h) => h !== 'Name of the work' && h !== 'Amount of estimate')
-    ])
+    // Columns are the imported sheet's own, in its order (mapped to standard names) — nothing else is added.
+    expect(result.headers).toEqual(['Name of the work', 'Amount of estimate'])
     expect(result.rows[0]['Name of the work']).toBe('Road repair')
     expect(result.rows[0]['Amount of estimate']).toBe('5,00,000')
   })
@@ -39,18 +34,19 @@ describe('applyWorksSchemaWithMapping', () => {
     expect(result.rows[0]['Name of the work']).toBe('Bridge work')
   })
 
-  it('leaves a standard column blank when neither the mapping nor an exact name match resolves it', () => {
+  it('does not add a standard column the sheet does not have', () => {
     const mapping: PlaceholderMatch[] = [{ label: 'Zone', column: null, score: 0 }]
     const headers = ['Some Other Column']
     const rows = [{ 'Some Other Column': 'x' }]
     const result = applyWorksSchemaWithMapping(headers, rows, mapping, { id: 't1', name: 'Works', path: '' })
-    expect(result.rows[0]['Zone']).toBe('')
+    expect(result.headers).toEqual(['Some Other Column'])
+    expect('Zone' in result.rows[0]).toBe(false)
   })
 
   it('guarantees at least one (blank) row when given none', () => {
     const result = applyWorksSchemaWithMapping([], [], [], { id: 't1', name: 'Works', path: '' })
     expect(result.rows).toHaveLength(1)
-    expect(result.rows[0]['Name of the work']).toBe('')
+    expect(result.headers).toEqual([])
   })
 
   it('appends an imported column the mapping did not claim for any standard column, keeping its own name', () => {
@@ -62,14 +58,8 @@ describe('applyWorksSchemaWithMapping', () => {
     const rows = [{ 'Name of the work': 'Road A', Eoffice: 'EO-123', 'Download start time': '10:00' }]
     const result = applyWorksSchemaWithMapping(headers, rows, mapping, { id: 't1', name: 'Works', path: '' })
 
-    // The extras keep their place in the sheet's order (right after the mapped
-    // "Name of the work"); unincluded standard columns follow.
-    expect(result.headers).toEqual([
-      'Name of the work',
-      'Eoffice',
-      'Download start time',
-      ...WORKS_COLUMNS.filter((h) => h !== 'Name of the work')
-    ])
+    // The extras keep their place in the sheet's order; no standard column is added.
+    expect(result.headers).toEqual(['Name of the work', 'Eoffice', 'Download start time'])
     expect(result.rows[0]['Eoffice']).toBe('EO-123')
     expect(result.rows[0]['Download start time']).toBe('10:00')
   })
@@ -85,10 +75,9 @@ describe('applyWorksSchemaWithMapping', () => {
       name: 'Works',
       path: ''
     })
-    // sourceHeaders = exactly the sheet's three columns in order; the other
-    // standard columns exist in headers but are NOT part of the download.
+    // sourceHeaders and headers are both exactly the sheet's three columns in order.
     expect(result.sourceHeaders).toEqual(['Name of the work', 'Amount of estimate', 'Eoffice'])
-    expect(result.headers.length).toBeGreaterThan(result.sourceHeaders!.length)
+    expect(result.headers).toEqual(result.sourceHeaders)
   })
 
   it("preserves the Google sheet's own column order (e.g. Wincode before Circle) so a download mirrors it", () => {
@@ -100,9 +89,7 @@ describe('applyWorksSchemaWithMapping', () => {
     const rows = [{ Zone: 'Q', Wincode: 'D058-1', Circle: 'Nizampet', 'Circle number': '58', 'Name of the work': 'W', 'Amount of estimate': '10' }]
     const result = applyWorksSchemaWithMapping(sheetOrder, rows, mapping, { id: 't1', name: 'Works', path: '' })
 
-    expect(result.headers.slice(0, sheetOrder.length)).toEqual(sheetOrder)
-    // The remaining standard columns (absent from the sheet) are appended after.
-    for (const h of WORKS_COLUMNS) expect(result.headers).toContain(h)
+    expect(result.headers).toEqual(sheetOrder)
     expect(result.rows[0]['Wincode']).toBe('D058-1')
   })
 
@@ -112,11 +99,8 @@ describe('applyWorksSchemaWithMapping', () => {
     const rows = [{ 'Estimate Amount': '1,00,000' }]
     const result = applyWorksSchemaWithMapping(headers, rows, mapping, { id: 't1', name: 'Works', path: '' })
 
-    // The single mapped column leads (under its standard name), the rest follow.
-    expect(result.headers).toEqual([
-      'Amount of estimate',
-      ...WORKS_COLUMNS.filter((h) => h !== 'Amount of estimate')
-    ])
+    // The single mapped column appears under its standard name, and nothing else is added.
+    expect(result.headers).toEqual(['Amount of estimate'])
     expect(result.headers).not.toContain('Estimate Amount')
   })
 })

@@ -5,7 +5,6 @@
 // Note Submitted — they're built as HTML and converted via the app's generic
 // convertHtmlToDocx (api.noteSubmittedDocx), not a fixed-row .docx template.
 import type { NoteBidder } from './noteSubmitted'
-import { indianDigitGroups } from './worksAmounts'
 
 const esc = (s: string): string =>
   String(s ?? '')
@@ -173,73 +172,3 @@ export interface AgencyApprovalData extends SeEvaluationRefs {
   bidders: NoteBidder[]
 }
 
-/** The (signed) percentage with its Less/Excess word, and the plain magnitude for display — e.g. "(-)32.89" -> {word:"Less", mag:"32.89"}. */
-function pctParts(pct: string): { word: 'Less' | 'Excess'; mag: string } {
-  const less = pct.startsWith('(-)')
-  return { word: less ? 'Less' : 'Excess', mag: less ? pct.slice(3) : pct }
-}
-
-function money(raw: string): string {
-  const [whole, frac] = raw.split('.')
-  return `${indianDigitGroups(Number(whole))}${frac != null ? '.' + frac : ''}`
-}
-
-export function buildAgencyApprovalHtml(d: AgencyApprovalData): string {
-  const rows = d.bidders
-    .map((b) => {
-      const { word, mag } = pctParts(b.pct)
-      return `<tr>${TD(esc(b.sno), 'center')}${TD(esc(b.name))}${TD(money(b.ecv), 'right')}${TD(word, 'center')}${TD(
-        `${mag}%`,
-        'right'
-      )}${TD(money(b.tcv), 'right')}${TD(esc(b.rank), 'center')}</tr>`
-    })
-    .join('')
-  const l1 = d.bidders.find((b) => b.rank === 'L-1')
-  const l1Pct = l1 ? pctParts(l1.pct) : null
-  return (
-    '<p style="margin:0 0 10px;font-weight:bold">Note Submitted:</p>' +
-    P(
-      `Sub:&emsp;${esc(d.corp || 'CMC')}- Engg. – SE-${esc(d.zoneAbbr)}- ${esc(d.workName)} – Estimate Cost- Rs.${esc(
-        d.estimateLakhs
-      )} Lakhs -Evaluation of Financial Bids–Agency approval and issue of  LOA – Regarding.`
-    ) +
-    refBlockHtml(d, {
-      n: '5)',
-      html: `Technical Bid evaluation Approved by SE, ${esc(d.zoneAbbr)}, ${esc(d.corp || 'CMC')} on ${esc(d.bidEvalApprovedDate)}.`
-    }) +
-    '<p style="margin:6px 0;text-align:center">*********</p>' +
-    P(
-      `It is to submit that the work “${esc(
-        d.workName
-      )}” Technical bid evaluation was approved and permitted to open the price bids of eligible tenderer.`
-    ) +
-    P(`Thus the evaluation of financial bid as follows.`) +
-    '<p style="margin:6px 0;font-weight:bold;text-align:center">EVALUATION OF FINANCIAL BID</p>' +
-    P(
-      `The above work was Technically Sanctioned for Rs.${esc(d.estimateLakhs)} Lakhs by Superintending Engineer, ${esc(
-        d.zone
-      )} Zone, ${esc(d.corp || 'CMC')} vide 2nd cited. Tenders were invited through ‘e’ procurement vide 3rd cited and the technical bid opened.`
-    ) +
-    P(
-      `Technical bid was scrutinized in the O/o Superintending Engineer and after careful examination it is found that (${String(
-        d.bidders.length
-      ).padStart(2, '0')}) bidder were eligible.`
-    ) +
-    P(`Further, the price bid is opened and the details are furnished below:`) +
-    // See the Bid Evaluation table above: pt, not %, for the same
-    // html-to-docx compatibility reason — again sized off a 432pt total.
-    `<table style="${TABLE_STYLE}"><tr>${TH('Sl.No.', '26pt')}${TH('Contractor/Agency Name', '130pt')}${TH('ECV(INR)', '60pt')}${TH(
-      'Excess /Less',
-      '43pt'
-    )}${TH('Percentage (%)', '48pt')}${TH('Amount (INR)', '65pt')}${TH('Position', '60pt')}</tr>${rows}</table>` +
-    (l1 && l1Pct
-      ? P(
-          `Among the eligible bidders ${esc(l1.name)} is the lowest bidder and quoted @ (-) ${l1Pct.mag} % Less than the ECV with a contract value of Rs. ${money(
-            l1.tcv
-          )}.`
-        )
-      : '') +
-    P(`Submitted for kind perusal and approval.`) +
-    SIGN_OFF(d.zoneAbbr, 2)
-  )
-}

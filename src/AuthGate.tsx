@@ -1,7 +1,7 @@
 import { sameAccountOffice, type AccountOffice } from '@core/signupRequest'
 import { useEffect, useState } from 'react'
 import App from './App'
-import LoginPage, { REMEMBERED_LOGIN_ID_KEY } from './components/LoginPage'
+import LoginPage, { REMEMBERED_LOGIN_ID_KEY, REMEMBERED_PASSWORD_KEY, SAVED_LOGINS_KEY } from './components/LoginPage'
 import LoginBackdrop from './components/LoginBackdrop'
 import UpdateBanner from './components/UpdateBanner'
 import { api } from './ipc'
@@ -17,7 +17,14 @@ const OWNER_KEY = 'hda-data-owner'
 // The offices a self-registered account is confined to (kept so an offline sign-in stays confined too).
 const LOCKED_OFFICE_KEY = 'hda-locked-office'
 // localStorage entries that belong to the machine rather than to an account.
-const KEEP_ON_ACCOUNT_CHANGE = new Set([REMEMBERED_LOGIN_ID_KEY, OWNER_KEY, 'hda-last-seen-version', 'issueDocsTheme'])
+const KEEP_ON_ACCOUNT_CHANGE = new Set([
+  REMEMBERED_LOGIN_ID_KEY,
+  REMEMBERED_PASSWORD_KEY,
+  SAVED_LOGINS_KEY,
+  OWNER_KEY,
+  'hda-last-seen-version',
+  'issueDocsTheme'
+])
 
 function readAccountOffices(): AccountOffice[] | undefined {
   try {
@@ -28,7 +35,8 @@ function readAccountOffices(): AccountOffice[] | undefined {
   }
 }
 
-const toOffice = (o: AccountOffice): Office => normalizeOffice({ corporation: o.corporation, zone: o.zone, circle: o.circle || undefined })
+const toOffice = (o: AccountOffice): Office =>
+  normalizeOffice({ corporation: o.corporation, zone: o.zone, circle: o.circle || undefined })
 
 // How long the "unveil" transition (unblur the backdrop, fade the login
 // card) plays before the real, authenticated App actually mounts — must
@@ -36,10 +44,9 @@ const toOffice = (o: AccountOffice): Office => normalizeOffice({ corporation: o.
 const REVEAL_MS = 450
 
 export default function AuthGate() {
-  // Login is required on every launch, dev included: the dev app used to skip the screen, leaving the main
-  // process with no signed-in account, so anything that needs one (Evaluation Sheet sharing, cloud sync) could
-  // not work there. LoginPage still auto-signs-in the test account when VITE_DEV_PASSWORD is set.
-  const [authed, setAuthed] = useState(() => sessionStorage.getItem(SESSION_KEY) === '1')
+  // `npm run dev` skips the login screen entirely. The main process then has no signed-in account, so anything
+  // that needs one (cloud sync, Evaluation Sheet sharing) does not work in dev; packaged builds always log in.
+  const [authed, setAuthed] = useState(() => import.meta.env.DEV || sessionStorage.getItem(SESSION_KEY) === '1')
   // True for the brief window between "login accepted" and the real App
   // actually mounting — drives the unblur/fade-out transition below.
   const [revealing, setRevealing] = useState(false)
@@ -140,7 +147,8 @@ export default function AuthGate() {
             const previousOwner = localStorage.getItem(OWNER_KEY)
             const sameOwner = !owner || previousOwner === owner
             if (!sameOwner && (previousOwner !== null || info?.offices)) {
-              for (const key of Object.keys(localStorage)) if (!KEEP_ON_ACCOUNT_CHANGE.has(key)) localStorage.removeItem(key)
+              for (const key of Object.keys(localStorage))
+                if (!KEEP_ON_ACCOUNT_CHANGE.has(key)) localStorage.removeItem(key)
             }
             if (owner) localStorage.setItem(OWNER_KEY, owner)
 
@@ -150,7 +158,13 @@ export default function AuthGate() {
               localStorage.setItem(LOCKED_OFFICE_KEY, JSON.stringify(offices))
               // Open the remembered office if it is one of theirs, else their first (sign-up) office.
               const remembered = loadOffice()
-              const open = offices.find((o) => sameAccountOffice(o, { corporation: remembered.corporation ?? '', zone: remembered.zone ?? '', circle: remembered.circle ?? '' }))
+              const open = offices.find((o) =>
+                sameAccountOffice(o, {
+                  corporation: remembered.corporation ?? '',
+                  zone: remembered.zone ?? '',
+                  circle: remembered.circle ?? ''
+                })
+              )
               setOffice(toOffice(open ?? offices[0]))
             } else {
               localStorage.removeItem(LOCKED_OFFICE_KEY)

@@ -1,6 +1,6 @@
 {
   "name": "head-draftsmen-app",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Documentation made easy",
   "main": "out/main/index.js",
   "author": "Head Draughtsman App",
@@ -31,6 +31,7 @@
     "firebase": "^12.16.0",
     "html-to-docx": "^1.8.0",
     "jszip": "^3.10.1",
+    "motion": "^14.10.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.1.200",
     "pizzip": "^3.1.7",

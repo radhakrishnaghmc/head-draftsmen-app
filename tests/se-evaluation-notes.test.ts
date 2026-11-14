@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { buildAgencyApprovalHtml, buildBidEvaluationHtml, type AgencyApprovalData, type BidEvaluationData } from '../core/seEvaluationNotes'
+import { buildBidEvaluationHtml, type AgencyApprovalData, type BidEvaluationData } from '../core/seEvaluationNotes'
+import { buildAgencyApprovalDocxB64, buildAgencyApprovalDocxXml, agencyApprovalScale } from '../core/seAgencyApprovalDocx'
+import PizZip from 'pizzip'
 import { convertHtmlToDocx } from '../core/htmlToDocx'
 
 const baseRefs = {
@@ -27,15 +29,6 @@ describe('Agency Approval / Bid Evaluation Ref block alignment', () => {
   // putting every point in its own borderless-table row (label/number/text
   // columns), so all five numbers land in the same column regardless of
   // which row carries the "Ref:" label.
-  it('gives every Ref point (1 through 5) the same number-column width, in Agency Approval', () => {
-    const data: AgencyApprovalData = { ...baseRefs, zone: 'Quthbullapur', bidEvalApprovedDate: '06.08.2026', bidders: [bidder] }
-    const html = buildAgencyApprovalHtml(data)
-    const numCellWidths = [...html.matchAll(/width:26pt;[^"]*"><p[^>]*>(\d\))/g)].map((m) => m[1])
-    expect(numCellWidths).toEqual(['1)', '2)', '3)', '4)', '5)'])
-    // Only the first row carries the "Ref:" label.
-    expect(html.match(/<b>Ref:<\/b>/g)?.length).toBe(1)
-  })
-
   it('gives every Ref point (1 through 4) the same number-column width, in Bid Evaluation (no 5th item)', () => {
     const data: BidEvaluationData = { ...baseRefs, bidders: [bidder] }
     const html = buildBidEvaluationHtml(data)
@@ -54,9 +47,7 @@ describe('Agency Approval / Bid Evaluation Ref block alignment', () => {
   // still passed. Only actually running the real conversion catches this
   // class of bug; keep this test even though it's slow.
   it('actually converts to a real .docx without throwing, in both documents', async () => {
-    const agencyData: AgencyApprovalData = { ...baseRefs, zone: 'Quthbullapur', bidEvalApprovedDate: '06.08.2026', bidders: [bidder] }
     const bidEvalData: BidEvaluationData = { ...baseRefs, bidders: [bidder] }
-    await expect(convertHtmlToDocx(buildAgencyApprovalHtml(agencyData))).resolves.toBeInstanceOf(Buffer)
     await expect(convertHtmlToDocx(buildBidEvaluationHtml(bidEvalData))).resolves.toBeInstanceOf(Buffer)
   })
 })
@@ -73,15 +64,41 @@ describe('Ref block table grid', () => {
   })
 })
 
-describe('Ref block spacing', () => {
-  it('has no cell padding and only a small gap between rows', async () => {
-    const { convertHtmlToDocx } = await import('../core/htmlToDocx')
-    const { buildAgencyApprovalHtml } = await import('../core/seEvaluationNotes')
-    const PizZip = (await import('pizzip')).default
-    const d: any = { zoneAbbr: 'QBZ', corp: 'CMC', workName: 'W', estimateLakhs: '1', asAuthority: 'x', asRefLine: 'x', tsNo: '1', tsDate: 'd', financialYear: '2026-27', nitNo: 'n', nitDate: 'd', itemNo: '1', techBidOpenDate: 'd', bidders: [], bidEvalApprovedDate: 'd' }
-    const xml = new PizZip(await convertHtmlToDocx(buildAgencyApprovalHtml(d))).file('word/document.xml')!.asText()
-    const tbl = /<w:tbl>[\s\S]*?<\/w:tbl>/.exec(xml)![0]
-    expect(tbl).toContain('<w:top w:type="dxa" w:w="0"/>')
-    expect(tbl).toContain('w:after="40"')
+describe('Agency Approval note (strict A4)', () => {
+  const mk = (n: number): AgencyApprovalData => ({
+    ...baseRefs,
+    zone: 'Quthbullapur',
+    bidEvalApprovedDate: '06.08.2026',
+    bidders: Array.from({ length: n }, (_, i) => ({ ...bidder, sno: String(i + 1), name: `Agency ${i + 1}`, rank: `L-${i + 1}` }))
+  })
+  const xmlOf = (d: AgencyApprovalData) => new PizZip(buildAgencyApprovalDocxB64(d), { base64: true }).file('word/document.xml')!.asText()
+
+  it('is an A4 page whose tables never exceed the text width', () => {
+    const xml = xmlOf(mk(8))
+    expect(xml).toContain('<w:pgSz w:w="11906" w:h="16838"')
+    const m = /<w:pgMar[^>]*w:right="(\d+)"[^>]*w:left="(\d+)"/.exec(xml)!
+    const text = 11906 - Number(m[1]) - Number(m[2])
+    for (const t of xml.matchAll(/<w:tblW w:w="(\d+)"/g)) expect(Number(t[1])).toBeLessThanOrEqual(text)
+  })
+
+  it('shrinks table text as more agencies bid (11pt for 2, 10pt for 5, 9pt for 8)', () => {
+    expect(agencyApprovalScale(2).size).toBe(22)
+    expect(agencyApprovalScale(5).size).toBe(20)
+    expect(agencyApprovalScale(8).size).toBe(18)
+    expect(agencyApprovalScale(20).size).toBeLessThan(agencyApprovalScale(8).size)
+  })
+
+  it('lists every bidder, names the L-1 and signs off AE / Dy.EE / SE (M)', () => {
+    const xml = buildAgencyApprovalDocxXml(mk(3))
+    for (const i of [1, 2, 3]) expect(xml).toContain(`Agency ${i}`)
+    expect(xml).toContain('is the lowest bidder and quoted @ (-) 10 % Less than the ECV')
+    expect(xml).toContain('found that (03) bidders were eligible')
+    expect(xml).toContain('SE (M), QBZ')
+  })
+
+  it('names the chosen corporation instead of CMC', () => {
+    const xml = buildAgencyApprovalDocxXml({ ...mk(1), corp: 'MMC', asRefLine: 'Commissioner, MMC, dated:' })
+    expect(xml).toContain('MMC')
+    expect(xml).not.toMatch(/\bCMC\b/)
   })
 })

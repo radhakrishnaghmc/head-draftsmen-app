@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
-import type { IssuedIntimation } from '@core/types'
+import type { ExcelTable, IssuedIntimation } from '@core/types'
+import RefreshFromWorksButton from './RefreshFromWorksButton'
+import { refreshAgainstWorks, refreshIntimation } from '@core/refreshFromWorks'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { matchesBoardSearch } from '@core/boardSearch'
 import { intimationLetterDate } from '@core/intimationFill'
 import { closeOnBackdropMouseDown } from '../overlayClose'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import BoardSearch from './BoardSearch'
+import DeleteAllButton from './DeleteAllButton'
 import { IconCheck, IconDoc, IconDownload, IconTrash, IconWarn } from './Icons'
 
 interface Template {
@@ -119,13 +122,17 @@ const dmy = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').r
 export default function IssuedIntimationsTab({
   items,
   onChange,
-  searchSlot
+  searchSlot,
+  loginId,
+  worksTable
 }: {
   /** This office's issued intimations (including binned ones). */
   items: IssuedIntimation[]
   onChange: (next: IssuedIntimation[]) => void
   /** Element in the page's sub-tab row to show the search box in (it sits in the card until that exists). */
   searchSlot?: HTMLElement | null
+  loginId: string
+  worksTable: ExcelTable | null
 }) {
   const mine = useMemo(
     () => items.filter((i) => !i.deletedAt).sort((a, b) => letterDate(b).localeCompare(letterDate(a))),
@@ -143,7 +150,28 @@ export default function IssuedIntimationsTab({
     for (const i of shown) byDate.set(letterDate(i), [...(byDate.get(letterDate(i)) ?? []), i])
     return [...byDate.entries()]
   }, [shown])
-  const searchBox = <BoardSearch value={query} onChange={setQuery} count={shown.length} total={mine.length} />
+  const searchBox = (
+    <>
+      <BoardSearch value={query} onChange={setQuery} count={shown.length} total={mine.length} />
+      <RefreshFromWorksButton
+        hasWorks={!!worksTable}
+        onRefresh={() => {
+          const r = refreshAgainstWorks(items, worksTable, refreshIntimation)
+          onChange(r.items)
+          return { found: r.found, total: mine.length }
+        }}
+      />
+      <DeleteAllButton
+        count={mine.length}
+        label="issued intimations"
+        loginId={loginId}
+        onConfirmed={() => {
+          const now = new Date().toISOString()
+          onChange(items.map((i) => (i.deletedAt ? i : { ...i, deletedAt: now })))
+        }}
+      />
+    </>
+  )
   const tplOf = (i: IssuedIntimation) => templates[formatKey(i.format)]
 
   function remove(id: string) {

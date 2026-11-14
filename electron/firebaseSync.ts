@@ -202,7 +202,8 @@ export async function startSignup(req: SignupRequest): Promise<string> {
     return await startSignupUnchecked(req)
   } catch (e) {
     const code = authCode(e)
-    if (code === 'auth/operation-not-allowed') return 'Sign up is not switched on yet: the administrator must enable Email/Password sign-in in Firebase (Authentication → Sign-in method).'
+    if (code === 'auth/operation-not-allowed')
+      return 'Sign up is not switched on yet: the administrator must enable Email/Password sign-in in Firebase (Authentication → Sign-in method).'
     if (code === 'auth/too-many-requests') return 'Too many attempts. Wait a few minutes and try again.'
     throw e
   }
@@ -231,9 +232,7 @@ export async function completeSignup(req: SignupRequest): Promise<string> {
 }
 
 /** Result of checking a self-registered account: 'ok' signs in, 'none' is no such account or a wrong password. */
-export type AccountCheck =
-  | { state: 'none' }
-  | { state: 'ok'; offices: AccountOffice[] }
+export type AccountCheck = { state: 'none' } | { state: 'ok'; offices: AccountOffice[] }
 
 /**
  * Creates a self-registered account (login screen "Sign up"). The password is stored only as a salted hash, and the
@@ -247,7 +246,9 @@ async function createAccount(req: SignupRequest): Promise<string> {
   // The same person confirming again (a double press, a retry after the screen refreshed): the account is already there, so that is success.
   if (existing.exists()) {
     const hash = existing.data().passwordHash
-    return typeof hash === 'string' && verifyPassword(req.password, hash) ? '' : 'An account already exists for that email address.'
+    return typeof hash === 'string' && verifyPassword(req.password, hash)
+      ? ''
+      : 'An account already exists for that email address.'
   }
   await setDoc(ref, {
     loginId: req.email,
@@ -276,12 +277,17 @@ export async function checkAccount(loginId: string, password: string): Promise<A
 }
 
 /** Replaces the stored password hash after re-checking the current password. Resolves '' when changed, else the reason it was not. */
-export async function changeAccountPassword(loginId: string, currentPassword: string, newPassword: string): Promise<string> {
+export async function changeAccountPassword(
+  loginId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<string> {
   await ensureAuth()
   const ref = doc(db!, 'accounts', normalizeId(loginId))
   const snap = await getDoc(ref)
   const hash = snap.exists() ? snap.data().passwordHash : undefined
-  if (typeof hash !== 'string' || !verifyPassword(currentPassword, hash)) return 'Incorrect login ID or current password.'
+  if (typeof hash !== 'string' || !verifyPassword(currentPassword, hash))
+    return 'Incorrect login ID or current password.'
   await updateDoc(ref, { passwordHash: hashPassword(newPassword) })
   return ''
 }
@@ -291,7 +297,7 @@ export async function startPasswordReset(email: string): Promise<string> {
   await ensureAuth()
   const snap = await getDoc(doc(db!, 'accounts', normalizeId(email)))
   if (!snap.exists()) return 'No account found for that email address.'
-  if (typeof snap.data().passwordHash !== 'string') return 'This login has no password to reset. Sign in with Google, or contact the administrator.'
+  // A Google-created account has no password yet: the same emailed link lets its owner create one (proving the email is theirs).
   try {
     // Firebase only emails addresses that have a sign-in user (silently skipping the rest), and older logins have none:
     // create one with a throwaway password first. Whoever opens the emailed link is the one who picks the real password.
@@ -305,7 +311,8 @@ export async function startPasswordReset(email: string): Promise<string> {
   } catch (e) {
     const code = authCode(e)
     if (code === 'auth/invalid-email') return 'Enter a valid email address.'
-    if (code === 'auth/operation-not-allowed') return 'Email reset is not switched on yet: the administrator must enable Email/Password sign-in in Firebase (Authentication → Sign-in method).'
+    if (code === 'auth/operation-not-allowed')
+      return 'Email reset is not switched on yet: the administrator must enable Email/Password sign-in in Firebase (Authentication → Sign-in method).'
     if (code === 'auth/user-not-found') return 'This account cannot be reset by email. Contact the administrator.'
     if (code === 'auth/too-many-requests') return 'Too many attempts. Wait a few minutes and try again.'
     throw e
@@ -1355,7 +1362,10 @@ export async function listCorporationUsers(corporation: string, excludeLoginId: 
 }
 
 /** Creates the account of a first-time Google user. No password is stored (Google proves the email), so the password login cannot be used for it. */
-export async function createGoogleAccount(email: string, d: { name: string; mobile: string; corporation: string; zone: string; circle: string }): Promise<void> {
+export async function createGoogleAccount(
+  email: string,
+  d: { name: string; mobile: string; corporation: string; zone: string; circle: string }
+): Promise<void> {
   await ensureAuth()
   const ref = doc(db!, 'accounts', normalizeId(email))
   if ((await getDoc(ref)).exists()) return

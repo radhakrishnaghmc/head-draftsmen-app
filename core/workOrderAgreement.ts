@@ -883,6 +883,7 @@ export function civilTenderPlaceholders(
       pct == null ? '' : pct === 0 ? '0%, within the estimate rates' : `(-) ${formatPercent(pct)}% Less, within the estimate rates`,
     Contractor: contractor,
     'Contract Amount': contract != null ? groupedAmount(contract) : '',
+    'Contract Words': contract != null ? amountToWords(contract) : '',
     ECV: ecv != null ? groupedAmount(ecv) : '',
     EMD: ecv != null ? groupedAmount(Math.round(ecv * 0.01)) : '',
     'NIT No': pdf.noticeNo ?? '',
@@ -906,6 +907,9 @@ export function civilTenderPlaceholders(
     // Price Bid page: the "I Sri/Smt/M/s …" agency, the estimated contract value
     // in figures + words, and the tender % in figures and words.
     'Agency Name': f.agencyName,
+    // Tenderer's signature block (end of the Tender Schedule): the contractor's address and phone.
+    'Tenderer Address': (f.address ?? '').trim(),
+    'Tenderer Phone': (f.phone ?? '').trim(),
     'ECV Figures Words': ecv != null ? `${groupedRupees(ecv)} (${amountToWords(ecv)})` : '',
     'Tender Percentage Figures': pct == null ? '' : `${formatPercent(pct)} %`,
     'Tender Percentage Words': pct == null ? '' : percentToWords(pct),

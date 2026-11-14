@@ -1,4 +1,5 @@
 import { computeWorkAmounts, tenderPercentFromRow } from './worksAmounts'
+import { stripItemNoTag } from './tenderAgents/shared'
 import { wrapAgencyAddress, type WorkOrderAgreementFields } from './workOrderAgreement'
 import { isReservedWork } from './tenderAgents/nameOfWork'
 import { zoneAbbr } from './loaSe'
@@ -127,7 +128,7 @@ export function resolveIntimationValue(
     case 'financial year':
       return indianFinancialYear()
     case 'name of the work':
-      return workName
+      return stripItemNoTag(workName)
     case 'nit no':
     case 'tender notice no':
       return notice.nitNo ?? pdf.noticeNo ?? row['Tender Notice No'] ?? ''

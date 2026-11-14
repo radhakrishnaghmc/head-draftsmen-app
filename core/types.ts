@@ -332,7 +332,7 @@ export interface IssuedIntimation {
 
 export interface StoredLetter {
   id: string
-  kind: 'qc' | 'forwarding' | 'dbnote'
+  kind: 'qc' | 'forwarding' | 'dbnote' | 'filebacker' | 'agreementbond' | 'workorder' | 'intimation' | 'tenderdoc' | 'notesubmitted' | 'schedulea' | 'deviation'
   /** The office (key: "Corporation|Zone|Circle") it was made under — like the Works List/To Do. */
   officeKey?: string
   nitNo: string

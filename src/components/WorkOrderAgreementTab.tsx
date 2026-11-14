@@ -25,7 +25,7 @@ import { parseBalanceEmdReceipt } from '@core/balanceEmdReceipt'
 import { parseBankGuarantees, extractBankName } from '@core/bankGuaranteePdf'
 import { checkSameWork, sameWorkMismatchMessage } from '@core/sameWorkCheck'
 import { updateWorksListFromEvaluations } from '@core/worksTenderUpdate'
-import { scanBelongsToOffice, saveWorkspaceInputs } from '@core/worksSync'
+import { scanBelongsToOffice, saveWorkspaceInputs, workspaceColumn, sanctionFinancialYear } from '@core/worksSync'
 import {
   deriveFields,
   workOrderPlaceholders,
@@ -49,14 +49,17 @@ import {
 import type { WorkOrderAgreementFields } from '@core/workOrderAgreement'
 import { extractItemNo, stripItemNoTag } from '@core/bidDocument'
 import { corporationByName, resolveFromDirectory, entriesOf, CORPORATIONS } from '../zoneCircleDirectory'
+import { circleFromWorkName } from '../zoneCircleCheck'
 import { type Office, officeScopedKey, TEMPLATE_KEYS, TEMPLATE_VARIANT_CHANGED_EVENT } from '../office'
+import type { DeviationItem, DeviationMeta } from '@core/deviationTemplate'
 import { boqToScheduleA, buildBoqFromEstimate, extractWorkNameFromBoq } from '../boqTransform'
 import { guessHeaderRow, buildTableFromGrid } from '@core/sheet'
 import {
   extractEstimateItems,
   extractEstimateCharges,
   extractWorkName,
-  type EstimateCharges
+  type EstimateCharges,
+  type EstimateWorkItem
 } from '@core/estimateExtract'
 import { buildScheduleARows, rowsToScheduleAItems, metaFromWorksRow, findWorksRowByName } from '@core/scheduleA'
 import { indianDigitGroups } from '@core/worksAmounts'
@@ -86,6 +89,7 @@ import DocFieldsEditor, { groupLabels, type DocFieldGroup } from './DocFieldsEdi
 import { DB_NOTE_FIELDS } from '../dbNoteFields'
 import { mismatchHint } from '../docClassify'
 import type { PlaceholderMatch } from '@core/createDocument'
+import { AGREEMENT_DOCS, isAgreementDoc } from '../bulkAgreementDocs'
 import type { ScheduleAMeta, AgreementBundleFile, VerifyDocItem, VerifyDocResult } from '../../electron/ipc-contract'
 import { verifyWorkFigures, type DocFigures } from '../../core/agreementVerify'
 import type { MonitoringFormatWorkRow } from '../../core/monitoringFormat'
@@ -273,6 +277,7 @@ function saveDocEdits(key: string, edits: DocEdits): void {
   for (const old of keys.slice(0, Math.max(0, keys.length - 30))) delete docEditsStore[old]
 }
 
+const DEVIATION_LABEL = 'Deviation Statement'
 const DOC_LABEL: Record<Output, string> = {
   fileBacker: 'File Backer',
   forwardingSlip: 'Forwarding Slip',
@@ -403,7 +408,7 @@ function isEditableDoc(kind: Output | null): kind is DocKind {
  * editor panel calls it. A document not listed here falls back to its template's
  * own labels, grouped by groupLabels().
  */
-const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
+export const DOC_FIELDS: Partial<Record<DocKind, DocFieldGroup[]>> = {
   aeDyeeForwarding: [
     {
       title: 'Office',
@@ -896,6 +901,8 @@ export default function WorkOrderAgreementTab({
   // (false). A BOQ's total is the ECV alone; an estimate fills both figures.
   const [uploadedIsEstimate, setUploadedIsEstimate] = useState(false)
   const [scheduleA, setScheduleA] = useState<ExcelTable | null>(null)
+  // The uploaded technical-sanction estimate's items — they fill the Deviation Statement (empty for a flat BOQ upload).
+  const [estimateItems, setEstimateItems] = useState<EstimateWorkItem[]>([])
   // GST / Labour Cess as the uploaded estimate charges them. The Tender
   // Document's "amount reimbursable to the Contractor" page prints the
   // estimate's own GST figure rather than 18% of the ECV.
@@ -1469,7 +1476,7 @@ export default function WorkOrderAgreementTab({
       table: updated,
       matchedCount,
       matchedRowIndices
-    } = updateWorksListFromEvaluations(table, [ev], embeddings, noticeForRow)
+    } = updateWorksListFromEvaluations(table, [ev], embeddings, noticeForRow, (n) => circleFromWorkName(n, office?.corporation))
     if (matchedCount > 0) {
       const idx = matchedRowIndices[0]
       if (idx != null && idx >= 0) setRowIndex(idx)
@@ -1788,15 +1795,69 @@ export default function WorkOrderAgreementTab({
     )
   }
 
-  /** Hands the DB Note just issued (with every value as printed, hand edits included) to the Forwarding Slips, QC Intimations & DB Note tab. */
-  function recordDbNote() {
-    if (!onLetterIssued) return
-    const values = { ...derivedPlaceholders('workBillNote', fields), ...(docEdits.workBillNote ?? {}) }
-    formatDbNoteAmounts(values)
+  /**
+   * Hands a document just downloaded / printed (with every value as printed, hand edits included) to the Forwarding Slips,
+   * QC Intimations & DB Note tab. Only the kinds that tab keeps a board for; the Agreement Bond / Work Order / File Backer
+   * of a zonal (SE) office use other templates the board can't re-fill, so those aren't recorded.
+   */
+  const LETTER_OF: Partial<Record<DocKind, StoredLetter['kind']>> = {
+    workBillNote: 'dbnote',
+    qccIntimation: 'qc',
+    aeDyeeForwarding: 'forwarding',
+    fileBacker: 'filebacker',
+    agreement: 'agreementbond',
+    workOrder: 'workorder',
+    civilTender: 'tenderdoc'
+  }
+  function recordLetter(kind: DocKind, opts?: { blankDate?: boolean }) {
+    const letterKind = LETTER_OF[kind]
+    if (!onLetterIssued || !letterKind || (seMode && letterKind !== 'dbnote')) return
+    const f = opts?.blankDate ? { ...fields, agreementDate: '', workOrderDate: '' } : fields
+    const values = { ...derivedPlaceholders(kind, f), ...(docEdits[kind] ?? {}) }
+    if (kind === 'workBillNote') formatDbNoteAmounts(values)
+    const corp = office?.corporation
+    const variant = isAgreementDoc(letterKind)
+      ? AGREEMENT_DOCS[letterKind].variantFor(localStorage.getItem(officeScopedKey(AGREEMENT_DOCS[letterKind].templateKey, office)), corp)
+      : letterKind === 'tenderdoc'
+        ? variantForCorporation(
+            localStorage.getItem(civilTenderVariantKey) ?? corporationDefaultVariant(corp, undefined),
+            corp,
+            CIVIL_TENDER_TEMPLATE_VARIANTS
+          ) ?? 'cmc'
+      : letterKind === 'qc'
+        ? variantForCorporation(
+            localStorage.getItem(qcVariantKey) ?? corporationDefaultVariant(corp, undefined),
+            corp,
+            QC_INTIMATION_COMPLETION_TEMPLATE_VARIANTS
+          ) ?? 'cmc'
+        : letterKind === 'forwarding'
+          ? corporationDefaultVariant(corp, undefined) ?? 'cmc'
+          : 'default'
     const lakhs = parseFloat((fields.estimateLakhs ?? '').replace(/,/g, ''))
     onLetterIssued({
-      id: `sl-${Date.now()}-db`,
-      kind: 'dbnote',
+      id: `sl-${Date.now()}-${letterKind}`,
+      kind: letterKind,
+      nitNo: (fields.noticeNo ?? '').trim(),
+      nitDate: (fields.noticeDate ?? '').trim(),
+      agency: (fields.agencyName ?? '').trim(),
+      workName: (fields.nameOfWork ?? '').trim(),
+      typeOfWork: inferTypeOfWork(fields.nameOfWork ?? '') ?? '',
+      estimateRupees: Number.isFinite(lakhs) && lakhs > 0 ? Math.round(lakhs * 100000) : null,
+      variant,
+      values,
+      fileName: docName(kind),
+      createdDate: new Date().toISOString().slice(0, 10),
+      loaDate: intimationLetterDate({ 'LOA Date': fields.intimationDate ?? '' }) || undefined
+    })
+  }
+
+  /** Hands the Note Submitted just downloaded / printed to the Forwarding Slips tab — its data + margins, re-rendered there on demand. */
+  function recordNote() {
+    if (!onLetterIssued || !noteData || seMode) return
+    const lakhs = parseFloat((fields.estimateLakhs ?? '').replace(/,/g, ''))
+    onLetterIssued({
+      id: `sl-${Date.now()}-note`,
+      kind: 'notesubmitted',
       nitNo: (fields.noticeNo ?? '').trim(),
       nitDate: (fields.noticeDate ?? '').trim(),
       agency: (fields.agencyName ?? '').trim(),
@@ -1804,8 +1865,51 @@ export default function WorkOrderAgreementTab({
       typeOfWork: inferTypeOfWork(fields.nameOfWork ?? '') ?? '',
       estimateRupees: Number.isFinite(lakhs) && lakhs > 0 ? Math.round(lakhs * 100000) : null,
       variant: 'default',
-      values,
-      fileName: docName('workBillNote'),
+      values: { data: JSON.stringify(noteData), margins: JSON.stringify(noteMargins) },
+      fileName: `${noteSubmittedFileName(noteData.workName)}${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`,
+      createdDate: new Date().toISOString().slice(0, 10),
+      loaDate: intimationLetterDate({ 'LOA Date': fields.intimationDate ?? '' }) || undefined
+    })
+  }
+
+  /** Hands the Schedule A just downloaded / printed to the Issued Documents tab — its estimate rows + meta, re-rendered there on demand. */
+  function recordScheduleA() {
+    if (!onLetterIssued || !scheduleA) return
+    const lakhs = parseFloat((fields.estimateLakhs ?? '').replace(/,/g, ''))
+    onLetterIssued({
+      id: `sl-${Date.now()}-sa`,
+      kind: 'schedulea',
+      nitNo: (fields.noticeNo ?? '').trim(),
+      nitDate: (fields.noticeDate ?? '').trim(),
+      agency: (fields.agencyName ?? '').trim(),
+      workName: (fields.nameOfWork ?? '').trim(),
+      typeOfWork: inferTypeOfWork(fields.nameOfWork ?? '') ?? '',
+      estimateRupees: Number.isFinite(lakhs) && lakhs > 0 ? Math.round(lakhs * 100000) : null,
+      variant: 'default',
+      // Only what the sheet prints — not the whole uploaded workbook's bookkeeping.
+      values: { table: JSON.stringify({ headers: scheduleA.headers, rows: scheduleA.rows }), meta: JSON.stringify(scheduleAMeta ?? {}), se: seMode ? '1' : '' },
+      fileName: `Schedule A${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`,
+      createdDate: new Date().toISOString().slice(0, 10),
+      loaDate: intimationLetterDate({ 'LOA Date': fields.intimationDate ?? '' }) || undefined
+    })
+  }
+
+  // The Deviation Statement joins Issued Documents (Deviation Statements) when it is saved on its own or in "Download all".
+  function recordDeviation() {
+    if (!onLetterIssued || estimateItems.length === 0) return
+    const lakhs = parseFloat((fields.estimateLakhs ?? '').replace(/,/g, ''))
+    onLetterIssued({
+      id: `sl-${Date.now()}-dv`,
+      kind: 'deviation',
+      nitNo: (fields.noticeNo ?? '').trim(),
+      nitDate: (fields.noticeDate ?? '').trim(),
+      agency: (fields.agencyName ?? '').trim(),
+      workName: (fields.nameOfWork ?? '').trim(),
+      typeOfWork: inferTypeOfWork(fields.nameOfWork ?? '') ?? '',
+      estimateRupees: Number.isFinite(lakhs) && lakhs > 0 ? Math.round(lakhs * 100000) : null,
+      variant: 'default',
+      values: { items: JSON.stringify(deviationItems()), meta: JSON.stringify(deviationMeta()), ...(pdfEval?.tenderId ? { tenderId: pdfEval.tenderId } : {}) },
+      fileName: `${DEVIATION_LABEL}${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`,
       createdDate: new Date().toISOString().slice(0, 10),
       loaDate: intimationLetterDate({ 'LOA Date': fields.intimationDate ?? '' }) || undefined
     })
@@ -2159,7 +2263,7 @@ export default function WorkOrderAgreementTab({
     const v = periodDraft.trim()
     if (!v || !periodPrompt) return
     if (manualMode) setManual((p) => ({ ...p, completionMonths: v }))
-    else setCompletionMonths(v)
+    else saveInput('completionMonths', v)
     setPeriodRun(periodPrompt)
     setPeriodPrompt(null)
   }
@@ -2172,7 +2276,7 @@ export default function WorkOrderAgreementTab({
       const filled = await fillDoc(kind)
       const res = await api.exportCreatedDocument(filled, docName(kind), formats)
       setActionSaved(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
-      if (kind === 'workBillNote' && res && res.length > 0) recordDbNote()
+      if (res && res.length > 0) recordLetter(kind)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -2202,7 +2306,7 @@ export default function WorkOrderAgreementTab({
         fontsStatus: (document.fonts as any).status
       }
       await api.printCreatedDocument(container.innerHTML)
-      if (kind === 'workBillNote') recordDbNote()
+      recordLetter(kind)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -2315,7 +2419,7 @@ export default function WorkOrderAgreementTab({
     // A Zone-level (SE) office's 6 rebuilt documents — Schedule A (pushed
     // below, outside this count) is its other output.
     const wants = (key: string) => !bundleSkipped.has(key)
-    const totalPrep = bundleDocs.filter((d) => d.key !== 'scheduleA' && wants(d.key)).length
+    const totalPrep = bundleDocs.filter((d) => d.key !== 'scheduleA' && d.key !== 'deviation' && wants(d.key)).length
     let prepDone = 0
     setBundleProgress({ phase: 'preparing', done: 0, total: totalPrep })
     const unsubscribe = api.onAgreementBundleProgress(({ done, total }) =>
@@ -2380,6 +2484,13 @@ export default function WorkOrderAgreementTab({
           scheduleAMeta,
           scheduleAIsSe: seMode
         })
+      if (deviationReady && wants('deviation'))
+        files.push({
+          name: `Deviation Statement${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`,
+          format: 'xlsx',
+          deviationItems: deviationItems(),
+          deviationMeta: deviationMeta()
+        })
       if (files.length === 0) {
         setActionError(
           bundleSkipped.size > 0 ? 'No documents are selected.' : 'No documents are ready to download yet.'
@@ -2390,8 +2501,14 @@ export default function WorkOrderAgreementTab({
       // One folder per tender inside the chosen location: "Agreement Docs of <Tender Id>".
       const tid = (fields.tenderId || pdfEval?.tenderId || '').trim()
       const res = await api.exportAgreementBundle(files, undefined, tid ? `Agreement Docs of ${tid}` : 'Agreement Docs')
-      // The DB Note rides along in the bundle — collect it too, unless it is the one file that failed to save.
-      if (res && workBillNoteB64 && wants('workBillNote') && !res.failed.some((f) => f.startsWith(docName('workBillNote')))) recordDbNote()
+      // Every letter-board document rides along in the bundle — collect each, unless it is one that failed to save.
+      if (res)
+        for (const k of Object.keys(LETTER_OF) as DocKind[]) {
+          if (wants(k) && !res.failed.some((f) => f.startsWith(docName(k)))) recordLetter(k, { blankDate: k === 'workOrder' || k === 'agreement' })
+        }
+      if (res && scheduleA && wants('scheduleA') && !res.failed.some((f) => f.startsWith('Schedule A'))) recordScheduleA()
+      if (res && deviationReady && wants('deviation') && !res.failed.some((f) => f.startsWith(DEVIATION_LABEL))) recordDeviation()
+      if (res && noteReady && wants('note') && !res.failed.some((f) => f.startsWith(noteSubmittedFileName(noteData?.workName)))) recordNote()
       const unresolvedNote =
         unresolvedWarnings.length > 0
           ? ` Warning: ${unresolvedWarnings.length} document(s) have an unfilled field — ${unresolvedWarnings.join('; ')}.`
@@ -2433,34 +2550,78 @@ export default function WorkOrderAgreementTab({
     const key = `${rowIndex}|${row['Wincode'] ?? ''}|${row['Name of the work'] ?? ''}`
     if (workspaceSeedKey.current === key) return
     workspaceSeedKey.current = key
+    const dbCell = (k: 'agreementNo' | 'completionPeriod' | 'agreementDate') => {
+      const col = workspaceColumn(table, k)
+      return col ? (row[col] ?? '') : ''
+    }
     const db = {
       adminSanctionDate: dmyToIso(row['Admin Sanction Date'] ?? ''),
       newspapers: row['Newspapers Published'] ?? '',
       aeNameNumber: row['AE Name & Number'] ?? '',
-      adminSanctionBy: row['Sanction By'] ?? ''
+      adminSanctionBy: row['Sanction By'] ?? '',
+      agreementNo: dbCell('agreementNo'),
+      completionMonths: dbCell('completionPeriod'),
+      agreementDate: dmyToIso(dbCell('agreementDate'))
     }
     const next = {
       adminSanctionDate: db.adminSanctionDate || adminSanctionDate,
       newspapers: db.newspapers || newspapers,
       aeNameNumber: db.aeNameNumber || aeNamePhone,
-      adminSanctionBy: db.adminSanctionBy || adminSanctionBy
+      adminSanctionBy: db.adminSanctionBy || adminSanctionBy,
+      agreementNo: db.agreementNo || agreementNo,
+      completionMonths: db.completionMonths || completionMonths,
+      agreementDate: db.agreementDate || agreementDate
     }
     setAdminSanctionDate(next.adminSanctionDate)
     setNewspapers(next.newspapers)
     setAeNamePhone(next.aeNameNumber)
     setAdminSanctionBy(next.adminSanctionBy)
-    const saved = saveWorkspaceInputs(table, rowIndex, { ...next, adminSanctionDate: next.adminSanctionDate ? isoToDmy(next.adminSanctionDate) : '' })
+    setAgreementNo(next.agreementNo)
+    setCompletionMonths(next.completionMonths)
+    setAgreementDate(next.agreementDate)
+    // The financial year is the year of the Administrative Sanction date; with no such date yet, the one entered for
+    // this work (Fill details manually) or else the current year.
+    // A year the database already holds is never replaced.
+    const saved = saveWorkspaceInputs(
+      table,
+      rowIndex,
+      {
+        adminSanctionDate: next.adminSanctionDate ? isoToDmy(next.adminSanctionDate) : '',
+        newspapers: next.newspapers,
+        aeNameNumber: next.aeNameNumber,
+        adminSanctionBy: next.adminSanctionBy,
+        agreementNo: next.agreementNo.trim(),
+        agreementDate: next.agreementDate ? isoToDmy(next.agreementDate) : '',
+        completionPeriod: next.completionMonths.trim(),
+        financialYear:
+          sanctionFinancialYear(next.adminSanctionDate ? isoToDmy(next.adminSanctionDate) : '') ||
+          fields.financialYear
+      },
+      ['financialYear']
+    )
     if (saved !== table) onChange(saved)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [worksRowMatched, rowIndex, table])
 
-  function saveInput(field: 'adminSanctionDate' | 'newspapers' | 'aeNameNumber' | 'adminSanctionBy', value: string) {
+  function saveInput(
+    field: 'adminSanctionDate' | 'newspapers' | 'aeNameNumber' | 'adminSanctionBy' | 'completionMonths' | 'agreementNo' | 'agreementDate',
+    value: string
+  ) {
     if (field === 'adminSanctionDate') setAdminSanctionDate(value)
     else if (field === 'newspapers') setNewspapers(value)
     else if (field === 'aeNameNumber') setAeNamePhone(value)
+    else if (field === 'completionMonths') setCompletionMonths(value)
+    else if (field === 'agreementNo') setAgreementNo(value)
+    else if (field === 'agreementDate') setAgreementDate(value)
     else setAdminSanctionBy(value)
     if (!worksRowMatched || !table) return
-    const saved = saveWorkspaceInputs(table, rowIndex, { [field]: field === 'adminSanctionDate' && value ? isoToDmy(value) : value })
+    const key = field === 'completionMonths' ? 'completionPeriod' : field
+    // Setting the sanction date also sets the financial year of the sanction (an explicit entry, so it replaces any year there).
+    const sanctionFy = field === 'adminSanctionDate' && value ? sanctionFinancialYear(isoToDmy(value)) : ''
+    const saved = saveWorkspaceInputs(table, rowIndex, {
+      [key]: (field === 'adminSanctionDate' || field === 'agreementDate') && value ? isoToDmy(value) : field === 'completionMonths' || field === 'agreementNo' ? value.trim() : value,
+      ...(sanctionFy ? { financialYear: sanctionFy } : {})
+    })
     if (saved !== table) onChange(saved)
   }
 
@@ -2561,6 +2722,7 @@ export default function WorkOrderAgreementTab({
     .filter(([, ready]) => !!ready)
     .map(([key]) => ({ key: key as string, label: DOC_LABEL[key as Output] }))
   if (scheduleA) bundleDocs.push({ key: 'scheduleA', label: DOC_LABEL.scheduleA })
+  if (estimateItems.length > 0) bundleDocs.push({ key: 'deviation', label: DEVIATION_LABEL })
 
   // Defence-in-depth: Note Submitted is seeded independently of every other
   // document (its own effect, above) from the same upload/matched row — if it
@@ -2603,6 +2765,7 @@ export default function WorkOrderAgreementTab({
       const name = `${noteSubmittedFileName(noteData.workName)}${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`
       const res = await api.exportCreatedDocument(b64, name, formats)
       setActionSaved(res && res.length > 0 ? `Saved: ${res.map((r) => r.file).join(', ')}` : 'Cancelled.')
+      if (res && res.length > 0) recordNote()
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -2619,6 +2782,7 @@ export default function WorkOrderAgreementTab({
       // and the printed pages match the preview page for page.
       const parts = noteSubmittedSections(noteData).map((sec) => sec.html)
       await api.printCreatedDocument(noteSheetsHtml(paginateNotes(parts, noteMargins), noteMargins))
+      recordNote()
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -2660,6 +2824,7 @@ export default function WorkOrderAgreementTab({
       setEstimateCharges(extractEstimateCharges(g.grid, headerRow))
       const items = extractEstimateItems(g.grid, headerRow)
       setUploadedIsEstimate(items.length > 0)
+      setEstimateItems(items)
       setScheduleA(items.length > 0 ? boqToScheduleA(buildBoqFromEstimate(items)) : boqToScheduleA(t))
 
       // If the source names its own work and it matches a Works List row, hop
@@ -2678,6 +2843,7 @@ export default function WorkOrderAgreementTab({
       }
     } catch (e) {
       setScheduleA(null)
+      setEstimateItems([])
       setEstimateCharges({})
       const hint = mismatchHint(t.headers, 'boq')
       setScheduleAError((e instanceof Error ? e.message : String(e)) + (hint ? ` ${hint}` : ''))
@@ -2696,7 +2862,7 @@ export default function WorkOrderAgreementTab({
       if (!name && !boq) return undefined
       // If this work is in the loaded Works List, its own figures win.
       const match = name && table ? findWorksRowByName(table, name) : undefined
-      if (match) return { ...metaFromWorksRow(match.row), nameOfWork: name }
+      if (match) return { ...metaFromWorksRow(match.row), nameOfWork: stripItemNoTag(name) }
       // Otherwise the amounts come from the uploaded file itself: a flat BOQ's
       // total is the ECV alone; a detailed estimate fills both the Estimate
       // Amount and the ECV. With neither a Works List match nor a total, both
@@ -2811,6 +2977,32 @@ export default function WorkOrderAgreementTab({
     if (scheduleAOnly) onContent?.(!!boq || !!scheduleAError)
   }, [scheduleAOnly, boq, scheduleAError, onContent])
 
+  // Deviation Statement: the uploaded estimate's items against the agreement's own details (same fill as the estimate workspace's).
+  const deviationReady = estimateItems.length > 0 && !scheduleAMismatch
+  const deviationItems = (): DeviationItem[] =>
+    estimateItems.map((it) => ({ description: it.description, unit: it.unit, quantity: it.quantity, rate: it.rate }))
+  const deviationMeta = (): DeviationMeta => ({
+    circle: fields.circle || undefined,
+    nameOfWork: fields.nameOfWork,
+    agencyName: fields.agencyName.trim(),
+    estimateAmountLakhs: Number(fields.estimateLakhs) || 0
+  })
+
+  async function downloadDeviation() {
+    if (!deviationReady) return
+    try {
+      const saved = await api.exportDeviation(
+        deviationItems(),
+        deviationMeta(),
+        `Deviation Statement${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`
+      )
+      if (saved) recordDeviation()
+      setActionSaved(saved ? `Saved: ${saved}` : 'Cancelled.')
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   async function downloadScheduleAPdf() {
     if (!scheduleA) return
     setScheduleABusy(true)
@@ -2818,7 +3010,10 @@ export default function WorkOrderAgreementTab({
     try {
       const suggestedName = `Schedule A${fields.agencyName ? ` - ${fields.agencyName}` : ''}${estimateSuffix(fields.estimateLakhs)}`
       const savedPath = await api.exportScheduleAPdf(scheduleA, suggestedName, scheduleAMeta, seMode)
-      if (savedPath) setActionSaved(`Saved: ${savedPath}`)
+      if (savedPath) {
+        setActionSaved(`Saved: ${savedPath}`)
+        recordScheduleA()
+      }
     } catch (e) {
       setScheduleAError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -2838,7 +3033,10 @@ export default function WorkOrderAgreementTab({
       const savedPath = seMode
         ? await api.exportSeScheduleA(scheduleA, suggestedName, scheduleAMeta)
         : await api.exportScheduleA(scheduleA, suggestedName, scheduleAMeta)
-      if (savedPath) setActionSaved(savedPath ? `Saved: ${savedPath}` : 'Cancelled.')
+      if (savedPath) {
+        setActionSaved(`Saved: ${savedPath}`)
+        recordScheduleA()
+      } else setActionSaved('Cancelled.')
     } catch (e) {
       setScheduleAError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -2869,6 +3067,7 @@ export default function WorkOrderAgreementTab({
     setScheduleAError(null)
     try {
       await api.printCreatedDocument(await api.scheduleAPreviewHtml(scheduleA, scheduleAMeta, seMode))
+      recordScheduleA()
     } catch (e) {
       setScheduleAError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -3375,7 +3574,7 @@ export default function WorkOrderAgreementTab({
           <div className="wo-manual-form">
             <label className="wo-date-field">
               <span>Agreement date</span>
-              <input type="date" value={agreementDate} onChange={(e) => setAgreementDate(e.target.value)} />
+              <input type="date" value={agreementDate} onChange={(e) => saveInput('agreementDate', e.target.value)} />
             </label>
             <label className="wo-date-field">
               <span>Agreement number</span>
@@ -3383,7 +3582,7 @@ export default function WorkOrderAgreementTab({
                 type="text"
                 placeholder="12"
                 value={agreementNo}
-                onChange={(e) => setAgreementNo(e.target.value)}
+                onChange={(e) => saveInput('agreementNo', e.target.value)}
               />
             </label>
             <label className="wo-date-field">
@@ -3401,7 +3600,7 @@ export default function WorkOrderAgreementTab({
                 type="text"
                 placeholder="02"
                 value={completionMonths}
-                onChange={(e) => setCompletionMonths(e.target.value)}
+                onChange={(e) => saveInput('completionMonths', e.target.value)}
               />
             </label>
             <label className="wo-date-field">
@@ -3671,6 +3870,16 @@ export default function WorkOrderAgreementTab({
                 <div className="wo-tile-foot">{DOC_LABEL.scheduleA}</div>
               </button>
             )}
+            {!only && deviationReady && (
+              <button className="wo-tile" onClick={downloadDeviation}>
+                <div className="wo-tile-preview">
+                  <span className="wo-tile-open" style={{ opacity: 1 }}>
+                    {estimateItems.length} items · click to download Excel
+                  </span>
+                </div>
+                <div className="wo-tile-foot">{DEVIATION_LABEL}</div>
+              </button>
+            )}
             {docsReady && !seMode && (!only || only === 'workOrder') && (
               <button className="wo-tile" onClick={() => openDoc('workOrder')}>
                 <div className="wo-tile-preview">
@@ -3776,7 +3985,7 @@ export default function WorkOrderAgreementTab({
                   className="primary"
                   disabled={!promptDate || (missingCircleZone && (!manualCircle.trim() || !manualZone.trim()))}
                   onClick={() => {
-                    setAgreementDate(promptDate)
+                    saveInput('agreementDate', promptDate)
                     setDatePromptOpen(false)
                     setExpanded(pendingDoc)
                   }}

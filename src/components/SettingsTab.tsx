@@ -7,6 +7,7 @@ import { type Office, officeScopedKey, TEMPLATE_KEYS, TEMPLATE_VARIANT_CHANGED_E
 import { corporationByName } from '../zoneCircleDirectory'
 import MassNoticesWorkspace from './MassNoticesWorkspace'
 import BulkIntimationsWorkspace from './BulkIntimationsWorkspace'
+import BulkDeviationsWorkspace from './BulkDeviationsWorkspace'
 import type { MonitoringFormatWorkRow } from '@core/monitoringFormat'
 import type { CalendarData } from '@core/calendar'
 import type { PendingNoticeItem, ExcelTable, IssuedIntimation, QcOfficeParties, StoredLetter } from '@core/types'
@@ -53,8 +54,8 @@ import type { PersistedState } from '@core/types'
 import { base64ToUint8, renderDocPreview } from './docPage'
 import { IconSettings, IconCheck, IconWarn, IconOpen, IconUser, IconLogout, IconChevronRight, IconChevronLeft, IconBell, IconFolder, IconCloud, IconSun, IconDoc } from './Icons'
 
-const BULK_SECTIONS: SettingsSection[] = ['bulkIntimations', 'bulkQc', 'bulkForwarding', 'bulkDbNote']
-type SettingsSection = 'addOffice' | 'devices' | 'backup' | 'onlineWorks' | 'themes' | 'templates' | 'massNotices' | 'bulkIntimations' | 'bulkQc' | 'bulkForwarding' | 'bulkDbNote'
+const BULK_SECTIONS: SettingsSection[] = ['bulkIntimations', 'bulkQc', 'bulkForwarding', 'bulkDbNote', 'bulkFileBacker', 'bulkAgreementBond', 'bulkWorkOrder']
+type SettingsSection = 'addOffice' | 'devices' | 'backup' | 'onlineWorks' | 'themes' | 'templates' | 'massNotices' | 'bulkIntimations' | 'bulkQc' | 'bulkForwarding' | 'bulkDbNote' | 'bulkFileBacker' | 'bulkAgreementBond' | 'bulkWorkOrder' | 'bulkDeviations'
 
 interface Props {
   office: Office
@@ -801,7 +802,7 @@ export default function SettingsTab({ office, accountOffices, onAddAccountOffice
   // Settings stays mounted across tab switches; leaving it returns to the list (and resets Bulk Notices).
   // Bulk Intimations is the exception: its folder scan / prepared letters are slow to rebuild, so it stays open.
   useEffect(() => {
-    if (!active) setSection((s) => (s === 'bulkIntimations' || s === 'bulkQc' || s === 'bulkForwarding' || s === 'bulkDbNote' ? s : null))
+    if (!active) setSection((s) => (s === 'bulkIntimations' || s === 'bulkQc' || s === 'bulkForwarding' || s === 'bulkDbNote' || s === 'bulkFileBacker' || s === 'bulkAgreementBond' || s === 'bulkWorkOrder' ? s : null))
   }, [active])
   const currentTheme = THEME_OPTIONS.find((o) => o.id === theme)
 
@@ -936,7 +937,11 @@ export default function SettingsTab({ office, accountOffices, onAddAccountOffice
     { key: 'bulkIntimations', icon: <IconDoc />, name: 'Bulk Intimations', meta: 'Prepare Intimations from a folder of L-1 sheets and LOAs' },
     { key: 'bulkQc', icon: <IconDoc />, name: 'Bulk QC Intimations', meta: 'Prepare QC Intimation/Completion letters from a folder of L-1 sheets and LOAs' },
     { key: 'bulkForwarding', icon: <IconDoc />, name: 'Bulk Forwarding Letters', meta: 'Prepare AE/Dy.EE Forwarding Letters from a folder of L-1 sheets and LOAs' },
-    { key: 'bulkDbNote', icon: <IconDoc />, name: 'Bulk Issue Drawing Branch Notes', meta: 'Prepare Drawing Branch (DB) Notes from a folder of L-1 sheets and LOAs' }
+    { key: 'bulkDbNote', icon: <IconDoc />, name: 'Bulk Issue Drawing Branch Notes', meta: 'Prepare Drawing Branch (DB) Notes from a folder of L-1 sheets and LOAs' },
+    { key: 'bulkFileBacker', icon: <IconDoc />, name: 'Bulk File Backers', meta: 'Prepare File Backer cover pages from a folder of L-1 sheets and LOAs' },
+    { key: 'bulkAgreementBond', icon: <IconDoc />, name: 'Bulk Agreement Bonds', meta: 'Prepare Agreement Bonds from a folder of L-1 sheets and LOAs' },
+    { key: 'bulkWorkOrder', icon: <IconDoc />, name: 'Bulk Work Orders', meta: 'Prepare Work Orders from a folder of L-1 sheets and LOAs' },
+    { key: 'bulkDeviations', icon: <IconDoc />, name: 'Bulk Deviations', meta: 'Make Deviation Statements from uploaded estimates, added to Issued Documents' }
   ]
 
   // The bulk workspaces keep generating after Back: one that is still working stays mounted (hidden) until it is
@@ -947,10 +952,14 @@ export default function SettingsTab({ office, accountOffices, onAddAccountOffice
       setKeep((k) => (working ? (k.includes(key) ? k : [...k, key]) : k.filter((x) => x !== key)))
     }
     if (key === 'bulkIntimations') {
-      return <BulkIntimationsWorkspace office={office} worksTable={worksTable} onIntimationsIssued={onIntimationsIssued} onBack={onBack} />
+      return <BulkIntimationsWorkspace office={office} worksTable={worksTable} onIntimationsIssued={onIntimationsIssued} onAddLetters={onLettersAdd} onBack={onBack} />
     }
     if (key === 'bulkQc') {
       return <BulkIntimationsWorkspace office={office} worksTable={worksTable} kind="qc" qcParties={qcParties} onAddLetters={onLettersAdd} onBack={onBack} />
+    }
+    const agKind = ({ bulkFileBacker: 'filebacker', bulkAgreementBond: 'agreementbond', bulkWorkOrder: 'workorder' } as const)[key as 'bulkFileBacker']
+    if (agKind) {
+      return <BulkIntimationsWorkspace office={office} worksTable={worksTable} kind={agKind} onAddLetters={onLettersAdd} onBack={onBack} />
     }
     if (key === 'bulkDbNote') {
       return <BulkIntimationsWorkspace office={office} worksTable={worksTable} kind="dbnote" onAddLetters={onLettersAdd} onBack={onBack} />
@@ -965,6 +974,10 @@ export default function SettingsTab({ office, accountOffices, onAddAccountOffice
   if (section && BULK_SECTIONS.includes(section)) return <>{bulkHosts}</>
 
   const page = (() => {
+  if (section === 'bulkDeviations') {
+    return <BulkDeviationsWorkspace worksTable={worksTable} onAddLetters={onLettersAdd} onBack={() => setSection(null)} />
+  }
+
   if (section === 'massNotices') {
     return (
       <MassNoticesWorkspace

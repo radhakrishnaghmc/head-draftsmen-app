@@ -20,7 +20,8 @@ import {
   ECV_RUPEES_STATE_VERSION,
   WORKS_COLUMNS
 } from './worksSchema'
-import { autofillWorksRow, enforceZoneCircle, fillCircleNumber, splitCircleColumn } from './zoneCircleCheck'
+import { autofillWorksRow, enforceZoneCircle, fillCircleNumber, splitCircleColumn, circleFromWorkName } from './zoneCircleCheck'
+import { fillCircleFromName } from '@core/worksTenderUpdate'
 import { closeOnBackdropMouseDown } from './overlayClose'
 import { entriesOf, corporationByName, circlesOf } from './zoneCircleDirectory'
 import {
@@ -36,7 +37,8 @@ import {
 } from './office'
 import { type ThemeId, getStoredTheme, setStoredTheme } from './theme'
 import { matchPlaceholdersToColumns } from '@core/createDocument'
-import { findWorksListErrors, findMonitoringFormatErrors } from '@core/worksListAgent'
+import { aliasMapping, mergeMappings, unclaimedHeaders, cleanSheetRows, circleOfWork } from '@core/worksSheetFormat'
+import { findWorksListErrors } from '@core/worksListAgent'
 import { mergeTables } from '@core/merge'
 import type { CementSteelRate } from '@core/cementSteelRates'
 import Sidebar, { type TabKey } from './components/Sidebar'
@@ -369,6 +371,9 @@ export default function App({
   // office's entry. Key: officeKey(office).
   const [tablesByOffice, setTablesByOffice] = useState<Record<string, ExcelTable[]>>({})
   const currentOfficeKey = officeKey(office) ?? ''
+  // Always the office on screen right now — an async import compares it with the office it started under.
+  const currentOfficeKeyRef = useRef(currentOfficeKey)
+  currentOfficeKeyRef.current = currentOfficeKey
   const [resolution, setResolution] = useState<CollisionResolution>({})
 
   const [todos, setTodos] = useState<TodoItem[]>([])
@@ -601,21 +606,11 @@ export default function App({
   // Every Works List error check (Wincode/Tender ID identity, ECV vs.
   // estimate, EMD 1%/1.5% consistency — see core/worksListAgent.ts) —
   // recomputed only when the (debounced) table itself changes, not on every
-  // render, since it walks every row. Also runs every Monitoring Format
-  // check (Abstract-vs-list-of-works tally per item type, plus the list of
-  // works' own Wincode/name identity rules) when both have been imported for
-  // this office — same background health-check, surfaced through the same
-  // Errors button.
+  // render, since it walks every row. Only the Works List database's own checks are here: the Monitoring Format has
+  // its own database, with its own Verify button and error list (MonitoringFormatCard).
   const officeMonitoringFormat = currentOfficeKey ? monitoringFormatByOffice[currentOfficeKey] : undefined
   const officeMonitoringFormatWorks = currentOfficeKey ? monitoringFormatWorksByOffice[currentOfficeKey] : undefined
-  const worksListErrors = useMemo(() => {
-    const tableIssues = debouncedTable ? findWorksListErrors(debouncedTable) : []
-    const mfIssues =
-      officeMonitoringFormat && officeMonitoringFormatWorks
-        ? findMonitoringFormatErrors(officeMonitoringFormat, officeMonitoringFormatWorks)
-        : []
-    return [...tableIssues, ...mfIssues]
-  }, [debouncedTable, officeMonitoringFormat, officeMonitoringFormatWorks])
+  const worksListErrors = useMemo(() => (debouncedTable ? findWorksListErrors(debouncedTable) : []), [debouncedTable])
   const [showWincodeViolations, setShowWincodeViolations] = useState(false)
 
   // Global dataset (all Excels merged) — used for collision detection on the
@@ -1616,11 +1611,32 @@ export default function App({
     }
   }
 
+  function fillZoneLevelColumns(table: ExcelTable): ExcelTable {
+    if (!table.headers.includes('Circle')) return table
+    const names: Record<string, string> = {}
+    for (const c of circlesOf(loginCorporation, loginZone)) if (c.cno) names[c.cno] = c.circle
+    const rows = table.rows.map((row) => {
+      const { circle, cno } = circleOfWork(row['Circle'] ?? '', row['Name of the work'] ?? '', names)
+      const next: Record<string, string> = { ...row, Circle: circle || (row['Circle'] ?? '') }
+      // Only columns the sheet itself has are touched.
+      if ('Zone' in row && !(row['Zone'] ?? '').trim()) next['Zone'] = loginZone || ''
+      if ('Circle number' in row && !(row['Circle number'] ?? '').trim()) next['Circle number'] = cno
+      return next
+    })
+    return { ...table, rows }
+  }
+
   async function importWorksData(
     imported: Pick<ExcelTable, 'headers' | 'rows'>,
     url?: string
   ): Promise<{ added: number; updated?: number; table: ExcelTable }> {
-    const rows = imported.rows.filter((row) => Object.values(row).some((v) => (v ?? '').trim() !== ''))
+    // The office this import is FOR. Everything below awaits, so the user may switch office before it finishes.
+    const startKey = officeKey(office) ?? ''
+    // Every office keeps its works in its own layout: drop banner/blank rows, keep the sheet's own columns and order.
+    const rows = cleanSheetRows(
+      imported.headers,
+      imported.rows.filter((row) => Object.values(row).some((v) => (v ?? '').trim() !== ''))
+    )
 
     let embeddings: { labelVectors: number[][]; columnVectors: number[][] } | undefined
     try {
@@ -1637,17 +1653,32 @@ export default function App({
     // uniqueColumns: each imported column feeds at most one Works List column,
     // so e.g. "Name of the Agency" and "Address of the agency" can't both pull
     // from a single "Agency Details" column.
-    const mapping = matchPlaceholdersToColumns(WORKS_COLUMNS, imported.headers, embeddings, { uniqueColumns: true })
+    // Headers are recognised by name first (spelling slips tolerated); only the columns that leaves unmatched go
+    // through the fuzzy matcher, over the headers still unclaimed.
+    const byName = aliasMapping(WORKS_COLUMNS, imported.headers)
+    const leftHeaders = unclaimedHeaders(byName, imported.headers)
+    const leftLabels = byName.filter((m) => !m.column).map((m) => m.label)
+    const fuzzy = matchPlaceholdersToColumns(
+      leftLabels,
+      leftHeaders,
+      embeddings && {
+        labelVectors: leftLabels.map((l) => embeddings!.labelVectors[WORKS_COLUMNS.indexOf(l)]),
+        columnVectors: leftHeaders.map((h) => embeddings!.columnVectors[imported.headers.indexOf(h)])
+      },
+      { uniqueColumns: true }
+    )
+    const mapping = mergeMappings(byName, fuzzy)
 
     // Split any combined "57-Gajularamaram"/"Gajularamaram 57" Circle cell into
     // a bare Circle plus a Circle number before matching against the login.
-    const normalized = splitCircleColumn(
-      applyWorksSchemaWithMapping(imported.headers, rows, mapping, {
-        id: `works-${Date.now()}`,
-        name: 'Works database',
-        path: ''
-      })
-    )
+    const schemed = applyWorksSchemaWithMapping(imported.headers, rows, mapping, {
+      id: `works-${Date.now()}`,
+      name: 'Works database',
+      path: ''
+    })
+    // A zone-level (SE) sheet writes the circle in one combined cell ("55-Jeedimetla"), which stays exactly as typed;
+    // only the Zone / Circle number columns are filled (and a blank circle read from the work name).
+    const normalized = isZoneOnlyOffice(office) ? fillZoneLevelColumns(schemed) : splitCircleColumn(schemed)
 
     // A works list is accepted as long as at least one row belongs to the
     // logged-in Head Draughtsman's own Zone/Circle. A row explicitly tagged
@@ -1684,7 +1715,8 @@ export default function App({
     // The database is the source of truth (L1/LOA scans keep updating it), so once it holds works a re-import or
     // refresh only appends the sheet's NEW works and never touches an existing one. A full fresh import is only
     // possible after deleting the database (deleteWorksDatabase).
-    const existing = tables[0]
+    const stillHere = currentOfficeKeyRef.current === startKey
+    const existing = stillHere ? tables[0] : tablesByOffice[startKey]?.[0]
     const merged = hasWorks(existing) ? mergeNewWorks(existing, result) : null
     // A refresh also re-adopts the sheet's own column order and names, so the database keeps mirroring the sheet.
     const finalTable = merged
@@ -1694,17 +1726,32 @@ export default function App({
           headerLabels: result.headerLabels ?? merged.table.headerLabels
         })
       : result
-    setTables([finalTable])
-    setWorksImportToken((n) => n + 1)
-    setBlockedWorksList(null)
-    setLastGoogleLink(url ?? null)
-    setOfficeImportPrompt(null)
-    // Remember this link as the current office's own Works List database, so it
+    // Every row — the earlier list's too, not just the new works — gets a blank Zone / Circle filled from its work name.
+    // A cell that already has a value is never rewritten.
+    const filledTable: ExcelTable = {
+      ...finalTable,
+      rows: finalTable.rows.map((r) => {
+        const next = { ...r }
+        fillCircleFromName(next, finalTable.headers, next['Name of the work'] ?? '', (n) => circleFromWorkName(n, loginCorporation))
+        return next
+      })
+    }
+    // The user moved to another office meanwhile: the sheet belongs to the office it was imported for, so it goes
+    // into that office's own slot and the screen (which shows the new office) is left alone.
+    if (stillHere || !startKey) {
+      setTables([filledTable])
+      setWorksImportToken((n) => n + 1)
+      setBlockedWorksList(null)
+      setLastGoogleLink(url ?? null)
+      setOfficeImportPrompt(null)
+    } else {
+      setTablesByOffice((prev) => ({ ...prev, [startKey]: [filledTable] }))
+    }
+    // Remember this link as the importing office's own Works List database, so it
     // reloads on return to this circle and syncs to the user's other systems.
-    const key = officeKey(office)
-    if (key && url) setWorksListLinks((prev) => (prev[key] === url ? prev : { ...prev, [key]: url }))
+    if (startKey && url) setWorksListLinks((prev) => (prev[startKey] === url ? prev : { ...prev, [startKey]: url }))
 
-    return { added: merged ? merged.added : rows.length, updated: merged?.updated, table: finalTable }
+    return { added: merged ? merged.added : rows.length, updated: merged?.updated, table: filledTable }
   }
 
   // Re-pull the Works List from whichever Google link it was last filled from,
@@ -2015,8 +2062,10 @@ export default function App({
     const url = pendingOfficeImport
     setPendingOfficeImport(null)
     setOfficeSwitchBusy(office.circle || office.zone || null)
+    const startKey = officeKey(office) ?? ''
     void importFromGoogleLink(url)
       .catch(() => {
+        if (currentOfficeKeyRef.current !== startKey) return // switched away meanwhile; not this office's failure
         setTables([])
         setLastGoogleLink(null)
         setOfficeImportPrompt(office.circle || office.zone || null)
@@ -2226,6 +2275,7 @@ export default function App({
                     )}
                   </div>
                 </div>
+                <div id="works-l1-result" />
                 {officeSwitchBusy && (
                   <div className="notice warn office-switch-busy">
                     <IconRefresh className="spin" /> Loading <strong>{officeSwitchBusy}</strong>'s Works List…
@@ -2589,6 +2639,8 @@ export default function App({
                     items={officeIssuedIntimations}
                     onChange={setOfficeIssuedIntimations}
                     searchSlot={issuedSearchSlot}
+                    loginId={loginId}
+                    worksTable={tables[0] ?? null}
                   />
                 ) : (
                   <EvaluationSheetTab
@@ -2685,10 +2737,10 @@ export default function App({
                       <IconDoc />
                     </div>
                     <div className="page-head-text">
-                      <h1>Forwarding Slips, QC Intimations &amp; DB Note</h1>
+                      <h1>Issued Documents</h1>
                       <p>
-                        Letters and Drawing Branch notes issued in the Agreement workspace or made in bulk from
-                        Settings, collected here.
+                        Documents downloaded or printed in the Agreement workspace, or made in bulk from Settings,
+                        are collected here.
                       </p>
                     </div>
                   </div>
@@ -2697,6 +2749,8 @@ export default function App({
                   letters={officeLetters}
                   onChange={setOfficeLetters}
                   onWorkspaceChange={setLettersWorkspaceOpen}
+                  loginId={loginId}
+                  worksTable={tables[0] ?? null}
                 />
               </section>
             </KeepAlive>

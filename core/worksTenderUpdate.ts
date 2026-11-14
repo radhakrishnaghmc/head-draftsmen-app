@@ -6,6 +6,29 @@ import { rupeesToCell } from './worksAmounts'
 import { reservationLabel } from './worksSync'
 import { normalizeWorkNameForMatch as norm } from './tenderAgents/nameOfWork'
 
+/** Reads the circle a work belongs to from its name: a circle (with its number), or `Zonal Office` for a zone-level work; blank when the name says neither. */
+export type CircleFromName = (workName: string) => { circle: string; cno: string; zone?: string }
+
+/** Fills a row's blank Circle cell from the L-1 sheet's work name. A Circle already filled is never rewritten. */
+export function fillCircleFromName(row: Record<string, string>, headers: string[], workName: string, circleFromName?: CircleFromName) {
+  if (!circleFromName) return
+  const circleH = headers.find((h) => h.trim().toLowerCase() === 'circle')
+  const zoneH = headers.find((h) => h.trim().toLowerCase() === 'zone')
+  const { circle, cno, zone } = circleFromName(workName)
+  // A Zone already filled is never rewritten.
+  if (zoneH && zone && !(row[zoneH] ?? '').trim()) row[zoneH] = zone
+  if (!circleH || (row[circleH] ?? '').trim() || !circle) return
+  const cnoH = headers.find((h) => h.trim().toLowerCase() === 'circle number')
+  if (cnoH) {
+    // A sheet with a separate Circle number column keeps the bare name here, as it does everywhere else.
+    row[circleH] = circle
+    if (!(row[cnoH] ?? '').trim()) row[cnoH] = cno
+  } else {
+    // Otherwise the cell reads like the sheet's own: "55-Jeedimetla".
+    row[circleH] = cno ? `${cno}-${circle}` : circle
+  }
+}
+
 export interface WorksTenderUpdateResult {
   table: ExcelTable
   /** Evaluations whose Name of Work matched a Works List row and updated it. */
@@ -89,7 +112,8 @@ export function updateWorksListFromEvaluations(
   // Agreement flow uploads both) — supplies the agency's postal address and a
   // fallback for agency name / contract value. A batch import (many
   // evaluations, no single intimation) omits it.
-  notice?: IntimationNotice
+  notice?: IntimationNotice,
+  circleFromName?: CircleFromName
 ): WorksTenderUpdateResult {
   const nameHeader = table.headers.find((h) => h.trim().toLowerCase() === 'name of the work')
   const usable = evaluations.filter((e) => (e.nameOfWork ?? '').trim())
@@ -131,6 +155,7 @@ export function updateWorksListFromEvaluations(
     // batch import (many evaluations) has none, so its rows fill from the L-1
     // sheet alone.
     Object.assign(rows[idx], valuesFor(ev, evaluations.length === 1 ? notice : undefined))
+    fillCircleFromName(rows[idx], table.headers, ev.nameOfWork!, circleFromName)
   })
 
   return { table: { ...table, rows }, matchedCount, unmatched, matchedRowIndices }

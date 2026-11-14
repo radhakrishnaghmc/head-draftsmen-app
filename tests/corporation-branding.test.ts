@@ -62,9 +62,10 @@ describe('SE office documents', () => {
   })
 
   it('SE evaluation notes name the chosen corporation instead of CMC', async () => {
-    const { buildBidEvaluationHtml, buildAgencyApprovalHtml } = await import('../core/seEvaluationNotes')
+    const { buildBidEvaluationHtml } = await import('../core/seEvaluationNotes')
+    const { buildAgencyApprovalDocxXml } = await import('../core/seAgencyApprovalDocx')
     const base = { zoneAbbr: 'QBZ', corp: 'MMC', workName: 'W', estimateLakhs: '10', asAuthority: 'Commissioner, MMC', asRefLine: 'x', tsNo: '1', tsDate: 'd', financialYear: '2026-27', nitNo: 'n', nitDate: 'd', itemNo: '', techBidOpenDate: 'd', zone: 'Qutbullapur', bidders: [], nonRespCount: 0, bidEvalApprovedDate: 'd' } as never
-    for (const html of [buildBidEvaluationHtml(base), buildAgencyApprovalHtml(base)]) {
+    for (const html of [buildBidEvaluationHtml(base), buildAgencyApprovalDocxXml(base)]) {
       expect(html).toContain('MMC')
       expect(html).not.toMatch(/\bCMC\b/)
     }

@@ -3,6 +3,7 @@ import type { ExcelTable } from '@core/types'
 import type { EstimateWorkItem } from '@core/estimateExtract'
 import { buildBoqFromEstimate, boqToScheduleA } from './boqTransform'
 import { findWorksRowByName, metaFromWorksRow } from '@core/scheduleA'
+import { stripItemNoTag } from '@core/bidDocument'
 import type { WorksRowMatch } from '@core/scheduleA'
 import { computeMaterialTotals } from '@core/materialEstimate'
 import { matchMaterialRag } from '@core/materialQuantityRag'
@@ -132,7 +133,7 @@ export async function downloadDeviationFromItems(
   const match = workName && worksTable ? await matchWorksRow(workName, worksTable) : undefined
   return api.exportDeviation(
     deviationItems,
-    { circle: match?.row['Circle'] || (circleFromName ? circleFromWorkName(workName)?.name : undefined), nameOfWork: workName, agencyName: agencyName.trim(), estimateAmountLakhs },
+    { circle: match?.row['Circle'] || (circleFromName ? circleFromWorkName(workName)?.name : undefined), nameOfWork: workName && stripItemNoTag(workName), agencyName: agencyName.trim(), estimateAmountLakhs },
     `${suggestedNameBase} Deviation`
   )
 }

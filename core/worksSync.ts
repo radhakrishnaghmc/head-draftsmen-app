@@ -134,25 +134,70 @@ export function scanBelongsToOffice(opts: {
   return { ok: false, error: `These sheets do not belong to the ${office} office.` }
 }
 
-/** Works List columns the Agreement & Work Order workspace's own inputs are saved into. */
+/** Works List columns the workspaces' own inputs (Agreement & Work Order, Give Intimation) are saved into. */
 export const WORKSPACE_DB_COLUMNS = {
   adminSanctionDate: 'Admin Sanction Date',
   newspapers: 'Newspapers Published',
   aeNameNumber: 'AE Name & Number',
-  adminSanctionBy: 'Sanction By'
+  adminSanctionBy: 'Sanction By',
+  completionPeriod: 'Completion Period',
+  financialYear: 'Financial Year',
+  loaNo: 'LOA No',
+  agreementNo: 'Agreement No',
+  agreementDate: 'Agmt Date'
 } as const
+
+/**
+ * Columns an office's own sheet may name differently from the app: matched by header text, so a sheet's "Sl. No./ LOA no."
+ * or "Agreement no." receives the value. A key not listed here is only written to the column of exactly that name.
+ */
+const WORKSPACE_DB_ALIASES: Partial<Record<keyof typeof WORKSPACE_DB_COLUMNS, RegExp>> = {
+  loaNo: /(^|\/\s*)loa\s*(no|number)\.?$/i,
+  agreementNo: /^agreement\s*(no|number)\.?$/i,
+  agreementDate: /^agreement\s*(dt|date)\b/i
+}
 
 export type WorkspaceInputs = Partial<Record<keyof typeof WORKSPACE_DB_COLUMNS, string>>
 
-/** Writes the workspace's inputs onto one Works List row. Returns the same table object when nothing changed. */
-export function saveWorkspaceInputs(table: ExcelTable, rowIndex: number, values: WorkspaceInputs): ExcelTable {
+/**
+ * The financial year ("2025-26") of a work's Administrative Sanction date (dd-mm-yyyy / dd.mm.yyyy / dd/mm/yyyy).
+ * Blank when that is not a readable date.
+ */
+export function sanctionFinancialYear(adminSanctionDate: string | undefined): string {
+  const m = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec((adminSanctionDate ?? '').trim())
+  if (!m || Number(m[2]) < 1 || Number(m[2]) > 12) return ''
+  const y = Number(m[3])
+  const startY = Number(m[2]) >= 4 ? y : y - 1
+  return `${startY}-${String((startY + 1) % 100).padStart(2, '0')}`
+}
+
+/** The table's own header for a workspace input, or undefined when the database has no such column. */
+export function workspaceColumn(table: ExcelTable, key: keyof typeof WORKSPACE_DB_COLUMNS): string | undefined {
+  const want = WORKSPACE_DB_COLUMNS[key].toLowerCase()
+  const alias = WORKSPACE_DB_ALIASES[key]
+  const clean = (h: string) => h.replace(/\s+/g, ' ').trim()
+  return table.headers.find((h) => clean(h).toLowerCase() === want) ?? (alias ? table.headers.find((h) => alias.test(clean(h))) : undefined)
+}
+
+/**
+ * Writes the workspace's inputs onto one Works List row. Only columns the database already has are written (an office's
+ * sheet decides its own columns). `onlyIfBlank` keys never replace a value already in the cell. Returns the same table
+ * object when nothing changed.
+ */
+export function saveWorkspaceInputs(
+  table: ExcelTable,
+  rowIndex: number,
+  values: WorkspaceInputs,
+  onlyIfBlank: (keyof typeof WORKSPACE_DB_COLUMNS)[] = []
+): ExcelTable {
   const row = table.rows[rowIndex]
   if (!row) return table
   const next = { ...row }
   let changed = false
   for (const [k, v] of Object.entries(values) as [keyof typeof WORKSPACE_DB_COLUMNS, string][]) {
-    const col = WORKSPACE_DB_COLUMNS[k]
-    if (!table.headers.includes(col)) continue
+    const col = workspaceColumn(table, k)
+    if (!col) continue
+    if (onlyIfBlank.includes(k) && (next[col] ?? '').trim()) continue
     if ((next[col] ?? '') !== v) {
       next[col] = v
       changed = true

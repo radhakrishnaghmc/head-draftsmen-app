@@ -155,29 +155,29 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
   const ecvHeader = worksTable ? findHeader(worksTable.headers, 'ECV') : undefined
   const typeOfWorkHeader = worksTable ? findHeader(worksTable.headers, 'Type of work') : undefined
 
-  const winCodes = useMemo(() => {
-    if (!worksTable || !winCodeHeader) return []
-    const seen = new Set<string>()
-    for (const row of worksTable.rows) {
-      const v = (row[winCodeHeader] ?? '').trim()
-      if (v) seen.add(v)
-    }
-    return Array.from(seen)
-  }, [worksTable, winCodeHeader])
+  // Works are picked by row (their index in the Works List), never by Wincode: a work with no Wincode yet is listed
+  // like any other. The key is the row index as a string.
+  const workKeys = useMemo(() => {
+    if (!worksTable || !nameHeader) return []
+    const keys: string[] = []
+    worksTable.rows.forEach((row, i) => {
+      if ((row[nameHeader] ?? '').trim()) keys.push(String(i))
+    })
+    return keys
+  }, [worksTable, nameHeader])
 
-  // Each Win Code's work name, shown alongside it in the checklist below (and
-  // matched against when searching) — a Win Code alone doesn't say which work
-  // it is, so scrolling to find one otherwise means cross-checking the Works
-  // List in another tab.
-  const winCodeToName = useMemo(() => {
-    const map = new Map<string, string>()
-    if (!worksTable || !winCodeHeader || !nameHeader) return map
-    for (const row of worksTable.rows) {
-      const code = (row[winCodeHeader] ?? '').trim()
-      if (code && !map.has(code)) map.set(code, row[nameHeader] ?? '')
+  const rowOf = (key: string) => worksTable?.rows[Number(key)]
+
+  // The work name and estimate amount (Lakhs) shown for each entry in the checklist below.
+  const workLabel = useMemo(() => {
+    const map = new Map<string, { name: string; amount: string }>()
+    if (!worksTable || !nameHeader) return map
+    for (const key of workKeys) {
+      const row = worksTable.rows[Number(key)]
+      map.set(key, { name: (row[nameHeader] ?? '').trim(), amount: amountHeader ? (row[amountHeader] ?? '').trim() : '' })
     }
     return map
-  }, [worksTable, winCodeHeader, nameHeader])
+  }, [worksTable, workKeys, nameHeader, amountHeader])
 
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -192,11 +192,12 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
   const [winSearch, setWinSearch] = useState('')
   const filteredWinCodes = useMemo(() => {
     const q = winSearch.trim().toLowerCase()
-    if (!q) return winCodes
-    return winCodes.filter(
-      (code) => code.toLowerCase().includes(q) || (winCodeToName.get(code) ?? '').toLowerCase().includes(q)
-    )
-  }, [winCodes, winCodeToName, winSearch])
+    if (!q) return workKeys
+    return workKeys.filter((key) => {
+      const l = workLabel.get(key)
+      return (l?.name ?? '').toLowerCase().includes(q) || (l?.amount ?? '').toLowerCase().includes(q)
+    })
+  }, [workKeys, workLabel, winSearch])
 
   // The NIT No default follows the chosen office — its Circle, Circle number
   // and Corporation — the circle, corporation and financial year are pulled from
@@ -239,7 +240,7 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
     if (open && !previewing && winListRef.current) {
       winListRef.current.scrollTop = winListRef.current.scrollHeight
     }
-  }, [open, previewing, winCodes.length])
+  }, [open, previewing, workKeys.length])
 
   // Reset the NIT No to the current office's default each time the dialog opens,
   // so it always reflects the chosen Circle/Corporation. Contact details are
@@ -267,16 +268,16 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
   }
 
   const items = useMemo(() => {
-    if (!worksTable || !winCodeHeader || !nameHeader || !amountHeader) return []
+    if (!worksTable || !nameHeader || !amountHeader) return []
     return Array.from(selected)
-      .map((code) => ({ code, row: worksTable.rows.find((r) => (r[winCodeHeader] ?? '').trim() === code) }))
+      .map((code) => ({ code, row: rowOf(code) }))
       .filter((e): e is { code: string; row: Record<string, string> } => !!e.row)
       .map(({ code, row }) => ({
         name: applyRecallTag(row[nameHeader] ?? '', recallRounds[code] ?? 0),
         amount: row[amountHeader] ?? '',
         typeOfWork: typeOfWorkHeader ? row[typeOfWorkHeader] : undefined
       }))
-  }, [worksTable, winCodeHeader, nameHeader, amountHeader, typeOfWorkHeader, selected, recallRounds])
+  }, [worksTable, nameHeader, amountHeader, typeOfWorkHeader, selected, recallRounds])
 
   // Same selection, same order as `items` above, but carrying the extra
   // fields the Bid Document template needs (ECV/Zone/Circle/Completion
@@ -284,13 +285,13 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
   // separate from `items` since the tender notice's own item table only
   // ever needs name/amount.
   const bidWorks = useMemo(() => {
-    if (!worksTable || !winCodeHeader || !nameHeader || !amountHeader) return []
+    if (!worksTable || !nameHeader || !amountHeader) return []
     return Array.from(selected)
-      .map((code) => ({ code, row: worksTable.rows.find((r) => (r[winCodeHeader] ?? '').trim() === code) }))
+      .map((code) => ({ code, row: rowOf(code) }))
       .filter((e): e is { code: string; row: Record<string, string> } => !!e.row)
       .map(({ code, row }, i) => ({
         serial: i + 1,
-        winCode: code,
+        winCode: winCodeHeader ? (row[winCodeHeader] ?? '').trim() : '',
         name: applyRecallTag(row[nameHeader] ?? '', recallRounds[code] ?? 0),
         amount: row[amountHeader] ?? '',
         typeOfWork: typeOfWorkHeader ? row[typeOfWorkHeader] : undefined,
@@ -373,7 +374,7 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
 
   function buildInput(): TenderNoticeInput | null {
     if (selected.size === 0 || !nitNo.trim() || !datedDate) {
-      setError('Select at least one Win Code, and fill in the NIT number and Dated.')
+      setError('Select at least one work, and fill in the NIT number and Dated.')
       return null
     }
     if (dateGroups.some((g) => !g.startDate || !g.endDate)) {
@@ -394,7 +395,7 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
       offset += size
     }
     if (groups.length === 0) {
-      setError('Select at least one Win Code.')
+      setError('Select at least one work.')
       return null
     }
     return {
@@ -534,14 +535,14 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
                   </button>
                 </div>
 
-                {winCodes.length > 0 ? (
+                {workKeys.length > 0 ? (
                   <div className="tender-field">
-                    <span>Win Code(s)</span>
+                    <span>Work(s)</span>
                     <div className="doc-work-search tender-wincode-search">
                       <IconSearch />
                       <input
                         type="text"
-                        placeholder="Search by work name or Win Code…"
+                        placeholder="Search by work name or estimate amount…"
                         value={winSearch}
                         onChange={(e) => setWinSearch(e.target.value)}
                       />
@@ -567,9 +568,11 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
                                 {serialByCode.get(code)}
                               </span>
                             )}
-                            <span className="tender-wincode-code">{code}</span>
-                            {winCodeToName.get(code) && (
-                              <span className="tender-wincode-name">{winCodeToName.get(code)}</span>
+                            <span className="tender-wincode-name tender-work-name">{workLabel.get(code)?.name}</span>
+                            {workLabel.get(code)?.amount && (
+                              <span className="tender-wincode-code" title="Estimate amount (Lakhs)">
+                                ₹{workLabel.get(code)?.amount} L
+                              </span>
                             )}
                             {selected.has(code) && (
                               <span className="tender-recall-controls">
@@ -617,7 +620,7 @@ export default function TenderNoticeButton({ tables, office, onGenerated, onBidB
                     </div>
                   </div>
                 ) : (
-                  <p className="hint">No Win Codes found — add works to the Works List first.</p>
+                  <p className="hint">No works found — add works to the Works List first.</p>
                 )}
 
                 <div className="tender-field-row">

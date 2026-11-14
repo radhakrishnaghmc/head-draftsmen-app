@@ -163,7 +163,7 @@ export default function Sidebar(props: Props) {
     },
     {
       key: 'letters',
-      label: 'Forwarding Slips, QC Intimations & DB Note',
+      label: 'Issued Documents',
       icon: <IconDoc />
     },
     {

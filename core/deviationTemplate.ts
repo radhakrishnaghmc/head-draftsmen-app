@@ -70,6 +70,8 @@ export interface DeviationMeta {
   agencyName?: string
   /** In Lakhs — matches how every other amount field in this app is entered. */
   estimateAmountLakhs: number
+  /** The L-1's tender percentage, signed like TenderEvaluation's: positive = below estimate (Less), negative = above (Excess). Left alone, the template's own 25% Less stays. */
+  tenderPercent?: number
 }
 
 function cellText(v: ExcelJS.CellValue): string {
@@ -239,6 +241,23 @@ export async function fillDeviationTemplate(
     ws.getCell(row + delta, col).value = { formula: shifted }
   }
 
+  // The template's own "25% Less" tender percentage (the TP row's formula and label, and the Amount of contract block's) is
+  // replaced by the L-1's. A negative percentage makes the TP a negative deduction, i.e. an addition — "Excess".
+  if (meta.tenderPercent != null && Number.isFinite(meta.tenderPercent)) {
+    const p = meta.tenderPercent
+    const abs = Math.abs(p)
+    const label = p >= 0 ? `(- ${abs}% Less)` : `(+ ${abs}% Excess)`
+    for (let r = newSubTotalRow; r <= lastRow + delta; r++) {
+      for (let c = 1; c <= 14; c++) {
+        const cell = ws.getCell(r, c)
+        const v = cell.value
+        if (typeof v === 'string' && /\(- 25(\.00)?% Less\)/.test(v)) cell.value = v.replace(/\(- 25(\.00)?% Less\)/, label)
+        else if (v && typeof v === 'object' && 'formula' in v && typeof v.formula === 'string' && /(?<![\d.])25%/.test(v.formula))
+          cell.value = { formula: v.formula.replace(/(?<![\d.])25%/g, `(${p})%`) }
+      }
+    }
+  }
+
   // Sub Total's own SUM ranges: the lower bound (the item table's first
   // row) never moves, but the upper bound must follow the new item count —
   // the generic shift above leaves it alone since it's below the old
@@ -271,6 +290,12 @@ export async function fillDeviationTemplate(
   // G:I, which the template left right-aligned. Centring runs whether or not the
   // merge had to be recreated, so the labels read once, centred, at any item
   // count; every other restored merge keeps its own alignment.
+  // Merges left behind at their old positions would overlap a shifted one and make mergeCells throw
+  // (leaving e.g. the last abstract rows unmerged, labels tripled), so clear them all first.
+  for (const ref of [...(ws.model.merges ?? [])]) {
+    const m = /^[A-Z]+(\d+):/.exec(ref)
+    if (m && parseInt(m[1], 10) >= Math.min(oldSubTotalRow, newSubTotalRow)) ws.unMergeCells(ref)
+  }
   for (const [, startCol, startRowStr, endCol, endRowStr] of cascadeMerges) {
     const r1 = parseInt(startRowStr, 10) + delta
     const r2 = parseInt(endRowStr, 10) + delta

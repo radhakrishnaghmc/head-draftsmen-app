@@ -16,6 +16,17 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.1.0',
+    changes: [
+      'Deviation Statements: a new Excel in the Agreement / Work Order workspace, listed under Issued Documents, with Settings \u2192 Bulk Deviations to make them from a folder of L-1 sheets and a folder of estimates (matched by name of the work, with an ECV check).',
+      'Issued Documents: a Refresh button re-reads Tender ID, NIT, agency and estimate amount from the Works List by name of the work, and Delete all (asks for your password) clears a board.',
+      'Tender Document: the ECV, period of completion, contractor address and phone, Executive Engineer address, work name and contract amount (figures and words) are now filled in, and it stays at 41 pages.',
+      'Login: the password is remembered, previous Login IDs show in a list (each can be deleted).',
+      'Work names no longer show the \u201c(Item No.\u2026)\u201d tag or the \u201cCompletion period\u201d tail.',
+      'Works List: updating from L-1 sheets no longer shows a long \u201cNo match for\u2026\u201d list when some sheets matched.',
+    ]
+  },
+  {
     version: '2.0.0',
     changes: [
       'Head Draughtsman App 2.0 — everything new since 1.49.0 is listed below.',

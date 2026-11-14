@@ -146,6 +146,10 @@ export const IPC = {
   pickEstimateGrid: 'dialog:pickEstimateGrid',
   pickEstimateGrids: 'dialog:pickEstimateGrids',
   pickEstimateGridsMulti: 'dialog:pickEstimateGridsMulti',
+  pickBulkDeviationPaths: 'dialog:pickBulkDeviationPaths',
+  listEstimateWorkbooks: 'data:listEstimateWorkbooks',
+  readEstimateWorkbook: 'data:readEstimateWorkbook',
+  readTenderPaths: 'data:readTenderPaths',
   pickDataSheet: 'dialog:pickDataSheet',
   pickTenderDocuments: 'dialog:pickTenderDocuments',
   ocrEstimatePhotos: 'data:ocrEstimatePhotos',
@@ -160,6 +164,7 @@ export const IPC = {
   fetchCalendar: 'calendar:fetch',
   login: 'auth:login',
   logout: 'auth:logout',
+  verifyPassword: 'auth:verifyPassword',
   listActiveSessions: 'auth:listActiveSessions',
   listShareUsers: 'share:listUsers',
   shareTenderConditions: 'share:tenderConditions',
@@ -316,6 +321,14 @@ export interface DocuGenApi {
   pickEstimateGrids(): Promise<SheetGrid[] | null>
   /** Same picker, but lets the user select several workbooks at once — each entry of the result is one workbook's own sheets (every sheet of file N stays grouped under result[N]). */
   pickEstimateGridsMulti(): Promise<SheetGrid[][] | null>
+  /** Bulk Deviations: pick folders and/or files — only their paths; nothing is read yet. Null if cancelled. */
+  pickBulkDeviationPaths(kind: 'l1' | 'estimates'): Promise<string[] | null>
+  /** Every .xlsx/.xls inside the picked paths, however deep. */
+  listEstimateWorkbooks(paths: string[]): Promise<string[]>
+  /** Reads one workbook's sheets; empty when it can't be read. */
+  readEstimateWorkbook(file: string): Promise<SheetGrid[]>
+  /** Reads the PDFs/HTML inside the picked paths (progress on onTenderScanProgress). */
+  readTenderPaths(paths: string[]): Promise<PickedTenderDocument[]>
   pickDataSheet(): Promise<SheetGrid[] | null>
   /**
    * Lets the user pick loose files AND/OR whole folders in one native dialog
@@ -355,6 +368,8 @@ export interface DocuGenApi {
   login(loginId: string, password: string, forceLogout?: boolean): Promise<LoginResult>
   /** Releases this device's session slot so another device can sign in. */
   logout(): Promise<void>
+  /** Checks a password against the account without signing in (no device slot is taken) — gates destructive actions such as Delete all. */
+  verifyPassword(loginId: string, password: string): Promise<boolean>
   /** Lists every device currently signed in as the logged-in user (Settings' "Active Devices" panel) — empty if not signed in or the cloud is unreachable. */
   listActiveSessions(): Promise<ActiveSessionInfo[]>
   /** Signs a specific OTHER device out (its sessionId, from listActiveSessions) — never this device's own; use logout() for that instead. A no-op if the sessionId is this device's own or already gone. */
@@ -628,6 +643,9 @@ export interface AgreementBundleFile {
   scheduleAMeta?: ScheduleAMeta
   /** True for a Zone-level (SE) office's Schedule A — uses the Superintending Engineer template/signature instead of the Executive Engineer one. Only meaningful alongside scheduleATable. */
   scheduleAIsSe?: boolean
+  /** Deviation Statement source — with 'xlsx' the workbook is filled from the template in main. */
+  deviationItems?: DeviationItem[]
+  deviationMeta?: DeviationMeta
 }
 export type { TenderNoticeInput, TenderNoticeGroup }
 export type { CellEdit }
