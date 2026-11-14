@@ -16,6 +16,12 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.1.1',
+    changes: [
+      'Fixed the \u201cdocument cannot be written because its size\u2026\u201d sync error: issued documents and intimations now sync one by one instead of in a single large block, so bulk-generated Deviation Statements no longer stop syncing.',
+    ]
+  },
+  {
     version: '2.1.0',
     changes: [
       'Deviation Statements: a new Excel in the Agreement / Work Order workspace, listed under Issued Documents, with Settings \u2192 Bulk Deviations to make them from a folder of L-1 sheets and a folder of estimates (matched by name of the work, with an ECV check).',

@@ -48,6 +48,8 @@ import type {
   TodoItem,
   MBScrutinyItem,
   PendingNoticeItem,
+  StoredLetter,
+  IssuedIntimation,
   TenderConditionsEntry,
   ShareResult
 } from '../core/types'
@@ -127,6 +129,8 @@ interface ActiveSession {
   pushedTodoSig: Map<string, string>
   pushedMbSig: Map<string, string>
   pushedNoticeSig: Map<string, string>
+  /** Issued letters / issued intimations, one Firestore doc each (the whole-array misc blob outgrew 1 MiB): ids last seen in the cloud and the signature last written, per collection. */
+  perItem: Record<PerItemKey, { known: Set<string>; sig: Map<string, string> }>
   /** Signature of the shared tables / misc documents as last written from here, so an autosave that changed nothing in them skips both writes (each is a billed write, and a stale rewrite could clobber another device's edit). */
   pushedTablesSig: string
   pushedMiscSig: string
@@ -410,11 +414,13 @@ export async function startSession(
       pushedTodoSig: new Map(),
       pushedMbSig: new Map(),
       pushedNoticeSig: new Map(),
+      perItem: emptyPerItem(),
       pushedTablesSig: '',
       pushedMiscSig: '',
       unsubscribes: [],
       heartbeatTimer: null
     }
+    legacyLettersCleared = false
     active.heartbeatTimer = setInterval(() => void heartbeatTick(), HEARTBEAT_MS)
 
     const remoteState = await pullRemoteState(id)
@@ -423,6 +429,7 @@ export async function startSession(
       active.knownTodoIds = new Set((remoteState.todos ?? []).map((t) => t.id))
       active.knownMbIds = new Set((remoteState.mbScrutiny ?? []).map((it) => it.id))
       active.knownNoticeIds = new Set((remoteState.pendingNotices ?? []).map((it) => it.id))
+      for (const k of PER_ITEM_KEYS) active.perItem[k].known = new Set(((remoteState[k] ?? []) as { id: string }[]).map((it) => it.id))
       // Seed the doc signatures from what the cloud already has, so the first
       // push after login doesn't needlessly re-upload documents that match.
       active.pushedDocSig = new Map(
@@ -571,6 +578,26 @@ function noticesFromDocs(docs: DocLike[]): PendingNoticeItem[] {
     .map(({ order: _o, updatedAt: _u, lastWriter: _l, ...item }) => item as PendingNoticeItem)
 }
 
+const PER_ITEM_KEYS = ['storedLetters', 'issuedIntimations'] as const
+type PerItemKey = (typeof PER_ITEM_KEYS)[number]
+const emptyPerItem = (): Record<PerItemKey, { known: Set<string>; sig: Map<string, string> }> => ({
+  storedLetters: { known: new Set(), sig: new Map() },
+  issuedIntimations: { known: new Set(), sig: new Map() }
+})
+/** Set once the old whole-array copies in meta/misc have been removed, so it is done once per session. */
+let legacyLettersCleared = false
+
+function itemFields(it: { id: string }, order: number) {
+  return { ...(JSON.parse(JSON.stringify(it)) as { id: string }), order }
+}
+
+function itemsFromDocs<T>(docs: DocLike[]): T[] {
+  return docs
+    .map((d) => d.data() as { order?: number; updatedAt?: unknown; lastWriter?: unknown })
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map(({ order: _o, updatedAt: _u, lastWriter: _l, ...item }) => item as T)
+}
+
 function todosFromDocs(docs: DocLike[]): TodoItem[] {
   return docs
     .map((d) => d.data() as TodoItem & { order?: number })
@@ -619,7 +646,7 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
     // These reads are independent of one another — fetched in parallel
     // instead of one-after-another so login/sync only pays for the slowest
     // round trip, not the sum of all of them.
-    const [tablesSnap, miscSnap, docsSnap, todosSnap, mbSnap, noticesSnap, worksSnap] = await Promise.all([
+    const [tablesSnap, miscSnap, docsSnap, todosSnap, mbSnap, noticesSnap, worksSnap, lettersSnap, intimationsSnap] = await Promise.all([
       getDoc(doc(db!, 'users', id, 'meta', 'tables')),
       getDoc(doc(db!, 'users', id, 'meta', 'misc')),
       // A Firestore collection has no inherent array order — getDocs()
@@ -641,7 +668,9 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       // Notices sync per-item too: a bulk run of notices on one device must not be wiped by another device's stale whole-blob write.
       getDocs(collection(db!, 'users', id, 'pendingNotices')),
       // One document per office's Works List (see worksDocId).
-      getDocs(collection(db!, 'users', id, 'worksByOffice'))
+      getDocs(collection(db!, 'users', id, 'worksByOffice')),
+      getDocs(collection(db!, 'users', id, 'storedLetters')),
+      getDocs(collection(db!, 'users', id, 'issuedIntimations'))
     ])
     if (!tablesSnap.exists() && !miscSnap.exists() && worksSnap.empty) return null
 
@@ -678,6 +707,11 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
     // Notices: prefer the per-item collection, falling back to the legacy misc.pendingNotices blob for a workspace that predates it (migrated up on next push).
     const noticesFromCollection: PendingNoticeItem[] = noticesFromDocs(noticesSnap.docs)
     const pendingNotices = noticesFromCollection.length > 0 ? noticesFromCollection : (m.pendingNotices ?? [])
+    // Issued letters / intimations: per-item collections, falling back to the legacy misc arrays until the first push migrates them.
+    const lettersFromCollection = itemsFromDocs<StoredLetter>(lettersSnap.docs)
+    const intimationsFromCollection = itemsFromDocs<IssuedIntimation>(intimationsSnap.docs)
+    const storedLetters = lettersFromCollection.length > 0 ? lettersFromCollection : (m.storedLetters ?? [])
+    const issuedIntimations = intimationsFromCollection.length > 0 ? intimationsFromCollection : (m.issuedIntimations ?? [])
     const mbScrutiny = mbFromCollection.length > 0 ? mbFromCollection : (m.mbScrutiny ?? [])
     // What the cloud holds right now — the next push skips any item still identical to this.
     if (active) {
@@ -687,6 +721,8 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       active.pushedTodoSig = new Map(todosFromCollection.map((v, i) => [v.id, JSON.stringify(todoFields(v, i))]))
       active.pushedMbSig = new Map(mbFromCollection.map((v, i) => [v.id, JSON.stringify(mbFields(v, i))]))
       active.pushedNoticeSig = new Map(noticesFromCollection.map((v, i) => [v.id, JSON.stringify(noticeFields(v, i))]))
+      active.perItem.storedLetters.sig = new Map(lettersFromCollection.map((v, i) => [v.id, JSON.stringify(itemFields(v, i))]))
+      active.perItem.issuedIntimations.sig = new Map(intimationsFromCollection.map((v, i) => [v.id, JSON.stringify(itemFields(v, i))]))
     }
     return {
       // The persisted schema version must round-trip through Firebase, or the
@@ -716,8 +752,8 @@ async function pullRemoteState(id: string): Promise<PersistedState | null> {
       pendingNotices,
       createdDocuments,
       bidDocumentBatches: m.bidDocumentBatches ?? [],
-      storedLetters: m.storedLetters ?? [],
-      issuedIntimations: m.issuedIntimations ?? [],
+      storedLetters,
+      issuedIntimations,
       mbScrutiny
     }
   } catch (e) {
@@ -832,9 +868,7 @@ function subscribeRemote(
         // An explicit {} (not undefined) so a tender deleted on the other device is removed here too.
         tenderConditions: data.tenderConditions ?? {},
         tenderReminders: data.tenderReminders ?? [],
-        bidDocumentBatches: data.bidDocumentBatches ?? [],
-        storedLetters: data.storedLetters ?? [],
-        issuedIntimations: data.issuedIntimations ?? []
+        bidDocumentBatches: data.bidDocumentBatches ?? []
       })
     })
   )
@@ -937,6 +971,24 @@ function subscribeRemote(
       }
     })
   )
+
+  for (const key of PER_ITEM_KEYS) {
+    let first = true
+    active.unsubscribes.push(
+      onSnapshot(collection(db!, 'users', id, key), (snap) => {
+        if (first) {
+          first = false
+          return
+        }
+        if (!hasRemoteChange(snap, sessionId)) return
+        // An EMPTY collection never wipes the on-screen list (a workspace still on the legacy misc array has none until its first push migrates it).
+        const items = itemsFromDocs<{ id: string }>(snap.docs)
+        if (items.length === 0) return
+        if (active) active.perItem[key].sig = new Map(items.map((v, i) => [v.id, JSON.stringify(itemFields(v, i))]))
+        safeUpdate({ [key]: items })
+      })
+    )
+  }
 }
 
 /**
@@ -1022,8 +1074,6 @@ function buildMiscFields(
     tenderReminders: plain(state.tenderReminders ?? []),
     pendingNotices: plain(state.pendingNotices ?? []),
     bidDocumentBatches: plain(state.bidDocumentBatches ?? []),
-    storedLetters: plain(state.storedLetters ?? []),
-    issuedIntimations: plain(state.issuedIntimations ?? []),
     mbScrutiny: plain(state.mbScrutiny ?? []),
     // Deliberately omitted (not written as null) when not yet chosen —
     // `merge: true` below then leaves whatever office is already stored in
@@ -1267,6 +1317,37 @@ export async function pushState(state: PersistedState): Promise<boolean> {
       }
       active.knownNoticeIds = currentNoticeIds
     }
+    // Issued letters / intimations: one doc each, so no single document can pass Firestore's 1 MiB cap.
+    for (const key of PER_ITEM_KEYS) {
+      const list = (state[key] ?? []) as { id: string }[]
+      const ids = new Set(list.map((it) => it.id))
+      for (let i = 0; i < list.length; i++) {
+        const fields = itemFields(list[i], i)
+        const sig = JSON.stringify(fields)
+        if (active?.perItem[key].sig.get(list[i].id) === sig) continue
+        try {
+          await setDoc(doc(db!, 'users', loginId, key, list[i].id), { ...fields, updatedAt: serverTimestamp(), lastWriter: sessionId })
+          active?.perItem[key].sig.set(list[i].id, sig)
+        } catch (e) {
+          console.error(`pushState: failed to sync ${key} item`, e)
+          lastPushError = e instanceof Error ? e.message : String(e)
+        }
+      }
+      if (active) {
+        for (const oldId of active.perItem[key].known) {
+          if (!ids.has(oldId)) {
+            await deleteDoc(doc(db!, 'users', loginId, key, oldId))
+            active.perItem[key].sig.delete(oldId)
+          }
+        }
+        active.perItem[key].known = ids
+      }
+    }
+    // Only once every item is safely in its own document: drop the old whole-array copies from meta/misc (they are what grew past the cap).
+    if (lastPushError === '' && !legacyLettersCleared) {
+      await setDoc(doc(db!, 'users', loginId, 'meta', 'misc'), { storedLetters: deleteField(), issuedIntimations: deleteField() }, { merge: true })
+      legacyLettersCleared = true
+    }
     return lastPushError === ''
   } catch (e) {
     console.error('pushState failed', e)
@@ -1329,6 +1410,15 @@ export function pendingBytes(state: PersistedState): number {
   })
   const noticeIds = new Set(notices.map((it) => it.id))
   total += 100 * [...active.knownNoticeIds].filter((id) => !noticeIds.has(id)).length
+  for (const key of PER_ITEM_KEYS) {
+    const list = (state[key] ?? []) as { id: string }[]
+    list.forEach((it, i) => {
+      const sig = JSON.stringify(itemFields(it, i))
+      if (active!.perItem[key].sig.get(it.id) !== sig) total += size(sig)
+    })
+    const ids = new Set(list.map((it) => it.id))
+    total += 100 * [...active.perItem[key].known].filter((id) => !ids.has(id)).length
+  }
   return total
 }
 
