@@ -2976,7 +2976,8 @@ export default function WorkOrderAgreementTab({
   const deviationItems = (): DeviationItem[] =>
     estimateItems.map((it) => ({ description: it.description, unit: it.unit, quantity: it.quantity, rate: it.rate }))
   const deviationMeta = (): DeviationMeta => ({
-    circle: fields.circle || undefined,
+    circle: fields.circle || office?.circle || undefined,
+    circleNumber: office?.circleNumber,
     nameOfWork: fields.nameOfWork,
     agencyName: fields.agencyName.trim(),
     estimateAmountLakhs: Number(fields.estimateLakhs) || 0

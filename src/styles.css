@@ -11473,7 +11473,7 @@ body.theme-aurora .pdf-ws-page.on {
    at-a-glance metrics. Collapses 4→2→1 columns as the workspace narrows. */
 .ov-stat-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 20px;
 }
@@ -14920,6 +14920,10 @@ body.theme-play .ov-stat b {
   letter-spacing: 0;
   color: var(--text);
 }
+/* Clock tile: the time is the headline, so it's sized to fit one line and kept from jittering as digits change. */
+.ov-stat-clock b { font-size: 24px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+body.theme-play .ov-stat-clock b { font-size: 26px; font-weight: 400; }
+body.theme-play .ov-stat:nth-child(5) { animation-delay: 0.24s; }
 body.theme-play .ov-stat b.ov-stat-deadline {
   font-size: 18px !important;
   font-weight: 500;

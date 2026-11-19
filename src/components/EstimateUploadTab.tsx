@@ -571,7 +571,15 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
         // next to the workbook's genuine per-work estimates.
         if (!looksLikeEstimateOrBoqHeader(grid[headerRow] ?? [])) continue
         try {
-          const { items, aiAssisted } = await extractEstimateItemsWithAi(grid, headerRow)
+          // A flat BOQ has no S.No column, so estimate extraction throws rather than returning []; either way, try it as a BOQ next.
+          let extractError: unknown = null
+          let extracted: Awaited<ReturnType<typeof extractEstimateItemsWithAi>> = { items: [], aiAssisted: [] }
+          try {
+            extracted = await extractEstimateItemsWithAi(grid, headerRow)
+          } catch (e) {
+            extractError = e
+          }
+          const { items, aiAssisted } = extracted
           if (items.length > 0) {
             const workName = extractWorkName(grid, headerRow, { lenient: true })
             const { match, searched } = await resolveWorksMatch(workName)
@@ -604,7 +612,7 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
             const boqTable = buildTableFromGrid(grid, headerRow, { id: `boq-${nextId()}`, name: g.name, path: g.path })
             const boqItems = boqToItems(boqTable)
             if (boqItems.length === 0) {
-              throw new Error('No work items with a quantity, rate, and unit were found in that estimate or BOQ.')
+              throw extractError ?? new Error('No work items with a quantity, rate, and unit were found in that estimate or BOQ.')
             }
             const boqWorkName = extractWorkNameFromBoq(boqTable)
             const { match, searched } = await resolveWorksMatch(boqWorkName)
@@ -689,7 +697,7 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
 
   function downloadScheduleA(entry: Entry) {
     return run(entry, 'scheduleA', () =>
-      downloadScheduleAFromItems(entry.items, entry.workName, tables[0] ?? null, stripExt(entry.fileName), true)
+      downloadScheduleAFromItems(entry.items, entry.workName, tables[0] ?? null, stripExt(entry.fileName), true, office)
     )
   }
 
@@ -706,7 +714,8 @@ export default function EstimateUploadTab({ tables, onChange, office }: Props) {
         entry.estimateAmountLakhs,
         tables[0] ?? null,
         stripExt(entry.fileName),
-        true
+        true,
+        office
       )
     )
   }

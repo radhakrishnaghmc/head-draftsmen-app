@@ -118,6 +118,22 @@ function CountUp({ value }: { value: number }) {
  * those reference-design widgets are replaced with the app's real per-office
  * lists instead of being faked.
  */
+/** Live clock tile — its own component so the per-second tick re-renders only this tile, not the whole dashboard. */
+function DateTimeTile() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [])
+  return (
+    <div className="ov-stat ov-stat-clock">
+      <span className="ov-stat-top">{now.toLocaleDateString('en-IN', { weekday: 'long' })}</span>
+      <b>{now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}</b>
+      <span className="ov-stat-sub">{now.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+    </div>
+  )
+}
+
 export default function OverviewDashboard({
   office,
   monitoringFormat,
@@ -294,6 +310,7 @@ export default function OverviewDashboard({
           <b className="ov-stat-deadline">{nextDeadline ? nextDeadline.dueLabel : '—'}</b>
           <span className="ov-stat-sub">{nextDeadline ? nextDeadline.text : 'Nothing scheduled'}</span>
         </div>
+        <DateTimeTile />
       </div>
       <div className="ov-mf-row">
         <div className="card ov-card ov-mf-status">

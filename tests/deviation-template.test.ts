@@ -112,8 +112,8 @@ describe('fillDeviationTemplate', () => {
     expect(ws.getCell(seigniorageRow1, 3).value).toBeFalsy()
     expect(ws.getCell(seigniorageRow2, 3).value).toBeFalsy()
 
-    // The final signature block (last row of the template) still has its own text, just relocated.
-    const lastRow = expectedSubTotalRow + 47
+    // The signature block is pulled up under the summary now the seigniorage block is gone.
+    const lastRow = expectedSubTotalRow + 26
     const rowText = [1, 2, 3, 4, 5, 6, 7].map((c) => String(ws.getCell(lastRow, c).value ?? '')).join('')
     expect(rowText).toContain('AE')
   })

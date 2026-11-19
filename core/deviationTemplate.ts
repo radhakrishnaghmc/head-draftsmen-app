@@ -54,6 +54,11 @@ const GST_ESTIMATE_SIDE_COL = 6
 const TOTAL_OF_ADDITIONS_OFFSET = 12
 const FINAL_TOTAL_OFFSET = 15
 const FINAL_TOTAL_COL = 6
+// The Seigniorage Charges / Permit Fee sub-table (rows 58-68 of the template) and the two cascade rows that referenced it.
+const SEIGNIORAGE_BLOCK_FIRST_OFFSET = 24
+const SEIGNIORAGE_BLOCK_LAST_OFFSET = 34
+const SEIGNIORAGE_CHARGES_OFFSET = 8
+const PERMIT_FEE_OFFSET = 11
 // The template's last row with any content (the signature block).
 const LAST_ROW_OFFSET = 47
 
@@ -66,6 +71,8 @@ export interface DeviationItem {
 
 export interface DeviationMeta {
   circle?: string
+  /** Circle number (CNO) — replaces the template's own "CIRCLE-57" in the signature footer. */
+  circleNumber?: string
   nameOfWork?: string
   agencyName?: string
   /** In Lakhs — matches how every other amount field in this app is entered. */
@@ -175,10 +182,25 @@ export async function fillDeviationTemplate(
   stripDataValidations(ws)
 
   // Header meta.
-  if (meta.circle) ws.getCell(CIRCLE_ROW, 1).value = meta.circle
-  if (meta.nameOfWork) ws.getCell(NAME_OF_WORK_ROW, NAME_OF_WORK_COL).value = meta.nameOfWork
-  if (meta.agencyName) ws.getCell(AGENCY_ROW, AGENCY_COL).value = meta.agencyName
+  // "NIZAMPET CIRCLE-58": name + CNO, used by the header and the signature footer (unless the name already carries a number).
+  const circleLabel =
+    meta.circle && meta.circleNumber && !/\d/.test(meta.circle)
+      ? `${meta.circle.replace(/\s+circle$/i, '')} CIRCLE-${meta.circleNumber}`.toUpperCase()
+      : meta.circle
+  if (circleLabel) ws.getCell(CIRCLE_ROW, 1).value = circleLabel
+  // Always overwritten: the template carries a sample work/agency that would otherwise show through when none is known.
+  ws.getCell(NAME_OF_WORK_ROW, NAME_OF_WORK_COL).value = meta.nameOfWork ?? ''
+  ws.getCell(AGENCY_ROW, AGENCY_COL).value = meta.agencyName ?? ''
   ws.getCell(ESTIMATE_AMOUNT_ROW, ESTIMATE_AMOUNT_COL).value = meta.estimateAmountLakhs
+  // Signature footer ("AE\nCIRCLE-57" …): short two-line cells only, so item descriptions that mention a circle stay untouched.
+  if (circleLabel)
+    ws.eachRow((row) =>
+      row.eachCell((cell) => {
+        if (cell.isMerged && cell.master !== cell) return
+        if (typeof cell.value === 'string' && cell.value.length < 60 && /\n.*circle-\d+/i.test(cell.value))
+          cell.value = cell.value.replace(/circle-\d+/i, circleLabel)
+      })
+    )
 
   const n = items.length
   const oldSubTotalRow = FIRST_ITEM_ROW + TEMPLATE_ITEM_COUNT
@@ -313,7 +335,43 @@ export async function fillDeviationTemplate(
     }
   }
 
-  trimToContent(ws, lastRow + delta, 14)
+  // The Seigniorage Charges / Permit Fee sub-table is dropped; the cascade rows that pointed at it (work-done Seigniorage
+  // and Permit Fee) are left at 0 for the office to key in.
+  const blockFirst = newSubTotalRow + SEIGNIORAGE_BLOCK_FIRST_OFFSET
+  const blockLast = newSubTotalRow + SEIGNIORAGE_BLOCK_LAST_OFFSET
+  for (const ref of [...(ws.model.merges ?? [])]) {
+    const m = /^[A-Z]+(\d+):[A-Z]+(\d+)$/.exec(ref)
+    if (m && parseInt(m[1], 10) >= blockFirst && parseInt(m[2], 10) <= blockLast) ws.unMergeCells(ref)
+  }
+  for (let r = blockFirst; r <= blockLast; r++)
+    for (let c = 1; c <= 20; c++) {
+      const cell = ws.getCell(r, c)
+      cell.value = null
+      cell.style = {}
+    }
+  ws.getCell(newSubTotalRow + SEIGNIORAGE_CHARGES_OFFSET, AMOUNT_WD_COL).value = 0
+  ws.getCell(newSubTotalRow + PERMIT_FEE_OFFSET, AMOUNT_WD_COL).value = 0
+
+  // With the block gone the signature would print after a screenful of blank rows — pull it up under the summary and
+  // set the print area to end right below it.
+  const sigFrom = lastRow + delta
+  const sigTo = blockFirst + 2
+  const sigMerges = [...(ws.model.merges ?? [])].filter((ref) => new RegExp(`^[A-Z]+${sigFrom}:[A-Z]+${sigFrom}$`).test(ref))
+  sigMerges.forEach((ref) => ws.unMergeCells(ref))
+  for (let c = 1; c <= 14; c++) {
+    const from = ws.getCell(sigFrom, c)
+    const to = ws.getCell(sigTo, c)
+    to.value = from.value
+    to.style = from.style
+    from.value = null
+    from.style = {}
+  }
+  ws.getRow(sigTo).height = ws.getRow(sigFrom).height
+  ws.getRow(sigFrom).height = 15
+  sigMerges.forEach((ref) => ws.mergeCells(ref.replace(new RegExp(`${sigFrom}`, 'g'), String(sigTo))))
+  ws.pageSetup.printArea = `A1:M${sigTo}`
+
+  trimToContent(ws, sigTo, 14)
 
   const out = await workbook.xlsx.writeBuffer()
   return Buffer.from(out)

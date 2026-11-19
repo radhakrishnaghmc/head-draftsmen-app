@@ -2,6 +2,7 @@ import { api } from './ipc'
 import type { ExcelTable } from '@core/types'
 import type { EstimateWorkItem } from '@core/estimateExtract'
 import { buildBoqFromEstimate, boqToScheduleA } from './boqTransform'
+import type { Office } from './office'
 import { findWorksRowByName, metaFromWorksRow } from '@core/scheduleA'
 import { stripItemNoTag } from '@core/bidDocument'
 import type { WorksRowMatch } from '@core/scheduleA'
@@ -104,12 +105,18 @@ export async function downloadScheduleAFromItems(
   worksTable: ExcelTable | null,
   suggestedNameBase: string,
   // BOQ workspace: the estimate's own work name is authoritative; the Works List row only supplies the other details.
-  estimateNameWins = false
+  estimateNameWins = false,
+  // The selected office stands in for the circle/zone when neither the Works List row nor the work name gives one (else the template's sample circle prints).
+  office?: Office
 ): Promise<string | null> {
   const scheduleARows = boqToScheduleA(buildBoqFromEstimate(items))
   const match = workName && worksTable ? await matchWorksRow(workName, worksTable) : undefined
-  const meta = match ? { ...metaFromWorksRow(match.row) } : estimateNameWins && workName ? {} : undefined
+  const meta = match ? { ...metaFromWorksRow(match.row) } : estimateNameWins ? {} : undefined
   if (meta && estimateNameWins && !meta.circle) meta.circle = circleFromWorkName(workName)?.display
+  if (meta && estimateNameWins && office) {
+    if (!meta.circle && office.circle) meta.circle = office.circleNumber ? `${office.circle} Circle-${office.circleNumber}` : office.circle
+    if (!meta.zone && office.zone) meta.zone = office.zone
+  }
   if (meta && estimateNameWins && workName?.trim()) meta.nameOfWork = workName.trim()
   return api.exportScheduleA(scheduleARows, `${suggestedNameBase} Schedule A`, meta)
 }
@@ -122,7 +129,9 @@ export async function downloadDeviationFromItems(
   worksTable: ExcelTable | null,
   suggestedNameBase: string,
   // BOQ workspace: with no Works List match, take the circle the work name states.
-  circleFromName = false
+  circleFromName = false,
+  // The chosen office — its circle is the header's last fallback, its CNO fills the signature footer.
+  office?: { circle?: string; circleNumber?: string }
 ): Promise<string | null> {
   const deviationItems: DeviationItem[] = items.map((it) => ({
     description: it.description,
@@ -133,7 +142,7 @@ export async function downloadDeviationFromItems(
   const match = workName && worksTable ? await matchWorksRow(workName, worksTable) : undefined
   return api.exportDeviation(
     deviationItems,
-    { circle: match?.row['Circle'] || (circleFromName ? circleFromWorkName(workName)?.name : undefined), nameOfWork: workName && stripItemNoTag(workName), agencyName: agencyName.trim(), estimateAmountLakhs },
+    { circle: match?.row['Circle'] || (circleFromName ? circleFromWorkName(workName)?.name : undefined) || office?.circle || undefined, circleNumber: office?.circleNumber, nameOfWork: workName && stripItemNoTag(workName), agencyName: agencyName.trim(), estimateAmountLakhs },
     `${suggestedNameBase} Deviation`
   )
 }

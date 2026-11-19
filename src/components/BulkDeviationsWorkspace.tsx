@@ -7,7 +7,7 @@ import { circleFromWorkName } from '../zoneCircleCheck'
 import { api } from '../ipc'
 import { guessHeaderRow } from '@core/sheet'
 import { extractEstimateItems, extractWorkName } from '@core/estimateExtract'
-import { computeWorkAmounts, indianDigitGroups } from '@core/worksAmounts'
+import { computeWorkAmounts, indianDigitGroups, rupeesFromCell, tenderPercentFromRow } from '@core/worksAmounts'
 import { buildWorksRowEmbeddingCache, matchWorksRowCached } from '../estimateDownloads'
 import { inferTypeOfWork } from '@core/workTypeClassifier'
 import type { DeviationItem, DeviationMeta } from '@core/deviationTemplate'
@@ -101,7 +101,9 @@ export default function BulkDeviationsWorkspace({ worksTable, onAddLetters, onBa
         setProgress({ label: 'Reading estimates', done: i, total: workbooks.length })
         const sheets = await api.readEstimateWorkbook(wb)
         const file = baseName(wb)
-        let found: ReadEstimate | null = null
+        // A workbook often holds many estimates, one per sheet — every estimate sheet is a work of its own.
+        const found: ReadEstimate[] = []
+        let unnamed = 0
         for (const sh of sheets) {
           if (sh.hidden) continue
           const headerRow = guessHeaderRow(sh.grid)
@@ -112,16 +114,19 @@ export default function BulkDeviationsWorkspace({ worksTable, onAddLetters, onBa
             continue // not an estimate sheet (cover page, abstract…) — try the workbook's next sheet
           }
           if (items.length === 0) continue
-          found = {
-            file,
-            workName: stripItemNoTag(extractWorkName(sh.grid, headerRow) ?? ''),
-            items: items.map((it) => ({ description: it.description, unit: it.unit, quantity: it.quantity, rate: it.rate }))
+          const workName = stripItemNoTag(extractWorkName(sh.grid, headerRow) ?? '')
+          if (!workName) {
+            unnamed++
+            continue
           }
-          break
+          found.push({
+            file: `${file} · ${sh.sheetName}`,
+            workName,
+            items: items.map((it) => ({ description: it.description, unit: it.unit, quantity: it.quantity, rate: it.rate }))
+          })
         }
-        if (!found) unreadEstimates.push({ file, ok: false, note: 'No work items with a quantity, rate and unit were found.' })
-        else if (!found.workName) unreadEstimates.push({ file, ok: false, note: 'The work name could not be read from the estimate.' })
-        else estimates.push(found)
+        if (found.length > 0) estimates.push(...found)
+        else unreadEstimates.push({ file, ok: false, note: unnamed > 0 ? 'The work name could not be read from the estimate.' : 'No work items with a quantity, rate and unit were found.' })
       }
       // 3) Pair and generate.
       await build(l1s, estimates, unreadEstimates)
@@ -202,24 +207,39 @@ export default function BulkDeviationsWorkspace({ worksTable, onAddLetters, onBa
         })
       }
     } else {
+      // The Works List is this office's own database: an estimate whose work name isn't on it isn't this office's, so no Deviation Statement.
+      const done = new Map<string, string>() // Works List work name -> estimate file that already made its deviation
       for (const [i, e] of estimates.entries()) {
         setProgress({ label: 'Generating deviations', done: i, total: estimates.length })
         await new Promise((r) => setTimeout(r, 0))
         const row = await worksRow(e.workName)
-        const lakhs = estimateLakhs(row)
+        if (!row) {
+          out.push({ file: e.file, ok: false, note: 'Work not found in the Works List — no Deviation Statement made.' })
+          continue
+        }
+        // One deviation per work: a repeated estimate, or two estimates closest to the same Works List row, would otherwise each make one.
+        const key = (row['Name of the work'] ?? e.workName).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+        const first = done.get(key)
+        if (first) {
+          out.push({ file: e.file, ok: false, note: `Same work as ${first} — already has a Deviation Statement, skipped.` })
+          continue
+        }
+        done.set(key, e.file)
+        const pct = parseFloat(tenderPercentFromRow(row))
+        const ecv = rupeesFromCell(row['ECV'] ?? '')
+        const contract = rupeesFromCell(row['Contract Amount'] ?? '')
+        const tenderId = (row['Tender ID'] ?? '').trim()
         letter(i, e, {
-          workName: e.workName,
-          agency: (row?.['Name of the Agency'] ?? '').trim(),
-          nitNo: (row?.['Tender Notice No'] ?? '').trim(),
-          nitDate: '',
-          lakhs,
-          circle: row?.['Circle'] || undefined
+          workName: (row['Name of the work'] ?? '').trim() || e.workName,
+          agency: (row['Name of the Agency'] ?? '').trim(),
+          nitNo: (row['Tender Notice No'] ?? '').trim(),
+          nitDate: (row['Tender notice Date'] ?? '').trim(),
+          lakhs: estimateLakhs(row),
+          circle: row['Circle'] || undefined,
+          tenderPercent: Number.isFinite(pct) ? pct : undefined,
+          extra: { ...(tenderId ? { tenderId } : {}), ...(ecv ? { ecvRupees: String(ecv) } : {}), ...(contract ? { contractRupees: String(contract) } : {}) }
         })
-        out.push({
-          file: e.file,
-          ok: true,
-          note: row ? `${e.items.length} items` : `${e.items.length} items — not in the Works List, so agency, circle and estimate amount are blank`
-        })
+        out.push({ file: e.file, ok: true, note: `${e.items.length} items — details from the Works List` })
       }
     }
     if (made.length > 0) onAddLetters?.(made)

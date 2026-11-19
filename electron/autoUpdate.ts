@@ -68,6 +68,8 @@ export function initAutoUpdate(getWindow: () => BrowserWindow | null): void {
 
 /** Applies a downloaded update and restarts — call only after update-downloaded has fired. */
 export function restartToUpdate(): void {
+  // Not silent: the branded installer shows its progress page (build/installer.nsh
+  // skips the Finish page and relaunches the app on update).
   autoUpdater.quitAndInstall()
 }
 

@@ -16,6 +16,18 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.1.2',
+    changes: [
+      'Bulk Deviations: every estimate sheet in a workbook now gets its own Deviation Statement (before, only the first sheet did). With no L-1 sheets, each work is matched to the Works List and its details are filled from there; works not on the Works List are skipped, and a work is only made once per run.',
+      'BOQ workspace: an uploaded BOQ (not just an estimate) now generates the BOQ, Schedule A, Deviation and Material Quantity.',
+      'Schedule A and Deviation Statement now show the selected office\u2019s circle instead of the template\u2019s sample circle, and no longer show a sample work name or agency when none is known.',
+      'Deviation Statement: circle name with its number in the header and signature, and the Seigniorage / Permit Fee block removed.',
+      'QC letters pick up the 3rd / 4th party addresses from the Works List page.',
+      'Dashboard: new date and time tile.',
+      'New branded installer.'
+    ]
+  },
+  {
     version: '2.1.1',
     changes: [
       'Fixed the \u201cdocument cannot be written because its size\u2026\u201d sync error: every kind of issued document (letters, Tender Documents, Deviation Statements, intimations, notices) now syncs one by one instead of in a single large block, so bulk runs no longer stop syncing.',

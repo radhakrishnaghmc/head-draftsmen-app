@@ -2768,6 +2768,7 @@ export default function App({
                   onWorkspaceChange={setLettersWorkspaceOpen}
                   loginId={loginId}
                   worksTable={tables[0] ?? null}
+                  qcParties={currentOfficeKey ? qcParties[currentOfficeKey] : undefined}
                 />
               </section>
             </KeepAlive>

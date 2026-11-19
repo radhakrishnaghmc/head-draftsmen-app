@@ -1,9 +1,10 @@
+import { cnoOf } from '../zoneCircleDirectory'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../ipc'
 import type { AgreementBundleFile } from '../../electron/ipc-contract'
 import { intimationLetterDate } from '@core/intimationFill'
-import type { ExcelTable, StoredLetter } from '@core/types'
+import type { ExcelTable, QcOfficeParties, StoredLetter } from '@core/types'
 import type { ScheduleAMeta } from '@core/scheduleA'
 import type { PlaceholderMatch } from '@core/createDocument'
 import { matchesBoardSearch } from '@core/boardSearch'
@@ -18,7 +19,7 @@ import { noteDocxHtml, noteMarginsTwips, paginateNotes } from '../notePagination
 import { AGREEMENT_DOCS, isAgreementDoc } from '../bulkAgreementDocs'
 import { DB_NOTE_FIELDS } from '../dbNoteFields'
 import type { DeviationItem, DeviationMeta } from '@core/deviationTemplate'
-import { formatDbNoteAmounts } from '@core/workOrderAgreement'
+import { formatDbNoteAmounts, qcPartyToBlock } from '@core/workOrderAgreement'
 import DeleteAllButton from './DeleteAllButton'
 import RefreshFromWorksButton from './RefreshFromWorksButton'
 import { refreshAgainstWorks, refreshLetter } from '@core/refreshFromWorks'
@@ -151,7 +152,9 @@ function scheduleParts(letter: StoredLetter) {
 /** A Deviation Statement's estimate items and header details (hand edits applied), as stored when it was issued. */
 function deviationParts(letter: StoredLetter) {
   const items = JSON.parse(letter.values.items) as DeviationItem[]
-  const meta = { ...JSON.parse(letter.values.meta), ...(letter.edits ?? {}) } as DeviationMeta
+  const [corp, zone, circle] = (letter.officeKey ?? '').split('|')
+  // Statements issued before the CNO was stored get it from the office they were made under.
+  const meta = { circleNumber: cnoOf(corp, zone, circle), ...JSON.parse(letter.values.meta), ...(letter.edits ?? {}) } as DeviationMeta
   const pct = meta.tenderPercent == null || String(meta.tenderPercent).trim() === '' ? undefined : Number(meta.tenderPercent)
   return { items, meta: { ...meta, estimateAmountLakhs: Number(meta.estimateAmountLakhs) || 0, tenderPercent: Number.isFinite(pct) ? pct : undefined } }
 }
@@ -295,12 +298,14 @@ function LetterBoard({
   letters,
   loginId,
   worksTable,
+  qcParties,
   onChange,
   onBack
 }: {
   kind: LetterKind
   loginId: string
   worksTable: ExcelTable | null
+  qcParties?: QcOfficeParties
   letters: StoredLetter[]
   onChange: (next: StoredLetter[]) => void
   onBack: () => void
@@ -443,7 +448,8 @@ function LetterBoard({
             hasWorks={!!worksTable}
             onRefresh={() => {
               const r = refreshAgainstWorks(letters, worksTable, refreshLetter, (l) => l.kind === kind)
-              onChange(r.items)
+              // QC letters also pick up the 3rd/4th-party addresses as they now stand on the Works List page (office-wide, so not matched by work).
+              onChange(kind === 'qc' ? r.items.map((l) => (l.kind === 'qc' && !l.deletedAt ? withQcParties(l, qcParties) : l)) : r.items)
               return { found: r.found, total: mine.length }
             }}
           />
@@ -616,12 +622,25 @@ function LetterBoard({
 /** The LOA date a letter is for: stored when it was made, else read back from its values (older letters). */
 const loaDateOf = (l: StoredLetter) => l.loaDate || intimationLetterDate({ ...l.values, ...(l.edits ?? {}) })
 
+/** A QC letter with its 3rd/4th-party "To" blocks re-read from the office's parties; a party left blank there keeps what the letter has. */
+function withQcParties(l: StoredLetter, parties: QcOfficeParties | undefined): StoredLetter {
+  const third = qcPartyToBlock(parties?.third)
+  const fourth = qcPartyToBlock(parties?.fourth)
+  if (!third && !fourth) return l
+  // A hand edit of the block on the preview would otherwise keep shadowing the refreshed address.
+  const edits = { ...(l.edits ?? {}) }
+  if (third) delete edits['Third Party To']
+  if (fourth) delete edits['Fourth Party To']
+  return { ...l, edits, values: { ...l.values, ...(third ? { 'Third Party To': third } : {}), ...(fourth ? { 'Fourth Party To': fourth } : {}) } }
+}
+
 export default function LettersTab({
   letters,
   onChange,
   onWorkspaceChange,
   loginId,
-  worksTable
+  worksTable,
+  qcParties
 }: {
   /** This office's letters (both kinds, including binned ones). */
   letters: StoredLetter[]
@@ -629,13 +648,15 @@ export default function LettersTab({
   onWorkspaceChange?: (open: boolean) => void
   loginId: string
   worksTable: ExcelTable | null
+  /** This office's QC parties (Works List page) — Refresh copies their current addresses into the QC letters. */
+  qcParties?: QcOfficeParties
 }) {
   const [kind, setKind] = useState<LetterKind | null>(null)
   useEffect(() => {
     onWorkspaceChange?.(kind !== null)
   }, [kind, onWorkspaceChange])
   if (kind)
-    return <LetterBoard kind={kind} letters={letters} loginId={loginId} worksTable={worksTable} onChange={onChange} onBack={() => setKind(null)} />
+    return <LetterBoard kind={kind} letters={letters} loginId={loginId} worksTable={worksTable} qcParties={qcParties} onChange={onChange} onBack={() => setKind(null)} />
   return (
     <div className="card">
       <div className="doc-tile-grid tools-grid notice-kind-grid">
