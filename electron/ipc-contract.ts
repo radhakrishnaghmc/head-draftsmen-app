@@ -1,3 +1,4 @@
+import type { MbModel } from '../core/measurementBook'
 import type { SignupRequest, AccountOffice, GoogleSignupDetails } from '../core/signupRequest'
 // Shared IPC contract between the Electron main process and the renderer.
 import type {
@@ -201,6 +202,11 @@ export const IPC = {
   saveDocxsToFolder: 'tools:saveDocxsToFolder',
   fetchWeather: 'tools:fetchWeather',
   fetchCementSteelRates: 'tools:fetchCementSteelRates',
+  extractMeasurements: 'tools:extractMeasurements',
+  claudeAuthStatus: 'tools:claudeAuthStatus',
+  claudeLogin: 'tools:claudeLogin',
+  cancelClaude: 'tools:cancelClaude',
+  exportMeasurementBook: 'tools:exportMeasurementBook',
   downloadCementSteelRate: 'tools:downloadCementSteelRate',
   fetchCementSteelRateBytes: 'tools:fetchCementSteelRateBytes',
   ocrGpsOverlay: 'tools:ocrGpsOverlay',
@@ -437,6 +443,16 @@ export interface DocuGenApi {
   fetchWeather(apiKey: string, city: string): Promise<WeatherSnapshot>
   /** Tool (Cement & Steel Rates): fetch the current list of rate circulars from the Telangana Public Health department's Downloads page. */
   fetchCementSteelRates(): Promise<CementSteelRate[]>
+  /** Extract Measurement: runs the locally installed `claude` CLI on one page (1-based) of a PDF, returning table rows only, using the user's own Claude account (no API key). */
+  extractMeasurements(pdfBytes: Uint8Array, page: number): Promise<string>
+  /** True if the `claude` CLI is signed in to a Claude account on this machine. */
+  claudeAuthStatus(): Promise<boolean>
+  /** Opens the browser sign-in for the user's Claude account; resolves once they've signed in. */
+  claudeLogin(): Promise<void>
+  /** Stops the `claude` CLI process currently running (login or page extraction), if any. */
+  cancelClaude(): Promise<void>
+  /** Save the measurement book model as an .xlsx (Measurements, Abstract, Seigniorage charges) via a save dialog; returns the path or null if cancelled. */
+  exportMeasurementBook(model: MbModel, mbName: string): Promise<string | null>
   /** Tool (Cement & Steel Rates): download one circular by its (short-lived) token, via a save dialog. `suggestedFileName` should already carry the right extension. Returns the saved path, or null if cancelled. */
   downloadCementSteelRate(token: string, suggestedFileName: string): Promise<string | null>
   /** Give Intimation (SE): fetch one circular's raw bytes by its (short-lived) token, no save dialog — used to auto-fill Cement/Steel rates for a chosen month/year straight from the department site. */

@@ -16,6 +16,13 @@ export interface ChangelogEntry {
 // Newest first. The top entry's version should match package.json.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.1.3',
+    changes: [
+      'New "MB Scrutiny Using AI" tab: upload Measurement Book pages and extract the measurements to Excel.',
+      'Bulk Deviations: an L-1 sheet whose ECV differs from the estimate by more than \u20b92 no longer gets a Deviation Statement; the result now says why.'
+    ]
+  },
+  {
     version: '2.1.2',
     changes: [
       'Bulk Deviations: every estimate sheet in a workbook now gets its own Deviation Statement (before, only the first sheet did). With no L-1 sheets, each work is matched to the Works List and its details are filled from there; works not on the Works List are skipped, and a work is only made once per run.',

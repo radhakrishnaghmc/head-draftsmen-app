@@ -71,6 +71,7 @@ import LettersTab from './components/LettersTab'
 import IssueNoticesTab from './components/IssueNoticesTab'
 import ToolsTab from './components/ToolsTab'
 import CementSteelRatesPage from './components/CementSteelRatesPage'
+import ExtractMeasurementPage from './components/ExtractMeasurementPage'
 import SettingsTab from './components/SettingsTab'
 import ManualPage from './components/ManualPage'
 import TodoList from './components/TodoList'
@@ -2894,6 +2895,21 @@ export default function App({
                 </div>
                 <CementSteelRatesPage onLoaded={recordCementSteelRatesSeen} />
               </section>
+            </KeepAlive>
+
+            <KeepAlive active={tab === 'extractMeasurement'} mounted={mountedTabs.has('extractMeasurement')}>
+                <section className="page">
+                  <div className="page-head">
+                    <div className="page-ic">
+                      <IconDoc />
+                    </div>
+                    <div className="page-head-text">
+                      <h1>MB Scrutiny Using AI</h1>
+                      <p>Upload a measurement book PDF and Claude reads it page by page and extracts the measurements.</p>
+                    </div>
+                  </div>
+                  <ExtractMeasurementPage />
+                </section>
             </KeepAlive>
 
             <KeepAlive active={tab === 'settings'} mounted={mountedTabs.has('settings')}>

@@ -75,6 +75,11 @@ const api: DocuGenApi = {
   saveDocxsToFolder: (files) => ipcRenderer.invoke(IPC.saveDocxsToFolder, files),
   fetchWeather: (apiKey, city) => ipcRenderer.invoke(IPC.fetchWeather, apiKey, city),
   fetchCementSteelRates: () => ipcRenderer.invoke(IPC.fetchCementSteelRates),
+  extractMeasurements: (pdfBytes, page) => ipcRenderer.invoke(IPC.extractMeasurements, pdfBytes, page),
+  claudeAuthStatus: () => ipcRenderer.invoke(IPC.claudeAuthStatus),
+  claudeLogin: () => ipcRenderer.invoke(IPC.claudeLogin),
+  cancelClaude: () => ipcRenderer.invoke(IPC.cancelClaude),
+  exportMeasurementBook: (model, mbName) => ipcRenderer.invoke(IPC.exportMeasurementBook, model, mbName),
   downloadCementSteelRate: (token, suggestedFileName) =>
     ipcRenderer.invoke(IPC.downloadCementSteelRate, token, suggestedFileName),
   fetchCementSteelRateBytes: (token) => ipcRenderer.invoke(IPC.fetchCementSteelRateBytes, token),

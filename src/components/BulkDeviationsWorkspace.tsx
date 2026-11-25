@@ -40,6 +40,9 @@ interface ReadEstimate {
 const estimateEcv = (items: DeviationItem[]) =>
   items.reduce((t, it) => t + Math.round((Number(String(it.quantity).replace(/,/g, '')) || 0) * (Number(String(it.rate).replace(/,/g, '')) || 0)), 0)
 
+/** Rupees of slack allowed between the estimate's ECV and the L-1 sheet's (rounding). */
+const ECV_TOLERANCE = 2
+
 const pdfName = (n: string) => n.replace(/\.[^.]+$/, '')
 
 /** Bulk Deviation Statements. Estimates alone: the Works List supplies each work's details. With L-1 sheets as well: every L-1 work is
@@ -165,7 +168,7 @@ export default function BulkDeviationsWorkspace({ worksTable, onAddLetters, onBa
     const ecvNote = (e: ReadEstimate, ecv?: number) => {
       if (ecv == null) return ' — ECV not on the L-1, not checked'
       const est = estimateEcv(e.items)
-      return Math.abs(est - ecv) <= ecv * 0.01
+      return Math.abs(est - ecv) <= ECV_TOLERANCE
         ? ' — ECV matches the L-1'
         : ` — ECV MISMATCH: estimate ${indianDigitGroups(est)}/- vs L-1 ${indianDigitGroups(ecv)}/-`
     }
@@ -181,10 +184,17 @@ export default function BulkDeviationsWorkspace({ worksTable, onAddLetters, onBa
         const name = ev.nameOfWork ?? ''
         // Same work name; if several estimates share it, the one whose ECV equals the L-1's wins.
         const named = estimates.filter((e) => !claimed.has(e) && compareWorkNames(name, e.workName).status === 'match')
-        const ecvOk = (e: ReadEstimate) => ev.ecvRupees != null && Math.abs(estimateEcv(e.items) - ev.ecvRupees) <= ev.ecvRupees * 0.01
-        const hit = named.find(ecvOk) ?? named[0]
+        const ecvOk = (e: ReadEstimate) => ev.ecvRupees != null && Math.abs(estimateEcv(e.items) - ev.ecvRupees) <= ECV_TOLERANCE
+        // An L-1 ECV that no same-named estimate matches (within ₹2) means it's the wrong estimate: no Deviation Statement.
+        const hit = ev.ecvRupees != null ? named.find(ecvOk) : named[0]
         if (!hit) {
-          out.push({ file: pdfName(file), ok: false, note: 'No estimate with the same work name — no Deviation Statement made.' })
+          out.push({
+            file: pdfName(file),
+            ok: false,
+            note: named.length
+              ? `ECV mismatch: estimate ${named.map((e) => indianDigitGroups(estimateEcv(e.items))).join(' / ')}/- vs L-1 ${indianDigitGroups(ev.ecvRupees ?? 0)}/- — no Deviation Statement made.`
+              : 'No estimate with the same work name — no Deviation Statement made.'
+          })
           continue
         }
         claimed.add(hit)

@@ -43,6 +43,7 @@ export type TabKey =
   | 'todo'
   | 'tools'
   | 'cementSteel'
+  | 'extractMeasurement'
   | 'settings'
   | 'manual'
 
@@ -206,6 +207,7 @@ export default function Sidebar(props: Props) {
       icon: <IconDoc />,
       blink: props.cementSteelHasNew
     },
+    { key: 'extractMeasurement', label: 'MB Scrutiny Using AI', icon: <IconDoc /> },
     {
       key: 'settings',
       label: 'Settings',

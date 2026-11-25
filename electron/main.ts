@@ -99,6 +99,9 @@ import { rasterizePdfPages } from './pdfRaster'
 import { mergeDocxBuffers } from '../core/mergeDocx'
 import { splitDocxByPageBreaks } from '../core/splitDocx'
 import { ocrGpsOverlay } from './gpsOcr'
+import { buildMeasurementBookWorkbook } from '../core/measurementBookExcel'
+import type { MbModel } from '../core/measurementBook'
+import { cancelClaude, claudeAuthStatus, claudeLogin, extractMeasurementsWithClaude } from './claudeMeasurements'
 import { fetchCementSteelRates, downloadCementSteelRateBuffer } from './cementSteelRates'
 import type { CementSteelRate } from '../core/cementSteelRates'
 import { fetchWeather } from './weather'
@@ -1218,6 +1221,23 @@ function registerHandlers(): void {
 
   // Cement & Steel Rates tool — list circulars from the Public Health
   // department's Downloads page, and save one via its short-lived token.
+  ipcMain.handle(IPC.extractMeasurements, (_e, pdfBytes: Uint8Array, page: number) =>
+    extractMeasurementsWithClaude(pdfBytes, page)
+  )
+  ipcMain.handle(IPC.claudeAuthStatus, () => claudeAuthStatus())
+  ipcMain.handle(IPC.claudeLogin, () => claudeLogin())
+  ipcMain.handle(IPC.cancelClaude, () => cancelClaude())
+  ipcMain.handle(IPC.exportMeasurementBook, async (_e, model: MbModel, mbName: string): Promise<string | null> => {
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: 'Save measurement book',
+      defaultPath: `measurement_${mbName}.xlsx`,
+      filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
+    })
+    if (result.canceled || !result.filePath) return null
+    fs.writeFileSync(result.filePath, await buildMeasurementBookWorkbook(model, mbName))
+    return result.filePath
+  })
+
   ipcMain.handle(IPC.fetchCementSteelRates, async (): Promise<CementSteelRate[]> => {
     return fetchCementSteelRates()
   })
